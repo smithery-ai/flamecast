@@ -1,0 +1,48 @@
+name: Append Prompt to README
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch_name:
+        description: "Branch name to create for the PR"
+        required: true
+        type: string
+      prompt:
+        description: "Text to append to README.md"
+        required: true
+        type: string
+
+jobs:
+  append-and-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Create branch and append prompt
+        run: |
+          git checkout -b "${{ inputs.branch_name }}"
+          printf '\n%s\n' "${{ inputs.prompt }}" >> README.md
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "Append prompt to README"
+          git push origin "${{ inputs.branch_name }}"
+
+      - name: Open PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --base main \
+            --head "${{ inputs.branch_name }}" \
+            --title "Append prompt to README" \
+            --body "${{ inputs.prompt }}"
