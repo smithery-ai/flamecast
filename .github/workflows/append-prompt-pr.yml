@@ -19,15 +19,23 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - name: Checkout main
+      - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          ref: main
+          fetch-depth: 0
 
-      - name: Create branch and append prompt
+      - name: Switch to branch
         run: |
-          git checkout -b "${{ inputs.branch_name }}"
-          printf '\n%s\n' "${{ inputs.prompt }}" >> README.md
+          git fetch origin
+          if git ls-remote --exit-code --heads origin "${{ inputs.branch_name }}" > /dev/null 2>&1; then
+            git checkout "${{ inputs.branch_name }}"
+          else
+            git checkout main
+            git checkout -b "${{ inputs.branch_name }}"
+          fi
+
+      - name: Append prompt
+        run: printf '\n%s\n' "${{ inputs.prompt }}" >> README.md
 
       - name: Commit and push
         run: |
@@ -37,12 +45,16 @@ jobs:
           git commit -m "Append prompt to README"
           git push origin "${{ inputs.branch_name }}"
 
-      - name: Open PR
+      - name: Open or update PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh pr create \
-            --base main \
-            --head "${{ inputs.branch_name }}" \
-            --title "Append prompt to README" \
-            --body "${{ inputs.prompt }}"
+          if gh pr view "${{ inputs.branch_name }}" --json state -q '.state' 2>/dev/null | grep -q OPEN; then
+            echo "PR already exists"
+          else
+            gh pr create \
+              --base main \
+              --head "${{ inputs.branch_name }}" \
+              --title "Append prompt to README" \
+              --body "${{ inputs.prompt }}"
+          fi
