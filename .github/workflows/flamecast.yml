@@ -3,10 +3,6 @@ name: Flamecast
 on:
   workflow_dispatch:
     inputs:
-      branch_name:
-        description: "Branch name to create for the PR"
-        required: true
-        type: string
       prompt:
         description: "Prompt for Claude Code"
         required: true
@@ -29,79 +25,10 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: smithery-ai/flamecast@main
         with:
-          repository: ${{ inputs.target_repo || github.repository }}
-          token: ${{ inputs.target_repo && secrets.FLAMECAST_PAT || secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
-
-      - name: Switch to branch
-        env:
-          BRANCH: ${{ inputs.branch_name }}
-          BASE: ${{ inputs.base_branch || 'main' }}
-        run: |
-          git fetch origin
-          if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null 2>&1; then
-            git checkout "$BRANCH"
-          else
-            git checkout "$BASE" 2>/dev/null || git checkout "origin/$BASE"
-            git checkout -b "$BRANCH"
-          fi
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Run Claude Code
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          PROMPT: ${{ inputs.prompt }}
-        run: |
-          npx -y @anthropic-ai/claude-code --print --dangerously-skip-permissions "$PROMPT"
-          git diff --cached --quiet || echo "has_changes=true" >> "$GITHUB_OUTPUT"
-
-      - name: Commit and push
-        id: commit
-        env:
-          PROMPT: ${{ inputs.prompt }}
-          BRANCH: ${{ inputs.branch_name }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-            echo "has_changes=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          TRUNCATED=$(echo "$PROMPT" | head -c 72)
-          git commit -m "flamecast: ${TRUNCATED}"
-          git push origin "$BRANCH"
-          echo "has_changes=true" >> "$GITHUB_OUTPUT"
-
-      - name: Open or update PR
-        if: steps.commit.outputs.has_changes == 'true'
-        env:
-          GH_TOKEN: ${{ inputs.target_repo && secrets.FLAMECAST_PAT || secrets.GITHUB_TOKEN }}
-          PROMPT: ${{ inputs.prompt }}
-          BRANCH: ${{ inputs.branch_name }}
-          BASE: ${{ inputs.base_branch || 'main' }}
-          TARGET_REPO: ${{ inputs.target_repo }}
-        run: |
-          REPO_FLAG=""
-          if [ -n "$TARGET_REPO" ]; then
-            REPO_FLAG="--repo $TARGET_REPO"
-          fi
-          if gh pr view "$BRANCH" $REPO_FLAG --json state -q '.state' 2>/dev/null | grep -q OPEN; then
-            echo "PR already exists"
-          else
-            TITLE="flamecast: $(echo "$PROMPT" | head -c 72)"
-            gh pr create \
-              --base "$BASE" \
-              --head "$BRANCH" \
-              --title "$TITLE" \
-              --body "Prompt: $PROMPT" \
-              $REPO_FLAG
-          fi
+          prompt: ${{ inputs.prompt }}
+          base_branch: ${{ inputs.base_branch }}
+          target_repo: ${{ inputs.target_repo }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          flamecast_pat: ${{ secrets.FLAMECAST_PAT }}
