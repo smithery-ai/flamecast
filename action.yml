@@ -30,7 +30,8 @@ runs:
       run: |
         SLUG=$(echo "$PROMPT" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '-' | cut -c1-20 | sed 's/-$//')
         HASH=$(echo -n "$PROMPT" | sha256sum | head -c 7)
-        echo "name=flamecast/${SLUG}-${HASH}" >> "$GITHUB_OUTPUT"
+        USER="${GITHUB_ACTOR}"
+        echo "name=flamecast/${USER}/${SLUG}-${HASH}" >> "$GITHUB_OUTPUT"
 
     - name: Checkout repo
       uses: actions/checkout@v4
