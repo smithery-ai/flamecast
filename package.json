@@ -1,0 +1,36 @@
+{
+	"name": "flamecast-monorepo",
+	"private": true,
+	"packageManager": "pnpm@10.29.2",
+	"scripts": {
+		"preinstall": "npx only-allow pnpm",
+		"build": "turbo run build",
+		"dev": "turbo run dev --concurrency 3 --filter=./apps/flamecast --filter=./apps/flamecast-backend",
+		"lint": "turbo run lint",
+		"check": "biome check",
+		"fmt": "pnpm exec biome check --write --unsafe",
+		"typecheck": "turbo run check-types",
+		"secrets:pull": "turbo run secrets:pull",
+		"secrets:push": "turbo run secrets:push"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.3.3",
+		"turbo": "^2.7.3"
+	},
+	"engines": {
+		"node": ">=18",
+		"pnpm": ">=10"
+	},
+	"pnpm": {
+		"overrides": {
+			"miniflare>zod": "^3.24.0",
+			"@types/react": "^19.0.7",
+			"@types/react-dom": "^19.0.0"
+		}
+	},
+	"overrides": {
+		"@cloudflare/workers-types": "4.20251213.0",
+		"@types/react": "^19.0.7",
+		"zod": "^4.1.13"
+	}
+}

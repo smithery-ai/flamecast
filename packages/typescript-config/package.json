@@ -1,0 +1,15 @@
+{
+	"name": "@smithery/typescript-config",
+	"version": "1.0.0",
+	"type": "module",
+	"files": [
+		"tsconfig.json"
+	],
+	"scripts": {
+		"check": "biome check",
+		"fmt": "biome check --write --unsafe"
+	},
+	"devDependencies": {
+		"typescript": "latest"
+	}
+}

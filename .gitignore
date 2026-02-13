@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.next/
+.vercel/
+.wrangler/
+.env
+.env.local
+.env.production
+.dev.vars
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+*.pem
+*.log
+.turbo
