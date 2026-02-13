@@ -13,13 +13,14 @@
 		}
 	},
 	"scripts": {
-		"dev": "tsc --watch",
+		"dev": "pnpm db:studio",
 		"build": "tsc",
 		"check-types": "tsc --noEmit",
 		"db:generate": "NODE_OPTIONS='--import tsx' drizzle-kit generate",
 		"db:migrate": "NODE_OPTIONS='--import tsx' drizzle-kit migrate",
 		"db:push": "NODE_OPTIONS='--import tsx' drizzle-kit push",
-		"db:studio": "NODE_OPTIONS='--import tsx' drizzle-kit studio"
+		"db:studio": "NODE_OPTIONS='--import tsx' drizzle-kit studio",
+		"secrets:pull": "infisical export --path=/packages/db-ps --env=dev --format=dotenv > .env"
 	},
 	"dependencies": {
 		"drizzle-orm": "^0.45.1",
