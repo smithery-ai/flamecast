@@ -63,6 +63,35 @@ export interface FlamecastWorkflowRun {
 	createdAt: string
 }
 
+export interface FlamecastGitHubWorkflowRun {
+	id: number
+	html_url: string
+	status: string | null
+	conclusion: string | null
+	run_started_at: string | null
+	updated_at: string
+}
+
+export interface FlamecastWorkflowRunJob {
+	id: number
+	name: string
+	status: string | null
+	conclusion: string | null
+}
+
+export interface FlamecastWorkflowLogs {
+	downloadUrl: string | null
+	content: string | null
+	truncated: boolean
+}
+
+export interface FlamecastWorkflowOutputs {
+	available: boolean
+	prUrl: string | null
+	claudeLogs: string | null
+	claudeLogsTruncated: boolean
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -167,6 +196,70 @@ export function useFlamecastRuns(
 		queryKey: queryKeys.flamecastRuns(repo),
 		queryFn: () => getFlamecastRuns(repo),
 		refetchInterval: options?.refetchInterval,
+	})
+}
+
+export function useFlamecastWorkflowRun(
+	owner: string,
+	repo: string,
+	runId: number,
+	options?: { refetchInterval?: number },
+) {
+	return useQuery({
+		queryKey: queryKeys.flamecastWorkflowRun(owner, repo, runId),
+		queryFn: () =>
+			fetchJson<FlamecastGitHubWorkflowRun>(
+				`/api/flamecast/runs/${owner}/${repo}/${runId}`,
+			),
+		enabled: !!owner && !!repo && !!runId,
+		refetchInterval: options?.refetchInterval,
+	})
+}
+
+export function useFlamecastWorkflowRunJobs(
+	owner: string,
+	repo: string,
+	runId: number,
+) {
+	return useQuery({
+		queryKey: queryKeys.flamecastWorkflowRunJobs(owner, repo, runId),
+		queryFn: async () => {
+			const data = await fetchJson<{ jobs: FlamecastWorkflowRunJob[] }>(
+				`/api/flamecast/runs/${owner}/${repo}/${runId}/jobs`,
+			)
+			return data.jobs
+		},
+		enabled: !!owner && !!repo && !!runId,
+	})
+}
+
+export function useFlamecastWorkflowRunLogs(
+	owner: string,
+	repo: string,
+	runId: number,
+) {
+	return useQuery({
+		queryKey: queryKeys.flamecastWorkflowRunLogs(owner, repo, runId),
+		queryFn: () =>
+			fetchJson<FlamecastWorkflowLogs>(
+				`/api/flamecast/runs/${owner}/${repo}/${runId}/logs`,
+			),
+		enabled: !!owner && !!repo && !!runId,
+	})
+}
+
+export function useFlamecastWorkflowRunOutputs(
+	owner: string,
+	repo: string,
+	runId: number,
+) {
+	return useQuery({
+		queryKey: queryKeys.flamecastWorkflowRunOutputs(owner, repo, runId),
+		queryFn: () =>
+			fetchJson<FlamecastWorkflowOutputs>(
+				`/api/flamecast/runs/${owner}/${repo}/${runId}/outputs`,
+			),
+		enabled: !!owner && !!repo && !!runId,
 	})
 }
 
