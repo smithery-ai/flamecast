@@ -64,6 +64,12 @@ const GitHubRunOutputsResponseSchema = z.object({
 	claudeLogsTruncated: z.boolean(),
 })
 
+const WorkflowRunMetadataResponseSchema = z.object({
+	prompt: z.string().nullable(),
+	repo: z.string().nullable(),
+	sourceRepo: z.string().nullable(),
+})
+
 const GitHubJobsApiResponseSchema = z.object({
 	jobs: z.array(
 		z.object({
@@ -774,6 +780,99 @@ workflowRuns.get(
 					? fullClaudeLogs.slice(0, MAX_CLAUDE_LOGS_CHARS)
 					: null,
 				claudeLogsTruncated,
+			}),
+		)
+	},
+)
+
+workflowRuns.get(
+	"/metadata",
+	describeRoute({
+		tags: ["workflow-runs"],
+		summary: "Get workflow run metadata",
+		description:
+			"Fetch metadata (prompt, repo) for a GitHub Actions workflow run.",
+		responses: {
+			200: {
+				description: "Workflow run metadata",
+				content: {
+					"application/json": {
+						schema: resolver(WorkflowRunMetadataResponseSchema),
+					},
+				},
+			},
+			400: {
+				description: "Invalid query parameters",
+				content: {
+					"application/json": {
+						schema: resolver(WorkflowRunErrorSchema),
+					},
+				},
+			},
+			401: {
+				description: "Unauthorized",
+				content: {
+					"application/json": {
+						schema: resolver(WorkflowRunErrorSchema),
+					},
+				},
+			},
+			404: {
+				description: "Workflow run not found",
+				content: {
+					"application/json": {
+						schema: resolver(WorkflowRunErrorSchema),
+					},
+				},
+			},
+		},
+	}),
+	zValidator("query", GitHubRunQuerySchema),
+	async c => {
+		const client = postgres(c.env.DATABASE_URL, { prepare: false })
+		const db = drizzle(client)
+
+		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
+		if (!authRow) {
+			return c.json(
+				WorkflowRunErrorSchema.parse({ error: "Unauthorized" }),
+				401,
+			)
+		}
+
+		const { runId } = c.req.valid("query")
+
+		const [run] = await db
+			.select({
+				prompt: flamecastWorkflowRuns.prompt,
+				repo: flamecastWorkflowRuns.repo,
+				sourceRepo: flamecastUserSourceRepos.sourceRepo,
+			})
+			.from(flamecastWorkflowRuns)
+			.leftJoin(
+				flamecastUserSourceRepos,
+				eq(flamecastWorkflowRuns.sourceRepoId, flamecastUserSourceRepos.id),
+			)
+			.where(
+				and(
+					eq(flamecastWorkflowRuns.workflowRunId, runId),
+					eq(flamecastWorkflowRuns.userId, authRow.userId),
+				),
+			)
+			.limit(1)
+
+		if (!run) {
+			return c.json(
+				WorkflowRunErrorSchema.parse({ error: "Run not found" }),
+				404,
+			)
+		}
+
+		return c.json(
+			WorkflowRunMetadataResponseSchema.parse({
+				prompt: run.prompt,
+				repo: run.repo,
+				sourceRepo: run.sourceRepo,
 			}),
 		)
 	},

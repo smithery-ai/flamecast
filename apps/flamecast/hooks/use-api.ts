@@ -92,6 +92,12 @@ export interface FlamecastWorkflowOutputs {
 	claudeLogsTruncated: boolean
 }
 
+export interface FlamecastWorkflowRunMetadata {
+	prompt: string | null
+	repo: string | null
+	sourceRepo: string | null
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -263,6 +269,21 @@ export function useFlamecastWorkflowRunOutputs(
 	})
 }
 
+export function useFlamecastWorkflowRunMetadata(
+	owner: string,
+	repo: string,
+	runId: number,
+) {
+	return useQuery({
+		queryKey: queryKeys.flamecastWorkflowRunMetadata(owner, repo, runId),
+		queryFn: () =>
+			fetchJson<FlamecastWorkflowRunMetadata>(
+				`/api/flamecast/runs/${owner}/${repo}/${runId}/metadata`,
+			),
+		enabled: !!owner && !!repo && !!runId,
+	})
+}
+
 // ── Mutation hooks ───────────────────────────────────────────────────────────
 
 export function useCreateRepo() {
@@ -380,6 +401,25 @@ export function useDispatchWorkflow() {
 		onSuccess: (_data, vars) => {
 			queryClient.invalidateQueries({
 				queryKey: queryKeys.workflowRuns(vars.owner, vars.repo),
+			})
+		},
+	})
+}
+
+export function useRetryWorkflow() {
+	const queryClient = useQueryClient()
+
+	return useMutation({
+		mutationFn: (vars: { owner: string; repo: string; runId: number }) =>
+			postJson<{ success: boolean }>(
+				`/api/flamecast/runs/${vars.owner}/${vars.repo}/${vars.runId}/retry`,
+			),
+		onSuccess: (_data, vars) => {
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.workflowRuns(vars.owner, vars.repo),
+			})
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.flamecastRuns(),
 			})
 		},
 	})

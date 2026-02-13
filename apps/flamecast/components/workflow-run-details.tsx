@@ -2,11 +2,15 @@
 
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import posthog from "posthog-js"
+import { Button } from "@/components/ui/button"
 import {
 	useFlamecastWorkflowRun,
 	useFlamecastWorkflowRunJobs,
 	useFlamecastWorkflowRunLogs,
 	useFlamecastWorkflowRunOutputs,
+	useFlamecastWorkflowRunMetadata,
+	useRetryWorkflow,
 } from "@/hooks/use-api"
 
 const MAX_CLAUDE_LOGS_CHARS = 200_000
@@ -42,6 +46,26 @@ export function WorkflowRunDetails({
 
 	const { data: outputs, isLoading: outputsLoading } =
 		useFlamecastWorkflowRunOutputs(owner, repo, runId)
+
+	const { data: metadata, isLoading: metadataLoading } =
+		useFlamecastWorkflowRunMetadata(owner, repo, runId)
+
+	const retry = useRetryWorkflow()
+
+	async function handleRetry() {
+		if (!metadata?.prompt) return
+
+		try {
+			await retry.mutateAsync({ owner, repo, runId })
+
+			posthog.capture("workflow_retried", {
+				original_run_id: runId,
+				source_repo: `${owner}/${repo}`,
+			})
+		} catch (error) {
+			posthog.captureException(error)
+		}
+	}
 
 	if (runError) {
 		if (
@@ -111,6 +135,14 @@ export function WorkflowRunDetails({
 						</span>{" "}
 						{formatDateTime(run.updated_at)}
 					</p>
+					{metadata?.prompt && (
+						<p>
+							<span className="font-medium text-zinc-900 dark:text-zinc-100">
+								Prompt:
+							</span>{" "}
+							{metadata.prompt}
+						</p>
+					)}
 					<div className="flex flex-wrap gap-4 pt-1">
 						<a
 							href={run.html_url}
@@ -131,6 +163,28 @@ export function WorkflowRunDetails({
 							</a>
 						) : null}
 					</div>
+					{metadata?.prompt && metadata.sourceRepo === `${owner}/${repo}` && (
+						<div className="pt-2">
+							<Button
+								onClick={handleRetry}
+								disabled={retry.isPending || metadataLoading}
+								variant="outline"
+								size="sm"
+							>
+								{retry.isPending ? "Retrying..." : "Retry"}
+							</Button>
+							{retry.error && (
+								<p className="text-sm text-red-500 mt-2">
+									{retry.error.message}
+								</p>
+							)}
+							{retry.isSuccess && (
+								<p className="text-sm text-green-600 dark:text-green-400 mt-2">
+									Workflow retry dispatched successfully
+								</p>
+							)}
+						</div>
+					)}
 				</div>
 
 				<div className="flex flex-col gap-3">
