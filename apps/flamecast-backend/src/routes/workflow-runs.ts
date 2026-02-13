@@ -228,7 +228,6 @@ workflowRuns.post(
 				repo,
 				sourceRepoId,
 				prompt: normalizedPrompt,
-				startedAt: new Date(),
 			})
 			.onConflictDoUpdate({
 				target: [
@@ -236,7 +235,6 @@ workflowRuns.post(
 					flamecastWorkflowRuns.userId,
 				],
 				set: {
-					startedAt: new Date(),
 					...(repo ? { repo } : {}),
 					...(sourceRepoId ? { sourceRepoId } : {}),
 					...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
@@ -832,6 +830,7 @@ workflowRuns.patch(
 				userId: flamecastWorkflowRuns.userId,
 				repo: flamecastWorkflowRuns.repo,
 				sourceRepo: flamecastUserSourceRepos.sourceRepo,
+				startedAt: flamecastWorkflowRuns.startedAt,
 				completedAt: flamecastWorkflowRuns.completedAt,
 				errorAt: flamecastWorkflowRuns.errorAt,
 			})
@@ -925,6 +924,11 @@ workflowRuns.patch(
 
 		const updateFields: Record<string, unknown> = {}
 
+		// Set startedAt if not already set and we have job data
+		if (!run.startedAt && jobsData.jobs.length > 0) {
+			updateFields.startedAt = new Date()
+		}
+
 		if (conclusion === "success") {
 			updateFields.completedAt = new Date()
 
@@ -958,7 +962,14 @@ workflowRuns.patch(
 			updateFields.errorAt = new Date()
 			updateFields.errorMessage = `Workflow step ${conclusion}`
 		} else {
-			// Step hasn't completed yet or couldn't find it — don't update
+			// Step hasn't completed yet or couldn't find it
+			// If we set startedAt above, update it; otherwise return pending
+			if (Object.keys(updateFields).length > 0) {
+				await db
+					.update(flamecastWorkflowRuns)
+					.set(updateFields)
+					.where(eq(flamecastWorkflowRuns.id, id))
+			}
 			return c.json({
 				success: true as const,
 				status: "pending" as const,
