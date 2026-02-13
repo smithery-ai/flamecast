@@ -5,7 +5,7 @@
 	"scripts": {
 		"preinstall": "npx only-allow pnpm",
 		"build": "turbo run build",
-		"dev": "turbo run dev --concurrency 3 --filter=./apps/flamecast --filter=./apps/flamecast-backend",
+		"dev": "turbo run dev",
 		"lint": "turbo run lint",
 		"check": "biome check",
 		"fmt": "pnpm exec biome check --write --unsafe",
