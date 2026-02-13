@@ -24,6 +24,7 @@
 		"zod-openapi": "^5.4.6"
 	},
 	"devDependencies": {
+		"typescript": "^5.9.3",
 		"wrangler": "^4.4.0"
 	}
 }
