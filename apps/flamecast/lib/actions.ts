@@ -92,9 +92,11 @@ async function callBackendPatch(pathname: string) {
 
 export async function getFlamecastRuns(
 	repo?: string,
+	includeArchived?: boolean,
 ): Promise<FlamecastWorkflowRun[]> {
 	const searchParams = new URLSearchParams()
 	if (repo) searchParams.set("repo", repo)
+	if (includeArchived) searchParams.set("includeArchived", "true")
 
 	const res = await callBackend("/workflow-runs", searchParams)
 

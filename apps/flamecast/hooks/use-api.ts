@@ -1,6 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { queryKeys } from "./query-keys"
-import { getFlamecastRuns, archiveFlamecastRun } from "@/lib/actions"
+import {
+	getFlamecastRuns,
+	archiveFlamecastRun,
+	unarchiveFlamecastRun,
+} from "@/lib/actions"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -208,11 +212,11 @@ export function useWorkflowRunLogs(
 
 export function useFlamecastRuns(
 	repo?: string,
-	options?: { refetchInterval?: number },
+	options?: { refetchInterval?: number; includeArchived?: boolean },
 ) {
 	return useQuery({
-		queryKey: queryKeys.flamecastRuns(repo),
-		queryFn: () => getFlamecastRuns(repo),
+		queryKey: queryKeys.flamecastRuns(repo, options?.includeArchived),
+		queryFn: () => getFlamecastRuns(repo, options?.includeArchived),
 		refetchInterval: options?.refetchInterval,
 	})
 }
@@ -397,6 +401,20 @@ export function useArchiveRun() {
 	return useMutation({
 		mutationFn: (vars: { id: string; repo?: string }) =>
 			archiveFlamecastRun(vars.id),
+		onSuccess: (_data, vars) => {
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.flamecastRuns(vars.repo),
+			})
+		},
+	})
+}
+
+export function useUnarchiveRun() {
+	const queryClient = useQueryClient()
+
+	return useMutation({
+		mutationFn: (vars: { id: string; repo?: string }) =>
+			unarchiveFlamecastRun(vars.id),
 		onSuccess: (_data, vars) => {
 			queryClient.invalidateQueries({
 				queryKey: queryKeys.flamecastRuns(vars.repo),
