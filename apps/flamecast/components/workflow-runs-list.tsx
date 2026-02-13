@@ -2,7 +2,11 @@
 
 import type { KeyboardEvent } from "react"
 import posthog from "posthog-js"
-import { useFlamecastRuns, type FlamecastWorkflowRun } from "@/hooks/use-api"
+import {
+	useFlamecastRuns,
+	useArchiveRun,
+	type FlamecastWorkflowRun,
+} from "@/hooks/use-api"
 
 function getRunStatus(run: FlamecastWorkflowRun) {
 	if (run.errorAt) return "error"
@@ -98,6 +102,7 @@ export function WorkflowRunsList({ repo }: { repo?: string }) {
 	} = useFlamecastRuns(repo, {
 		refetchInterval: 5000,
 	})
+	const archiveRun = useArchiveRun()
 
 	if (isLoading) {
 		return <p className="text-sm text-zinc-400">Loading workflow runs...</p>
@@ -125,7 +130,7 @@ export function WorkflowRunsList({ repo }: { repo?: string }) {
 						key={run.id}
 						onClick={() => navigateToWorkflowRun(workflowRunUrl, run)}
 						onKeyDown={event => handleRunKeyDown(event, workflowRunUrl)}
-						className={`flex items-center justify-between rounded-lg px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors ${
+						className={`group flex items-center justify-between rounded-lg px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors ${
 							workflowRunUrl ? "cursor-pointer" : ""
 						}`}
 						role={workflowRunUrl ? "link" : undefined}
@@ -162,9 +167,34 @@ export function WorkflowRunsList({ repo }: { repo?: string }) {
 								)}
 							</div>
 						</div>
-						<span className="shrink-0 ml-4 text-xs text-zinc-400">
-							{relativeTime(run.createdAt)}
-						</span>
+						<div className="shrink-0 ml-4 flex items-center gap-2">
+							<span className="text-xs text-zinc-400">
+								{relativeTime(run.createdAt)}
+							</span>
+							<button
+								type="button"
+								onClick={event => {
+									event.stopPropagation()
+									archiveRun.mutate({ id: run.id, repo })
+								}}
+								className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700"
+								title="Archive"
+							>
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									viewBox="0 0 20 20"
+									fill="currentColor"
+									className="h-3.5 w-3.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+								>
+									<path d="M2 3a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1H2Z" />
+									<path
+										fillRule="evenodd"
+										d="M2 7.5h16l-.811 7.71a2 2 0 0 1-1.99 1.79H4.802a2 2 0 0 1-1.99-1.79L2 7.5ZM7 11a1 1 0 0 1 1-1h4a1 1 0 1 1 0 2H8a1 1 0 0 1-1-1Z"
+										clipRule="evenodd"
+									/>
+								</svg>
+							</button>
+						</div>
 					</div>
 				)
 			})}

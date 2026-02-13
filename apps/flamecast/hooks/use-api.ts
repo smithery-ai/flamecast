@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { queryKeys } from "./query-keys"
-import { getFlamecastRuns } from "@/lib/actions"
+import { getFlamecastRuns, archiveFlamecastRun } from "@/lib/actions"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,6 +60,7 @@ export interface FlamecastWorkflowRun {
 	completedAt: string | null
 	errorAt: string | null
 	errorMessage: string | null
+	archivedAt: string | null
 	createdAt: string
 }
 
@@ -385,6 +386,20 @@ export function useClosePull() {
 		onSuccess: (_data, vars) => {
 			queryClient.invalidateQueries({
 				queryKey: queryKeys.pulls(vars.owner, vars.repo),
+			})
+		},
+	})
+}
+
+export function useArchiveRun() {
+	const queryClient = useQueryClient()
+
+	return useMutation({
+		mutationFn: (vars: { id: string; repo?: string }) =>
+			archiveFlamecastRun(vars.id),
+		onSuccess: (_data, vars) => {
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.flamecastRuns(vars.repo),
 			})
 		},
 	})

@@ -27,6 +27,7 @@ export const flamecastWorkflowRuns = flamecastSchema.table(
 		startedAt: timestamp("started_at"),
 		completedAt: timestamp("completed_at"),
 		errorAt: timestamp("error_at"),
+		archivedAt: timestamp("archived_at"),
 		createdAt: timestamp("created_at").notNull().defaultNow(),
 	},
 	table => [
