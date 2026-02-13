@@ -19,6 +19,14 @@ inputs:
     description: "GitHub PAT for cross-repo operations"
     required: false
 
+outputs:
+  claude_logs:
+    description: "Claude Code combined stdout/stderr logs"
+    value: ${{ steps.claude.outputs.logs }}
+  pr_url:
+    description: "Created or existing pull request URL (empty when no PR)"
+    value: ${{ steps.pr.outputs.url }}
+
 runs:
   using: composite
   steps:
@@ -60,12 +68,20 @@ runs:
         node-version: '22'
 
     - name: Run Claude Code
+      id: claude
       shell: bash
       env:
         CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
         PROMPT: ${{ inputs.prompt }}
       run: |
-        npx -y @anthropic-ai/claude-code --print --dangerously-skip-permissions "$PROMPT"
+        set -o pipefail
+        LOG_FILE="${RUNNER_TEMP}/claude.log"
+        npx -y @anthropic-ai/claude-code --print --dangerously-skip-permissions "$PROMPT" 2>&1 | tee "$LOG_FILE"
+        {
+          echo "logs<<__FLAMECAST_LOGS__"
+          cat "$LOG_FILE"
+          echo "__FLAMECAST_LOGS__"
+        } >> "$GITHUB_OUTPUT"
 
     - name: Commit and push
       id: commit
@@ -88,6 +104,7 @@ runs:
         echo "has_changes=true" >> "$GITHUB_OUTPUT"
 
     - name: Open or update PR
+      id: pr
       if: steps.commit.outputs.has_changes == 'true'
       shell: bash
       env:
@@ -112,3 +129,5 @@ runs:
             --body "Prompt: $PROMPT" \
             $REPO_FLAG
         fi
+        PR_URL=$(gh pr view "$BRANCH" $REPO_FLAG --json url -q '.url')
+        echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
