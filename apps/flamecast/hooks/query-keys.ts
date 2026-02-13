@@ -20,4 +20,6 @@ export const queryKeys = {
 		["flamecast", "runs", owner, repo, runId, "logs"] as const,
 	flamecastWorkflowRunOutputs: (owner: string, repo: string, runId: number) =>
 		["flamecast", "runs", owner, repo, runId, "outputs"] as const,
+	pullRequestStatus: (owner: string, repo: string, number: number) =>
+		["repos", owner, repo, "pulls", number, "status"] as const,
 }

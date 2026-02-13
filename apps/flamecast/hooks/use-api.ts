@@ -92,6 +92,23 @@ export interface FlamecastWorkflowOutputs {
 	claudeLogsTruncated: boolean
 }
 
+export interface PullRequestStatus {
+	state: "open" | "closed" | "merged"
+	mergeable: boolean
+	checks: {
+		total: number
+		completed: number
+		successful: number
+		pending: number
+		failed: number
+	}
+	checkRuns: Array<{
+		name: string
+		status: string
+		conclusion: string | null
+	}>
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -260,6 +277,23 @@ export function useFlamecastWorkflowRunOutputs(
 				`/api/flamecast/runs/${owner}/${repo}/${runId}/outputs`,
 			),
 		enabled: !!owner && !!repo && !!runId,
+	})
+}
+
+export function usePullRequestStatus(
+	owner: string,
+	repo: string,
+	number: number,
+	options?: { refetchInterval?: number | false; enabled?: boolean },
+) {
+	return useQuery({
+		queryKey: queryKeys.pullRequestStatus(owner, repo, number),
+		queryFn: () =>
+			fetchJson<PullRequestStatus>(
+				`/api/repos/${owner}/${repo}/pulls/${number}/status`,
+			),
+		enabled: (options?.enabled ?? true) && !!owner && !!repo && !!number,
+		refetchInterval: options?.refetchInterval,
 	})
 }
 
