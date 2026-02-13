@@ -94,6 +94,28 @@ export async function getFlamecastRuns(
 	return res.json() as Promise<FlamecastWorkflowRun[]>
 }
 
+export async function getFlamecastWorkflowRunMetadata(
+	owner: string,
+	repo: string,
+	runId: number,
+): Promise<FlamecastWorkflowRun | null> {
+	const searchParams = new URLSearchParams({
+		owner,
+		repo,
+		runId: String(runId),
+	})
+
+	const res = await callBackend("/workflow-runs/metadata", searchParams)
+
+	if (res.status === 404) return null
+
+	if (!res.ok) {
+		throw new Error(await getBackendErrorMessage(res))
+	}
+
+	return res.json() as Promise<FlamecastWorkflowRun>
+}
+
 export async function getFlamecastWorkflowRun(
 	owner: string,
 	repo: string,
