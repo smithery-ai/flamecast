@@ -22,27 +22,61 @@ function getRunStatus(run: FlamecastWorkflowRun) {
 	return "running"
 }
 
+function getStatusLabel(status: string): string {
+	switch (status) {
+		case "completed":
+			return "Completed successfully"
+		case "error":
+			return "Failed with error"
+		case "timed_out":
+			return "Timed out (exceeded 45 minutes)"
+		case "queued":
+			return "Queued, waiting to start"
+		case "running":
+			return "Currently running"
+		default:
+			return "Unknown status"
+	}
+}
+
 function StatusDot({ status }: { status: string }) {
+	const label = getStatusLabel(status)
+
 	switch (status) {
 		case "completed":
 			return (
-				<span className="inline-block h-2 w-2 shrink-0 rounded-full bg-green-500" />
+				<span
+					className="inline-block h-2 w-2 shrink-0 rounded-full bg-green-500"
+					title={label}
+				/>
 			)
 		case "error":
 			return (
-				<span className="inline-block h-2 w-2 shrink-0 rounded-full bg-red-500" />
+				<span
+					className="inline-block h-2 w-2 shrink-0 rounded-full bg-red-500"
+					title={label}
+				/>
 			)
 		case "timed_out":
 			return (
-				<span className="inline-block h-2 w-2 shrink-0 rounded-full bg-zinc-400" />
+				<span
+					className="inline-block h-2 w-2 shrink-0 rounded-full bg-zinc-400"
+					title={label}
+				/>
 			)
 		case "queued":
 			return (
-				<span className="inline-block h-2 w-2 shrink-0 rounded-full bg-blue-400" />
+				<span
+					className="inline-block h-2 w-2 shrink-0 rounded-full bg-blue-400"
+					title={label}
+				/>
 			)
 		default:
 			return (
-				<span className="inline-block h-2 w-2 shrink-0 rounded-full bg-amber-500 animate-pulse" />
+				<span
+					className="inline-block h-2 w-2 shrink-0 rounded-full bg-amber-500 animate-pulse"
+					title={label}
+				/>
 			)
 	}
 }
