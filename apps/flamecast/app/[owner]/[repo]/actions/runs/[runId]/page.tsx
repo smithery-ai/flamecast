@@ -5,6 +5,7 @@ import {
 	getFlamecastWorkflowRunJobs,
 	getFlamecastWorkflowRunLogs,
 	getFlamecastWorkflowRunOutputs,
+	getFlamecastWorkflowRunMetadata,
 } from "@/lib/actions"
 
 const MAX_CLAUDE_LOGS_CHARS = 200_000
@@ -27,12 +28,16 @@ export default async function WorkflowRunPage({
 	const run = await getFlamecastWorkflowRun(owner, repo, numericRunId)
 	if (!run) notFound()
 
-	const [jobs, workflowLogs, outputs] = await Promise.all([
+	const [jobs, workflowLogs, outputs, metadata] = await Promise.all([
 		getFlamecastWorkflowRunJobs(owner, repo, numericRunId),
 		getFlamecastWorkflowRunLogs(owner, repo, numericRunId),
 		getFlamecastWorkflowRunOutputs(owner, repo, numericRunId),
+		getFlamecastWorkflowRunMetadata(owner, repo, numericRunId),
 	])
 	const logsDownloadUrl = workflowLogs.downloadUrl
+
+	// Use the target repo from metadata if available, otherwise fall back to URL params
+	const displayRepo = metadata?.repo || `${owner}/${repo}`
 
 	return (
 		<div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
@@ -43,7 +48,7 @@ export default async function WorkflowRunPage({
 							href={`/${owner}/${repo}`}
 							className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
 						>
-							{owner}/{repo}
+							{displayRepo}
 						</Link>
 						<span className="text-zinc-300 dark:text-zinc-600">/</span>
 						<h1 className="truncate text-2xl font-semibold tracking-tight text-black dark:text-zinc-50">
