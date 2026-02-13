@@ -92,6 +92,16 @@ export interface FlamecastWorkflowOutputs {
 	claudeLogsTruncated: boolean
 }
 
+export interface FlamecastCheckRun {
+	id: number
+	name: string
+	status: string
+	conclusion: string | null
+	html_url: string | null
+	started_at: string | null
+	completed_at: string | null
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -260,6 +270,25 @@ export function useFlamecastWorkflowRunOutputs(
 				`/api/flamecast/runs/${owner}/${repo}/${runId}/outputs`,
 			),
 		enabled: !!owner && !!repo && !!runId,
+	})
+}
+
+export function useFlamecastWorkflowRunChecks(
+	owner: string,
+	repo: string,
+	runId: number,
+	options?: { enabled?: boolean; refetchInterval?: number },
+) {
+	return useQuery({
+		queryKey: queryKeys.flamecastWorkflowRunChecks(owner, repo, runId),
+		queryFn: async () => {
+			const data = await fetchJson<{ checks: FlamecastCheckRun[] }>(
+				`/api/flamecast/runs/${owner}/${repo}/${runId}/checks`,
+			)
+			return data.checks
+		},
+		enabled: (options?.enabled ?? true) && !!owner && !!repo && !!runId,
+		refetchInterval: options?.refetchInterval,
 	})
 }
 
