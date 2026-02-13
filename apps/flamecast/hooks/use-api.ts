@@ -95,6 +95,8 @@ export interface FlamecastWorkflowOutputs {
 	prUrl: string | null
 	claudeLogs: string | null
 	claudeLogsTruncated: boolean
+	prompt: string | null
+	branchName: string | null
 }
 
 export interface PullRequestStatus {
