@@ -7,6 +7,7 @@ import {
 	useFlamecastWorkflowRunJobs,
 	useFlamecastWorkflowRunLogs,
 	useFlamecastWorkflowRunOutputs,
+	useFlamecastWorkflowRunChecks,
 } from "@/hooks/use-api"
 
 const MAX_CLAUDE_LOGS_CHARS = 200_000
@@ -42,6 +43,12 @@ export function WorkflowRunDetails({
 
 	const { data: outputs, isLoading: outputsLoading } =
 		useFlamecastWorkflowRunOutputs(owner, repo, runId)
+
+	const { data: checks = [], isLoading: checksLoading } =
+		useFlamecastWorkflowRunChecks(owner, repo, runId, {
+			enabled: !!outputs?.prUrl,
+			refetchInterval: run?.status === "in_progress" ? 10000 : undefined,
+		})
 
 	if (runError) {
 		if (
@@ -187,6 +194,93 @@ export function WorkflowRunDetails({
 						</p>
 					)}
 				</div>
+
+				{outputs?.prUrl && (
+					<div className="flex flex-col gap-2">
+						<h2 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
+							CI Checks
+						</h2>
+						{checksLoading ? (
+							<p className="text-sm text-zinc-500 dark:text-zinc-400 px-1">
+								Loading checks...
+							</p>
+						) : (
+							<div className="flex flex-col gap-1">
+								{checks.map(check => {
+									const getStatusIcon = () => {
+										if (check.status === "completed") {
+											if (check.conclusion === "success")
+												return (
+													<span className="text-green-600 dark:text-green-400">
+														✓
+													</span>
+												)
+											if (check.conclusion === "failure")
+												return (
+													<span className="text-red-600 dark:text-red-400">
+														✗
+													</span>
+												)
+											if (check.conclusion === "cancelled")
+												return (
+													<span className="text-zinc-500 dark:text-zinc-400">
+														○
+													</span>
+												)
+											if (check.conclusion === "skipped")
+												return (
+													<span className="text-zinc-500 dark:text-zinc-400">
+														−
+													</span>
+												)
+										}
+										return (
+											<span className="text-yellow-600 dark:text-yellow-400">
+												●
+											</span>
+										)
+									}
+
+									return (
+										<div
+											key={check.id}
+											className="rounded-lg px-4 py-3 border border-zinc-200 dark:border-zinc-800"
+										>
+											<div className="flex items-center justify-between">
+												<div className="flex items-center gap-2">
+													{getStatusIcon()}
+													{check.html_url ? (
+														<a
+															href={check.html_url}
+															target="_blank"
+															rel="noopener noreferrer"
+															className="text-sm text-zinc-900 dark:text-zinc-100 hover:underline"
+														>
+															{check.name}
+														</a>
+													) : (
+														<p className="text-sm text-zinc-900 dark:text-zinc-100">
+															{check.name}
+														</p>
+													)}
+												</div>
+												<p className="text-xs text-zinc-500 dark:text-zinc-400">
+													{check.status}
+													{check.conclusion ? ` (${check.conclusion})` : ""}
+												</p>
+											</div>
+										</div>
+									)
+								})}
+								{checks.length === 0 ? (
+									<p className="text-sm text-zinc-500 dark:text-zinc-400 px-1">
+										No CI checks found for this PR.
+									</p>
+								) : null}
+							</div>
+						)}
+					</div>
+				)}
 
 				<div className="flex flex-col gap-3">
 					<h2 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">

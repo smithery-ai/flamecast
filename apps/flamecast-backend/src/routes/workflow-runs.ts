@@ -64,6 +64,20 @@ const GitHubRunOutputsResponseSchema = z.object({
 	claudeLogsTruncated: z.boolean(),
 })
 
+const GitHubCheckRunSchema = z.object({
+	id: z.number(),
+	name: z.string(),
+	status: z.string(),
+	conclusion: z.string().nullable(),
+	html_url: z.string().nullable(),
+	started_at: z.string().nullable(),
+	completed_at: z.string().nullable(),
+})
+
+const GitHubCheckRunsResponseSchema = z.object({
+	checks: z.array(GitHubCheckRunSchema),
+})
+
 const GitHubJobsApiResponseSchema = z.object({
 	jobs: z.array(
 		z.object({
@@ -606,6 +620,120 @@ workflowRuns.get(
 				downloadUrl,
 				content: combined.slice(0, MAX_WORKFLOW_LOG_CHARS),
 				truncated: true,
+			}),
+		)
+	},
+)
+
+workflowRuns.get(
+	"/github-run/checks",
+	describeRoute({
+		tags: ["workflow-runs"],
+		summary: "Get GitHub PR check runs",
+		description:
+			"Fetch check runs for a pull request from a GitHub workflow run.",
+		responses: {
+			200: {
+				description: "PR check runs",
+				content: {
+					"application/json": {
+						schema: resolver(GitHubCheckRunsResponseSchema),
+					},
+				},
+			},
+			400: {
+				description: "Invalid query parameters",
+				content: {
+					"application/json": {
+						schema: resolver(WorkflowRunErrorSchema),
+					},
+				},
+			},
+			401: {
+				description: "Unauthorized",
+				content: {
+					"application/json": {
+						schema: resolver(WorkflowRunErrorSchema),
+					},
+				},
+			},
+			403: {
+				description: "GitHub token not found",
+				content: {
+					"application/json": {
+						schema: resolver(WorkflowRunErrorSchema),
+					},
+				},
+			},
+		},
+	}),
+	zValidator("query", GitHubRunQuerySchema),
+	async c => {
+		const client = postgres(c.env.DATABASE_URL, { prepare: false })
+		const db = drizzle(client)
+
+		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
+		if (!authRow) {
+			return c.json(
+				WorkflowRunErrorSchema.parse({ error: "Unauthorized" }),
+				401,
+			)
+		}
+
+		const { owner, repo, runId } = c.req.valid("query")
+		const accessToken = await getGitHubAccessToken(db, authRow.userId)
+		if (!accessToken) {
+			return c.json(
+				WorkflowRunErrorSchema.parse({ error: "GitHub token not found" }),
+				403,
+			)
+		}
+
+		// First, get the workflow run to find the associated PR
+		const runRes = await fetch(
+			`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}`,
+			{
+				headers: getGitHubHeaders(accessToken),
+			},
+		)
+
+		if (!runRes.ok) {
+			return c.json(GitHubCheckRunsResponseSchema.parse({ checks: [] }))
+		}
+
+		const runData = await runRes.json()
+		const headSha = runData.head_sha
+
+		if (!headSha) {
+			return c.json(GitHubCheckRunsResponseSchema.parse({ checks: [] }))
+		}
+
+		// Fetch check runs for the commit
+		const checksRes = await fetch(
+			`https://api.github.com/repos/${owner}/${repo}/commits/${headSha}/check-runs`,
+			{
+				headers: getGitHubHeaders(accessToken),
+			},
+		)
+
+		if (!checksRes.ok) {
+			return c.json(GitHubCheckRunsResponseSchema.parse({ checks: [] }))
+		}
+
+		const checksData = await checksRes.json()
+		const checkRuns = checksData.check_runs || []
+
+		return c.json(
+			GitHubCheckRunsResponseSchema.parse({
+				checks: checkRuns.map((check: any) => ({
+					id: check.id,
+					name: check.name,
+					status: check.status,
+					conclusion: check.conclusion,
+					html_url: check.html_url,
+					started_at: check.started_at,
+					completed_at: check.completed_at,
+				})),
 			}),
 		)
 	},
