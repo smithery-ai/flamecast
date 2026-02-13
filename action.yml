@@ -26,6 +26,9 @@ outputs:
   pr_url:
     description: "Created or existing pull request URL (empty when no PR)"
     value: ${{ steps.pr.outputs.url }}
+  branch_name:
+    description: "The branch name used for this workflow run"
+    value: ${{ steps.branch.outputs.name }}
 
 runs:
   using: composite

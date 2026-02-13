@@ -160,6 +160,16 @@ export function WorkflowRunDetails({
 									"-"
 								)}
 							</p>
+							{outputs.branchName && (
+								<div className="flex flex-col gap-2">
+									<p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+										branch:
+									</p>
+									<pre className="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100/60 dark:bg-zinc-900 p-3 text-xs text-zinc-800 dark:text-zinc-200 whitespace-pre-wrap break-words">
+										git fetch origin {outputs.branchName} && git checkout {outputs.branchName}
+									</pre>
+								</div>
+							)}
 							<div className="flex flex-col gap-2">
 								<p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
 									claude_logs:
