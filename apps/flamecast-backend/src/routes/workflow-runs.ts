@@ -701,7 +701,7 @@ workflowRuns.get(
 			return c.json(GitHubCheckRunsResponseSchema.parse({ checks: [] }))
 		}
 
-		const runData = await runRes.json()
+		const runData = await runRes.json<{ head_sha?: string }>()
 		const headSha = runData.head_sha
 
 		if (!headSha) {
@@ -720,12 +720,12 @@ workflowRuns.get(
 			return c.json(GitHubCheckRunsResponseSchema.parse({ checks: [] }))
 		}
 
-		const checksData = await checksRes.json()
+		const checksData = await checksRes.json<{ check_runs?: { id: number; name: string; status: string; conclusion: string | null; html_url: string; started_at: string | null; completed_at: string | null }[] }>()
 		const checkRuns = checksData.check_runs || []
 
 		return c.json(
 			GitHubCheckRunsResponseSchema.parse({
-				checks: checkRuns.map((check: any) => ({
+				checks: checkRuns.map((check) => ({
 					id: check.id,
 					name: check.name,
 					status: check.status,
