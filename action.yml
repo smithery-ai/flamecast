@@ -103,6 +103,39 @@ runs:
         git push origin "$BRANCH"
         echo "has_changes=true" >> "$GITHUB_OUTPUT"
 
+    - name: Generate PR description
+      id: pr_description
+      if: steps.commit.outputs.has_changes == 'true'
+      shell: bash
+      env:
+        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
+        BASE: ${{ inputs.base_branch || 'main' }}
+      run: |
+        # Check for PR template
+        TEMPLATE_PROMPT=""
+        if [ -f ".github/PULL_REQUEST_TEMPLATE.md" ]; then
+          TEMPLATE_PROMPT="Use the pull request template found at .github/PULL_REQUEST_TEMPLATE.md to structure the description."
+        elif [ -f ".github/pull_request_template.md" ]; then
+          TEMPLATE_PROMPT="Use the pull request template found at .github/pull_request_template.md to structure the description."
+        elif [ -f "PULL_REQUEST_TEMPLATE.md" ]; then
+          TEMPLATE_PROMPT="Use the pull request template found at PULL_REQUEST_TEMPLATE.md to structure the description."
+        elif [ -f "docs/PULL_REQUEST_TEMPLATE.md" ]; then
+          TEMPLATE_PROMPT="Use the pull request template found at docs/PULL_REQUEST_TEMPLATE.md to structure the description."
+        fi
+
+        # Generate PR description using Claude
+        PR_PROMPT="Review the git diff between $BASE and HEAD. Generate a comprehensive pull request description that explains what changes were made and why. $TEMPLATE_PROMPT Be concise but informative. Output ONLY the PR description text, no additional commentary."
+
+        set -o pipefail
+        PR_DESC=$(npx -y @anthropic-ai/claude-code --print --dangerously-skip-permissions "$PR_PROMPT" 2>&1 | tail -n +2)
+
+        # Save to output using heredoc
+        {
+          echo "description<<__FLAMECAST_PR_DESC__"
+          echo "$PR_DESC"
+          echo "__FLAMECAST_PR_DESC__"
+        } >> "$GITHUB_OUTPUT"
+
     - name: Open or update PR
       id: pr
       if: steps.commit.outputs.has_changes == 'true'
@@ -113,6 +146,7 @@ runs:
         BRANCH: ${{ steps.branch.outputs.name }}
         BASE: ${{ inputs.base_branch || 'main' }}
         TARGET_REPO: ${{ inputs.target_repo }}
+        PR_DESCRIPTION: ${{ steps.pr_description.outputs.description }}
       run: |
         REPO_FLAG=""
         if [ -n "$TARGET_REPO" ]; then
@@ -126,7 +160,7 @@ runs:
             --base "$BASE" \
             --head "$BRANCH" \
             --title "$TITLE" \
-            --body "Prompt: $PROMPT" \
+            --body "$PR_DESCRIPTION" \
             $REPO_FLAG
         fi
         PR_URL=$(gh pr view "$BRANCH" $REPO_FLAG --json url -q '.url')
