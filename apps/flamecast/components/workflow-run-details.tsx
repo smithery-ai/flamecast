@@ -8,6 +8,7 @@ import {
 	useFlamecastWorkflowRunLogs,
 	useFlamecastWorkflowRunOutputs,
 } from "@/hooks/use-api"
+import { PullRequestActions } from "./pull-request-actions"
 
 const MAX_CLAUDE_LOGS_CHARS = 200_000
 const MAX_WORKFLOW_LOG_CHARS = 300_000
@@ -143,23 +144,16 @@ export function WorkflowRunDetails({
 						</p>
 					) : outputs?.available ? (
 						<div className="flex flex-col gap-4">
-							<p className="text-sm text-zinc-600 dark:text-zinc-300 break-all">
+							<div className="text-sm text-zinc-600 dark:text-zinc-300">
 								<span className="font-medium text-zinc-900 dark:text-zinc-100">
 									pr_url:
 								</span>{" "}
 								{outputs.prUrl ? (
-									<a
-										href={outputs.prUrl}
-										target="_blank"
-										rel="noopener noreferrer"
-										className="text-blue-600 dark:text-blue-400 hover:underline"
-									>
-										{outputs.prUrl}
-									</a>
+									<PullRequestActions prUrl={outputs.prUrl} />
 								) : (
 									"-"
 								)}
-							</p>
+							</div>
 							<div className="flex flex-col gap-2">
 								<p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
 									claude_logs:
