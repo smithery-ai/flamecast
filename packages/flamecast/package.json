@@ -1,0 +1,27 @@
+{
+	"name": "@smithery/flamecast",
+	"version": "1.0.0",
+	"type": "module",
+	"bin": {
+		"ff": "./dist/cli.js"
+	},
+	"exports": {
+		"./schemas": {
+			"types": "./src/schemas/index.ts",
+			"default": "./dist/schemas/index.js"
+		}
+	},
+	"scripts": {
+		"dev": "tsc --watch",
+		"build": "tsc",
+		"check-types": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@smithery/typescript-config": "workspace:*",
+		"@types/node": "^20.19.25",
+		"typescript": "latest"
+	},
+	"dependencies": {
+		"zod": "^4.3.6"
+	}
+}

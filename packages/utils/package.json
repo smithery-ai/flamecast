@@ -1,0 +1,41 @@
+{
+	"name": "@smithery/utils",
+	"version": "1.0.0",
+	"type": "module",
+	"scripts": {
+		"dev": "tsc --watch",
+		"build": "tsc",
+		"check-types": "tsc --noEmit",
+		"check": "biome check",
+		"fmt": "biome check --write --unsafe",
+		"test": "vitest run --passWithNoTests"
+	},
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./dist/index.js"
+		},
+		"./openapi": {
+			"types": "./src/openapi/index.ts",
+			"default": "./dist/openapi/index.js"
+		},
+		"./logger": {
+			"types": "./src/logger.ts",
+			"default": "./dist/logger.js"
+		},
+		"./urls": {
+			"types": "./src/urls.ts",
+			"default": "./dist/urls.js"
+		}
+	},
+	"dependencies": {
+		"pino": "^9.7.0",
+		"zod": "^4.1.13"
+	},
+	"devDependencies": {
+		"@smithery/typescript-config": "workspace:*",
+		"@types/node": "^20.11.19",
+		"typescript": "latest",
+		"vitest": "^1.0.0"
+	}
+}
