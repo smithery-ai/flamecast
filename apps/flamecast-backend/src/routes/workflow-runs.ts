@@ -329,9 +329,9 @@ workflowRuns.get(
 
 		if (!runRes.ok) {
 			const message = await runRes.text()
-			return c.json(
+			return Response.json(
 				WorkflowRunErrorSchema.parse({ error: message || "GitHub API error" }),
-				runRes.status,
+				{ status: runRes.status },
 			)
 		}
 
@@ -425,9 +425,9 @@ workflowRuns.get(
 
 		if (!jobsRes.ok) {
 			const message = await jobsRes.text()
-			return c.json(
+			return Response.json(
 				WorkflowRunErrorSchema.parse({ error: message || "GitHub API error" }),
-				jobsRes.status,
+				{ status: jobsRes.status },
 			)
 		}
 
@@ -537,9 +537,9 @@ workflowRuns.get(
 			(logsUrlRes.status < 300 || logsUrlRes.status >= 400)
 		) {
 			const message = await logsUrlRes.text()
-			return c.json(
+			return Response.json(
 				WorkflowRunErrorSchema.parse({ error: message || "GitHub API error" }),
-				logsUrlRes.status,
+				{ status: logsUrlRes.status },
 			)
 		}
 
@@ -688,9 +688,9 @@ workflowRuns.get(
 
 		if (!artifactsRes.ok) {
 			const message = await artifactsRes.text()
-			return c.json(
+			return Response.json(
 				WorkflowRunErrorSchema.parse({ error: message || "GitHub API error" }),
-				artifactsRes.status,
+				{ status: artifactsRes.status },
 			)
 		}
 

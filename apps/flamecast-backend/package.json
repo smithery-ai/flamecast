@@ -6,7 +6,8 @@
 		"deploy": "wrangler deploy --minify",
 		"cf-typegen": "wrangler types --env-interface CloudflareBindings",
 		"secrets:pull": "infisical export --path=/apps/flamecast --env=dev --format=dotenv > .env",
-		"secrets:push": "infisical secrets set --file=.env --path=/apps/flamecast --env=dev"
+		"secrets:push": "infisical secrets set --file=.env --path=/apps/flamecast --env=dev",
+		"build": "pnpm -r --filter '@smithery/*' build && tsc --noEmit"
 	},
 	"dependencies": {
 		"@hono/standard-validator": "^0.2.2",
@@ -23,6 +24,7 @@
 		"zod-openapi": "^5.4.6"
 	},
 	"devDependencies": {
+		"typescript": "^5.9.3",
 		"wrangler": "^4.4.0"
 	}
 }
