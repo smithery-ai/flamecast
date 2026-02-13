@@ -8,6 +8,7 @@ import {
 	useUnarchiveRun,
 	type FlamecastWorkflowRun,
 } from "@/hooks/use-api"
+import { InlinePRActions } from "@/components/inline-pr-actions"
 
 function getRunStatus(run: FlamecastWorkflowRun) {
 	if (run.errorAt) return "error"
@@ -181,7 +182,18 @@ export function WorkflowRunsList({ repo }: { repo?: string }) {
 								)}
 							</div>
 						</div>
-						<div className="shrink-0 ml-4 flex items-center gap-2">
+						<div className="shrink-0 ml-4 flex items-center gap-3">
+							{run.completedAt && run.sourceRepo && (() => {
+								const parts = run.sourceRepo.split("/")
+								if (parts.length < 2) return null
+								return (
+									<InlinePRActions
+										sourceOwner={parts[0]}
+										sourceRepo={parts[1]}
+										runId={run.workflowRunId}
+									/>
+								)
+							})()}
 							<span className="text-xs text-zinc-400">
 								{relativeTime(run.createdAt)}
 							</span>
