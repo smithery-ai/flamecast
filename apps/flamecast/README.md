@@ -1,5 +1,11 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Environment Variables
+
+The following environment variables are required:
+
+- `WORKOS_REDIRECT_URI` - The OAuth callback URL for WorkOS authentication. For branch deployments, set this to your branch-specific URL (e.g., `https://your-branch.vercel.app/auth/callback`). For local development, use `http://localhost:3000/auth/callback`.
+
 ## Getting Started
 
 First, run the development server:
