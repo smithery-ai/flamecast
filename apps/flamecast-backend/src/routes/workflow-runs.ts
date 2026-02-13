@@ -62,6 +62,8 @@ const GitHubRunOutputsResponseSchema = z.object({
 	prUrl: z.string().nullable(),
 	claudeLogs: z.string().nullable(),
 	claudeLogsTruncated: z.boolean(),
+	prompt: z.string().nullable(),
+	branchName: z.string().nullable(),
 })
 
 const GitHubJobsApiResponseSchema = z.object({
@@ -104,6 +106,8 @@ const DEFAULT_OUTPUTS = GitHubRunOutputsResponseSchema.parse({
 	prUrl: null,
 	claudeLogs: null,
 	claudeLogsTruncated: false,
+	prompt: null,
+	branchName: null,
 })
 
 async function authenticateApiKey(
@@ -675,6 +679,36 @@ workflowRuns.get(
 			)
 		}
 
+		// Fetch the prompt from the database
+		const [workflowRun] = await db
+			.select({
+				prompt: flamecastWorkflowRuns.prompt,
+			})
+			.from(flamecastWorkflowRuns)
+			.where(
+				and(
+					eq(flamecastWorkflowRuns.workflowRunId, runId),
+					eq(flamecastWorkflowRuns.userId, authRow.userId),
+				),
+			)
+			.limit(1)
+
+		const storedPrompt = workflowRun?.prompt ?? null
+
+		// Fetch the GitHub run to get the head branch
+		const runRes = await fetch(
+			`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}`,
+			{
+				headers: getGitHubHeaders(accessToken),
+			},
+		)
+
+		let headBranch: string | null = null
+		if (runRes.ok) {
+			const runData = (await runRes.json()) as { head_branch?: string }
+			headBranch = runData.head_branch ?? null
+		}
+
 		const artifactsRes = await fetch(
 			`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/artifacts?per_page=100`,
 			{
@@ -683,7 +717,13 @@ workflowRuns.get(
 		)
 
 		if (artifactsRes.status === 403 || artifactsRes.status === 404) {
-			return c.json(DEFAULT_OUTPUTS)
+			return c.json(
+				GitHubRunOutputsResponseSchema.parse({
+					...DEFAULT_OUTPUTS,
+					prompt: storedPrompt,
+					branchName: headBranch,
+				}),
+			)
 		}
 
 		if (!artifactsRes.ok) {
@@ -719,12 +759,26 @@ workflowRuns.get(
 				)
 			})[0]
 
-		if (!artifact) return c.json(DEFAULT_OUTPUTS)
+		if (!artifact)
+			return c.json(
+				GitHubRunOutputsResponseSchema.parse({
+					...DEFAULT_OUTPUTS,
+					prompt: storedPrompt,
+					branchName: headBranch,
+				}),
+			)
 
 		const archiveResponse = await fetch(artifact.archive_download_url, {
 			headers: getGitHubHeaders(accessToken),
 		})
-		if (!archiveResponse.ok) return c.json(DEFAULT_OUTPUTS)
+		if (!archiveResponse.ok)
+			return c.json(
+				GitHubRunOutputsResponseSchema.parse({
+					...DEFAULT_OUTPUTS,
+					prompt: storedPrompt,
+					branchName: headBranch,
+				}),
+			)
 
 		let outputEntry: [string, Uint8Array] | undefined
 		try {
@@ -735,19 +789,45 @@ workflowRuns.get(
 					name.endsWith("outputs.json"),
 				) || Object.entries(extracted).find(([name]) => name.endsWith(".json"))
 		} catch {
-			return c.json(DEFAULT_OUTPUTS)
+			return c.json(
+				GitHubRunOutputsResponseSchema.parse({
+					...DEFAULT_OUTPUTS,
+					prompt: storedPrompt,
+					branchName: headBranch,
+				}),
+			)
 		}
 
-		if (!outputEntry) return c.json(DEFAULT_OUTPUTS)
+		if (!outputEntry)
+			return c.json(
+				GitHubRunOutputsResponseSchema.parse({
+					...DEFAULT_OUTPUTS,
+					prompt: storedPrompt,
+					branchName: headBranch,
+				}),
+			)
 
 		let parsed: unknown
 		try {
 			parsed = JSON.parse(strFromU8(outputEntry[1]))
 		} catch {
-			return c.json(DEFAULT_OUTPUTS)
+			return c.json(
+				GitHubRunOutputsResponseSchema.parse({
+					...DEFAULT_OUTPUTS,
+					prompt: storedPrompt,
+					branchName: headBranch,
+				}),
+			)
 		}
 
-		if (!parsed || typeof parsed !== "object") return c.json(DEFAULT_OUTPUTS)
+		if (!parsed || typeof parsed !== "object")
+			return c.json(
+				GitHubRunOutputsResponseSchema.parse({
+					...DEFAULT_OUTPUTS,
+					prompt: storedPrompt,
+					branchName: headBranch,
+				}),
+			)
 
 		const outputObject = parsed as {
 			pr_url?: unknown
@@ -774,6 +854,8 @@ workflowRuns.get(
 					? fullClaudeLogs.slice(0, MAX_CLAUDE_LOGS_CHARS)
 					: null,
 				claudeLogsTruncated,
+				prompt: storedPrompt,
+				branchName: headBranch,
 			}),
 		)
 	},

@@ -93,6 +93,14 @@ export function WorkflowRunDetails({
 				</div>
 
 				<div className="grid gap-2 text-sm text-zinc-600 dark:text-zinc-300">
+					{outputs?.prompt && (
+						<p>
+							<span className="font-medium text-zinc-900 dark:text-zinc-100">
+								Prompt:
+							</span>{" "}
+							{outputs.prompt}
+						</p>
+					)}
 					<p>
 						<span className="font-medium text-zinc-900 dark:text-zinc-100">
 							Status:
@@ -100,6 +108,14 @@ export function WorkflowRunDetails({
 						{run.status || "-"}
 						{run.conclusion ? ` (${run.conclusion})` : ""}
 					</p>
+					{outputs?.prUrl && outputs?.branchName && (
+						<p>
+							<span className="font-medium text-zinc-900 dark:text-zinc-100">
+								Branch:
+							</span>{" "}
+							{outputs.branchName}
+						</p>
+					)}
 					<p>
 						<span className="font-medium text-zinc-900 dark:text-zinc-100">
 							Started:
