@@ -60,6 +60,7 @@ const GitHubRunLogsResponseSchema = z.object({
 const GitHubRunOutputsResponseSchema = z.object({
 	available: z.boolean(),
 	prUrl: z.string().nullable(),
+	branchName: z.string().nullable(),
 	claudeLogs: z.string().nullable(),
 	claudeLogsTruncated: z.boolean(),
 })
@@ -102,6 +103,7 @@ const DEFAULT_LOGS = GitHubRunLogsResponseSchema.parse({
 const DEFAULT_OUTPUTS = GitHubRunOutputsResponseSchema.parse({
 	available: false,
 	prUrl: null,
+	branchName: null,
 	claudeLogs: null,
 	claudeLogsTruncated: false,
 })
@@ -751,12 +753,19 @@ workflowRuns.get(
 
 		const outputObject = parsed as {
 			pr_url?: unknown
+			branch_name?: unknown
 			claude_logs?: unknown
 		}
 
 		const prUrl =
 			typeof outputObject.pr_url === "string" && outputObject.pr_url.length > 0
 				? outputObject.pr_url
+				: null
+
+		const branchName =
+			typeof outputObject.branch_name === "string" &&
+			outputObject.branch_name.length > 0
+				? outputObject.branch_name
 				: null
 
 		const fullClaudeLogs =
@@ -770,6 +779,7 @@ workflowRuns.get(
 			GitHubRunOutputsResponseSchema.parse({
 				available: true,
 				prUrl,
+				branchName,
 				claudeLogs: fullClaudeLogs
 					? fullClaudeLogs.slice(0, MAX_CLAUDE_LOGS_CHARS)
 					: null,

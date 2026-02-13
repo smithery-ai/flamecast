@@ -88,6 +88,7 @@ export interface FlamecastWorkflowLogs {
 export interface FlamecastWorkflowOutputs {
 	available: boolean
 	prUrl: string | null
+	branchName: string | null
 	claudeLogs: string | null
 	claudeLogsTruncated: boolean
 }
