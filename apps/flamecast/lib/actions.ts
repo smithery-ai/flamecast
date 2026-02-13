@@ -79,11 +79,24 @@ async function callBackend(pathname: string, searchParams?: URLSearchParams) {
 	})
 }
 
+async function callBackendPatch(pathname: string) {
+	const apiKey = await getBackendApiKey()
+	const url = new URL(pathname, BACKEND_URL)
+
+	return fetch(url.toString(), {
+		method: "PATCH",
+		headers: { Authorization: `Bearer ${apiKey}` },
+		cache: "no-store",
+	})
+}
+
 export async function getFlamecastRuns(
 	repo?: string,
+	includeArchived?: boolean,
 ): Promise<FlamecastWorkflowRun[]> {
 	const searchParams = new URLSearchParams()
 	if (repo) searchParams.set("repo", repo)
+	if (includeArchived) searchParams.set("includeArchived", "true")
 
 	const res = await callBackend("/workflow-runs", searchParams)
 
@@ -181,4 +194,18 @@ export async function getFlamecastWorkflowRunOutputs(
 	}
 
 	return res.json() as Promise<FlamecastWorkflowOutputs>
+}
+
+export async function archiveFlamecastRun(id: string): Promise<void> {
+	const res = await callBackendPatch(`/workflow-runs/${id}/archive`)
+	if (!res.ok) {
+		throw new Error(await getBackendErrorMessage(res))
+	}
+}
+
+export async function unarchiveFlamecastRun(id: string): Promise<void> {
+	const res = await callBackendPatch(`/workflow-runs/${id}/unarchive`)
+	if (!res.ok) {
+		throw new Error(await getBackendErrorMessage(res))
+	}
 }

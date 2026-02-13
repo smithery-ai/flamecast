@@ -8,10 +8,10 @@ export const queryKeys = {
 		["repos", owner, repo, "workflows", "runs", runId] as const,
 	workflowRunLogs: (owner: string, repo: string, runId: number) =>
 		["repos", owner, repo, "workflows", "runs", runId, "logs"] as const,
-	flamecastRuns: (repo?: string) =>
+	flamecastRuns: (repo?: string, includeArchived?: boolean) =>
 		repo
-			? (["flamecast", "runs", repo] as const)
-			: (["flamecast", "runs"] as const),
+			? (["flamecast", "runs", repo, { includeArchived }] as const)
+			: (["flamecast", "runs", { includeArchived }] as const),
 	flamecastWorkflowRun: (owner: string, repo: string, runId: number) =>
 		["flamecast", "runs", owner, repo, runId] as const,
 	flamecastWorkflowRunJobs: (owner: string, repo: string, runId: number) =>

@@ -1,6 +1,6 @@
 import { Hono } from "hono"
 import { describeRoute, resolver, validator as zValidator } from "hono-openapi"
-import { and, desc, eq } from "drizzle-orm"
+import { and, desc, eq, isNull } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/postgres-js"
 import postgres from "postgres"
 import { strFromU8, unzipSync } from "fflate"
@@ -1015,12 +1015,19 @@ workflowRuns.get(
 		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
 
-		const { repo: repoFilter, limit: limitParam } = c.req.valid("query")
+		const {
+			repo: repoFilter,
+			limit: limitParam,
+			includeArchived,
+		} = c.req.valid("query")
 		const limit = limitParam ?? 20
 
 		const conditions = [eq(flamecastWorkflowRuns.userId, authRow.userId)]
 		if (repoFilter) {
 			conditions.push(eq(flamecastWorkflowRuns.repo, repoFilter))
+		}
+		if (includeArchived !== "true") {
+			conditions.push(isNull(flamecastWorkflowRuns.archivedAt))
 		}
 
 		const runs = await db
@@ -1036,6 +1043,7 @@ workflowRuns.get(
 				startedAt: flamecastWorkflowRuns.startedAt,
 				completedAt: flamecastWorkflowRuns.completedAt,
 				errorAt: flamecastWorkflowRuns.errorAt,
+				archivedAt: flamecastWorkflowRuns.archivedAt,
 				createdAt: flamecastWorkflowRuns.createdAt,
 			})
 			.from(flamecastWorkflowRuns)
@@ -1048,6 +1056,66 @@ workflowRuns.get(
 			.limit(limit)
 
 		return c.json(runs)
+	},
+)
+
+// PATCH /:id/archive — Archive a workflow run
+workflowRuns.patch(
+	"/:id/archive",
+	zValidator("param", WorkflowRunIdParamSchema),
+	async c => {
+		const client = postgres(c.env.DATABASE_URL, { prepare: false })
+		const db = drizzle(client)
+
+		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
+		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
+
+		const { id } = c.req.valid("param")
+
+		const [updated] = await db
+			.update(flamecastWorkflowRuns)
+			.set({ archivedAt: new Date() })
+			.where(
+				and(
+					eq(flamecastWorkflowRuns.id, id),
+					eq(flamecastWorkflowRuns.userId, authRow.userId),
+				),
+			)
+			.returning({ id: flamecastWorkflowRuns.id })
+
+		if (!updated) return c.json({ error: "Not found" }, 404)
+
+		return c.json({ success: true as const })
+	},
+)
+
+// PATCH /:id/unarchive — Unarchive a workflow run
+workflowRuns.patch(
+	"/:id/unarchive",
+	zValidator("param", WorkflowRunIdParamSchema),
+	async c => {
+		const client = postgres(c.env.DATABASE_URL, { prepare: false })
+		const db = drizzle(client)
+
+		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
+		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
+
+		const { id } = c.req.valid("param")
+
+		const [updated] = await db
+			.update(flamecastWorkflowRuns)
+			.set({ archivedAt: null })
+			.where(
+				and(
+					eq(flamecastWorkflowRuns.id, id),
+					eq(flamecastWorkflowRuns.userId, authRow.userId),
+				),
+			)
+			.returning({ id: flamecastWorkflowRuns.id })
+
+		if (!updated) return c.json({ error: "Not found" }, 404)
+
+		return c.json({ success: true as const })
 	},
 )
 

@@ -75,6 +75,10 @@ export const ListWorkflowRunsQuerySchema = z
 			.max(100)
 			.optional()
 			.meta({ description: "Max results (default 20, max 100)" }),
+		includeArchived: z
+			.enum(["true", "false"])
+			.optional()
+			.meta({ description: "Include archived runs (default false)" }),
 	})
 	.meta({ id: "ListWorkflowRunsQuery" })
 
@@ -97,6 +101,10 @@ export const WorkflowRunItemSchema = z
 			.nullable()
 			.meta({ description: "ISO 8601 timestamp" }),
 		errorAt: z.string().nullable().meta({ description: "ISO 8601 timestamp" }),
+		archivedAt: z
+			.string()
+			.nullable()
+			.meta({ description: "ISO 8601 timestamp" }),
 		createdAt: z.string().meta({ description: "ISO 8601 timestamp" }),
 	})
 	.meta({ id: "WorkflowRunItem" })
