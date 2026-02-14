@@ -29,19 +29,34 @@ jobs:
     steps:
       - name: Register workflow run
         id: register
+        env:
+          PROMPT: \${{ inputs.prompt }}
         run: |
           PAYLOAD=$(jq -n \\
             --argjson workflowRunId \${{ github.run_id }} \\
             --arg repo "\${{ inputs.target_repo || github.repository }}" \\
             --arg sourceRepo "\${{ github.repository }}" \\
-            --arg prompt "\${{ inputs.prompt }}" \\
-            '{workflowRunId: $workflowRunId, repo: $repo, sourceRepo: $sourceRepo, prompt: $prompt}')
-          RESPONSE=$(curl -s -X POST \\
+            --arg prompt "$PROMPT" \\
+            '{workflowRunId: $workflowRunId, repo: $repo, sourceRepo: $sourceRepo, prompt: $prompt}') || {
+            echo "::error::Failed to construct JSON payload. This may be caused by special characters in the prompt."
+            exit 1
+          }
+          HTTP_CODE=$(curl -s -o /tmp/response.json -w "%{http_code}" -X POST \\
             -H "Authorization: Bearer \${{ secrets.FLAMECAST_API_KEY }}" \\
             -H "Content-Type: application/json" \\
             -d "$PAYLOAD" \\
             "https://api.flamecast.dev/workflow-runs")
-          echo "run_db_id=$(echo $RESPONSE | jq -r '.id')" >> $GITHUB_OUTPUT
+          RESPONSE=$(cat /tmp/response.json)
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "::error::Flamecast API returned HTTP $HTTP_CODE. Response: $RESPONSE"
+            exit 1
+          fi
+          RUN_DB_ID=$(echo "$RESPONSE" | jq -r '.id')
+          if [ -z "$RUN_DB_ID" ] || [ "$RUN_DB_ID" = "null" ]; then
+            echo "::error::Flamecast API response did not contain a valid 'id'. Response: $RESPONSE"
+            exit 1
+          fi
+          echo "run_db_id=$RUN_DB_ID" >> $GITHUB_OUTPUT
       - uses: smithery-ai/flamecast@v1
         id: flamecast
         with:
@@ -70,10 +85,13 @@ jobs:
       - name: Report completion
         if: always()
         run: |
-          curl -s -X PATCH \\
+          HTTP_CODE=$(curl -s -o /tmp/completion_response.json -w "%{http_code}" -X PATCH \\
             -H "Authorization: Bearer \${{ secrets.FLAMECAST_API_KEY }}" \\
             -H "Content-Type: application/json" \\
-            "https://api.flamecast.dev/workflow-runs/\${{ steps.register.outputs.run_db_id }}" || true
+            "https://api.flamecast.dev/workflow-runs/\${{ steps.register.outputs.run_db_id }}")
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "::warning::Failed to report completion to Flamecast API (HTTP $HTTP_CODE): $(cat /tmp/completion_response.json)"
+          fi
 `
 
 export function getFlamecastWorkflowContentBase64() {
