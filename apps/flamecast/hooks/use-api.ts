@@ -462,3 +462,30 @@ export function useDispatchWorkflow() {
 		},
 	})
 }
+
+export function useDispatchFollowupWorkflow() {
+	const queryClient = useQueryClient()
+
+	return useMutation({
+		mutationFn: (vars: {
+			owner: string
+			repo: string
+			parentRunId: number
+			followupPrompt: string
+			targetRepo?: string
+		}) =>
+			postJson<{ success: boolean }>(
+				`/api/repos/${vars.owner}/${vars.repo}/workflows/dispatch-followup`,
+				{
+					parentRunId: vars.parentRunId,
+					followupPrompt: vars.followupPrompt,
+					targetRepo: vars.targetRepo,
+				},
+			),
+		onSuccess: (_data, vars) => {
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.workflowRuns(vars.owner, vars.repo),
+			})
+		},
+	})
+}
