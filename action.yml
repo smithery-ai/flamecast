@@ -153,7 +153,8 @@ runs:
           REPO_FLAG="--repo $TARGET_REPO"
         fi
         if gh pr view "$BRANCH" $REPO_FLAG --json state -q '.state' 2>/dev/null | grep -q OPEN; then
-          echo "PR already exists"
+          echo "PR already exists, updating description"
+          gh pr edit "$BRANCH" --body "$PR_DESCRIPTION" $REPO_FLAG
         else
           TITLE="flamecast: $(echo "$PROMPT" | head -c 72)"
           gh pr create \
