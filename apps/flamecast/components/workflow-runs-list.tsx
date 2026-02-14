@@ -130,7 +130,13 @@ function handleRunKeyDown(
 	}
 }
 
-export function WorkflowRunsList({ repo }: { repo?: string }) {
+export function WorkflowRunsList({
+	repo,
+	limit,
+}: {
+	repo?: string
+	limit?: number
+}) {
 	const [showArchived, setShowArchived] = useState(false)
 	const {
 		data: runs,
@@ -159,6 +165,8 @@ export function WorkflowRunsList({ repo }: { repo?: string }) {
 		)
 	}
 
+	const displayedRuns = limit ? runs.slice(0, limit) : runs
+
 	return (
 		<div className="flex flex-col gap-1">
 			<div className="flex justify-end px-4 pb-1">
@@ -170,7 +178,7 @@ export function WorkflowRunsList({ repo }: { repo?: string }) {
 					{showArchived ? "Hide archived" : "Show archived"}
 				</button>
 			</div>
-			{runs.map(run => {
+			{displayedRuns.map(run => {
 				const isArchived = !!run.archivedAt
 				const status = getRunStatus(run)
 				const workflowRunUrl = getWorkflowRunUrl(run)

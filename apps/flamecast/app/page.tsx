@@ -80,6 +80,13 @@ export default async function Home() {
 
 				{user ? (
 					<>
+						<div className="flex flex-col gap-3">
+							<h2 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
+								Recent Runs
+							</h2>
+							<WorkflowRunsList limit={5} />
+						</div>
+
 						{repos.length > 0 ? (
 							<div className="flex flex-col gap-1">
 								{repos.map(repo => (
@@ -119,13 +126,6 @@ export default async function Home() {
 								connected.
 							</p>
 						)}
-
-						<div className="flex flex-col gap-3">
-							<h2 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
-								Recent Runs
-							</h2>
-							<WorkflowRunsList />
-						</div>
 					</>
 				) : (
 					<div className="flex flex-col gap-6">
