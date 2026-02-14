@@ -7,6 +7,7 @@ import {
 	usePullRequestStatus,
 	useMergePull,
 	useClosePull,
+	useRevertPull,
 } from "@/hooks/use-api"
 import { queryKeys } from "@/hooks/query-keys"
 import { Button } from "@/components/ui/button"
@@ -74,6 +75,7 @@ function InlinePRActionsInner({ prUrl }: { prUrl: string }) {
 
 	const mergePull = useMergePull()
 	const closePull = useClosePull()
+	const revertPull = useRevertPull()
 
 	if (!parsed) return null
 
@@ -97,10 +99,59 @@ function InlinePRActionsInner({ prUrl }: { prUrl: string }) {
 	if (!status) return null
 
 	if (status.state === "merged") {
+		const isReverting = revertPull.isPending
+
 		return (
-			<span className="inline-flex items-center rounded-full bg-purple-100 dark:bg-purple-900/30 px-2 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-300">
-				Merged
-			</span>
+			<div
+				className="flex items-center gap-1.5"
+				onClick={e => e.stopPropagation()}
+				onKeyDown={e => e.stopPropagation()}
+			>
+				<span className="inline-flex items-center rounded-full bg-purple-100 dark:bg-purple-900/30 px-2 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-300">
+					Merged
+				</span>
+				<AlertDialog>
+					<AlertDialogTrigger asChild>
+						<Button
+							size="sm"
+							variant="outline"
+							className="h-6 px-2 text-xs"
+							disabled={isReverting}
+						>
+							{isReverting ? "Reverting..." : "Revert"}
+						</Button>
+					</AlertDialogTrigger>
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>Revert pull request</AlertDialogTitle>
+							<AlertDialogDescription>
+								This will create a new PR that reverts the changes from PR #{number}.
+							</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel>Cancel</AlertDialogCancel>
+							<AlertDialogAction
+								variant="destructive"
+								onClick={() => {
+									revertPull.mutate(
+										{ owner, repo, number },
+										{
+											onSuccess: data => {
+												invalidateStatus()
+												if (data.revertPrUrl) {
+													window.open(data.revertPrUrl, "_blank")
+												}
+											},
+										},
+									)
+								}}
+							>
+								Revert
+							</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
+			</div>
 		)
 	}
 
