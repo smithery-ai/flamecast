@@ -90,13 +90,21 @@ async function callBackendPatch(pathname: string) {
 	})
 }
 
+export interface FlamecastRunsResponse {
+	runs: FlamecastWorkflowRun[]
+	hasMore: boolean
+	nextCursor: string | null
+}
+
 export async function getFlamecastRuns(
 	repo?: string,
 	includeArchived?: boolean,
-): Promise<FlamecastWorkflowRun[]> {
+	cursor?: string,
+): Promise<FlamecastRunsResponse> {
 	const searchParams = new URLSearchParams()
 	if (repo) searchParams.set("repo", repo)
 	if (includeArchived) searchParams.set("includeArchived", "true")
+	if (cursor) searchParams.set("cursor", cursor)
 
 	const res = await callBackend("/workflow-runs", searchParams)
 
@@ -104,7 +112,7 @@ export async function getFlamecastRuns(
 		throw new Error(await getBackendErrorMessage(res))
 	}
 
-	return res.json() as Promise<FlamecastWorkflowRun[]>
+	return res.json() as Promise<FlamecastRunsResponse>
 }
 
 export async function getFlamecastWorkflowRun(
