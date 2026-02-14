@@ -24,6 +24,7 @@ export const flamecastWorkflowRuns = flamecastSchema.table(
 		),
 		prompt: text("prompt"),
 		errorMessage: text("error_message"),
+		parentWorkflowRunId: bigint("parent_workflow_run_id", { mode: "number" }),
 		startedAt: timestamp("started_at"),
 		completedAt: timestamp("completed_at"),
 		errorAt: timestamp("error_at"),
@@ -38,6 +39,7 @@ export const flamecastWorkflowRuns = flamecastSchema.table(
 			table.userId,
 		),
 		index("flamecast_workflow_runs_repo_idx").on(table.repo),
+		index("flamecast_workflow_runs_parent_idx").on(table.parentWorkflowRunId),
 	],
 )
 

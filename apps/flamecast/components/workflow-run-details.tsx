@@ -9,6 +9,7 @@ import {
 	useFlamecastWorkflowRunOutputs,
 } from "@/hooks/use-api"
 import { PullRequestActions } from "./pull-request-actions"
+import { WorkflowFollowupForm } from "./workflow-followup-form"
 
 const MAX_CLAUDE_LOGS_CHARS = 200_000
 const MAX_WORKFLOW_LOG_CHARS = 300_000
@@ -87,6 +88,9 @@ export function WorkflowRunDetails({
 	const prInfo = outputs?.prUrl ? parsePrUrl(outputs.prUrl) : null
 	const displayOwner = prInfo?.owner ?? owner
 	const displayRepo = prInfo?.repo ?? repo
+
+	// Determine if workflow is complete
+	const isComplete = run.status === "completed"
 
 	return (
 		<div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
@@ -271,6 +275,17 @@ export function WorkflowRunDetails({
 						</div>
 					)}
 				</div>
+
+				{isComplete && (
+					<div className="flex flex-col gap-3 pt-4 border-t border-zinc-200 dark:border-zinc-800">
+						<WorkflowFollowupForm
+							owner={owner}
+							repo={repo}
+							runId={runId}
+							targetRepo={prInfo ? `${prInfo.owner}/${prInfo.repo}` : undefined}
+						/>
+					</div>
+				)}
 			</main>
 		</div>
 	)
