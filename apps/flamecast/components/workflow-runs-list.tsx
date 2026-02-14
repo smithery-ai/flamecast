@@ -133,15 +133,20 @@ function handleRunKeyDown(
 export function WorkflowRunsList({ repo }: { repo?: string }) {
 	const [showArchived, setShowArchived] = useState(false)
 	const {
-		data: runs,
+		data,
 		isLoading,
 		error,
+		fetchNextPage,
+		hasNextPage,
+		isFetchingNextPage,
 	} = useFlamecastRuns(repo, {
 		refetchInterval: 5000,
 		includeArchived: showArchived,
 	})
 	const archiveRun = useArchiveRun()
 	const unarchiveRun = useUnarchiveRun()
+
+	const runs = data?.pages.flatMap(page => page.runs) ?? []
 
 	if (isLoading) {
 		return <p className="text-sm text-zinc-400">Loading workflow runs...</p>
@@ -151,7 +156,7 @@ export function WorkflowRunsList({ repo }: { repo?: string }) {
 		return null
 	}
 
-	if (!runs || runs.length === 0) {
+	if (runs.length === 0) {
 		return (
 			<p className="text-sm text-zinc-500 dark:text-zinc-400">
 				No workflow runs yet.
@@ -283,6 +288,18 @@ export function WorkflowRunsList({ repo }: { repo?: string }) {
 					</div>
 				)
 			})}
+			{hasNextPage && (
+				<div className="flex justify-center px-4 pt-3">
+					<button
+						type="button"
+						onClick={() => fetchNextPage()}
+						disabled={isFetchingNextPage}
+						className="text-sm text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-900"
+					>
+						{isFetchingNextPage ? "Loading..." : "Load More"}
+					</button>
+				</div>
+			)}
 		</div>
 	)
 }
