@@ -406,25 +406,6 @@ export function useClosePull() {
 	})
 }
 
-export function useRevertPull() {
-	const queryClient = useQueryClient()
-
-	return useMutation({
-		mutationFn: (vars: { owner: string; repo: string; number: number }) =>
-			postJson<{
-				success: boolean
-				reverted: boolean
-				revertPrNumber: number
-				revertPrUrl: string
-			}>(`/api/repos/${vars.owner}/${vars.repo}/pulls/${vars.number}/revert`),
-		onSuccess: (_data, vars) => {
-			queryClient.invalidateQueries({
-				queryKey: queryKeys.pulls(vars.owner, vars.repo),
-			})
-		},
-	})
-}
-
 export function useArchiveRun() {
 	const queryClient = useQueryClient()
 

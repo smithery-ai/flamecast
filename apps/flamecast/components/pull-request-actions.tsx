@@ -6,7 +6,6 @@ import {
 	usePullRequestStatus,
 	useMergePull,
 	useClosePull,
-	useRevertPull,
 } from "@/hooks/use-api"
 import { queryKeys } from "@/hooks/query-keys"
 import { Button } from "@/components/ui/button"
@@ -117,7 +116,6 @@ export function PullRequestActions({ prUrl }: PullRequestActionsProps) {
 
 	const mergePull = useMergePull()
 	const closePull = useClosePull()
-	const revertPull = useRevertPull()
 
 	if (!parsed) {
 		return (
@@ -152,7 +150,6 @@ export function PullRequestActions({ prUrl }: PullRequestActionsProps) {
 	const isOpen = status?.state === "open"
 	const isMerging = mergePull.isPending
 	const isClosing = closePull.isPending
-	const isReverting = revertPull.isPending
 
 	const checksToShow = showAllChecks
 		? (status?.checkRuns ?? [])
@@ -177,62 +174,9 @@ export function PullRequestActions({ prUrl }: PullRequestActionsProps) {
 			) : status ? (
 				<>
 					{status.state === "merged" && (
-						<>
-							<span className="inline-flex w-fit items-center rounded-full bg-purple-100 dark:bg-purple-900/30 px-2.5 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-300">
-								Merged
-							</span>
-							<div className="flex items-center gap-2 pt-1">
-								<AlertDialog>
-									<AlertDialogTrigger asChild>
-										<Button
-											size="sm"
-											variant="outline"
-											disabled={isReverting}
-										>
-											{isReverting ? "Reverting..." : "Revert PR"}
-										</Button>
-									</AlertDialogTrigger>
-									<AlertDialogContent>
-										<AlertDialogHeader>
-											<AlertDialogTitle>Revert pull request</AlertDialogTitle>
-											<AlertDialogDescription>
-												This will create a new PR that reverts the changes from
-												PR #{number}.
-											</AlertDialogDescription>
-										</AlertDialogHeader>
-										<AlertDialogFooter>
-											<AlertDialogCancel>Cancel</AlertDialogCancel>
-											<AlertDialogAction
-												variant="destructive"
-												onClick={() => {
-													revertPull.mutate(
-														{ owner, repo, number },
-														{
-															onSuccess: data => {
-																invalidateStatus()
-																if (data.revertPrUrl) {
-																	window.open(data.revertPrUrl, "_blank")
-																}
-															},
-														},
-													)
-												}}
-											>
-												Revert
-											</AlertDialogAction>
-										</AlertDialogFooter>
-									</AlertDialogContent>
-								</AlertDialog>
-							</div>
-							{revertPull.isError && (
-								<p className="text-xs text-red-600 dark:text-red-400">
-									Revert failed:{" "}
-									{revertPull.error instanceof Error
-										? revertPull.error.message
-										: "Unknown error"}
-								</p>
-							)}
-						</>
+						<span className="inline-flex w-fit items-center rounded-full bg-purple-100 dark:bg-purple-900/30 px-2.5 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-300">
+							Merged
+						</span>
 					)}
 
 					{status.state === "closed" && (
