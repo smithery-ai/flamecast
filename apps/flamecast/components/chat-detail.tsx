@@ -14,6 +14,8 @@ import {
 } from "@/hooks/use-api"
 import { InlinePRActions } from "@/components/inline-pr-actions"
 
+const MAX_CLAUDE_LOGS_CHARS = 200_000
+
 function relativeTime(date: string) {
 	const diff = Date.now() - new Date(date).getTime()
 	const seconds = Math.floor(diff / 1000)
@@ -62,58 +64,126 @@ function RunMessage({ run }: { run: FlamecastWorkflowRun }) {
 		sourceRepo.length >= 2
 			? `/${sourceRepo[0]}/${sourceRepo[1]}/actions/runs/${run.workflowRunId}`
 			: null
+	const isRunning = !!run.startedAt && !run.completedAt && !run.errorAt
+	const canFetchOutputs = sourceRepo.length >= 2 && !!run.workflowRunId
+
+	const {
+		data: outputs,
+		isLoading: outputsLoading,
+		error: outputsError,
+	} = useFlamecastWorkflowRunOutputs(
+		sourceRepo[0] ?? "",
+		sourceRepo[1] ?? "",
+		run.workflowRunId,
+		{
+			enabled: canFetchOutputs,
+			refetchInterval: isRunning ? 10_000 : false,
+		},
+	)
+	const prUrl = outputs?.prUrl ?? run.prUrl
 
 	return (
-		<div className="flex flex-col gap-2 rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
-			{/* User prompt */}
-			<div className="flex items-start justify-between gap-3">
-				<p className="text-sm text-zinc-900 dark:text-zinc-100">
-					{run.prompt || "No prompt"}
-				</p>
-				<span className="shrink-0 text-xs text-zinc-400">
-					{relativeTime(run.createdAt)}
-				</span>
+		<div className="flex flex-col gap-3">
+			<div className="flex justify-end">
+				<div className="max-w-[85%] rounded-2xl bg-zinc-900 px-4 py-3 text-zinc-50 dark:bg-zinc-100 dark:text-zinc-900">
+					<p className="text-sm">{run.prompt || "No prompt"}</p>
+					<p className="mt-2 text-[11px] opacity-70">
+						You · {relativeTime(run.createdAt)}
+					</p>
+				</div>
 			</div>
 
-			{/* Status and result */}
-			<div className="flex items-center gap-3 flex-wrap">
-				<RunStatusBadge run={run} />
-				{run.prUrl && (
-					<a
-						href={run.prUrl}
-						target="_blank"
-						rel="noopener noreferrer"
-						className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-					>
-						View PR
-					</a>
-				)}
-				{runDetailUrl && (
-					<Link
-						href={runDetailUrl}
-						className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-					>
-						Run details
-					</Link>
-				)}
-				{run.completedAt && run.sourceRepo && (() => {
-					const parts = run.sourceRepo.split("/")
-					if (parts.length < 2) return null
-					return (
-						<InlinePRActions
-							sourceOwner={parts[0]}
-							sourceRepo={parts[1]}
-							runId={run.workflowRunId}
-						/>
-					)
-				})()}
-			</div>
+			<div className="flex justify-start">
+				<div className="w-full max-w-[95%] rounded-2xl border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950">
+					<div className="mb-2 flex items-center gap-2">
+						<p className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
+							Flamecast
+						</p>
+						<RunStatusBadge run={run} />
+					</div>
 
-			{run.errorMessage && (
-				<p className="text-xs text-red-500 dark:text-red-400">
-					{run.errorMessage}
-				</p>
-			)}
+					<div className="mt-1 flex flex-col gap-2">
+						{run.errorMessage ? (
+							<p className="text-sm text-red-500 dark:text-red-400">
+								{run.errorMessage}
+							</p>
+						) : run.errorAt ? (
+							<p className="text-sm text-red-500 dark:text-red-400">
+								The run failed before outputs were fully captured.
+							</p>
+						) : sourceRepo.length < 2 ? (
+							<p className="text-sm text-zinc-500 dark:text-zinc-400">
+								No source repository linked for this run.
+							</p>
+						) : outputsLoading ? (
+							<p className="text-sm text-zinc-500 dark:text-zinc-400">
+								Loading claude_logs...
+							</p>
+						) : outputsError ? (
+							<p className="text-sm text-red-500 dark:text-red-400">
+								Unable to load claude_logs: {outputsError.message}
+							</p>
+						) : outputs?.available && outputs.claudeLogs ? (
+							<>
+								<p className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+									claude_logs
+								</p>
+								<pre className="max-h-[420px] overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100/60 dark:bg-zinc-900 p-3 text-xs text-zinc-800 dark:text-zinc-200 whitespace-pre-wrap break-words">
+									{outputs.claudeLogs}
+								</pre>
+								{outputs.claudeLogsTruncated && (
+									<p className="text-xs text-zinc-500 dark:text-zinc-400">
+										Showing first {MAX_CLAUDE_LOGS_CHARS.toLocaleString()}{" "}
+										characters.
+									</p>
+								)}
+							</>
+						) : outputs?.available ? (
+							<p className="text-sm text-zinc-500 dark:text-zinc-400">
+								No claude_logs found in outputs.
+							</p>
+						) : (
+							<p className="text-sm text-zinc-500 dark:text-zinc-400">
+								{isRunning
+									? "Waiting for outputs... The workflow is still running."
+									: "No Flamecast outputs artifact found for this run."}
+							</p>
+						)}
+					</div>
+
+					<div className="mt-3 flex items-center gap-3 flex-wrap border-t border-zinc-200 pt-3 dark:border-zinc-800">
+						{prUrl && (
+							<a
+								href={prUrl}
+								target="_blank"
+								rel="noopener noreferrer"
+								className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+							>
+								View PR
+							</a>
+						)}
+						{runDetailUrl && (
+							<Link
+								href={runDetailUrl}
+								className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+							>
+								Run details
+							</Link>
+						)}
+						{run.completedAt && run.sourceRepo && (() => {
+							const parts = run.sourceRepo.split("/")
+							if (parts.length < 2) return null
+							return (
+								<InlinePRActions
+									sourceOwner={parts[0]}
+									sourceRepo={parts[1]}
+									runId={run.workflowRunId}
+								/>
+							)
+						})()}
+					</div>
+				</div>
+			</div>
 		</div>
 	)
 }

@@ -138,6 +138,7 @@ export interface PullRequestStatus {
 		failed: number
 	}
 	checkRuns: Array<{
+		id: number
 		name: string
 		status: string
 		conclusion: string | null
@@ -283,11 +284,13 @@ export function useFlamecastWorkflowRunOutputs(
 	owner: string,
 	repo: string,
 	runId: number,
+	options?: { enabled?: boolean; refetchInterval?: number | false },
 ) {
 	return useQuery({
 		queryKey: queryKeys.flamecastWorkflowRunOutputs(owner, repo, runId),
 		queryFn: () => getFlamecastWorkflowRunOutputs(owner, repo, runId),
-		enabled: !!owner && !!repo && !!runId,
+		enabled: (options?.enabled ?? true) && !!owner && !!repo && !!runId,
+		refetchInterval: options?.refetchInterval,
 	})
 }
 

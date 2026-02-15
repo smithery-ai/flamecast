@@ -138,6 +138,7 @@ githubRepos.get(
 		)
 
 		let checkRuns: Array<{
+			id: number
 			name: string
 			status: string
 			conclusion: string | null
@@ -146,6 +147,7 @@ githubRepos.get(
 		if (checksRes.ok) {
 			const checksData = (await checksRes.json()) as {
 				check_runs: Array<{
+					id: number
 					name: string
 					status: string
 					conclusion: string | null
@@ -178,6 +180,7 @@ githubRepos.get(
 				failed,
 			},
 			checkRuns: checkRuns.map(cr => ({
+				id: cr.id,
 				name: cr.name,
 				status: cr.status,
 				conclusion: cr.conclusion,

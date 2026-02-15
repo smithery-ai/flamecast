@@ -202,7 +202,7 @@ export function PullRequestActions({ prUrl }: PullRequestActionsProps) {
 									<div className="flex flex-col gap-1">
 										{checksToShow.map(cr => (
 											<div
-												key={cr.name}
+												key={cr.id}
 												className="flex items-center gap-1.5 text-xs"
 											>
 												{cr.status === "completed" ? (
