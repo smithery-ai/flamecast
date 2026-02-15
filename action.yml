@@ -20,9 +20,9 @@ inputs:
     required: false
 
 outputs:
-  claude_logs:
-    description: "Claude Code combined stdout/stderr logs"
-    value: ${{ steps.claude.outputs.logs }}
+  execution_file:
+    description: "Path to Claude Code execution output"
+    value: ${{ steps.claude.outputs.execution_file }}
   pr_url:
     description: "Created or existing pull request URL (empty when no PR)"
     value: ${{ steps.pr.outputs.url }}
@@ -62,79 +62,47 @@ runs:
           git checkout -b "$BRANCH"
         fi
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '22'
-
     - name: Run Claude Code
       id: claude
-      shell: bash
-      env:
-        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
-        PROMPT: ${{ inputs.prompt }}
-      run: |
-        set -o pipefail
-        LOG_FILE="${RUNNER_TEMP}/claude.log"
-        npx -y @anthropic-ai/claude-code --print --dangerously-skip-permissions "$PROMPT" 2>&1 | tee "$LOG_FILE"
-        {
-          echo "logs<<__FLAMECAST_LOGS__"
-          cat "$LOG_FILE"
-          echo "__FLAMECAST_LOGS__"
-        } >> "$GITHUB_OUTPUT"
+      uses: anthropics/claude-code-action@main
+      with:
+        prompt: ${{ inputs.prompt }}
+        claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
+        github_token: ${{ inputs.target_repo && inputs.flamecast_pat || github.token }}
+        base_branch: ${{ inputs.base_branch || 'main' }}
+        claude_args: |
+          --allowedTools "Edit,MultiEdit,Write,Read,Glob,Grep,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git status:*)"
 
-    - name: Commit and push
+    - name: Check for changes
       id: commit
       shell: bash
       env:
-        PROMPT: ${{ inputs.prompt }}
         BRANCH: ${{ steps.branch.outputs.name }}
       run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add -A
-        if git diff --cached --quiet; then
+        # Claude may have already committed+pushed, or may have left uncommitted changes
+        if ! git diff --quiet || ! git diff --cached --quiet; then
+          # Uncommitted changes exist — commit them
+          git add -A
+          git commit -m "flamecast: apply changes"
+          git push origin "$BRANCH"
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+        elif [ "$(git rev-list origin/$BRANCH..HEAD 2>/dev/null | wc -l)" -gt 0 ] 2>/dev/null; then
+          # Commits exist but haven't been pushed
+          git push origin "$BRANCH"
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+        elif git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null 2>&1; then
+          # Branch exists on remote — check if it has changes vs base
+          BASE="${{ inputs.base_branch || 'main' }}"
+          if ! git diff --quiet "origin/$BASE..origin/$BRANCH" 2>/dev/null; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No changes to commit"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+        else
           echo "No changes to commit"
           echo "has_changes=false" >> "$GITHUB_OUTPUT"
-          exit 0
         fi
-        TRUNCATED=$(echo "$PROMPT" | head -c 72)
-        git commit -m "flamecast: ${TRUNCATED}"
-        git push origin "$BRANCH"
-        echo "has_changes=true" >> "$GITHUB_OUTPUT"
-
-    - name: Generate PR description
-      id: pr_description
-      if: steps.commit.outputs.has_changes == 'true'
-      shell: bash
-      env:
-        CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
-        BASE: ${{ inputs.base_branch || 'main' }}
-      run: |
-        # Check for PR template
-        TEMPLATE_PROMPT=""
-        if [ -f ".github/PULL_REQUEST_TEMPLATE.md" ]; then
-          TEMPLATE_PROMPT="Use the pull request template found at .github/PULL_REQUEST_TEMPLATE.md to structure the description."
-        elif [ -f ".github/pull_request_template.md" ]; then
-          TEMPLATE_PROMPT="Use the pull request template found at .github/pull_request_template.md to structure the description."
-        elif [ -f "PULL_REQUEST_TEMPLATE.md" ]; then
-          TEMPLATE_PROMPT="Use the pull request template found at PULL_REQUEST_TEMPLATE.md to structure the description."
-        elif [ -f "docs/PULL_REQUEST_TEMPLATE.md" ]; then
-          TEMPLATE_PROMPT="Use the pull request template found at docs/PULL_REQUEST_TEMPLATE.md to structure the description."
-        fi
-
-        # Generate PR description using Claude
-        PR_PROMPT="Review the git diff between $BASE and HEAD. Generate a comprehensive pull request description that explains what changes were made and why. $TEMPLATE_PROMPT Be concise but informative. Output ONLY the PR description text, no additional commentary."
-
-        set -o pipefail
-        PR_DESC=$(npx -y @anthropic-ai/claude-code --print --dangerously-skip-permissions "$PR_PROMPT" 2>&1 | tail -n +2)
-
-        # Save to output using heredoc
-        {
-          echo "description<<__FLAMECAST_PR_DESC__"
-          echo "$PR_DESC"
-          echo "__FLAMECAST_PR_DESC__"
-        } >> "$GITHUB_OUTPUT"
 
     - name: Open or update PR
       id: pr
@@ -146,22 +114,20 @@ runs:
         BRANCH: ${{ steps.branch.outputs.name }}
         BASE: ${{ inputs.base_branch || 'main' }}
         TARGET_REPO: ${{ inputs.target_repo }}
-        PR_DESCRIPTION: ${{ steps.pr_description.outputs.description }}
       run: |
         REPO_FLAG=""
         if [ -n "$TARGET_REPO" ]; then
           REPO_FLAG="--repo $TARGET_REPO"
         fi
+        TITLE="flamecast: $(echo "$PROMPT" | head -c 72)"
         if gh pr view "$BRANCH" $REPO_FLAG --json state -q '.state' 2>/dev/null | grep -q OPEN; then
-          echo "PR already exists, updating description"
-          gh pr edit "$BRANCH" --body "$PR_DESCRIPTION" $REPO_FLAG
+          echo "PR already exists"
         else
-          TITLE="flamecast: $(echo "$PROMPT" | head -c 72)"
           gh pr create \
             --base "$BASE" \
             --head "$BRANCH" \
             --title "$TITLE" \
-            --body "$PR_DESCRIPTION" \
+            --body "Prompted by: ${PROMPT}" \
             $REPO_FLAG
         fi
         PR_URL=$(gh pr view "$BRANCH" $REPO_FLAG --json url -q '.url')
