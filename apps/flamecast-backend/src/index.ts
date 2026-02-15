@@ -7,6 +7,7 @@ import workflowRuns from "./routes/workflow-runs"
 import apiKeys from "./routes/api-keys"
 import githubRepos from "./routes/github-repos"
 import setup from "./routes/setup"
+import chats from "./routes/chats"
 import { createOpenAPIRoute } from "./openapi"
 
 export type Bindings = {
@@ -32,12 +33,14 @@ app.use("/workflow-runs/*", corsMiddleware)
 app.use("/api-keys/*", corsMiddleware)
 app.use("/github/*", corsMiddleware)
 app.use("/setup/*", corsMiddleware)
+app.use("/chats/*", corsMiddleware)
 
 app.route("/auth", auth)
 app.route("/workflow-runs", workflowRuns)
 app.route("/api-keys", apiKeys)
 app.route("/github", githubRepos)
 app.route("/setup", setup)
+app.route("/chats", chats)
 app.route("/openapi", createOpenAPIRoute(app))
 
 app.get("/", async c => {

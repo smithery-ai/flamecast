@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
 	useFlamecastWorkflowRunOutputs,
@@ -55,6 +55,9 @@ export function InlinePRActions({
 function InlinePRActionsInner({ prUrl }: { prUrl: string }) {
 	const parsed = parsePrUrl(prUrl)
 	const queryClient = useQueryClient()
+	const [pendingAction, setPendingAction] = useState<"merge" | "close" | null>(
+		null,
+	)
 	const [pollInterval, setPollInterval] = useState<number | false>(10_000)
 
 	const { data: status, isLoading } = usePullRequestStatus(
@@ -66,15 +69,6 @@ function InlinePRActionsInner({ prUrl }: { prUrl: string }) {
 			refetchInterval: pollInterval,
 		},
 	)
-
-	if (
-		status &&
-		pollInterval !== false &&
-		(status.state !== "open" ||
-			(status.checks.pending === 0 && status.mergeable))
-	) {
-		setPollInterval(false)
-	}
 
 	const mergePull = useMergePull()
 	const closePull = useClosePull()
@@ -91,6 +85,30 @@ function InlinePRActionsInner({ prUrl }: { prUrl: string }) {
 			queryKey: queryKeys.pulls(owner, repo),
 		})
 	}
+
+	useEffect(() => {
+		// After an action is requested, keep the loading state until GitHub reflects
+		// the final PR status.
+		if (pendingAction && status?.state !== "open") {
+			setPendingAction(null)
+		}
+	}, [pendingAction, status?.state])
+
+	useEffect(() => {
+		if (pendingAction) {
+			setPollInterval(2_000)
+			return
+		}
+		if (!status) {
+			setPollInterval(10_000)
+			return
+		}
+		if (status.state === "open" && status.checks.pending > 0) {
+			setPollInterval(10_000)
+			return
+		}
+		setPollInterval(false)
+	}, [pendingAction, status])
 
 	if (isLoading) {
 		return <span className="text-xs text-zinc-400">Loading...</span>
@@ -121,6 +139,7 @@ function InlinePRActionsInner({ prUrl }: { prUrl: string }) {
 
 	const isMerging = mergePull.isPending
 	const isClosing = closePull.isPending
+	const isAwaitingStatus = pendingAction !== null || isMerging || isClosing
 
 	return (
 		<div
@@ -152,74 +171,84 @@ function InlinePRActionsInner({ prUrl }: { prUrl: string }) {
 					</span>
 				))}
 
-			<AlertDialog>
-				<AlertDialogTrigger asChild>
-					<Button
-						size="sm"
-						className="h-6 px-2 text-xs"
-						disabled={!canMerge || isMerging}
-					>
-						{isMerging ? "Merging..." : "Merge"}
-					</Button>
-				</AlertDialogTrigger>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Merge pull request</AlertDialogTitle>
-						<AlertDialogDescription>
-							This will squash and merge PR #{number} and delete the branch.
-							This action cannot be undone.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction
-							onClick={() => {
-								mergePull.mutate(
-									{ owner, repo, number },
-									{ onSuccess: invalidateStatus },
-								)
-							}}
-						>
-							Merge
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
+			{isAwaitingStatus ? (
+				<span className="text-xs text-zinc-400">
+					{pendingAction === "merge" || isMerging
+						? "Merging..."
+						: "Closing..."}{" "}
+					waiting for status
+				</span>
+			) : (
+				<>
+					<AlertDialog>
+						<AlertDialogTrigger asChild>
+							<Button size="sm" className="h-6 px-2 text-xs" disabled={!canMerge}>
+								Merge
+							</Button>
+						</AlertDialogTrigger>
+						<AlertDialogContent>
+							<AlertDialogHeader>
+								<AlertDialogTitle>Merge pull request</AlertDialogTitle>
+								<AlertDialogDescription>
+									This will squash and merge PR #{number} and delete the branch.
+									This action cannot be undone.
+								</AlertDialogDescription>
+							</AlertDialogHeader>
+							<AlertDialogFooter>
+								<AlertDialogCancel>Cancel</AlertDialogCancel>
+								<AlertDialogAction
+									onClick={() => {
+										setPendingAction("merge")
+										mergePull.mutate(
+											{ owner, repo, number },
+											{
+												onSuccess: invalidateStatus,
+												onError: () => setPendingAction(null),
+											},
+										)
+									}}
+								>
+									Merge
+								</AlertDialogAction>
+							</AlertDialogFooter>
+						</AlertDialogContent>
+					</AlertDialog>
 
-			<AlertDialog>
-				<AlertDialogTrigger asChild>
-					<Button
-						size="sm"
-						variant="outline"
-						className="h-6 px-2 text-xs"
-						disabled={isClosing}
-					>
-						{isClosing ? "Closing..." : "Close"}
-					</Button>
-				</AlertDialogTrigger>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Close pull request</AlertDialogTitle>
-						<AlertDialogDescription>
-							This will close PR #{number} and delete the branch.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction
-							variant="destructive"
-							onClick={() => {
-								closePull.mutate(
-									{ owner, repo, number },
-									{ onSuccess: invalidateStatus },
-								)
-							}}
-						>
-							Close
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
+					<AlertDialog>
+						<AlertDialogTrigger asChild>
+							<Button size="sm" variant="outline" className="h-6 px-2 text-xs">
+								Close
+							</Button>
+						</AlertDialogTrigger>
+						<AlertDialogContent>
+							<AlertDialogHeader>
+								<AlertDialogTitle>Close pull request</AlertDialogTitle>
+								<AlertDialogDescription>
+									This will close PR #{number} and delete the branch.
+								</AlertDialogDescription>
+							</AlertDialogHeader>
+							<AlertDialogFooter>
+								<AlertDialogCancel>Cancel</AlertDialogCancel>
+								<AlertDialogAction
+									variant="destructive"
+									onClick={() => {
+										setPendingAction("close")
+										closePull.mutate(
+											{ owner, repo, number },
+											{
+												onSuccess: invalidateStatus,
+												onError: () => setPendingAction(null),
+											},
+										)
+									}}
+								>
+									Close
+								</AlertDialogAction>
+							</AlertDialogFooter>
+						</AlertDialogContent>
+					</AlertDialog>
+				</>
+			)}
 		</div>
 	)
 }

@@ -12,6 +12,7 @@ import {
 	getGitHubHeaders,
 } from "../lib/auth"
 import { createPostHogClient } from "../lib/posthog"
+import { getOrCreateChat } from "../lib/chat-helpers"
 import type { Bindings } from "../index"
 
 const githubRepos = new Hono<{ Bindings: Bindings }>()
@@ -38,6 +39,7 @@ const DispatchRequestSchema = z.object({
 	baseBranch: z.string().optional(),
 	ref: z.string().optional(),
 	targetRepo: z.string().optional(),
+	chatId: z.string().uuid().optional(),
 })
 
 function sleep(ms: number) {
@@ -136,6 +138,7 @@ githubRepos.get(
 		)
 
 		let checkRuns: Array<{
+			id: number
 			name: string
 			status: string
 			conclusion: string | null
@@ -144,6 +147,7 @@ githubRepos.get(
 		if (checksRes.ok) {
 			const checksData = (await checksRes.json()) as {
 				check_runs: Array<{
+					id: number
 					name: string
 					status: string
 					conclusion: string | null
@@ -176,6 +180,7 @@ githubRepos.get(
 				failed,
 			},
 			checkRuns: checkRuns.map(cr => ({
+				id: cr.id,
 				name: cr.name,
 				status: cr.status,
 				conclusion: cr.conclusion,
@@ -338,7 +343,7 @@ githubRepos.post(
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
 
 		const { owner, repo } = c.req.valid("param")
-		const { prompt, baseBranch, ref, targetRepo } = c.req.valid("json")
+		const { prompt, baseBranch, ref, targetRepo, chatId: requestChatId } = c.req.valid("json")
 
 		const accessToken = await getGitHubAccessToken(db, authRow.userId)
 		if (!accessToken) return c.json({ error: "GitHub token not found" }, 403)
@@ -431,6 +436,15 @@ githubRepos.post(
 				})
 				.returning({ id: flamecastUserSourceRepos.id })
 
+			// Auto-create a chat if none provided
+			const chatId = await getOrCreateChat(db, {
+				chatId: requestChatId,
+				userId: authRow.userId,
+				title: normalizedPrompt,
+				repo: targetRepo || `${owner}/${repo}`,
+				sourceRepoId: sourceRepoRow.id,
+			})
+
 			await db
 				.insert(flamecastWorkflowRuns)
 				.values({
@@ -439,6 +453,8 @@ githubRepos.post(
 					repo: targetRepo || `${owner}/${repo}`,
 					sourceRepoId: sourceRepoRow.id,
 					prompt: normalizedPrompt,
+					chatId,
+					startedAt: new Date(dispatchedAt),
 					createdAt: new Date(dispatchedAt),
 				})
 				.onConflictDoUpdate({
@@ -450,6 +466,8 @@ githubRepos.post(
 						repo: targetRepo || `${owner}/${repo}`,
 						sourceRepoId: sourceRepoRow.id,
 						prompt: normalizedPrompt,
+						chatId,
+						startedAt: new Date(dispatchedAt),
 						createdAt: new Date(dispatchedAt),
 					},
 				})

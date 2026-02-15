@@ -22,6 +22,7 @@ import {
 	getGitHubAccessToken,
 	getGitHubHeaders,
 } from "../lib/auth"
+import { getOrCreateChat } from "../lib/chat-helpers"
 
 type Bindings = {
 	DATABASE_URL: string
@@ -154,7 +155,7 @@ workflowRuns.post(
 		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
 
-		const { workflowRunId, repo, sourceRepo, prompt } = c.req.valid("json")
+		const { workflowRunId, repo, sourceRepo, prompt, chatId: requestChatId } = c.req.valid("json")
 
 		const normalizedPrompt =
 			typeof prompt === "string" && prompt.trim().length > 0
@@ -181,6 +182,15 @@ workflowRuns.post(
 			sourceRepoId = sourceRepoRow.id
 		}
 
+		// Auto-create a chat if none provided
+		const chatId = await getOrCreateChat(db, {
+			chatId: requestChatId,
+			userId: authRow.userId,
+			title: normalizedPrompt || "Untitled",
+			repo,
+			sourceRepoId,
+		})
+
 		const [inserted] = await db
 			.insert(flamecastWorkflowRuns)
 			.values({
@@ -189,6 +199,7 @@ workflowRuns.post(
 				repo,
 				sourceRepoId,
 				prompt: normalizedPrompt,
+				chatId,
 				startedAt: new Date(),
 			})
 			.onConflictDoUpdate({
@@ -198,6 +209,7 @@ workflowRuns.post(
 				],
 				set: {
 					startedAt: new Date(),
+					chatId,
 					...(repo ? { repo } : {}),
 					...(sourceRepoId ? { sourceRepoId } : {}),
 					...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
@@ -935,6 +947,8 @@ workflowRuns.patch(
 
 		const jobsData = (await jobsRes.json()) as {
 			jobs: Array<{
+				status: string | null
+				conclusion: string | null
 				steps: Array<{
 					name: string
 					conclusion: string | null
@@ -955,6 +969,22 @@ workflowRuns.patch(
 				}
 			}
 			if (conclusion) break
+		}
+
+		// Fallback: if the flamecast step wasn't found, check job-level conclusion
+		// This handles cases where the workflow failed before the step ran
+		if (!conclusion) {
+			for (const job of jobsData.jobs) {
+				if (
+					job.status === "completed" &&
+					(job.conclusion === "failure" ||
+						job.conclusion === "cancelled" ||
+						job.conclusion === "timed_out")
+				) {
+					conclusion = job.conclusion
+					break
+				}
+			}
 		}
 
 		const updateFields: Record<string, unknown> = {}
@@ -1083,6 +1113,7 @@ workflowRuns.get(
 				errorAt: flamecastWorkflowRuns.errorAt,
 				archivedAt: flamecastWorkflowRuns.archivedAt,
 				createdAt: flamecastWorkflowRuns.createdAt,
+				chatId: flamecastWorkflowRuns.chatId,
 			})
 			.from(flamecastWorkflowRuns)
 			.leftJoin(

@@ -10,6 +10,7 @@ import { createInsertSchema, createSelectSchema } from "drizzle-zod"
 import type { z } from "zod"
 import { flamecastSchema } from "./github-oauth-tokens.js"
 import { flamecastUserSourceRepos } from "./user-source-repos.js"
+import { flamecastChats } from "./chats.js"
 
 export const flamecastWorkflowRuns = flamecastSchema.table(
 	"workflow_runs",
@@ -22,6 +23,7 @@ export const flamecastWorkflowRuns = flamecastSchema.table(
 		sourceRepoId: uuid("source_repo_id").references(
 			() => flamecastUserSourceRepos.id,
 		),
+		chatId: uuid("chat_id").references(() => flamecastChats.id),
 		prompt: text("prompt"),
 		errorMessage: text("error_message"),
 		startedAt: timestamp("started_at"),
@@ -38,6 +40,7 @@ export const flamecastWorkflowRuns = flamecastSchema.table(
 			table.userId,
 		),
 		index("flamecast_workflow_runs_repo_idx").on(table.repo),
+		index("flamecast_workflow_runs_chat_id_idx").on(table.chatId),
 	],
 )
 
