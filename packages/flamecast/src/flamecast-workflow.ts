@@ -18,6 +18,11 @@ on:
         description: "Target repo (e.g. owner/repo). Leave empty for current repo."
         required: false
         type: string
+      sync_base:
+        description: "Merge base branch into feature branch and resolve conflicts"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   flamecast:
@@ -63,6 +68,7 @@ jobs:
           prompt: \${{ inputs.prompt }}
           base_branch: \${{ inputs.base_branch }}
           target_repo: \${{ inputs.target_repo }}
+          sync_base: \${{ inputs.sync_base }}
           claude_code_oauth_token: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           flamecast_pat: \${{ secrets.FLAMECAST_PAT }}
       - name: Persist flamecast outputs

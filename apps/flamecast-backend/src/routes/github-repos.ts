@@ -38,6 +38,7 @@ const DispatchRequestSchema = z.object({
 	baseBranch: z.string().optional(),
 	ref: z.string().optional(),
 	targetRepo: z.string().optional(),
+	syncBase: z.boolean().optional(),
 })
 
 function sleep(ms: number) {
@@ -338,7 +339,7 @@ githubRepos.post(
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
 
 		const { owner, repo } = c.req.valid("param")
-		const { prompt, baseBranch, ref, targetRepo } = c.req.valid("json")
+		const { prompt, baseBranch, ref, targetRepo, syncBase } = c.req.valid("json")
 
 		const accessToken = await getGitHubAccessToken(db, authRow.userId)
 		if (!accessToken) return c.json({ error: "GitHub token not found" }, 403)
@@ -357,6 +358,9 @@ githubRepos.post(
 		}
 		if (targetRepo) {
 			inputs.target_repo = targetRepo
+		}
+		if (syncBase) {
+			inputs.sync_base = "true"
 		}
 
 		// Determine dispatch ref
