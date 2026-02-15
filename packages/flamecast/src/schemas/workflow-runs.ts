@@ -74,7 +74,11 @@ export const ListWorkflowRunsQuerySchema = z
 			.min(1)
 			.max(100)
 			.optional()
-			.meta({ description: "Max results (default 20, max 100)" }),
+			.meta({ description: "Max results per page (default 5, max 100)" }),
+		cursor: z
+			.string()
+			.optional()
+			.meta({ description: "Cursor for pagination (ISO 8601 timestamp)" }),
 		includeArchived: z
 			.enum(["true", "false"])
 			.optional()
@@ -110,7 +114,16 @@ export const WorkflowRunItemSchema = z
 	.meta({ id: "WorkflowRunItem" })
 
 export const ListWorkflowRunsResponseSchema = z
-	.array(WorkflowRunItemSchema)
+	.object({
+		runs: z.array(WorkflowRunItemSchema),
+		hasMore: z
+			.boolean()
+			.meta({ description: "Whether there are more results" }),
+		nextCursor: z
+			.string()
+			.nullable()
+			.meta({ description: "Cursor for next page" }),
+	})
 	.meta({ id: "ListWorkflowRunsResponse" })
 
 // All schemas with .meta({ id }) for OpenAPI injection

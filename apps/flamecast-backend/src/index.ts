@@ -4,30 +4,40 @@ import { cors } from "hono/cors"
 import { WorkOS } from "@workos-inc/node"
 import auth from "./routes/auth"
 import workflowRuns from "./routes/workflow-runs"
+import apiKeys from "./routes/api-keys"
+import githubRepos from "./routes/github-repos"
+import setup from "./routes/setup"
 import { createOpenAPIRoute } from "./openapi"
 
-type Bindings = {
+export type Bindings = {
 	WORKOS_API_KEY: string
 	WORKOS_CLIENT_ID: string
 	WORKOS_COOKIE_PASSWORD: string
 	REDIRECT_URI: string
 	DATABASE_URL: string
+	POSTHOG_KEY: string
+	POSTHOG_HOST: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-app.use(
-	"/workflow-runs/*",
-	cors({
-		origin: origin => origin,
-		credentials: true,
-		allowMethods: ["GET", "POST", "PATCH", "OPTIONS"],
-		allowHeaders: ["Content-Type", "Authorization"],
-	}),
-)
+const corsMiddleware = cors({
+	origin: origin => origin,
+	credentials: true,
+	allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+	allowHeaders: ["Content-Type", "Authorization"],
+})
+
+app.use("/workflow-runs/*", corsMiddleware)
+app.use("/api-keys/*", corsMiddleware)
+app.use("/github/*", corsMiddleware)
+app.use("/setup/*", corsMiddleware)
 
 app.route("/auth", auth)
 app.route("/workflow-runs", workflowRuns)
+app.route("/api-keys", apiKeys)
+app.route("/github", githubRepos)
+app.route("/setup", setup)
 app.route("/openapi", createOpenAPIRoute(app))
 
 app.get("/", async c => {

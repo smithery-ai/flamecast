@@ -18,6 +18,14 @@ function formatDateTime(value: string | null | undefined) {
 	return new Date(value).toLocaleString()
 }
 
+function parsePrUrl(
+	url: string,
+): { owner: string; repo: string; number: number } | null {
+	const match = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/)
+	if (!match) return null
+	return { owner: match[1], repo: match[2], number: Number(match[3]) }
+}
+
 interface WorkflowRunDetailsProps {
 	owner: string
 	repo: string
@@ -74,16 +82,22 @@ export function WorkflowRunDetails({
 
 	const logsDownloadUrl = workflowLogs?.downloadUrl
 
+	// Parse PR URL to get the target repository (where the PR was opened)
+	// Fall back to URL params if PR URL is not available
+	const prInfo = outputs?.prUrl ? parsePrUrl(outputs.prUrl) : null
+	const displayOwner = prInfo?.owner ?? owner
+	const displayRepo = prInfo?.repo ?? repo
+
 	return (
 		<div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
 			<main className="flex min-h-screen w-full max-w-4xl flex-col gap-8 py-16 px-8 bg-white dark:bg-black">
 				<div className="flex items-center justify-between">
 					<div className="flex items-center gap-3 min-w-0">
 						<Link
-							href={`/${owner}/${repo}`}
+							href={`/${displayOwner}/${displayRepo}`}
 							className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
 						>
-							{owner}/{repo}
+							{displayOwner}/{displayRepo}
 						</Link>
 						<span className="text-zinc-300 dark:text-zinc-600">/</span>
 						<h1 className="truncate text-2xl font-semibold tracking-tight text-black dark:text-zinc-50">

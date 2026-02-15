@@ -94,6 +94,16 @@ function relativeTime(date: string) {
 	return `${days}d ago`
 }
 
+function isFlamecastWorkflowRun(value: unknown): value is FlamecastWorkflowRun {
+	if (!value || typeof value !== "object") return false
+	const run = value as Partial<FlamecastWorkflowRun>
+	return (
+		typeof run.id === "string" &&
+		typeof run.workflowRunId === "number" &&
+		typeof run.createdAt === "string"
+	)
+}
+
 function getWorkflowRunUrl(run: FlamecastWorkflowRun) {
 	if (!run.sourceRepo) return null
 	const [owner, repo] = run.sourceRepo.split("/")
@@ -133,15 +143,22 @@ function handleRunKeyDown(
 export function WorkflowRunsList({ repo }: { repo?: string }) {
 	const [showArchived, setShowArchived] = useState(false)
 	const {
-		data: runs,
+		data,
 		isLoading,
 		error,
+		fetchNextPage,
+		hasNextPage,
+		isFetchingNextPage,
 	} = useFlamecastRuns(repo, {
 		refetchInterval: 5000,
 		includeArchived: showArchived,
 	})
 	const archiveRun = useArchiveRun()
 	const unarchiveRun = useUnarchiveRun()
+
+	const runs = (data?.pages ?? [])
+		.flatMap(page => (Array.isArray(page?.runs) ? page.runs : []))
+		.filter(isFlamecastWorkflowRun)
 
 	if (isLoading) {
 		return <p className="text-sm text-zinc-400">Loading workflow runs...</p>
@@ -151,7 +168,7 @@ export function WorkflowRunsList({ repo }: { repo?: string }) {
 		return null
 	}
 
-	if (!runs || runs.length === 0) {
+	if (runs.length === 0) {
 		return (
 			<p className="text-sm text-zinc-500 dark:text-zinc-400">
 				No workflow runs yet.
@@ -217,17 +234,19 @@ export function WorkflowRunsList({ repo }: { repo?: string }) {
 							</div>
 						</div>
 						<div className="shrink-0 ml-4 flex items-center gap-3">
-							{run.completedAt && run.sourceRepo && (() => {
-								const parts = run.sourceRepo.split("/")
-								if (parts.length < 2) return null
-								return (
-									<InlinePRActions
-										sourceOwner={parts[0]}
-										sourceRepo={parts[1]}
-										runId={run.workflowRunId}
-									/>
-								)
-							})()}
+							{run.completedAt &&
+								run.sourceRepo &&
+								(() => {
+									const parts = run.sourceRepo.split("/")
+									if (parts.length < 2) return null
+									return (
+										<InlinePRActions
+											sourceOwner={parts[0]}
+											sourceRepo={parts[1]}
+											runId={run.workflowRunId}
+										/>
+									)
+								})()}
 							<span className="text-xs text-zinc-400">
 								{relativeTime(run.createdAt)}
 							</span>
@@ -283,6 +302,18 @@ export function WorkflowRunsList({ repo }: { repo?: string }) {
 					</div>
 				)
 			})}
+			{hasNextPage && (
+				<div className="flex justify-center px-4 pt-3">
+					<button
+						type="button"
+						onClick={() => fetchNextPage()}
+						disabled={isFetchingNextPage}
+						className="text-sm text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-900"
+					>
+						{isFetchingNextPage ? "Loading..." : "Load More"}
+					</button>
+				</div>
+			)}
 		</div>
 	)
 }

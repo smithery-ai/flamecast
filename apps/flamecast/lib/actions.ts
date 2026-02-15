@@ -2,7 +2,15 @@
 
 import { withAuth } from "@workos-inc/authkit-nextjs"
 import { getUserApiKey } from "@/lib/api-key-auth"
-import type { FlamecastWorkflowRun } from "@/hooks/use-api"
+import type {
+	FlamecastWorkflowRun,
+	SetupStatus,
+	FlamecastPR,
+	WorkflowRun,
+	WorkflowRunDetail,
+	WorkflowRunLogs,
+	PullRequestStatus,
+} from "@/hooks/use-api"
 
 const BACKEND_URL =
 	process.env.NEXT_PUBLIC_BACKEND_URL || "https://api.flamecast.dev"
@@ -34,6 +42,15 @@ export interface FlamecastWorkflowOutputs {
 	prUrl: string | null
 	claudeLogs: string | null
 	claudeLogsTruncated: boolean
+	prompt: string | null
+	branchName: string | null
+}
+
+interface ApiKeyInfo {
+	id: string
+	name: string | null
+	description: string | null
+	createdAt: string
 }
 
 const DEFAULT_WORKFLOW_LOGS: FlamecastWorkflowLogs = {
@@ -47,6 +64,8 @@ const DEFAULT_WORKFLOW_OUTPUTS: FlamecastWorkflowOutputs = {
 	prUrl: null,
 	claudeLogs: null,
 	claudeLogsTruncated: false,
+	prompt: null,
+	branchName: null,
 }
 
 async function getBackendApiKey() {
@@ -79,6 +98,21 @@ async function callBackend(pathname: string, searchParams?: URLSearchParams) {
 	})
 }
 
+async function callBackendPost(pathname: string, body?: unknown) {
+	const apiKey = await getBackendApiKey()
+	const url = new URL(pathname, BACKEND_URL)
+
+	return fetch(url.toString(), {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${apiKey}`,
+			...(body ? { "Content-Type": "application/json" } : {}),
+		},
+		body: body ? JSON.stringify(body) : undefined,
+		cache: "no-store",
+	})
+}
+
 async function callBackendPatch(pathname: string) {
 	const apiKey = await getBackendApiKey()
 	const url = new URL(pathname, BACKEND_URL)
@@ -90,13 +124,33 @@ async function callBackendPatch(pathname: string) {
 	})
 }
 
+async function callBackendDelete(pathname: string) {
+	const apiKey = await getBackendApiKey()
+	const url = new URL(pathname, BACKEND_URL)
+
+	return fetch(url.toString(), {
+		method: "DELETE",
+		headers: { Authorization: `Bearer ${apiKey}` },
+		cache: "no-store",
+	})
+}
+
+export interface FlamecastRunsResponse {
+	runs: FlamecastWorkflowRun[]
+	hasMore: boolean
+	nextCursor: string | null
+}
+
+
 export async function getFlamecastRuns(
 	repo?: string,
 	includeArchived?: boolean,
-): Promise<FlamecastWorkflowRun[]> {
+	cursor?: string,
+): Promise<FlamecastRunsResponse> {
 	const searchParams = new URLSearchParams()
 	if (repo) searchParams.set("repo", repo)
 	if (includeArchived) searchParams.set("includeArchived", "true")
+	if (cursor) searchParams.set("cursor", cursor)
 
 	const res = await callBackend("/workflow-runs", searchParams)
 
@@ -104,7 +158,7 @@ export async function getFlamecastRuns(
 		throw new Error(await getBackendErrorMessage(res))
 	}
 
-	return res.json() as Promise<FlamecastWorkflowRun[]>
+	return res.json() as Promise<FlamecastRunsResponse>
 }
 
 export async function getFlamecastWorkflowRun(
@@ -208,4 +262,200 @@ export async function unarchiveFlamecastRun(id: string): Promise<void> {
 	if (!res.ok) {
 		throw new Error(await getBackendErrorMessage(res))
 	}
+}
+
+// ── Setup ────────────────────────────────────────────────────────────────────
+
+export async function getSetupStatus(): Promise<SetupStatus> {
+	const res = await callBackend("/setup/status")
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<SetupStatus>
+}
+
+export async function createRepo(): Promise<{
+	created: boolean
+	repo: string
+}> {
+	const res = await callBackendPost("/setup/repo")
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<{ created: boolean; repo: string }>
+}
+
+export async function saveSecrets(vars: {
+	repo: string
+	secrets: Record<string, string>
+}): Promise<{ success: boolean }> {
+	const res = await callBackendPost("/setup/secrets", vars)
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<{ success: boolean }>
+}
+
+export async function resetWorkflow(): Promise<{
+	success: boolean
+	branchName: string
+	prNumber: number
+	prUrl: string
+}> {
+	const res = await callBackendPost("/setup/workflow/reset")
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<{
+		success: boolean
+		branchName: string
+		prNumber: number
+		prUrl: string
+	}>
+}
+
+export async function updateWorkflow(): Promise<{
+	success: boolean
+	branchName: string
+	prNumber: number
+	prUrl: string
+}> {
+	const res = await callBackendPost("/setup/workflow/update")
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<{
+		success: boolean
+		branchName: string
+		prNumber: number
+		prUrl: string
+	}>
+}
+
+// ── GitHub PRs ───────────────────────────────────────────────────────────────
+
+export async function listPulls(
+	owner: string,
+	repo: string,
+	user?: string,
+): Promise<FlamecastPR[]> {
+	const searchParams = new URLSearchParams()
+	if (user) searchParams.set("user", user)
+	const qs = searchParams.toString()
+	const res = await callBackend(
+		`/github/repos/${owner}/${repo}/pulls${qs ? `?${qs}` : ""}`,
+	)
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<FlamecastPR[]>
+}
+
+export async function getPullRequestStatus(
+	owner: string,
+	repo: string,
+	number: number,
+): Promise<PullRequestStatus> {
+	const res = await callBackend(
+		`/github/repos/${owner}/${repo}/pulls/${number}/status`,
+	)
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<PullRequestStatus>
+}
+
+export async function closePull(
+	owner: string,
+	repo: string,
+	number: number,
+): Promise<{ success: boolean; closed: boolean }> {
+	const res = await callBackendPost(
+		`/github/repos/${owner}/${repo}/pulls/${number}/close`,
+	)
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<{ success: boolean; closed: boolean }>
+}
+
+export async function mergePull(
+	owner: string,
+	repo: string,
+	number: number,
+): Promise<{ success: boolean; merged: boolean }> {
+	const res = await callBackendPost(
+		`/github/repos/${owner}/${repo}/pulls/${number}/merge`,
+	)
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<{ success: boolean; merged: boolean }>
+}
+
+// ── GitHub Workflows ─────────────────────────────────────────────────────────
+
+export async function listWorkflowRuns(
+	owner: string,
+	repo: string,
+	branch?: string,
+): Promise<WorkflowRun[]> {
+	const searchParams = new URLSearchParams()
+	if (branch) searchParams.set("branch", branch)
+	const qs = searchParams.toString()
+	const res = await callBackend(
+		`/github/repos/${owner}/${repo}/workflows/runs${qs ? `?${qs}` : ""}`,
+	)
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<WorkflowRun[]>
+}
+
+export async function getWorkflowRun(
+	owner: string,
+	repo: string,
+	runId: number,
+): Promise<WorkflowRunDetail> {
+	const res = await callBackend(
+		`/github/repos/${owner}/${repo}/workflows/runs/${runId}`,
+	)
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<WorkflowRunDetail>
+}
+
+export async function getWorkflowRunLogs(
+	owner: string,
+	repo: string,
+	runId: number,
+): Promise<WorkflowRunLogs> {
+	const res = await callBackend(
+		`/github/repos/${owner}/${repo}/workflows/runs/${runId}/logs`,
+	)
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<WorkflowRunLogs>
+}
+
+export async function dispatchWorkflow(vars: {
+	owner: string
+	repo: string
+	prompt: string
+	baseBranch?: string
+	ref?: string
+	targetRepo?: string
+}): Promise<{ success: boolean }> {
+	const res = await callBackendPost(
+		`/github/repos/${vars.owner}/${vars.repo}/workflows/dispatch`,
+		{
+			prompt: vars.prompt,
+			baseBranch: vars.baseBranch,
+			ref: vars.ref,
+			targetRepo: vars.targetRepo,
+		},
+	)
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<{ success: boolean }>
+}
+
+// ── API Keys ─────────────────────────────────────────────────────────────────
+
+export async function listApiKeys(): Promise<{ keys: ApiKeyInfo[] }> {
+	const res = await callBackend("/api-keys")
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<{ keys: ApiKeyInfo[] }>
+}
+
+export async function createApiKey(
+	name?: string,
+	description?: string,
+): Promise<{ key: string; id: string }> {
+	const res = await callBackendPost("/api-keys", { name, description })
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<{ key: string; id: string }>
+}
+
+export async function deleteApiKey(id: string): Promise<{ success: boolean }> {
+	const res = await callBackendDelete(`/api-keys/${id}`)
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<{ success: boolean }>
 }

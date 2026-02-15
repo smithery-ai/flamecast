@@ -2,14 +2,7 @@ import { Hono } from "hono"
 import { generateSpecs } from "hono-openapi"
 import { injectSchemas } from "@smithery/utils/openapi"
 import { allSchemas } from "@smithery/flamecast/schemas"
-
-type Bindings = {
-	WORKOS_API_KEY: string
-	WORKOS_CLIENT_ID: string
-	WORKOS_COOKIE_PASSWORD: string
-	REDIRECT_URI: string
-	DATABASE_URL: string
-}
+import type { Bindings } from "./index"
 
 const openAPIDocumentation = {
 	info: {

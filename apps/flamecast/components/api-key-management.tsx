@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import posthog from "posthog-js"
+import { listApiKeys, createApiKey, deleteApiKey } from "@/lib/actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -43,9 +44,7 @@ export function ApiKeyManagement() {
 
 	const fetchKeys = useCallback(async () => {
 		try {
-			const res = await fetch("/api/api-keys")
-			if (!res.ok) throw new Error("Failed to fetch API keys")
-			const data = await res.json()
+			const data = await listApiKeys()
 			setKeys(data.keys)
 			setError(null)
 		} catch {
@@ -61,8 +60,7 @@ export function ApiKeyManagement() {
 
 	async function handleDelete(id: string) {
 		try {
-			const res = await fetch(`/api/api-keys/${id}`, { method: "DELETE" })
-			if (!res.ok) throw new Error("Failed to delete API key")
+			await deleteApiKey(id)
 			setKeys(prev => prev.filter(k => k.id !== id))
 			toast.success("API key deleted")
 			posthog.capture("api_key_deleted")
@@ -183,16 +181,7 @@ function CreateKeyDialog({ onCreated }: { onCreated: () => void }) {
 	async function handleCreate() {
 		setCreating(true)
 		try {
-			const res = await fetch("/api/api-keys", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ name, description }),
-			})
-			if (!res.ok) {
-				const data = await res.json()
-				throw new Error(data.error || "Failed to create API key")
-			}
-			const data = await res.json()
+			const data = await createApiKey(name, description)
 			setCreatedKey(data.key)
 			posthog.capture("api_key_created", {
 				has_name: !!name.trim(),
