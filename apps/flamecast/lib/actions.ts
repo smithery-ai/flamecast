@@ -113,13 +113,17 @@ async function callBackendPost(pathname: string, body?: unknown) {
 	})
 }
 
-async function callBackendPatch(pathname: string) {
+async function callBackendPatch(pathname: string, body?: unknown) {
 	const apiKey = await getBackendApiKey()
 	const url = new URL(pathname, BACKEND_URL)
 
 	return fetch(url.toString(), {
 		method: "PATCH",
-		headers: { Authorization: `Bearer ${apiKey}` },
+		headers: {
+			Authorization: `Bearer ${apiKey}`,
+			...(body ? { "Content-Type": "application/json" } : {}),
+		},
+		body: body ? JSON.stringify(body) : undefined,
 		cache: "no-store",
 	})
 }
@@ -135,12 +139,37 @@ async function callBackendDelete(pathname: string) {
 	})
 }
 
+// ── Chat types ───────────────────────────────────────────────────────────────
+
+export interface FlamecastChat {
+	id: string
+	userId: string
+	title: string
+	repo: string | null
+	sourceRepoId: string | null
+	archivedAt: string | null
+	createdAt: string
+	updatedAt: string
+	lastPrompt?: string | null
+	runCount?: number
+	latestRunStatus?: "running" | "completed" | "error" | "queued" | null
+}
+
+export interface FlamecastChatsResponse {
+	chats: FlamecastChat[]
+	hasMore: boolean
+	nextCursor: string | null
+}
+
+export interface FlamecastChatDetail extends FlamecastChat {
+	runs: FlamecastWorkflowRun[]
+}
+
 export interface FlamecastRunsResponse {
 	runs: FlamecastWorkflowRun[]
 	hasMore: boolean
 	nextCursor: string | null
 }
-
 
 export async function getFlamecastRuns(
 	repo?: string,
@@ -262,6 +291,57 @@ export async function unarchiveFlamecastRun(id: string): Promise<void> {
 	if (!res.ok) {
 		throw new Error(await getBackendErrorMessage(res))
 	}
+}
+
+// ── Chats ────────────────────────────────────────────────────────────────────
+
+export async function getChats(
+	repo?: string,
+	includeArchived?: boolean,
+	cursor?: string,
+): Promise<FlamecastChatsResponse> {
+	const searchParams = new URLSearchParams()
+	if (repo) searchParams.set("repo", repo)
+	if (includeArchived) searchParams.set("includeArchived", "true")
+	if (cursor) searchParams.set("cursor", cursor)
+
+	const res = await callBackend("/chats", searchParams)
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<FlamecastChatsResponse>
+}
+
+export async function getChat(chatId: string): Promise<FlamecastChatDetail> {
+	const res = await callBackend(`/chats/${chatId}`)
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<FlamecastChatDetail>
+}
+
+export async function createChat(vars: {
+	title: string
+	repo?: string
+	sourceRepoId?: string
+}): Promise<{ success: boolean; id: string }> {
+	const res = await callBackendPost("/chats", vars)
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+	return res.json() as Promise<{ success: boolean; id: string }>
+}
+
+export async function updateChatTitle(
+	chatId: string,
+	title: string,
+): Promise<void> {
+	const res = await callBackendPatch(`/chats/${chatId}`, { title })
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+}
+
+export async function archiveChat(chatId: string): Promise<void> {
+	const res = await callBackendPatch(`/chats/${chatId}/archive`)
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
+}
+
+export async function unarchiveChat(chatId: string): Promise<void> {
+	const res = await callBackendPatch(`/chats/${chatId}/unarchive`)
+	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
 }
 
 // ── Setup ────────────────────────────────────────────────────────────────────
@@ -423,6 +503,7 @@ export async function dispatchWorkflow(vars: {
 	baseBranch?: string
 	ref?: string
 	targetRepo?: string
+	chatId?: string
 }): Promise<{ success: boolean }> {
 	const res = await callBackendPost(
 		`/github/repos/${vars.owner}/${vars.repo}/workflows/dispatch`,
@@ -431,6 +512,7 @@ export async function dispatchWorkflow(vars: {
 			baseBranch: vars.baseBranch,
 			ref: vars.ref,
 			targetRepo: vars.targetRepo,
+			chatId: vars.chatId,
 		},
 	)
 	if (!res.ok) throw new Error(await getBackendErrorMessage(res))

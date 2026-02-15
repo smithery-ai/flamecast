@@ -6,6 +6,12 @@ import {
 } from "@tanstack/react-query"
 import { queryKeys } from "./query-keys"
 import {
+	getChats,
+	getChat,
+	createChat,
+	updateChatTitle,
+	archiveChat,
+	unarchiveChat,
 	getFlamecastRuns,
 	archiveFlamecastRun,
 	unarchiveFlamecastRun,
@@ -138,7 +144,32 @@ export interface PullRequestStatus {
 	}>
 }
 
+export type { FlamecastChat, FlamecastChatDetail } from "@/lib/actions"
+
 // ── Query hooks ──────────────────────────────────────────────────────────────
+
+export function useChats(
+	repo?: string,
+	options?: { refetchInterval?: number; includeArchived?: boolean },
+) {
+	return useInfiniteQuery({
+		queryKey: queryKeys.chats(repo, options?.includeArchived),
+		queryFn: ({ pageParam }) =>
+			getChats(repo, options?.includeArchived, pageParam),
+		initialPageParam: undefined as string | undefined,
+		getNextPageParam: lastPage =>
+			lastPage.hasMore ? lastPage.nextCursor : undefined,
+		refetchInterval: options?.refetchInterval,
+	})
+}
+
+export function useChat(chatId: string) {
+	return useQuery({
+		queryKey: queryKeys.chat(chatId),
+		queryFn: () => getChat(chatId),
+		enabled: !!chatId,
+	})
+}
 
 export function useSetupStatus() {
 	return useQuery({
@@ -378,6 +409,65 @@ export function useUnarchiveRun() {
 	})
 }
 
+export function useCreateChat() {
+	const queryClient = useQueryClient()
+
+	return useMutation({
+		mutationFn: (vars: { title: string; repo?: string; sourceRepoId?: string }) =>
+			createChat(vars),
+		onSuccess: () => {
+			queryClient.invalidateQueries({
+				queryKey: ["flamecast", "chats"],
+			})
+		},
+	})
+}
+
+export function useUpdateChatTitle() {
+	const queryClient = useQueryClient()
+
+	return useMutation({
+		mutationFn: (vars: { chatId: string; title: string }) =>
+			updateChatTitle(vars.chatId, vars.title),
+		onSuccess: (_data, vars) => {
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.chat(vars.chatId),
+			})
+			queryClient.invalidateQueries({
+				queryKey: ["flamecast", "chats"],
+			})
+		},
+	})
+}
+
+export function useArchiveChat() {
+	const queryClient = useQueryClient()
+
+	return useMutation({
+		mutationFn: (vars: { chatId: string; repo?: string }) =>
+			archiveChat(vars.chatId),
+		onSuccess: (_data, vars) => {
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.chats(vars.repo),
+			})
+		},
+	})
+}
+
+export function useUnarchiveChat() {
+	const queryClient = useQueryClient()
+
+	return useMutation({
+		mutationFn: (vars: { chatId: string; repo?: string }) =>
+			unarchiveChat(vars.chatId),
+		onSuccess: (_data, vars) => {
+			queryClient.invalidateQueries({
+				queryKey: queryKeys.chats(vars.repo),
+			})
+		},
+	})
+}
+
 export function useDispatchWorkflow() {
 	const queryClient = useQueryClient()
 
@@ -389,10 +479,19 @@ export function useDispatchWorkflow() {
 			baseBranch?: string
 			ref?: string
 			targetRepo?: string
+			chatId?: string
 		}) => dispatchWorkflow(vars),
 		onSuccess: (_data, vars) => {
 			queryClient.invalidateQueries({
 				queryKey: queryKeys.workflowRuns(vars.owner, vars.repo),
+			})
+			if (vars.chatId) {
+				queryClient.invalidateQueries({
+					queryKey: queryKeys.chat(vars.chatId),
+				})
+			}
+			queryClient.invalidateQueries({
+				queryKey: ["flamecast", "chats"],
 			})
 		},
 	})

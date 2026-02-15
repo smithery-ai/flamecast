@@ -28,6 +28,11 @@ export const CreateWorkflowRunRequestSchema = z
 			.string()
 			.optional()
 			.meta({ description: "User prompt that triggered the workflow" }),
+		chatId: z
+			.string()
+			.uuid()
+			.optional()
+			.meta({ description: "Chat UUID to associate this run with" }),
 	})
 	.meta({ id: "CreateWorkflowRunRequest" })
 
@@ -110,6 +115,12 @@ export const WorkflowRunItemSchema = z
 			.nullable()
 			.meta({ description: "ISO 8601 timestamp" }),
 		createdAt: z.string().meta({ description: "ISO 8601 timestamp" }),
+		chatId: z
+			.string()
+			.uuid()
+			.nullable()
+			.optional()
+			.meta({ description: "Associated chat UUID" }),
 	})
 	.meta({ id: "WorkflowRunItem" })
 

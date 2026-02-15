@@ -1,4 +1,9 @@
 export const queryKeys = {
+	chats: (repo?: string, includeArchived?: boolean) =>
+		repo
+			? (["flamecast", "chats", repo, { includeArchived }] as const)
+			: (["flamecast", "chats", { includeArchived }] as const),
+	chat: (chatId: string) => ["flamecast", "chats", chatId] as const,
 	setupStatus: () => ["setup", "status"] as const,
 	pulls: (owner: string, repo: string) =>
 		["repos", owner, repo, "pulls"] as const,

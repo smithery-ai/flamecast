@@ -3,7 +3,7 @@ import { getGitHubCredentials } from "@/lib/auth"
 import { createOctokit } from "@/lib/github"
 import Link from "next/link"
 import { WorkflowTriggerForm } from "@/components/workflow-trigger-form"
-import { WorkflowRunsList } from "@/components/workflow-runs-list"
+import { ChatList } from "@/components/chat-list"
 
 export default async function RepoPage({
 	params,
@@ -50,7 +50,7 @@ export default async function RepoPage({
 					workflowOwner={ghUser.login}
 				/>
 
-				<WorkflowRunsList repo={`${owner}/${repo}`} />
+				<ChatList repo={`${owner}/${repo}`} owner={owner} repoName={repo} />
 
 				{flamecastPRs.length > 0 ? (
 					<div className="flex flex-col gap-1">
