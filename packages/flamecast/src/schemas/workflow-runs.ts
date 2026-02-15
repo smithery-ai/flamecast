@@ -116,7 +116,9 @@ export const WorkflowRunItemSchema = z
 export const ListWorkflowRunsResponseSchema = z
 	.object({
 		runs: z.array(WorkflowRunItemSchema),
-		hasMore: z.boolean().meta({ description: "Whether there are more results" }),
+		hasMore: z
+			.boolean()
+			.meta({ description: "Whether there are more results" }),
 		nextCursor: z
 			.string()
 			.nullable()

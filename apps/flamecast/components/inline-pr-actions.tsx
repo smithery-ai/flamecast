@@ -36,7 +36,11 @@ interface InlinePRActionsProps {
 	runId: number
 }
 
-export function InlinePRActions({ sourceOwner, sourceRepo, runId }: InlinePRActionsProps) {
+export function InlinePRActions({
+	sourceOwner,
+	sourceRepo,
+	runId,
+}: InlinePRActionsProps) {
 	const { data: outputs } = useFlamecastWorkflowRunOutputs(
 		sourceOwner,
 		sourceRepo,
@@ -89,9 +93,7 @@ function InlinePRActionsInner({ prUrl }: { prUrl: string }) {
 	}
 
 	if (isLoading) {
-		return (
-			<span className="text-xs text-zinc-400">Loading...</span>
-		)
+		return <span className="text-xs text-zinc-400">Loading...</span>
 	}
 
 	if (!status) return null
@@ -126,8 +128,8 @@ function InlinePRActionsInner({ prUrl }: { prUrl: string }) {
 			onClick={e => e.stopPropagation()}
 			onKeyDown={e => e.stopPropagation()}
 		>
-			{status.checks.total > 0 && (
-				status.checks.pending > 0 ? (
+			{status.checks.total > 0 &&
+				(status.checks.pending > 0 ? (
 					<span className="text-xs text-zinc-400">
 						{status.checks.completed}/{status.checks.total}
 					</span>
@@ -135,15 +137,20 @@ function InlinePRActionsInner({ prUrl }: { prUrl: string }) {
 					<span className="flex items-center gap-0.5 text-xs text-red-500">
 						{status.checks.failed}
 						<svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-							<path d="M9 3L3 9M3 3L9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+							<path
+								d="M9 3L3 9M3 3L9 9"
+								stroke="currentColor"
+								strokeWidth="1.5"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+							/>
 						</svg>
 					</span>
 				) : (
 					<span className="text-xs text-green-600 dark:text-green-400">
 						{status.checks.successful}/{status.checks.total}
 					</span>
-				)
-			)}
+				))}
 
 			<AlertDialog>
 				<AlertDialogTrigger asChild>
@@ -159,8 +166,8 @@ function InlinePRActionsInner({ prUrl }: { prUrl: string }) {
 					<AlertDialogHeader>
 						<AlertDialogTitle>Merge pull request</AlertDialogTitle>
 						<AlertDialogDescription>
-							This will squash and merge PR #{number} and delete the
-							branch. This action cannot be undone.
+							This will squash and merge PR #{number} and delete the branch.
+							This action cannot be undone.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
