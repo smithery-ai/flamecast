@@ -9,6 +9,10 @@
 		"./schemas": {
 			"types": "./src/schemas/index.ts",
 			"default": "./dist/schemas/index.js"
+		},
+		"./flamecast-workflow": {
+			"types": "./src/flamecast-workflow.ts",
+			"default": "./dist/flamecast-workflow.js"
 		}
 	},
 	"scripts": {

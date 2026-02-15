@@ -4,6 +4,23 @@ import {
 	getFlamecastRuns,
 	archiveFlamecastRun,
 	unarchiveFlamecastRun,
+	getFlamecastWorkflowRun,
+	getFlamecastWorkflowRunJobs,
+	getFlamecastWorkflowRunLogs,
+	getFlamecastWorkflowRunOutputs,
+	getSetupStatus,
+	createRepo,
+	saveSecrets,
+	resetWorkflow,
+	updateWorkflow,
+	listPulls,
+	getPullRequestStatus,
+	closePull,
+	mergePull,
+	listWorkflowRuns,
+	getWorkflowRun,
+	getWorkflowRunLogs,
+	dispatchWorkflow,
 } from "@/lib/actions"
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -116,45 +133,19 @@ export interface PullRequestStatus {
 	}>
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-	const res = await fetch(url, init)
-	if (!res.ok) {
-		const body = await res.json().catch(() => ({}))
-		throw new Error(body.error || `Request failed (${res.status})`)
-	}
-	return res.json() as Promise<T>
-}
-
-function postJson<T>(url: string, body?: unknown): Promise<T> {
-	return fetchJson<T>(url, {
-		method: "POST",
-		headers: body ? { "Content-Type": "application/json" } : undefined,
-		body: body ? JSON.stringify(body) : undefined,
-	})
-}
-
 // ── Query hooks ──────────────────────────────────────────────────────────────
 
 export function useSetupStatus() {
 	return useQuery({
 		queryKey: queryKeys.setupStatus(),
-		queryFn: () => fetchJson<SetupStatus>("/api/setup/status"),
+		queryFn: () => getSetupStatus(),
 	})
 }
 
 export function usePulls(owner: string, repo: string, user?: string) {
 	return useQuery({
 		queryKey: queryKeys.pulls(owner, repo),
-		queryFn: () => {
-			const params = new URLSearchParams()
-			if (user) params.set("user", user)
-			const qs = params.toString()
-			return fetchJson<FlamecastPR[]>(
-				`/api/repos/${owner}/${repo}/pulls${qs ? `?${qs}` : ""}`,
-			)
-		},
+		queryFn: () => listPulls(owner, repo, user),
 		enabled: !!owner && !!repo,
 	})
 }
@@ -166,14 +157,7 @@ export function useWorkflowRuns(
 ) {
 	return useQuery({
 		queryKey: queryKeys.workflowRuns(owner, repo),
-		queryFn: () => {
-			const params = new URLSearchParams()
-			if (options?.branch) params.set("branch", options.branch)
-			const qs = params.toString()
-			return fetchJson<WorkflowRun[]>(
-				`/api/repos/${owner}/${repo}/workflows/runs${qs ? `?${qs}` : ""}`,
-			)
-		},
+		queryFn: () => listWorkflowRuns(owner, repo, options?.branch),
 		enabled: !!owner && !!repo,
 		refetchInterval: options?.refetchInterval,
 	})
@@ -187,10 +171,7 @@ export function useWorkflowRun(
 ) {
 	return useQuery({
 		queryKey: queryKeys.workflowRun(owner, repo, runId),
-		queryFn: () =>
-			fetchJson<WorkflowRunDetail>(
-				`/api/repos/${owner}/${repo}/workflows/runs/${runId}`,
-			),
+		queryFn: () => getWorkflowRun(owner, repo, runId),
 		enabled: !!owner && !!repo && !!runId,
 		refetchInterval: options?.refetchInterval,
 	})
@@ -204,10 +185,7 @@ export function useWorkflowRunLogs(
 ) {
 	return useQuery({
 		queryKey: queryKeys.workflowRunLogs(owner, repo, runId),
-		queryFn: () =>
-			fetchJson<WorkflowRunLogs>(
-				`/api/repos/${owner}/${repo}/workflows/runs/${runId}/logs`,
-			),
+		queryFn: () => getWorkflowRunLogs(owner, repo, runId),
 		enabled: (options?.enabled ?? true) && !!owner && !!repo && !!runId,
 	})
 }
@@ -231,10 +209,7 @@ export function useFlamecastWorkflowRun(
 ) {
 	return useQuery({
 		queryKey: queryKeys.flamecastWorkflowRun(owner, repo, runId),
-		queryFn: () =>
-			fetchJson<FlamecastGitHubWorkflowRun>(
-				`/api/flamecast/runs/${owner}/${repo}/${runId}`,
-			),
+		queryFn: () => getFlamecastWorkflowRun(owner, repo, runId),
 		enabled: !!owner && !!repo && !!runId,
 		refetchInterval: options?.refetchInterval,
 	})
@@ -247,12 +222,7 @@ export function useFlamecastWorkflowRunJobs(
 ) {
 	return useQuery({
 		queryKey: queryKeys.flamecastWorkflowRunJobs(owner, repo, runId),
-		queryFn: async () => {
-			const data = await fetchJson<{ jobs: FlamecastWorkflowRunJob[] }>(
-				`/api/flamecast/runs/${owner}/${repo}/${runId}/jobs`,
-			)
-			return data.jobs
-		},
+		queryFn: () => getFlamecastWorkflowRunJobs(owner, repo, runId),
 		enabled: !!owner && !!repo && !!runId,
 	})
 }
@@ -264,10 +234,7 @@ export function useFlamecastWorkflowRunLogs(
 ) {
 	return useQuery({
 		queryKey: queryKeys.flamecastWorkflowRunLogs(owner, repo, runId),
-		queryFn: () =>
-			fetchJson<FlamecastWorkflowLogs>(
-				`/api/flamecast/runs/${owner}/${repo}/${runId}/logs`,
-			),
+		queryFn: () => getFlamecastWorkflowRunLogs(owner, repo, runId),
 		enabled: !!owner && !!repo && !!runId,
 	})
 }
@@ -279,10 +246,7 @@ export function useFlamecastWorkflowRunOutputs(
 ) {
 	return useQuery({
 		queryKey: queryKeys.flamecastWorkflowRunOutputs(owner, repo, runId),
-		queryFn: () =>
-			fetchJson<FlamecastWorkflowOutputs>(
-				`/api/flamecast/runs/${owner}/${repo}/${runId}/outputs`,
-			),
+		queryFn: () => getFlamecastWorkflowRunOutputs(owner, repo, runId),
 		enabled: !!owner && !!repo && !!runId,
 	})
 }
@@ -295,10 +259,7 @@ export function usePullRequestStatus(
 ) {
 	return useQuery({
 		queryKey: queryKeys.pullRequestStatus(owner, repo, number),
-		queryFn: () =>
-			fetchJson<PullRequestStatus>(
-				`/api/repos/${owner}/${repo}/pulls/${number}/status`,
-			),
+		queryFn: () => getPullRequestStatus(owner, repo, number),
 		enabled: (options?.enabled ?? true) && !!owner && !!repo && !!number,
 		refetchInterval: options?.refetchInterval,
 	})
@@ -310,8 +271,7 @@ export function useCreateRepo() {
 	const queryClient = useQueryClient()
 
 	return useMutation({
-		mutationFn: () =>
-			postJson<{ created: boolean; repo: string }>("/api/setup/repo"),
+		mutationFn: () => createRepo(),
 		onSuccess: () => {
 			queryClient.invalidateQueries({
 				queryKey: queryKeys.setupStatus(),
@@ -325,7 +285,7 @@ export function useSaveSecrets() {
 
 	return useMutation({
 		mutationFn: (vars: { repo: string; secrets: Record<string, string> }) =>
-			postJson<{ success: boolean }>("/api/setup/secrets", vars),
+			saveSecrets(vars),
 		onSuccess: () => {
 			queryClient.invalidateQueries({
 				queryKey: queryKeys.setupStatus(),
@@ -336,13 +296,7 @@ export function useSaveSecrets() {
 
 export function useResetWorkflow() {
 	return useMutation({
-		mutationFn: () =>
-			postJson<{
-				success: boolean
-				branchName: string
-				prNumber: number
-				prUrl: string
-			}>("/api/setup/workflow/reset"),
+		mutationFn: () => resetWorkflow(),
 	})
 }
 
@@ -350,13 +304,7 @@ export function useUpdateWorkflow() {
 	const queryClient = useQueryClient()
 
 	return useMutation({
-		mutationFn: () =>
-			postJson<{
-				success: boolean
-				branchName: string
-				prNumber: number
-				prUrl: string
-			}>("/api/setup/workflow/update"),
+		mutationFn: () => updateWorkflow(),
 		onSuccess: () => {
 			queryClient.invalidateQueries({
 				queryKey: queryKeys.setupStatus(),
@@ -370,9 +318,7 @@ export function useMergePull() {
 
 	return useMutation({
 		mutationFn: (vars: { owner: string; repo: string; number: number }) =>
-			postJson<{ success: boolean; merged: boolean }>(
-				`/api/repos/${vars.owner}/${vars.repo}/pulls/${vars.number}/merge`,
-			),
+			mergePull(vars.owner, vars.repo, vars.number),
 		onSuccess: (_data, vars) => {
 			queryClient.invalidateQueries({
 				queryKey: queryKeys.pulls(vars.owner, vars.repo),
@@ -386,9 +332,7 @@ export function useClosePull() {
 
 	return useMutation({
 		mutationFn: (vars: { owner: string; repo: string; number: number }) =>
-			postJson<{ success: boolean; closed: boolean }>(
-				`/api/repos/${vars.owner}/${vars.repo}/pulls/${vars.number}/close`,
-			),
+			closePull(vars.owner, vars.repo, vars.number),
 		onSuccess: (_data, vars) => {
 			queryClient.invalidateQueries({
 				queryKey: queryKeys.pulls(vars.owner, vars.repo),
@@ -436,16 +380,7 @@ export function useDispatchWorkflow() {
 			baseBranch?: string
 			ref?: string
 			targetRepo?: string
-		}) =>
-			postJson<{ success: boolean }>(
-				`/api/repos/${vars.owner}/${vars.repo}/workflows/dispatch`,
-				{
-					prompt: vars.prompt,
-					baseBranch: vars.baseBranch,
-					ref: vars.ref,
-					targetRepo: vars.targetRepo,
-				},
-			),
+		}) => dispatchWorkflow(vars),
 		onSuccess: (_data, vars) => {
 			queryClient.invalidateQueries({
 				queryKey: queryKeys.workflowRuns(vars.owner, vars.repo),

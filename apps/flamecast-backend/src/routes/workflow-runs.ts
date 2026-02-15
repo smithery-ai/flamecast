@@ -1,15 +1,11 @@
 import { Hono } from "hono"
 import { describeRoute, resolver, validator as zValidator } from "hono-openapi"
 import { and, desc, eq, isNull } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/postgres-js"
-import postgres from "postgres"
 import { strFromU8, unzipSync } from "fflate"
 import { z } from "zod"
 import {
-	flamecastApiKeys,
 	flamecastUserSourceRepos,
 	flamecastWorkflowRuns,
-	githubOauthTokens,
 } from "@smithery/flamecast-db/schema"
 import {
 	CreateWorkflowRunRequestSchema,
@@ -20,6 +16,12 @@ import {
 	ListWorkflowRunsQuerySchema,
 	ListWorkflowRunsResponseSchema,
 } from "@smithery/flamecast/schemas"
+import { createDbFromUrl } from "../lib/db"
+import {
+	authenticateApiKey,
+	getGitHubAccessToken,
+	getGitHubHeaders,
+} from "../lib/auth"
 
 type Bindings = {
 	DATABASE_URL: string
@@ -110,49 +112,6 @@ const DEFAULT_OUTPUTS = GitHubRunOutputsResponseSchema.parse({
 	branchName: null,
 })
 
-async function authenticateApiKey(
-	db: ReturnType<typeof drizzle>,
-	authHeader: string | undefined,
-) {
-	if (!authHeader) return null
-
-	const match = authHeader.match(/^Bearer\s+(.+)$/i)
-	if (!match) return null
-
-	const apiKey = match[1]
-	const uuidRegex =
-		/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-	if (!uuidRegex.test(apiKey)) return null
-
-	const [row] = await db
-		.select({ id: flamecastApiKeys.id, userId: flamecastApiKeys.userId })
-		.from(flamecastApiKeys)
-		.where(eq(flamecastApiKeys.key, apiKey))
-		.limit(1)
-
-	return row ?? null
-}
-
-async function getGitHubAccessToken(
-	db: ReturnType<typeof drizzle>,
-	userId: string,
-) {
-	const [tokenRow] = await db
-		.select({ accessToken: githubOauthTokens.accessToken })
-		.from(githubOauthTokens)
-		.where(eq(githubOauthTokens.userId, userId))
-		.limit(1)
-
-	return tokenRow?.accessToken ?? null
-}
-
-function getGitHubHeaders(accessToken: string) {
-	return {
-		Authorization: `token ${accessToken}`,
-		Accept: "application/vnd.github.v3+json",
-		"User-Agent": "flamecast-backend",
-	}
-}
 
 // POST / — Register a workflow run, return the DB UUID
 workflowRuns.post(
@@ -191,8 +150,7 @@ workflowRuns.post(
 	}),
 	zValidator("json", CreateWorkflowRunRequestSchema),
 	async c => {
-		const client = postgres(c.env.DATABASE_URL, { prepare: false })
-		const db = drizzle(client)
+		const db = createDbFromUrl(c.env.DATABASE_URL)
 
 		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
@@ -304,8 +262,7 @@ workflowRuns.get(
 	}),
 	zValidator("query", GitHubRunQuerySchema),
 	async c => {
-		const client = postgres(c.env.DATABASE_URL, { prepare: false })
-		const db = drizzle(client)
+		const db = createDbFromUrl(c.env.DATABASE_URL)
 
 		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) {
@@ -396,8 +353,7 @@ workflowRuns.get(
 	}),
 	zValidator("query", GitHubRunQuerySchema),
 	async c => {
-		const client = postgres(c.env.DATABASE_URL, { prepare: false })
-		const db = drizzle(client)
+		const db = createDbFromUrl(c.env.DATABASE_URL)
 
 		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) {
@@ -504,8 +460,7 @@ workflowRuns.get(
 	}),
 	zValidator("query", GitHubRunQuerySchema),
 	async c => {
-		const client = postgres(c.env.DATABASE_URL, { prepare: false })
-		const db = drizzle(client)
+		const db = createDbFromUrl(c.env.DATABASE_URL)
 
 		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) {
@@ -659,8 +614,7 @@ workflowRuns.get(
 	}),
 	zValidator("query", GitHubRunQuerySchema),
 	async c => {
-		const client = postgres(c.env.DATABASE_URL, { prepare: false })
-		const db = drizzle(client)
+		const db = createDbFromUrl(c.env.DATABASE_URL)
 
 		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) {
@@ -898,8 +852,7 @@ workflowRuns.patch(
 	}),
 	zValidator("param", WorkflowRunIdParamSchema),
 	async c => {
-		const client = postgres(c.env.DATABASE_URL, { prepare: false })
-		const db = drizzle(client)
+		const db = createDbFromUrl(c.env.DATABASE_URL)
 
 		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
@@ -1091,8 +1044,7 @@ workflowRuns.get(
 	}),
 	zValidator("query", ListWorkflowRunsQuerySchema),
 	async c => {
-		const client = postgres(c.env.DATABASE_URL, { prepare: false })
-		const db = drizzle(client)
+		const db = createDbFromUrl(c.env.DATABASE_URL)
 
 		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
@@ -1146,8 +1098,7 @@ workflowRuns.patch(
 	"/:id/archive",
 	zValidator("param", WorkflowRunIdParamSchema),
 	async c => {
-		const client = postgres(c.env.DATABASE_URL, { prepare: false })
-		const db = drizzle(client)
+		const db = createDbFromUrl(c.env.DATABASE_URL)
 
 		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
@@ -1176,8 +1127,7 @@ workflowRuns.patch(
 	"/:id/unarchive",
 	zValidator("param", WorkflowRunIdParamSchema),
 	async c => {
-		const client = postgres(c.env.DATABASE_URL, { prepare: false })
-		const db = drizzle(client)
+		const db = createDbFromUrl(c.env.DATABASE_URL)
 
 		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
