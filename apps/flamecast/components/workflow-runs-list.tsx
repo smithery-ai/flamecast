@@ -94,6 +94,16 @@ function relativeTime(date: string) {
 	return `${days}d ago`
 }
 
+function isFlamecastWorkflowRun(value: unknown): value is FlamecastWorkflowRun {
+	if (!value || typeof value !== "object") return false
+	const run = value as Partial<FlamecastWorkflowRun>
+	return (
+		typeof run.id === "string" &&
+		typeof run.workflowRunId === "number" &&
+		typeof run.createdAt === "string"
+	)
+}
+
 function getWorkflowRunUrl(run: FlamecastWorkflowRun) {
 	if (!run.sourceRepo) return null
 	const [owner, repo] = run.sourceRepo.split("/")
@@ -146,7 +156,9 @@ export function WorkflowRunsList({ repo }: { repo?: string }) {
 	const archiveRun = useArchiveRun()
 	const unarchiveRun = useUnarchiveRun()
 
-	const runs = data?.pages.flatMap(page => page.runs) ?? []
+	const runs = (data?.pages ?? [])
+		.flatMap(page => (Array.isArray(page?.runs) ? page.runs : []))
+		.filter(isFlamecastWorkflowRun)
 
 	if (isLoading) {
 		return <p className="text-sm text-zinc-400">Loading workflow runs...</p>
@@ -222,17 +234,19 @@ export function WorkflowRunsList({ repo }: { repo?: string }) {
 							</div>
 						</div>
 						<div className="shrink-0 ml-4 flex items-center gap-3">
-							{run.completedAt && run.sourceRepo && (() => {
-								const parts = run.sourceRepo.split("/")
-								if (parts.length < 2) return null
-								return (
-									<InlinePRActions
-										sourceOwner={parts[0]}
-										sourceRepo={parts[1]}
-										runId={run.workflowRunId}
-									/>
-								)
-							})()}
+							{run.completedAt &&
+								run.sourceRepo &&
+								(() => {
+									const parts = run.sourceRepo.split("/")
+									if (parts.length < 2) return null
+									return (
+										<InlinePRActions
+											sourceOwner={parts[0]}
+											sourceRepo={parts[1]}
+											runId={run.workflowRunId}
+										/>
+									)
+								})()}
 							<span className="text-xs text-zinc-400">
 								{relativeTime(run.createdAt)}
 							</span>
