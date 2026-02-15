@@ -46,6 +46,74 @@ function sleep(ms: number) {
 	return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+// GET /user — Get authenticated GitHub user
+githubRepos.get("/user", async c => {
+	const db = createDbFromUrl(c.env.DATABASE_URL)
+	const authRow = await authenticateApiKey(db, c.req.header("authorization"))
+	if (!authRow) return c.json({ error: "Unauthorized" }, 401)
+
+	const accessToken = await getGitHubAccessToken(db, authRow.userId)
+	if (!accessToken) return c.json({ error: "GitHub token not found" }, 403)
+
+	const res = await fetch("https://api.github.com/user", {
+		headers: getGitHubHeaders(accessToken),
+	})
+
+	if (!res.ok) {
+		return c.json(
+			{ error: `GitHub API error: ${res.status}` },
+			res.status as 400,
+		)
+	}
+
+	const user = (await res.json()) as { login: string }
+	return c.json({ login: user.login })
+})
+
+// GET /user/repos — List repositories for the authenticated GitHub user
+githubRepos.get("/user/repos", async c => {
+	const db = createDbFromUrl(c.env.DATABASE_URL)
+	const authRow = await authenticateApiKey(db, c.req.header("authorization"))
+	if (!authRow) return c.json({ error: "Unauthorized" }, 401)
+
+	const accessToken = await getGitHubAccessToken(db, authRow.userId)
+	if (!accessToken) return c.json({ error: "GitHub token not found" }, 403)
+
+	const res = await fetch(
+		"https://api.github.com/user/repos?sort=updated&per_page=100&type=all",
+		{ headers: getGitHubHeaders(accessToken) },
+	)
+
+	if (!res.ok) {
+		return c.json(
+			{ error: `GitHub API error: ${res.status}` },
+			res.status as 400,
+		)
+	}
+
+	const repos = (await res.json()) as Array<{
+		name: string
+		full_name: string
+		owner: { login: string }
+		description: string | null
+		private: boolean
+		language: string | null
+		updated_at: string | null
+	}>
+
+	return c.json(
+		repos.map(repo => ({
+			name: repo.name,
+			full_name: repo.full_name,
+			owner: { login: repo.owner.login },
+			description: repo.description,
+			private: repo.private,
+			language: repo.language,
+			updated_at: repo.updated_at,
+		})),
+	)
+})
+
 // GET /repos/:owner/:repo/pulls — List Flamecast PRs
 githubRepos.get(
 	"/repos/:owner/:repo/pulls",
