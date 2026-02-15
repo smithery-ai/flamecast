@@ -1,6 +1,6 @@
 import { Hono } from "hono"
 import { describeRoute, resolver, validator as zValidator } from "hono-openapi"
-import { and, desc, eq, isNull } from "drizzle-orm"
+import { and, desc, eq, isNull, lt } from "drizzle-orm"
 import { strFromU8, unzipSync } from "fflate"
 import { z } from "zod"
 import {
@@ -1051,9 +1051,10 @@ workflowRuns.get(
 		const {
 			repo: repoFilter,
 			limit: limitParam,
+			cursor,
 			includeArchived,
 		} = c.req.valid("query")
-		const limit = limitParam ?? 20
+		const limit = limitParam ?? 5
 
 		const conditions = [eq(flamecastWorkflowRuns.userId, authRow.userId)]
 		if (repoFilter) {
@@ -1062,7 +1063,11 @@ workflowRuns.get(
 		if (includeArchived !== "true") {
 			conditions.push(isNull(flamecastWorkflowRuns.archivedAt))
 		}
+		if (cursor) {
+			conditions.push(lt(flamecastWorkflowRuns.createdAt, new Date(cursor)))
+		}
 
+		// Fetch limit + 1 to check if there are more results
 		const runs = await db
 			.select({
 				id: flamecastWorkflowRuns.id,
@@ -1086,9 +1091,18 @@ workflowRuns.get(
 			)
 			.where(and(...conditions))
 			.orderBy(desc(flamecastWorkflowRuns.createdAt))
-			.limit(limit)
+			.limit(limit + 1)
 
-		return c.json(runs)
+		const hasMore = runs.length > limit
+		const items = hasMore ? runs.slice(0, limit) : runs
+		const nextCursor =
+			hasMore && items.length > 0 ? items[items.length - 1].createdAt : null
+
+		return c.json({
+			runs: items,
+			hasMore,
+			nextCursor,
+		})
 	},
 )
 
