@@ -1,4 +1,4 @@
-# RFC: Flamecast
+# Bonjour: Flamecast
 
 **Status:** Active Development
 **Authors:** Smithery AI
