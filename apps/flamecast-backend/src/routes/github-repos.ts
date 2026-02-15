@@ -454,6 +454,7 @@ githubRepos.post(
 					sourceRepoId: sourceRepoRow.id,
 					prompt: normalizedPrompt,
 					chatId,
+					startedAt: new Date(dispatchedAt),
 					createdAt: new Date(dispatchedAt),
 				})
 				.onConflictDoUpdate({
@@ -466,6 +467,7 @@ githubRepos.post(
 						sourceRepoId: sourceRepoRow.id,
 						prompt: normalizedPrompt,
 						chatId,
+						startedAt: new Date(dispatchedAt),
 						createdAt: new Date(dispatchedAt),
 					},
 				})

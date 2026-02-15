@@ -947,6 +947,8 @@ workflowRuns.patch(
 
 		const jobsData = (await jobsRes.json()) as {
 			jobs: Array<{
+				status: string | null
+				conclusion: string | null
 				steps: Array<{
 					name: string
 					conclusion: string | null
@@ -967,6 +969,22 @@ workflowRuns.patch(
 				}
 			}
 			if (conclusion) break
+		}
+
+		// Fallback: if the flamecast step wasn't found, check job-level conclusion
+		// This handles cases where the workflow failed before the step ran
+		if (!conclusion) {
+			for (const job of jobsData.jobs) {
+				if (
+					job.status === "completed" &&
+					(job.conclusion === "failure" ||
+						job.conclusion === "cancelled" ||
+						job.conclusion === "timed_out")
+				) {
+					conclusion = job.conclusion
+					break
+				}
+			}
 		}
 
 		const updateFields: Record<string, unknown> = {}
