@@ -14,7 +14,7 @@ export type Bindings = {
 	WORKOS_API_KEY: string
 	WORKOS_CLIENT_ID: string
 	WORKOS_COOKIE_PASSWORD: string
-	REDIRECT_URI: string
+	WORKOS_REDIRECT_URI: string
 	DATABASE_URL: string
 	POSTHOG_KEY: string
 	POSTHOG_HOST: string
@@ -34,6 +34,7 @@ app.use("/api-keys/*", corsMiddleware)
 app.use("/github/*", corsMiddleware)
 app.use("/setup/*", corsMiddleware)
 app.use("/chats/*", corsMiddleware)
+app.use("/auth/*", corsMiddleware)
 
 app.route("/auth", auth)
 app.route("/workflow-runs", workflowRuns)
