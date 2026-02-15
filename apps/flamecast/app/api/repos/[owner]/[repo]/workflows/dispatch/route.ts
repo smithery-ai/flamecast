@@ -55,8 +55,9 @@ export async function POST(
 		baseBranch?: string
 		ref?: string
 		targetRepo?: string
+		syncBase?: boolean
 	}
-	const { prompt, baseBranch, ref, targetRepo } = body
+	const { prompt, baseBranch, ref, targetRepo, syncBase } = body
 
 	if (typeof prompt !== "string" || !prompt.trim()) {
 		return NextResponse.json({ error: "prompt is required" }, { status: 400 })
@@ -70,6 +71,9 @@ export async function POST(
 	}
 	if (targetRepo) {
 		inputs.target_repo = targetRepo
+	}
+	if (syncBase) {
+		inputs.sync_base = "true"
 	}
 
 	const dispatchedAt = Date.now()

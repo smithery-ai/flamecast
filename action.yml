@@ -15,6 +15,10 @@ inputs:
   claude_code_oauth_token:
     description: "Claude Code OAuth token"
     required: true
+  sync_base:
+    description: "Merge base branch into feature branch and resolve conflicts"
+    required: false
+    default: "false"
   flamecast_pat:
     description: "GitHub PAT for cross-repo operations"
     required: false
@@ -62,33 +66,133 @@ runs:
           git checkout -b "$BRANCH"
         fi
 
+    - name: Sync with base branch
+      id: sync
+      if: inputs.sync_base == 'true'
+      shell: bash
+      env:
+        BRANCH: ${{ steps.branch.outputs.name }}
+        BASE: ${{ inputs.base_branch || 'main' }}
+        GH_TOKEN: ${{ inputs.target_repo && inputs.flamecast_pat || github.token }}
+        TARGET_REPO: ${{ inputs.target_repo }}
+      run: |
+        # Only sync if the branch already exists remotely
+        if ! git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null 2>&1; then
+          echo "Branch does not exist remotely, skipping sync"
+          echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
+          echo "clean_merge=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        if git merge "origin/$BASE" --no-edit; then
+          echo "Merged $BASE cleanly"
+          echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
+          # Check if merge actually created a commit (vs already up-to-date)
+          if git diff --quiet "origin/$BRANCH"; then
+            echo "Already up-to-date with $BASE"
+            echo "clean_merge=false" >> "$GITHUB_OUTPUT"
+          else
+            git push origin "$BRANCH"
+            echo "clean_merge=true" >> "$GITHUB_OUTPUT"
+          fi
+        else
+          echo "Merge conflicts detected"
+          echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
+          echo "clean_merge=false" >> "$GITHUB_OUTPUT"
+
+          # Gather PR context for Claude
+          REPO_FLAG=""
+          if [ -n "$TARGET_REPO" ]; then
+            REPO_FLAG="--repo $TARGET_REPO"
+          fi
+          PR_TITLE=$(gh pr view "$BRANCH" $REPO_FLAG --json title -q '.title' 2>/dev/null || echo "")
+          PR_BODY=$(gh pr view "$BRANCH" $REPO_FLAG --json body -q '.body' 2>/dev/null || echo "")
+
+          {
+            echo "pr_title<<__FLAMECAST_PR_TITLE__"
+            echo "$PR_TITLE"
+            echo "__FLAMECAST_PR_TITLE__"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "pr_body<<__FLAMECAST_PR_BODY__"
+            echo "$PR_BODY"
+            echo "__FLAMECAST_PR_BODY__"
+          } >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
+      if: inputs.sync_base != 'true' || steps.sync.outputs.has_conflicts == 'true'
       with:
         node-version: '22'
 
     - name: Run Claude Code
       id: claude
+      if: inputs.sync_base != 'true' || steps.sync.outputs.has_conflicts == 'true'
       shell: bash
       env:
         CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
         PROMPT: ${{ inputs.prompt }}
+        SYNC_BASE: ${{ inputs.sync_base }}
+        HAS_CONFLICTS: ${{ steps.sync.outputs.has_conflicts }}
+        PR_TITLE: ${{ steps.sync.outputs.pr_title }}
+        PR_BODY: ${{ steps.sync.outputs.pr_body }}
+        BASE: ${{ inputs.base_branch || 'main' }}
       run: |
         set -o pipefail
         LOG_FILE="${RUNNER_TEMP}/claude.log"
-        npx -y @anthropic-ai/claude-code --print --dangerously-skip-permissions "$PROMPT" 2>&1 | tee "$LOG_FILE"
+
+        if [ "$SYNC_BASE" = "true" ] && [ "$HAS_CONFLICTS" = "true" ]; then
+          # Conflict resolution mode: use PR context instead of original prompt
+          read -r -d '' FULL_PROMPT <<PROMPT_EOF || true
+        This branch has merge conflicts with $BASE that need to be resolved.
+
+        Here is the PR context so you understand what these changes are about:
+        - Title: $PR_TITLE
+        - Description: $PR_BODY
+
+        Resolve all merge conflicts:
+        1. Search for conflict markers (<<<<<<< HEAD / ======= / >>>>>>>)
+        2. For each conflict, use the PR context to understand the intent of the changes
+        3. Resolve by preserving the intent of both sides where possible
+        4. Remove ALL conflict markers
+        5. Ensure files are syntactically valid after resolution
+        6. Do NOT make any other changes beyond conflict resolution
+        PROMPT_EOF
+        else
+          FULL_PROMPT="$PROMPT"
+        fi
+
+        npx -y @anthropic-ai/claude-code --print --dangerously-skip-permissions "$FULL_PROMPT" 2>&1 | tee "$LOG_FILE"
         {
           echo "logs<<__FLAMECAST_LOGS__"
           cat "$LOG_FILE"
           echo "__FLAMECAST_LOGS__"
         } >> "$GITHUB_OUTPUT"
 
+    - name: Validate conflict resolution
+      if: steps.sync.outputs.has_conflicts == 'true'
+      shell: bash
+      run: |
+        if grep -rn "<<<<<<< " . --include='*' --exclude-dir=.git; then
+          echo "ERROR: Conflict markers still present after Claude Code execution"
+          exit 1
+        fi
+        echo "All conflicts resolved successfully"
+
     - name: Commit and push
       id: commit
+      if: inputs.sync_base != 'true' || steps.sync.outputs.has_conflicts == 'true'
       shell: bash
       env:
         PROMPT: ${{ inputs.prompt }}
         BRANCH: ${{ steps.branch.outputs.name }}
+        SYNC_BASE: ${{ inputs.sync_base }}
+        HAS_CONFLICTS: ${{ steps.sync.outputs.has_conflicts }}
+        BASE: ${{ inputs.base_branch || 'main' }}
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -98,14 +202,19 @@ runs:
           echo "has_changes=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
-        TRUNCATED=$(echo "$PROMPT" | head -c 72)
-        git commit -m "flamecast: ${TRUNCATED}"
+        if [ "$SYNC_BASE" = "true" ] && [ "$HAS_CONFLICTS" = "true" ]; then
+          # Complete the merge commit
+          git commit --no-edit
+        else
+          TRUNCATED=$(echo "$PROMPT" | head -c 72)
+          git commit -m "flamecast: ${TRUNCATED}"
+        fi
         git push origin "$BRANCH"
         echo "has_changes=true" >> "$GITHUB_OUTPUT"
 
     - name: Generate PR description
       id: pr_description
-      if: steps.commit.outputs.has_changes == 'true'
+      if: inputs.sync_base != 'true' && steps.commit.outputs.has_changes == 'true'
       shell: bash
       env:
         CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.claude_code_oauth_token }}
@@ -138,7 +247,7 @@ runs:
 
     - name: Open or update PR
       id: pr
-      if: steps.commit.outputs.has_changes == 'true'
+      if: inputs.sync_base != 'true' && steps.commit.outputs.has_changes == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.target_repo && inputs.flamecast_pat || github.token }}
