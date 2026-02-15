@@ -43,12 +43,19 @@ If you prefer not to use Tailwind CSS:
 
 Authentication is handled by `apps/flamecast-backend`.
 
-Set these in `.env.local`:
-- `VITE_BACKEND_URL` (for local dev, e.g. `http://localhost:6970`)
+Create `apps/flamecast-frontend/.env.local` (or copy `.env.example`) and set:
 
-In WorkOS, ensure the backend callback URL is allowlisted:
-- `WORKOS_REDIRECT_URI` in the backend env should point at backend callback
-  (for local dev this is typically `http://localhost:6970/auth/callback`).
+```bash
+VITE_BACKEND_URL=http://localhost:6970
+```
+
+For backend auth to work locally, `apps/flamecast-backend/.env` must include:
+- `WORKOS_API_KEY`
+- `WORKOS_CLIENT_ID`
+- `WORKOS_COOKIE_PASSWORD`
+- `WORKOS_REDIRECT_URI` (typically `http://localhost:6970/auth/callback`)
+
+In WorkOS, ensure the callback URL above is allowlisted.
 
 
 ## Shadcn

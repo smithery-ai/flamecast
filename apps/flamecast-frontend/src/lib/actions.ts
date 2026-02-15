@@ -7,9 +7,7 @@ import type {
 	WorkflowRunLogs,
 	PullRequestStatus,
 } from "@/hooks/use-api"
-
-const BACKEND_URL =
-	import.meta.env.VITE_BACKEND_URL || "https://api.flamecast.dev"
+import { BACKEND_URL } from "@/lib/backend-url"
 
 export interface FlamecastGitHubWorkflowRun {
 	id: number

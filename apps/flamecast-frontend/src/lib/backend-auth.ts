@@ -1,5 +1,4 @@
-const BACKEND_URL =
-  import.meta.env.VITE_BACKEND_URL || 'https://api.flamecast.dev'
+import { BACKEND_URL } from '@/lib/backend-url'
 
 export interface BackendAuthUser {
   id: string

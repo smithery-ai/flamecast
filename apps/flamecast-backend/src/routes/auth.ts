@@ -7,6 +7,8 @@ import { flamecastApiKeys } from "@smithery/flamecast-db/schema"
 import { createDbFromUrl } from "../lib/db"
 
 const auth = new Hono<{ Bindings: Env }>()
+const RETURN_TO_COOKIE = "wos-return-to"
+const RETURN_TO_COOKIE_MAX_AGE_SECONDS = 60 * 10
 
 interface AuthState {
 	returnTo?: string
@@ -17,7 +19,11 @@ function parseState(rawState: string | undefined): AuthState {
 	try {
 		const parsed = JSON.parse(rawState)
 		if (!parsed || typeof parsed !== "object") return {}
-		return parsed as AuthState
+		const returnTo =
+			"returnTo" in parsed && typeof parsed.returnTo === "string"
+				? parsed.returnTo
+				: undefined
+		return { returnTo }
 	} catch {
 		return {}
 	}
@@ -71,6 +77,51 @@ function toAbsoluteReturnTo(value: string, appOrigin: string | null): string {
 	}
 }
 
+function resolvePostAuthReturnTo(
+	c: Context<{ Bindings: Env }>,
+	state: AuthState,
+): string {
+	return state.returnTo || getCookie(c, RETURN_TO_COOKIE) || "/"
+}
+
+function resolveSessionCookieSettings(
+	c: Context<{ Bindings: Env }>,
+	returnTo: string,
+): { secure: boolean; sameSite: "Lax" | "None" } {
+	const requestUrl = new URL(c.req.url)
+	const secure = requestUrl.protocol === "https:"
+	if (!secure) return { secure: false, sameSite: "Lax" }
+
+	try {
+		const returnToUrl = new URL(returnTo)
+		if (returnToUrl.origin !== requestUrl.origin) {
+			return { secure: true, sameSite: "None" }
+		}
+	} catch {
+		// Relative returnTo paths should keep Lax behavior.
+	}
+
+	return { secure: true, sameSite: "Lax" }
+}
+
+type LegacyWorkOSEnv = Env & {
+	NEXT_PUBLIC_WORKOS_REDIRECT_URI?: string
+}
+
+function resolveWorkosRedirectUri(c: Context<{ Bindings: Env }>): string | null {
+	const env = c.env as LegacyWorkOSEnv
+	const redirectUri = env.WORKOS_REDIRECT_URI || env.NEXT_PUBLIC_WORKOS_REDIRECT_URI
+	if (!redirectUri) return null
+
+	try {
+		const parsed = new URL(redirectUri)
+		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null
+		return parsed.toString()
+	} catch {
+		return null
+	}
+}
+
 async function authenticateSession(
 	c: Context<{ Bindings: Env }>,
 ): Promise<{
@@ -106,6 +157,17 @@ async function authenticateSession(
 }
 
 auth.get("/login", c => {
+	const redirectUri = resolveWorkosRedirectUri(c)
+	if (!redirectUri) {
+		return c.json(
+			{
+				error:
+					"WorkOS is not configured. Set WORKOS_REDIRECT_URI (or NEXT_PUBLIC_WORKOS_REDIRECT_URI) to an absolute callback URL.",
+			},
+			500,
+		)
+	}
+
 	const workos = new WorkOS(c.env.WORKOS_API_KEY, {
 		clientId: c.env.WORKOS_CLIENT_ID,
 	})
@@ -113,10 +175,17 @@ auth.get("/login", c => {
 	const appOrigin = normalizeAppOrigin(c.req.query("appOrigin"))
 	const returnTo = normalizeReturnTo(c.req.query("returnTo"), appOrigin)
 	const state = JSON.stringify({ returnTo })
+	setCookie(c, RETURN_TO_COOKIE, returnTo, {
+		path: "/",
+		httpOnly: true,
+		secure: new URL(c.req.url).protocol === "https:",
+		sameSite: "Lax",
+		maxAge: RETURN_TO_COOKIE_MAX_AGE_SECONDS,
+	})
 
 	const authorizationUrl = workos.userManagement.getAuthorizationUrl({
 		provider: "authkit",
-		redirectUri: c.env.WORKOS_REDIRECT_URI,
+		redirectUri,
 		clientId: c.env.WORKOS_CLIENT_ID,
 		state,
 	})
@@ -132,6 +201,7 @@ auth.get("/callback", async c => {
 	}
 
 	const state = parseState(c.req.query("state"))
+	const returnTo = resolvePostAuthReturnTo(c, state)
 
 	try {
 		const workos = new WorkOS(c.env.WORKOS_API_KEY, {
@@ -147,16 +217,25 @@ auth.get("/callback", async c => {
 			},
 		})
 
+		const sessionCookieSettings = resolveSessionCookieSettings(c, returnTo)
 		setCookie(c, "wos-session", sealedSession!, {
 			path: "/",
 			httpOnly: true,
-			secure: new URL(c.req.url).protocol === "https:",
-			sameSite: "Lax",
+			secure: sessionCookieSettings.secure,
+			sameSite: sessionCookieSettings.sameSite,
 		})
+		deleteCookie(c, RETURN_TO_COOKIE, { path: "/" })
 
-		return c.redirect(state.returnTo || "/")
+		return c.redirect(returnTo)
 	} catch {
-		return c.redirect("/auth/login")
+		const retry = new URL("/auth/login", c.req.url)
+		retry.searchParams.set("returnTo", returnTo)
+		try {
+			retry.searchParams.set("appOrigin", new URL(returnTo).origin)
+		} catch {
+			// Ignore relative returnTo values for appOrigin.
+		}
+		return c.redirect(retry.toString())
 	}
 })
 
