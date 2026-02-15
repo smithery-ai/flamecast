@@ -56,10 +56,7 @@ apiKeys.post("/", zValidator("json", CreateApiKeyRequestSchema), async c => {
 		.where(eq(flamecastApiKeys.userId, authRow.userId))
 
 	if (existing.length >= MAX_API_KEYS) {
-		return c.json(
-			{ error: "Maximum number of API keys reached (20)" },
-			400,
-		)
+		return c.json({ error: "Maximum number of API keys reached (20)" }, 400)
 	}
 
 	const [newKey] = await db

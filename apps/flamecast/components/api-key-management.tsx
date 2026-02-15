@@ -2,11 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import posthog from "posthog-js"
-import {
-	listApiKeys,
-	createApiKey,
-	deleteApiKey,
-} from "@/lib/actions"
+import { listApiKeys, createApiKey, deleteApiKey } from "@/lib/actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"

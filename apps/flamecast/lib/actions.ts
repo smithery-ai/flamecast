@@ -265,7 +265,10 @@ export async function getSetupStatus(): Promise<SetupStatus> {
 	return res.json() as Promise<SetupStatus>
 }
 
-export async function createRepo(): Promise<{ created: boolean; repo: string }> {
+export async function createRepo(): Promise<{
+	created: boolean
+	repo: string
+}> {
 	const res = await callBackendPost("/setup/repo")
 	if (!res.ok) throw new Error(await getBackendErrorMessage(res))
 	return res.json() as Promise<{ created: boolean; repo: string }>

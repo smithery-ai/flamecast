@@ -50,18 +50,14 @@ githubRepos.get(
 	zValidator("param", RepoParamSchema),
 	async c => {
 		const db = createDbFromUrl(c.env.DATABASE_URL)
-		const authRow = await authenticateApiKey(
-			db,
-			c.req.header("authorization"),
-		)
+		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
 
 		const { owner, repo } = c.req.valid("param")
 		const user = c.req.query("user")
 
 		const accessToken = await getGitHubAccessToken(db, authRow.userId)
-		if (!accessToken)
-			return c.json({ error: "GitHub token not found" }, 403)
+		if (!accessToken) return c.json({ error: "GitHub token not found" }, 403)
 
 		const prefix = user ? `flamecast/${user}/` : "flamecast/"
 
@@ -107,17 +103,13 @@ githubRepos.get(
 	zValidator("param", PullParamSchema),
 	async c => {
 		const db = createDbFromUrl(c.env.DATABASE_URL)
-		const authRow = await authenticateApiKey(
-			db,
-			c.req.header("authorization"),
-		)
+		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
 
 		const { owner, repo, number } = c.req.valid("param")
 
 		const accessToken = await getGitHubAccessToken(db, authRow.userId)
-		if (!accessToken)
-			return c.json({ error: "GitHub token not found" }, 403)
+		if (!accessToken) return c.json({ error: "GitHub token not found" }, 403)
 
 		const headers = getGitHubHeaders(accessToken)
 
@@ -160,9 +152,7 @@ githubRepos.get(
 			checkRuns = checksData.check_runs
 		}
 
-		const completed = checkRuns.filter(
-			cr => cr.status === "completed",
-		).length
+		const completed = checkRuns.filter(cr => cr.status === "completed").length
 		const successful = checkRuns.filter(
 			cr => cr.status === "completed" && cr.conclusion === "success",
 		).length
@@ -200,17 +190,13 @@ githubRepos.post(
 	zValidator("param", PullParamSchema),
 	async c => {
 		const db = createDbFromUrl(c.env.DATABASE_URL)
-		const authRow = await authenticateApiKey(
-			db,
-			c.req.header("authorization"),
-		)
+		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
 
 		const { owner, repo, number } = c.req.valid("param")
 
 		const accessToken = await getGitHubAccessToken(db, authRow.userId)
-		if (!accessToken)
-			return c.json({ error: "GitHub token not found" }, 403)
+		if (!accessToken) return c.json({ error: "GitHub token not found" }, 403)
 
 		const headers = {
 			...getGitHubHeaders(accessToken),
@@ -251,10 +237,7 @@ githubRepos.post(
 		}
 
 		if (c.env.POSTHOG_KEY) {
-			const posthog = createPostHogClient(
-				c.env.POSTHOG_KEY,
-				c.env.POSTHOG_HOST,
-			)
+			const posthog = createPostHogClient(c.env.POSTHOG_KEY, c.env.POSTHOG_HOST)
 			posthog.capture({
 				distinctId: authRow.userId,
 				event: "pr_closed",
@@ -275,17 +258,13 @@ githubRepos.post(
 	zValidator("param", PullParamSchema),
 	async c => {
 		const db = createDbFromUrl(c.env.DATABASE_URL)
-		const authRow = await authenticateApiKey(
-			db,
-			c.req.header("authorization"),
-		)
+		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
 
 		const { owner, repo, number } = c.req.valid("param")
 
 		const accessToken = await getGitHubAccessToken(db, authRow.userId)
-		if (!accessToken)
-			return c.json({ error: "GitHub token not found" }, 403)
+		if (!accessToken) return c.json({ error: "GitHub token not found" }, 403)
 
 		const headers = {
 			...getGitHubHeaders(accessToken),
@@ -333,10 +312,7 @@ githubRepos.post(
 		}
 
 		if (c.env.POSTHOG_KEY) {
-			const posthog = createPostHogClient(
-				c.env.POSTHOG_KEY,
-				c.env.POSTHOG_HOST,
-			)
+			const posthog = createPostHogClient(c.env.POSTHOG_KEY, c.env.POSTHOG_HOST)
 			posthog.capture({
 				distinctId: authRow.userId,
 				event: "pr_merged",
@@ -358,18 +334,14 @@ githubRepos.post(
 	zValidator("json", DispatchRequestSchema),
 	async c => {
 		const db = createDbFromUrl(c.env.DATABASE_URL)
-		const authRow = await authenticateApiKey(
-			db,
-			c.req.header("authorization"),
-		)
+		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
 
 		const { owner, repo } = c.req.valid("param")
 		const { prompt, baseBranch, ref, targetRepo } = c.req.valid("json")
 
 		const accessToken = await getGitHubAccessToken(db, authRow.userId)
-		if (!accessToken)
-			return c.json({ error: "GitHub token not found" }, 403)
+		if (!accessToken) return c.json({ error: "GitHub token not found" }, 403)
 
 		const headers = {
 			...getGitHubHeaders(accessToken),
@@ -510,18 +482,14 @@ githubRepos.get(
 	zValidator("param", RepoParamSchema),
 	async c => {
 		const db = createDbFromUrl(c.env.DATABASE_URL)
-		const authRow = await authenticateApiKey(
-			db,
-			c.req.header("authorization"),
-		)
+		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
 
 		const { owner, repo } = c.req.valid("param")
 		const branch = c.req.query("branch")
 
 		const accessToken = await getGitHubAccessToken(db, authRow.userId)
-		if (!accessToken)
-			return c.json({ error: "GitHub token not found" }, 403)
+		if (!accessToken) return c.json({ error: "GitHub token not found" }, 403)
 
 		let url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/flamecast.yml/runs?per_page=5`
 		if (branch) url += `&branch=${encodeURIComponent(branch)}`
@@ -566,17 +534,13 @@ githubRepos.get(
 	zValidator("param", RunParamSchema),
 	async c => {
 		const db = createDbFromUrl(c.env.DATABASE_URL)
-		const authRow = await authenticateApiKey(
-			db,
-			c.req.header("authorization"),
-		)
+		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
 
 		const { owner, repo, runId } = c.req.valid("param")
 
 		const accessToken = await getGitHubAccessToken(db, authRow.userId)
-		if (!accessToken)
-			return c.json({ error: "GitHub token not found" }, 403)
+		if (!accessToken) return c.json({ error: "GitHub token not found" }, 403)
 
 		const res = await fetch(
 			`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/jobs`,
@@ -626,17 +590,13 @@ githubRepos.get(
 	zValidator("param", RunParamSchema),
 	async c => {
 		const db = createDbFromUrl(c.env.DATABASE_URL)
-		const authRow = await authenticateApiKey(
-			db,
-			c.req.header("authorization"),
-		)
+		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
 
 		const { owner, repo, runId } = c.req.valid("param")
 
 		const accessToken = await getGitHubAccessToken(db, authRow.userId)
-		if (!accessToken)
-			return c.json({ error: "GitHub token not found" }, 403)
+		if (!accessToken) return c.json({ error: "GitHub token not found" }, 403)
 
 		const res = await fetch(
 			`https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/logs`,

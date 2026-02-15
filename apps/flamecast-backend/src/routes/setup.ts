@@ -78,8 +78,7 @@ setup.get("/status", async c => {
 
 	// Get authenticated user
 	const userRes = await fetch("https://api.github.com/user", { headers })
-	if (!userRes.ok)
-		return c.json({ error: "Failed to get GitHub user" }, 500)
+	if (!userRes.ok) return c.json({ error: "Failed to get GitHub user" }, 500)
 	const ghUser = (await userRes.json()) as { login: string }
 	const username = ghUser.login
 
@@ -112,14 +111,11 @@ setup.get("/status", async c => {
 		])
 
 		hasClaudeToken =
-			secretChecks[0].status === "fulfilled" &&
-			secretChecks[0].value.ok
+			secretChecks[0].status === "fulfilled" && secretChecks[0].value.ok
 		hasFlamecastPat =
-			secretChecks[1].status === "fulfilled" &&
-			secretChecks[1].value.ok
+			secretChecks[1].status === "fulfilled" && secretChecks[1].value.ok
 		hasFlamecastApiKey =
-			secretChecks[2].status === "fulfilled" &&
-			secretChecks[2].value.ok
+			secretChecks[2].status === "fulfilled" && secretChecks[2].value.ok
 	}
 
 	return c.json({
@@ -150,8 +146,7 @@ setup.post("/repo", async c => {
 	const userRes = await fetch("https://api.github.com/user", {
 		headers: getGitHubHeaders(accessToken),
 	})
-	if (!userRes.ok)
-		return c.json({ error: "Failed to get GitHub user" }, 500)
+	if (!userRes.ok) return c.json({ error: "Failed to get GitHub user" }, 500)
 	const ghUser = (await userRes.json()) as { login: string }
 	const username = ghUser.login
 
@@ -160,8 +155,7 @@ setup.post("/repo", async c => {
 		`https://api.github.com/repos/${username}/flamecast`,
 		{ headers: getGitHubHeaders(accessToken) },
 	)
-	if (checkRes.ok)
-		return c.json({ error: "Repository already exists" }, 409)
+	if (checkRes.ok) return c.json({ error: "Repository already exists" }, 409)
 
 	const content = getFlamecastWorkflowContentBase64()
 
@@ -191,10 +185,7 @@ setup.post("/repo", async c => {
 	)
 
 	if (c.env.POSTHOG_KEY) {
-		const posthog = createPostHogClient(
-			c.env.POSTHOG_KEY,
-			c.env.POSTHOG_HOST,
-		)
+		const posthog = createPostHogClient(c.env.POSTHOG_KEY, c.env.POSTHOG_HOST)
 		posthog.capture({
 			distinctId: authRow.userId,
 			event: "repo_created",
@@ -212,20 +203,15 @@ setup.post(
 	async c => {
 		const db = createDbFromUrl(c.env.DATABASE_URL)
 
-		const authRow = await authenticateApiKey(
-			db,
-			c.req.header("authorization"),
-		)
+		const authRow = await authenticateApiKey(db, c.req.header("authorization"))
 		if (!authRow) return c.json({ error: "Unauthorized" }, 401)
 
 		const { repo, secrets } = c.req.valid("json")
 		const [owner, name] = repo.split("/")
-		if (!owner || !name)
-			return c.json({ error: "Invalid repo format" }, 400)
+		if (!owner || !name) return c.json({ error: "Invalid repo format" }, 400)
 
 		const accessToken = await getGitHubAccessToken(db, authRow.userId)
-		if (!accessToken)
-			return c.json({ error: "GitHub token not found" }, 403)
+		if (!accessToken) return c.json({ error: "GitHub token not found" }, 403)
 
 		const headers = {
 			...getGitHubHeaders(accessToken),
@@ -247,10 +233,7 @@ setup.post(
 		for (const [secretName, secretValue] of Object.entries(secrets)) {
 			if (!secretValue) continue
 
-			const encryptedBase64 = await encryptSecret(
-				secretValue,
-				publicKey.key,
-			)
+			const encryptedBase64 = await encryptSecret(secretValue, publicKey.key)
 
 			await fetch(
 				`https://api.github.com/repos/${owner}/${name}/actions/secrets/${secretName}`,
@@ -289,8 +272,7 @@ setup.post("/workflow/reset", async c => {
 	const userRes = await fetch("https://api.github.com/user", {
 		headers: readHeaders,
 	})
-	if (!userRes.ok)
-		return c.json({ error: "Failed to get GitHub user" }, 500)
+	if (!userRes.ok) return c.json({ error: "Failed to get GitHub user" }, 500)
 	const ghUser = (await userRes.json()) as { login: string }
 	const username = ghUser.login
 
@@ -300,10 +282,7 @@ setup.post("/workflow/reset", async c => {
 		{ headers: readHeaders },
 	)
 	if (!repoRes.ok)
-		return c.json(
-			{ error: "Repository not found. Create it first." },
-			404,
-		)
+		return c.json({ error: "Repository not found. Create it first." }, 404)
 
 	const repoData = (await repoRes.json()) as { default_branch: string }
 	const defaultBranch = repoData.default_branch
@@ -322,10 +301,7 @@ setup.post("/workflow/reset", async c => {
 			content: string
 		}
 		if (workflowData.type !== "file")
-			return c.json(
-				{ error: "Workflow path exists but is not a file." },
-				409,
-			)
+			return c.json({ error: "Workflow path exists but is not a file." }, 409)
 
 		workflowSha = workflowData.sha
 		const existingContent = Buffer.from(
@@ -343,25 +319,21 @@ setup.post("/workflow/reset", async c => {
 		`https://api.github.com/repos/${username}/flamecast/git/ref/heads/${defaultBranch}`,
 		{ headers: readHeaders },
 	)
-	if (!baseRefRes.ok)
-		return c.json({ error: "Failed to get base ref" }, 500)
+	if (!baseRefRes.ok) return c.json({ error: "Failed to get base ref" }, 500)
 	const baseRefData = (await baseRefRes.json()) as {
 		object: { sha: string }
 	}
 
 	// Create branch
 	const branchName = `flamecast/${username}/workflow-reset-${Date.now()}`
-	await fetch(
-		`https://api.github.com/repos/${username}/flamecast/git/refs`,
-		{
-			method: "POST",
-			headers,
-			body: JSON.stringify({
-				ref: `refs/heads/${branchName}`,
-				sha: baseRefData.object.sha,
-			}),
-		},
-	)
+	await fetch(`https://api.github.com/repos/${username}/flamecast/git/refs`, {
+		method: "POST",
+		headers,
+		body: JSON.stringify({
+			ref: `refs/heads/${branchName}`,
+			sha: baseRefData.object.sha,
+		}),
+	})
 
 	// Update workflow file
 	await fetch(
@@ -395,10 +367,7 @@ setup.post("/workflow/reset", async c => {
 
 	if (!prRes.ok) {
 		const body = await prRes.text()
-		return c.json(
-			{ error: body || "Failed to create PR" },
-			prRes.status as 400,
-		)
+		return c.json({ error: body || "Failed to create PR" }, prRes.status as 400)
 	}
 
 	const pull = (await prRes.json()) as {
@@ -434,8 +403,7 @@ setup.post("/workflow/update", async c => {
 	const userRes = await fetch("https://api.github.com/user", {
 		headers: readHeaders,
 	})
-	if (!userRes.ok)
-		return c.json({ error: "Failed to get GitHub user" }, 500)
+	if (!userRes.ok) return c.json({ error: "Failed to get GitHub user" }, 500)
 	const ghUser = (await userRes.json()) as { login: string }
 	const username = ghUser.login
 
@@ -462,8 +430,7 @@ setup.post("/workflow/update", async c => {
 		`https://api.github.com/repos/${username}/flamecast/actions/secrets/public-key`,
 		{ headers: readHeaders },
 	)
-	if (!pkRes.ok)
-		return c.json({ error: "Failed to get repo public key" }, 500)
+	if (!pkRes.ok) return c.json({ error: "Failed to get repo public key" }, 500)
 	const publicKey = (await pkRes.json()) as {
 		key: string
 		key_id: string
@@ -489,10 +456,7 @@ setup.post("/workflow/update", async c => {
 		{ headers: readHeaders },
 	)
 	if (!repoRes.ok)
-		return c.json(
-			{ error: "Repository not found. Create it first." },
-			404,
-		)
+		return c.json({ error: "Repository not found. Create it first." }, 404)
 
 	const repoData = (await repoRes.json()) as { default_branch: string }
 	const defaultBranch = repoData.default_branch
@@ -511,10 +475,7 @@ setup.post("/workflow/update", async c => {
 			content: string
 		}
 		if (workflowData.type !== "file")
-			return c.json(
-				{ error: "Workflow path exists but is not a file." },
-				409,
-			)
+			return c.json({ error: "Workflow path exists but is not a file." }, 409)
 
 		workflowSha = workflowData.sha
 		const existingContent = Buffer.from(
@@ -532,25 +493,21 @@ setup.post("/workflow/update", async c => {
 		`https://api.github.com/repos/${username}/flamecast/git/ref/heads/${defaultBranch}`,
 		{ headers: readHeaders },
 	)
-	if (!baseRefRes.ok)
-		return c.json({ error: "Failed to get base ref" }, 500)
+	if (!baseRefRes.ok) return c.json({ error: "Failed to get base ref" }, 500)
 	const baseRefData = (await baseRefRes.json()) as {
 		object: { sha: string }
 	}
 
 	// Create branch
 	const branchName = `flamecast/${username}/workflow-update-${Date.now()}`
-	await fetch(
-		`https://api.github.com/repos/${username}/flamecast/git/refs`,
-		{
-			method: "POST",
-			headers,
-			body: JSON.stringify({
-				ref: `refs/heads/${branchName}`,
-				sha: baseRefData.object.sha,
-			}),
-		},
-	)
+	await fetch(`https://api.github.com/repos/${username}/flamecast/git/refs`, {
+		method: "POST",
+		headers,
+		body: JSON.stringify({
+			ref: `refs/heads/${branchName}`,
+			sha: baseRefData.object.sha,
+		}),
+	})
 
 	// Update workflow file
 	await fetch(
@@ -584,10 +541,7 @@ setup.post("/workflow/update", async c => {
 
 	if (!prRes.ok) {
 		const body = await prRes.text()
-		return c.json(
-			{ error: body || "Failed to create PR" },
-			prRes.status as 400,
-		)
+		return c.json({ error: body || "Failed to create PR" }, prRes.status as 400)
 	}
 
 	const pull = (await prRes.json()) as {

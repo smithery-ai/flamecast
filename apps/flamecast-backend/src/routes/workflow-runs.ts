@@ -112,7 +112,6 @@ const DEFAULT_OUTPUTS = GitHubRunOutputsResponseSchema.parse({
 	branchName: null,
 })
 
-
 // POST / — Register a workflow run, return the DB UUID
 workflowRuns.post(
 	"/",
