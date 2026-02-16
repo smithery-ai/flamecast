@@ -2,20 +2,9 @@
 	"$schema": "https://turborepo.com/schema.json",
 	"ui": "tui",
 	"tasks": {
-		"cf-typegen": {
-			"inputs": ["$TURBO_DEFAULT$", ".env*"],
-			"outputs": ["worker-configuration.d.ts"]
-		},
-		"secrets:pull": {
-			"cache": false
-		},
-		"secrets:push": {
-			"cache": false
-		},
 		"build": {
-			"dependsOn": ["^build", "cf-typegen"],
-			"inputs": ["$TURBO_DEFAULT$", ".env*", ".dev.vars*"],
-			"outputs": [".next/build/**", "!.next/build/cache/**", "dist/**"]
+			"dependsOn": ["^build"],
+			"outputs": ["dist/**"]
 		},
 		"lint": {
 			"dependsOn": ["^lint"]
@@ -27,7 +16,7 @@
 			"dependsOn": ["^check"]
 		},
 		"check-types": {
-			"dependsOn": ["^check-types", "cf-typegen"]
+			"dependsOn": ["^check-types"]
 		},
 		"dev": {
 			"dependsOn": ["^build"],
@@ -35,22 +24,5 @@
 			"persistent": true
 		}
 	},
-	"globalEnv": [
-		"NODE_ENV",
-		"DATABASE_URL",
-		"GITHUB_APP_CLIENT_ID",
-		"GITHUB_APP_CLIENT_SECRET",
-		"GITHUB_TOKEN",
-		"NEXT_PUBLIC_BASE_URL",
-		"NEXT_PUBLIC_POSTHOG_HOST",
-		"NEXT_PUBLIC_POSTHOG_KEY",
-		"NEXT_PUBLIC_WORKOS_CLIENT_ID",
-		"NEXT_PUBLIC_WORKOS_REDIRECT_URI",
-		"POSTHOG_ENV_ID",
-		"POSTHOG_PERSONAL_API_KEY",
-		"WORKOS_API_KEY",
-		"WORKOS_CLIENT_ID",
-		"WORKOS_COOKIE_PASSWORD",
-		"REDIRECT_URI"
-	]
+	"globalEnv": ["NODE_ENV", "GITHUB_TOKEN"]
 }
