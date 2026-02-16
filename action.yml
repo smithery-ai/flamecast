@@ -71,7 +71,7 @@ runs:
         github_token: ${{ inputs.target_repo && inputs.flamecast_pat || github.token }}
         base_branch: ${{ inputs.base_branch || 'main' }}
         claude_args: |
-          --allowedTools "Edit,MultiEdit,Write,Read,Glob,Grep,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git diff:*),Bash(git log:*),Bash(git status:*)"
+          --dangerously-skip-permissions
 
     - name: Check for changes
       id: commit
