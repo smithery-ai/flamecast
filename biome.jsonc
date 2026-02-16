@@ -2,19 +2,7 @@
 	"$schema": "https://biomejs.dev/schemas/2.3.3/schema.json",
 	"files": {
 		"ignoreUnknown": false,
-		"includes": [
-			"**",
-			"!**/dist",
-			"!**/pnpm-lock.yaml",
-			"!**/lib/db/migrations",
-			"!**/migrations/meta",
-			"!**/node_modules",
-			"!**/.next",
-			"!**/public",
-			"!**/.vercel",
-			"!**/scripts",
-			"!**/worker-configuration.d.ts"
-		]
+		"includes": ["**", "!**/dist", "!**/pnpm-lock.yaml", "!**/node_modules"]
 	},
 	"vcs": {
 		"enabled": true,
@@ -35,50 +23,25 @@
 		"enabled": true,
 		"rules": {
 			"recommended": true,
-			"a11y": {
-				"useHtmlLang": "warn", // Not in recommended ruleset, turning on manually
-				"noHeaderScope": "warn", // Not in recommended ruleset, turning on manually
-				"useValidAriaRole": {
-					"level": "warn",
-					"options": {
-						"ignoreNonDom": false,
-						"allowInvalidRoles": ["none", "text"]
-					}
-				},
-				"useSemanticElements": "off", // Rule is buggy, revisit later
-				"noSvgWithoutTitle": "off", // We do not intend to adhere to this rule
-				"useMediaCaption": "off", // We would need a cultural change to turn this on
-				"noAutofocus": "off", // We're highly intentional about when we use autofocus
-				"useKeyWithClickEvents": "off",
-				"useButtonType": "off",
-				"noStaticElementInteractions": "off",
-				"useValidAutocomplete": "warn"
-			},
 			"complexity": {
-				"noUselessStringConcat": "warn", // Not in recommended ruleset, turning on manually
-				"noForEach": "off", // forEach is too familiar to ban
-				"noUselessSwitchCase": "off", // Turned off due to developer preferences
+				"noUselessStringConcat": "warn",
+				"noForEach": "off",
+				"noUselessSwitchCase": "off",
 				"noUselessUndefinedInitialization": "off"
 			},
 			"correctness": {
-				"noUnusedImports": "warn", // Not in recommended ruleset, turning on manually
-				"useJsxKeyInIterable": "off", // Rule is buggy, revisit later
-				"useExhaustiveDependencies": "off", // Community feedback on this rule has been poor, we will continue with ESLint
+				"noUnusedImports": "warn",
 				"noInvalidBuiltinInstantiation": "warn",
 				"noUnusedVariables": "off",
 				"noUnusedFunctionParameters": "off"
 			},
-			"security": {
-				"noDangerouslySetInnerHtml": "off", // Covered by Conformance
-				"noBlankTarget": "off"
-			},
 			"style": {
-				"useFragmentSyntax": "warn", // Not in recommended ruleset, turning on manually
-				"noYodaExpression": "warn", // Not in recommended ruleset, turning on manually
-				"useDefaultParameterLast": "warn", // Not in recommended ruleset, turning on manually
-				"useExponentiationOperator": "off", // Obscure and arguably not easily readable
-				"noUnusedTemplateLiteral": "off", // Stylistic opinion
-				"noUselessElse": "off", // Stylistic opinion
+				"useFragmentSyntax": "warn",
+				"noYodaExpression": "warn",
+				"useDefaultParameterLast": "warn",
+				"useExponentiationOperator": "off",
+				"noUnusedTemplateLiteral": "off",
+				"noUselessElse": "off",
 				"noNonNullAssertion": "off",
 				"noParameterAssign": "error",
 				"useAsConstAssertion": "error",
@@ -90,30 +53,22 @@
 				"useArrayLiterals": "warn"
 			},
 			"suspicious": {
-				"noExplicitAny": "off", // We trust Vercelians to use any only when necessary
-				"noHeadImportInDocument": "warn",
-				"noDocumentImportInPage": "warn",
+				"noExplicitAny": "off",
 				"noDuplicateElseIf": "warn",
 				"noIrregularWhitespace": "warn",
 				"noConfusingVoidType": "off",
 				"noArrayIndexKey": "off"
 			},
-			"performance": {
-				"noImgElement": "off"
-			},
 			"nursery": {}
 		}
 	},
 	"javascript": {
-		"jsxRuntime": "reactClassic",
 		"formatter": {
-			"jsxQuoteStyle": "double",
 			"quoteProperties": "asNeeded",
 			"trailingCommas": "all",
 			"semicolons": "asNeeded",
 			"arrowParentheses": "asNeeded",
 			"bracketSpacing": true,
-			"bracketSameLine": false,
 			"quoteStyle": "double",
 			"attributePosition": "auto"
 		}
@@ -128,37 +83,11 @@
 			"allowTrailingCommas": false
 		}
 	},
-	"css": {
-		"formatter": {
-			"enabled": false
-		},
-		"linter": {
-			"enabled": false
-		},
-		"parser": {
-			"cssModules": false,
-			"tailwindDirectives": true
-		}
-	},
 	"assist": {
 		"actions": {
 			"source": {
 				"organizeImports": "off"
 			}
 		}
-	},
-	"overrides": [
-		// Playwright requires an object destructure, even if empty
-		// https://github.com/microsoft/playwright/issues/30007
-		{
-			"includes": ["**/playwright/**"],
-			"linter": {
-				"rules": {
-					"correctness": {
-						"noEmptyPattern": "off"
-					}
-				}
-			}
-		}
-	]
+	}
 }
