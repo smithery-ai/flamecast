@@ -48,6 +48,17 @@ runs:
         token: ${{ inputs.target_repo && inputs.flamecast_pat || github.token }}
         fetch-depth: 0
 
+    - name: Configure git identity
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.target_repo && inputs.flamecast_pat || github.token }}
+      run: |
+        USER_JSON=$(gh api /users/"$GITHUB_ACTOR")
+        USER_NAME=$(echo "$USER_JSON" | jq -r '.name // .login')
+        USER_ID=$(echo "$USER_JSON" | jq -r '.id')
+        git config user.name "$USER_NAME"
+        git config user.email "${USER_ID}+${GITHUB_ACTOR}@users.noreply.github.com"
+
     - name: Switch to branch
       shell: bash
       env:
