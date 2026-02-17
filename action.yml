@@ -5,13 +5,6 @@ inputs:
   prompt:
     description: "Prompt for Claude Code"
     required: true
-  base_branch:
-    description: "Base branch for the PR"
-    required: false
-    default: "main"
-  target_repo:
-    description: "Target repo (e.g. owner/repo). Leave empty for current repo."
-    required: false
   claude_code_oauth_token:
     description: "Claude Code OAuth token"
     required: true
@@ -19,49 +12,9 @@ inputs:
     description: "GitHub PAT for cross-repo operations"
     required: false
 
-outputs:
-  execution_file:
-    description: "Path to Claude Code execution output"
-    value: ${{ steps.claude.outputs.execution_file }}
-  pr_url:
-    description: "Created or existing pull request URL (empty when no PR)"
-    value: ${{ steps.pr.outputs.url }}
-
 runs:
   using: composite
   steps:
-    - name: Generate branch name
-      id: branch
-      shell: bash
-      env:
-        PROMPT: ${{ inputs.prompt }}
-      run: |
-        SLUG=$(echo "$PROMPT" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '-' | cut -c1-20 | sed 's/-$//')
-        HASH=$(echo -n "$PROMPT" | sha256sum | head -c 7)
-        USER="${GITHUB_ACTOR}"
-        echo "name=flamecast/${USER}/${SLUG}-${HASH}" >> "$GITHUB_OUTPUT"
-
-    - name: Checkout repo
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ inputs.target_repo || github.repository }}
-        token: ${{ inputs.target_repo && inputs.flamecast_pat || github.token }}
-        fetch-depth: 0
-
-    - name: Switch to branch
-      shell: bash
-      env:
-        BRANCH: ${{ steps.branch.outputs.name }}
-        BASE: ${{ inputs.base_branch || 'main' }}
-      run: |
-        git fetch origin
-        if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null 2>&1; then
-          git checkout "$BRANCH"
-        else
-          git checkout "$BASE" 2>/dev/null || git checkout "origin/$BASE"
-          git checkout -b "$BRANCH"
-        fi
-
     - name: Run Claude Code
       id: claude
       uses: anthropics/claude-code-action@main
