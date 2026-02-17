@@ -15,6 +15,17 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Configure git identity
+      id: user
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.flamecast_pat || github.token }}
+      run: |
+        USER_ID=$(gh api /users/"$GITHUB_ACTOR" --jq '.id')
+        git config --global user.name "$GITHUB_ACTOR"
+        git config --global user.email "${USER_ID}+${GITHUB_ACTOR}@users.noreply.github.com"
+        echo "id=$USER_ID" >> "$GITHUB_OUTPUT"
+
     - name: Run Claude Code
       id: claude
       uses: anthropics/claude-code-action@main
@@ -23,5 +34,7 @@ runs:
         claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
         github_token: ${{ inputs.flamecast_pat }}
         base_branch: ${{ inputs.base_branch || 'main' }}
+        bot_id: ${{ steps.user.outputs.id }}
+        bot_name: ${{ github.actor }}
         claude_args: |
           --dangerously-skip-permissions
