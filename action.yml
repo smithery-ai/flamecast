@@ -48,17 +48,6 @@ runs:
         token: ${{ inputs.target_repo && inputs.flamecast_pat || github.token }}
         fetch-depth: 0
 
-    - name: Configure git identity
-      shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.target_repo && inputs.flamecast_pat || github.token }}
-      run: |
-        USER_JSON=$(gh api /users/"$GITHUB_ACTOR")
-        USER_NAME=$(echo "$USER_JSON" | jq -r '.name // .login')
-        USER_ID=$(echo "$USER_JSON" | jq -r '.id')
-        git config user.name "$USER_NAME"
-        git config user.email "${USER_ID}+${GITHUB_ACTOR}@users.noreply.github.com"
-
     - name: Switch to branch
       shell: bash
       env:
@@ -79,67 +68,7 @@ runs:
       with:
         prompt: ${{ inputs.prompt }}
         claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
-        github_token: ${{ inputs.target_repo && inputs.flamecast_pat || github.token }}
+        github_token: ${{ inputs.flamecast_pat }}
         base_branch: ${{ inputs.base_branch || 'main' }}
         claude_args: |
           --dangerously-skip-permissions
-
-    - name: Check for changes
-      id: commit
-      shell: bash
-      env:
-        BRANCH: ${{ steps.branch.outputs.name }}
-      run: |
-        # Claude may have already committed+pushed, or may have left uncommitted changes
-        if ! git diff --quiet || ! git diff --cached --quiet; then
-          # Uncommitted changes exist — commit them
-          git add -A
-          git commit -m "flamecast: apply changes"
-          git push origin "$BRANCH"
-          echo "has_changes=true" >> "$GITHUB_OUTPUT"
-        elif [ "$(git rev-list origin/$BRANCH..HEAD 2>/dev/null | wc -l)" -gt 0 ] 2>/dev/null; then
-          # Commits exist but haven't been pushed
-          git push origin "$BRANCH"
-          echo "has_changes=true" >> "$GITHUB_OUTPUT"
-        elif git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null 2>&1; then
-          # Branch exists on remote — check if it has changes vs base
-          BASE="${{ inputs.base_branch || 'main' }}"
-          if ! git diff --quiet "origin/$BASE..origin/$BRANCH" 2>/dev/null; then
-            echo "has_changes=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No changes to commit"
-            echo "has_changes=false" >> "$GITHUB_OUTPUT"
-          fi
-        else
-          echo "No changes to commit"
-          echo "has_changes=false" >> "$GITHUB_OUTPUT"
-        fi
-
-    - name: Open or update PR
-      id: pr
-      if: steps.commit.outputs.has_changes == 'true'
-      shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.target_repo && inputs.flamecast_pat || github.token }}
-        PROMPT: ${{ inputs.prompt }}
-        BRANCH: ${{ steps.branch.outputs.name }}
-        BASE: ${{ inputs.base_branch || 'main' }}
-        TARGET_REPO: ${{ inputs.target_repo }}
-      run: |
-        REPO_FLAG=""
-        if [ -n "$TARGET_REPO" ]; then
-          REPO_FLAG="--repo $TARGET_REPO"
-        fi
-        TITLE="flamecast: $(echo "$PROMPT" | head -c 72)"
-        if gh pr view "$BRANCH" $REPO_FLAG --json state -q '.state' 2>/dev/null | grep -q OPEN; then
-          echo "PR already exists"
-        else
-          gh pr create \
-            --base "$BASE" \
-            --head "$BRANCH" \
-            --title "$TITLE" \
-            --body "Prompted by: ${PROMPT}" \
-            $REPO_FLAG
-        fi
-        PR_URL=$(gh pr view "$BRANCH" $REPO_FLAG --json url -q '.url')
-        echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
