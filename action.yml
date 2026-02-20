@@ -46,12 +46,8 @@ runs:
       if: ${{ inputs.connections != '' && inputs.flamecast_api_key != '' }}
       shell: bash
       env:
-        SMITHERY_API_KEY: ${{ inputs.flamecast_api_key }}
         CONNECTIONS_JSON: ${{ inputs.connections }}
       run: |
-        # Set the flamecast namespace
-        smithery namespace use flamecast
-
         # List connection names for the prompt
         NAMES=$(echo "$CONNECTIONS_JSON" | jq -r 'keys[]')
         echo "connection_names=$NAMES" >> "$GITHUB_OUTPUT"
