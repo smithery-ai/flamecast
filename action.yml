@@ -17,6 +17,10 @@ inputs:
   flamecast_api_key:
     description: "Smithery Connect token for MCP server authentication"
     required: false
+  show_full_output:
+    description: "Show full Claude Code output in logs (WARNING: may expose secrets)"
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -68,6 +72,7 @@ runs:
         base_branch: ${{ inputs.base_branch || 'main' }}
         bot_id: ${{ steps.user.outputs.id }}
         bot_name: ${{ github.actor }}
+        show_full_output: ${{ inputs.show_full_output }}
         claude_args: |
           --dangerously-skip-permissions
           ${{ steps.mcp.outputs.config_path && format('--mcp-config {0}', steps.mcp.outputs.config_path) || '' }}
