@@ -48,6 +48,7 @@ runs:
       env:
         CONNECTIONS_JSON: ${{ inputs.connections }}
       run: |
+        smithery namespace use flamecast
         # List connection names for the prompt
         NAMES=$(echo "$CONNECTIONS_JSON" | jq -r 'keys | join(", ")')
         echo "connection_names=$NAMES" >> "$GITHUB_OUTPUT"
