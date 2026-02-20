@@ -11,9 +11,6 @@ inputs:
   flamecast_pat:
     description: "GitHub PAT for cross-repo operations"
     required: false
-  connections:
-    description: "JSON object of MCP connections: {server: {connectionId}} keyed by Smithery registry slug"
-    required: false
   flamecast_api_key:
     description: "Smithery Connect token for MCP server authentication"
     required: false
@@ -36,26 +33,14 @@ runs:
         git config --global user.email "${USER_ID}+${GITHUB_ACTOR}@users.noreply.github.com"
         echo "id=$USER_ID" >> "$GITHUB_OUTPUT"
 
-    - name: Install Smithery CLI (if requested)
-      if: ${{ inputs.connections != '' && inputs.flamecast_api_key != '' }}
+    - name: Install Smithery CLI
+      if: ${{ inputs.flamecast_api_key != '' }}
       shell: bash
       run: npm install -g @smithery/cli@latest
 
-    - name: Configure Smithery CLI (if requested)
-      id: smithery
-      if: ${{ inputs.connections != '' && inputs.flamecast_api_key != '' }}
-      shell: bash
-      env:
-        CONNECTIONS_JSON: ${{ inputs.connections }}
-      run: |
-        # List connection names for the prompt
-        NAMES=$(echo "$CONNECTIONS_JSON" | jq -r 'keys | join(", ")')
-        echo "connection_names=$NAMES" >> "$GITHUB_OUTPUT"
-        echo "Smithery CLI configured with connections: $NAMES"
-
-    - name: Add MCP connections to Claude Code
+    - name: Configure Smithery CLI
       id: settings
-      if: ${{ inputs.connections != '' && inputs.flamecast_api_key != '' }}
+      if: ${{ inputs.flamecast_api_key != '' }}
       shell: bash
       env:
         FLAMECAST_API_KEY: ${{ inputs.flamecast_api_key }}
