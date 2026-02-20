@@ -12,7 +12,7 @@ inputs:
     description: "GitHub PAT for cross-repo operations"
     required: false
   connections:
-    description: "JSON object of MCP connections: {name: {server, connectionId}} where 'name' is a user-chosen alias and 'server' is a Smithery registry slug (e.g. 'linear')"
+    description: "JSON object of MCP connections: {server: {connectionId}} keyed by Smithery registry slug"
     required: false
   flamecast_api_key:
     description: "Smithery Connect token for MCP server authentication"
