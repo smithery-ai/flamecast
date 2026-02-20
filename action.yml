@@ -52,7 +52,7 @@ runs:
               type: "http",
               url: .value.url,
               headers: {
-                "smithery-connection": $token
+                "Authorization": ("Bearer " + $token)
               }
             }
           }) | from_entries)
