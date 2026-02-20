@@ -11,6 +11,12 @@ inputs:
   flamecast_pat:
     description: "GitHub PAT for cross-repo operations"
     required: false
+  connections:
+    description: "JSON object of MCP connections: {name: {server, url}}"
+    required: false
+  flamecast_api_key:
+    description: "Smithery Connect token for MCP server authentication"
+    required: false
 
 runs:
   using: composite
@@ -26,6 +32,32 @@ runs:
         git config --global user.email "${USER_ID}+${GITHUB_ACTOR}@users.noreply.github.com"
         echo "id=$USER_ID" >> "$GITHUB_OUTPUT"
 
+    - name: Generate MCP config
+      id: mcp
+      if: ${{ inputs.connections != '' && inputs.flamecast_api_key != '' }}
+      shell: bash
+      env:
+        CONNECTIONS_JSON: ${{ inputs.connections }}
+        FLAMECAST_API_KEY: ${{ inputs.flamecast_api_key }}
+      run: |
+        # Build mcpServers object from connections JSON
+        MCP_CONFIG=$(echo "$CONNECTIONS_JSON" | jq -c --arg token "$FLAMECAST_API_KEY" '{
+          mcpServers: (to_entries | map({
+            key: .key,
+            value: {
+              type: "http",
+              url: .value.url,
+              headers: {
+                "smithery-connection": $token
+              }
+            }
+          }) | from_entries)
+        }')
+
+        echo "$MCP_CONFIG" > /tmp/flamecast-mcp-config.json
+        echo "config_path=/tmp/flamecast-mcp-config.json" >> "$GITHUB_OUTPUT"
+        echo "Generated MCP config with $(echo "$CONNECTIONS_JSON" | jq 'length') server(s)"
+
     - name: Run Claude Code
       id: claude
       uses: anthropics/claude-code-action@main
@@ -38,3 +70,4 @@ runs:
         bot_name: ${{ github.actor }}
         claude_args: |
           --dangerously-skip-permissions
+          ${{ steps.mcp.outputs.config_path && format('--mcp-config {0}', steps.mcp.outputs.config_path) || '' }}
