@@ -11,6 +11,13 @@ inputs:
   flamecast_pat:
     description: "GitHub PAT for cross-repo operations"
     required: false
+  flamecast_api_key:
+    description: "Smithery Connect token for MCP server authentication"
+    required: false
+  show_full_output:
+    description: "Show full Claude Code output in logs (WARNING: may expose secrets)"
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -26,6 +33,22 @@ runs:
         git config --global user.email "${USER_ID}+${GITHUB_ACTOR}@users.noreply.github.com"
         echo "id=$USER_ID" >> "$GITHUB_OUTPUT"
 
+    - name: Install Smithery CLI
+      if: ${{ inputs.flamecast_api_key != '' }}
+      shell: bash
+      run: npm install -g @smithery/cli@latest
+
+    - name: Configure Smithery CLI
+      id: settings
+      if: ${{ inputs.flamecast_api_key != '' }}
+      shell: bash
+      env:
+        FLAMECAST_API_KEY: ${{ inputs.flamecast_api_key }}
+      run: |
+        # Pass SMITHERY_API_KEY through to Claude Code's environment
+        SETTINGS=$(jq -nc --arg key "$FLAMECAST_API_KEY" '{env: {SMITHERY_API_KEY: $key}}')
+        echo "json=$SETTINGS" >> "$GITHUB_OUTPUT"
+
     - name: Run Claude Code
       id: claude
       uses: anthropics/claude-code-action@main
@@ -36,5 +59,6 @@ runs:
         base_branch: ${{ inputs.base_branch || 'main' }}
         bot_id: ${{ steps.user.outputs.id }}
         bot_name: ${{ github.actor }}
-        claude_args: |
-          --dangerously-skip-permissions
+        show_full_output: ${{ inputs.show_full_output }}
+        settings: ${{ steps.settings.outputs.json || '' }}
+        claude_args: "--dangerously-skip-permissions"
