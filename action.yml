@@ -57,11 +57,20 @@ runs:
         echo "connection_names=$NAMES" >> "$GITHUB_OUTPUT"
         echo "Smithery CLI configured with connections: $NAMES"
 
+    - name: Build Claude Code settings
+      id: settings
+      if: ${{ inputs.connections != '' && inputs.flamecast_api_key != '' }}
+      shell: bash
+      env:
+        FLAMECAST_API_KEY: ${{ inputs.flamecast_api_key }}
+      run: |
+        # Pass SMITHERY_API_KEY through to Claude Code's environment
+        SETTINGS=$(jq -nc --arg key "$FLAMECAST_API_KEY" '{env: {SMITHERY_API_KEY: $key}}')
+        echo "json=$SETTINGS" >> "$GITHUB_OUTPUT"
+
     - name: Run Claude Code
       id: claude
       uses: anthropics/claude-code-action@main
-      env:
-        SMITHERY_API_KEY: ${{ inputs.flamecast_api_key }}
       with:
         prompt: ${{ inputs.prompt }}
         claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
@@ -70,4 +79,5 @@ runs:
         bot_id: ${{ steps.user.outputs.id }}
         bot_name: ${{ github.actor }}
         show_full_output: ${{ inputs.show_full_output }}
+        settings: ${{ steps.settings.outputs.json || '' }}
         claude_args: "--dangerously-skip-permissions"
