@@ -47,9 +47,7 @@ runs:
       shell: bash
       env:
         CONNECTIONS_JSON: ${{ inputs.connections }}
-        SMITHERY_API_KEY: ${{ inputs.flamecast_api_key }}
       run: |
-        smithery namespace use flamecast
         # List connection names for the prompt
         NAMES=$(echo "$CONNECTIONS_JSON" | jq -r 'keys | join(", ")')
         echo "connection_names=$NAMES" >> "$GITHUB_OUTPUT"
