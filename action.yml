@@ -49,7 +49,7 @@ runs:
         CONNECTIONS_JSON: ${{ inputs.connections }}
       run: |
         # List connection names for the prompt
-        NAMES=$(echo "$CONNECTIONS_JSON" | jq -r 'keys[]')
+        NAMES=$(echo "$CONNECTIONS_JSON" | jq -r 'keys | join(", ")')
         echo "connection_names=$NAMES" >> "$GITHUB_OUTPUT"
         echo "Smithery CLI configured with connections: $NAMES"
 
