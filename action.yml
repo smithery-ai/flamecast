@@ -59,7 +59,7 @@ runs:
         }')
 
         echo "$MCP_CONFIG" > /tmp/flamecast-mcp-config.json
-        echo "config_path=/tmp/flamecast-mcp-config.json" >> "$GITHUB_OUTPUT"
+        echo "mcp_args=--mcp-config /tmp/flamecast-mcp-config.json" >> "$GITHUB_OUTPUT"
         echo "Generated MCP config with $(echo "$CONNECTIONS_JSON" | jq 'length') server(s)"
 
     - name: Run Claude Code
@@ -73,6 +73,4 @@ runs:
         bot_id: ${{ steps.user.outputs.id }}
         bot_name: ${{ github.actor }}
         show_full_output: ${{ inputs.show_full_output }}
-        claude_args: |
-          --dangerously-skip-permissions
-          ${{ steps.mcp.outputs.config_path && format('--mcp-config {0}', steps.mcp.outputs.config_path) || '' }}
+        claude_args: "--dangerously-skip-permissions ${{ steps.mcp.outputs.mcp_args || '' }}"
