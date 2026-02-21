@@ -1,14 +1,16 @@
-# RFC: Flamecast
+# Flamecast
+
+**What's up:** Background AI coding agents that run on your own infrastructure.
+
+Flamecast lets you dispatch Claude Code as a GitHub Actions workflow. That means:
+- Your code stays in your repos
+- Compute runs on GitHub-hosted runners (not some vendor's servers)
+- Secrets live in GitHub Secrets
+- PRs land in your existing review flow
+- Flamecast owns zero infrastructure — it just wires everything together
 
 **Status:** Active Development
-**Authors:** Smithery AI
-**Last Updated:** 2025
-
----
-
-## Abstract
-
-Flamecast is an orchestration layer for running background AI coding agents entirely on infrastructure you already own. It dispatches Claude Code as a GitHub Actions workflow, which means the compute runs on GitHub-hosted runners, the code stays in your repositories, the secrets live in your GitHub vault, and the PRs land through your existing review process. Flamecast owns none of the infrastructure. It just wires everything together.
+**Built by:** Smithery AI
 
 ---
 
