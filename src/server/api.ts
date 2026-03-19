@@ -3,20 +3,34 @@ import { zValidator } from "@hono/zod-validator";
 import { Flamecast } from "../flamecast/index.js";
 import {
   CreateConnectionBodySchema,
-  PromptBodySchema,
   PermissionResponseBodySchema,
+  PromptBodySchema,
+  RegisterAgentProcessBodySchema,
 } from "../shared/connection.js";
 
 const flamecast = new Flamecast();
 
 const api = new Hono()
+  .get("/agent-processes", (c) => {
+    return c.json(flamecast.listAgentProcesses());
+  })
+  .post("/agent-processes", zValidator("json", RegisterAgentProcessBodySchema), (c) => {
+    const body = c.req.valid("json");
+    const row = flamecast.registerAgentProcess(body);
+    return c.json(row, 201);
+  })
   .get("/connections", (c) => {
     return c.json(flamecast.list());
   })
   .post("/connections", zValidator("json", CreateConnectionBodySchema), async (c) => {
-    const body = c.req.valid("json");
-    const info = await flamecast.create(body);
-    return c.json(info, 201);
+    try {
+      const body = c.req.valid("json");
+      const info = await flamecast.create(body);
+      return c.json(info, 201);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Unknown error";
+      return c.json({ error: message }, 400);
+    }
   })
   .get("/connections/:id", (c) => {
     try {

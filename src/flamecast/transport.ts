@@ -24,28 +24,39 @@ function toUint8ReadableStream(
   });
 }
 
-export function createExampleAgentProcess() {
-  // Get the current file's directory to find agent.ts
+const npxCmd = () => (process.platform === "win32" ? "npx.cmd" : "npx");
+
+export type BuiltinAgentPreset = {
+  id: string;
+  label: string;
+  spawn: { command: string; args: string[] };
+};
+
+/** Built-in presets; IDs are stable so clients can reference them. */
+export function getBuiltinAgentProcessPresets(): BuiltinAgentPreset[] {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
   const agentPath = join(__dirname, "agent.ts");
-
-  // Spawn the agent as a subprocess via npx (npx.cmd on Windows) using tsx
-  const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
-  const agentProcess = spawn(npxCmd, ["tsx", agentPath], {
-    stdio: ["pipe", "pipe", "inherit"],
-  });
-
-  return agentProcess;
+  const cmd = npxCmd();
+  return [
+    {
+      id: "example",
+      label: "Example agent (tsx)",
+      spawn: { command: cmd, args: ["tsx", agentPath] },
+    },
+    {
+      id: "codex",
+      label: "Codex ACP",
+      spawn: { command: cmd, args: ["@zed-industries/codex-acp"] },
+    },
+  ];
 }
 
-export function startCodexAgentProcess() {
-  const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
-  const agentProcess = spawn(npxCmd, ["@zed-industries/codex-acp"], {
+export function startAgentProcess(spec: { command: string; args?: string[] }): ChildProcess {
+  const args = spec.args ?? [];
+  return spawn(spec.command, args, {
     stdio: ["pipe", "pipe", "inherit"],
   });
-
-  return agentProcess;
 }
 
 /**

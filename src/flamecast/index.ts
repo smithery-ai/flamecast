@@ -2,19 +2,22 @@ import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
+  AgentProcessInfo,
+  AgentSpawn,
   ConnectionInfo,
   CreateConnectionBody,
   PendingPermission,
   PendingPermissionOption,
   PermissionResponseBody,
+  RegisterAgentProcessBody,
 } from "../shared/connection.js";
 import {
-  createExampleAgentProcess,
   getAgentTransport,
-  startCodexAgentProcess,
+  getBuiltinAgentProcessPresets,
+  startAgentProcess,
 } from "./transport.js";
 
-export type { AgentType, ConnectionInfo, PendingPermission } from "../shared/connection.js";
+export type { AgentProcessInfo, ConnectionInfo, PendingPermission } from "../shared/connection.js";
 
 // Runtime-only callback used to resume a pending permission request.
 type PermissionResolver = (response: acp.RequestPermissionResponse) => void;
@@ -31,14 +34,60 @@ interface ManagedConnection {
 export class Flamecast {
   private connections = new Map<string, ManagedConnection>();
   private permissionResolvers = new Map<string, PermissionResolver>();
+  private agentProcesses = new Map<string, { label: string; spawn: AgentSpawn }>();
   private nextId = 1;
 
-  async create(opts: CreateConnectionBody = {}): Promise<ConnectionInfo> {
-    const { agent = "example", cwd = process.cwd() } = opts;
+  constructor() {
+    for (const preset of getBuiltinAgentProcessPresets()) {
+      this.agentProcesses.set(preset.id, {
+        label: preset.label,
+        spawn: { command: preset.spawn.command, args: preset.spawn.args },
+      });
+    }
+  }
+
+  listAgentProcesses(): AgentProcessInfo[] {
+    return [...this.agentProcesses.entries()].map(([id, row]) => ({
+      id,
+      label: row.label,
+      spawn: row.spawn,
+    }));
+  }
+
+  registerAgentProcess(body: RegisterAgentProcessBody): AgentProcessInfo {
+    const id = randomUUID();
+    const spawn: AgentSpawn = {
+      command: body.spawn.command,
+      args: body.spawn.args,
+    };
+    this.agentProcesses.set(id, { label: body.label, spawn });
+    return { id, label: body.label, spawn };
+  }
+
+  async create(opts: CreateConnectionBody): Promise<ConnectionInfo> {
+    const cwd = opts.cwd ?? process.cwd();
     const id = String(this.nextId++);
     const now = new Date().toISOString();
 
-    const agentProcess = agent === "codex" ? startCodexAgentProcess() : createExampleAgentProcess();
+    let agentLabel: string;
+    let spawn: AgentSpawn;
+
+    if (opts.agentProcessId) {
+      const def = this.agentProcesses.get(opts.agentProcessId);
+      if (!def) {
+        throw new Error(`Unknown agent process "${opts.agentProcessId}"`);
+      }
+      agentLabel = def.label;
+      spawn = def.spawn;
+    } else if (opts.spawn) {
+      spawn = opts.spawn;
+      agentLabel =
+        opts.label?.trim() || [spawn.command, ...(spawn.args ?? [])].filter(Boolean).join(" ");
+    } else {
+      throw new Error("Provide agentProcessId or spawn");
+    }
+
+    const agentProcess = startAgentProcess(spawn);
 
     const { input, output } = getAgentTransport(agentProcess);
     const stream = acp.ndJsonStream(input, output);
@@ -46,7 +95,8 @@ export class Flamecast {
     const managed: ManagedConnection = {
       info: {
         id,
-        agentType: agent,
+        agentLabel,
+        spawn,
         sessionId: "",
         startedAt: now,
         lastUpdatedAt: now,

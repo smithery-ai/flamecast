@@ -101,9 +101,14 @@ function ConnectionDetailPage() {
           <h1 className="text-2xl font-bold tracking-tight">Connection #{conn.id}</h1>
           <p className="text-sm text-muted-foreground">
             <Badge variant="secondary" className="mr-2">
-              {conn.agentType}
+              {conn.agentLabel}
             </Badge>
             Session: <code className="text-xs">{conn.sessionId}</code>
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            <code className="rounded bg-muted px-1 py-0.5">
+              {conn.spawn.command} {(conn.spawn.args ?? []).join(" ")}
+            </code>
           </p>
         </div>
       </div>

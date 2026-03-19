@@ -1,9 +1,24 @@
 import { z } from "zod";
 
-export const agentTypes = ["codex", "example"] as const;
+/** How the server spawns an ACP agent child process (maps to `child_process.spawn`). */
+export const AgentSpawnSchema = z.object({
+  command: z.string().min(1),
+  args: z.array(z.string()).default([]),
+});
+export type AgentSpawn = z.infer<typeof AgentSpawnSchema>;
 
-export const AgentTypeSchema = z.enum(agentTypes);
-export type AgentType = z.infer<typeof AgentTypeSchema>;
+export const AgentProcessInfoSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  spawn: AgentSpawnSchema,
+});
+export type AgentProcessInfo = z.infer<typeof AgentProcessInfoSchema>;
+
+export const RegisterAgentProcessBodySchema = z.object({
+  label: z.string().min(1),
+  spawn: AgentSpawnSchema,
+});
+export type RegisterAgentProcessBody = z.infer<typeof RegisterAgentProcessBodySchema>;
 
 export const ConnectionLogSchema = z.object({
   timestamp: z.string(),
@@ -30,7 +45,8 @@ export type PendingPermission = z.infer<typeof PendingPermissionSchema>;
 
 export const ConnectionInfoSchema = z.object({
   id: z.string(),
-  agentType: AgentTypeSchema,
+  agentLabel: z.string(),
+  spawn: AgentSpawnSchema,
   sessionId: z.string(),
   startedAt: z.string(),
   lastUpdatedAt: z.string(),
@@ -39,10 +55,19 @@ export const ConnectionInfoSchema = z.object({
 });
 export type ConnectionInfo = z.infer<typeof ConnectionInfoSchema>;
 
-export const CreateConnectionBodySchema = z.object({
-  agent: AgentTypeSchema.optional(),
-  cwd: z.string().optional(),
-});
+export const CreateConnectionBodySchema = z
+  .object({
+    cwd: z.string().optional(),
+    /** Use a process definition from `GET /agent-processes`. */
+    agentProcessId: z.string().optional(),
+    /** Spawn a one-off process without registering it. */
+    spawn: AgentSpawnSchema.optional(),
+    /** Display label when using `spawn` (defaults to `command` + `args`). */
+    label: z.string().optional(),
+  })
+  .refine((b) => Boolean(b.agentProcessId) !== Boolean(b.spawn), {
+    message: "Provide exactly one of agentProcessId or spawn",
+  });
 export type CreateConnectionBody = z.infer<typeof CreateConnectionBodySchema>;
 
 export const PromptBodySchema = z.object({

@@ -1,11 +1,31 @@
 import { hc } from "hono/client";
 import type { AppType } from "@/server/api";
-import type { AgentType, ConnectionInfo, PermissionResponseBody } from "../../shared/connection";
+import type {
+  ConnectionInfo,
+  CreateConnectionBody,
+  AgentProcessInfo,
+  RegisterAgentProcessBody,
+  PermissionResponseBody,
+} from "../../shared/connection";
 
 const client = hc<AppType>("/api");
 
 export interface PromptResult {
   stopReason: string;
+}
+
+export async function fetchAgentProcesses(): Promise<AgentProcessInfo[]> {
+  const res = await client["agent-processes"].$get();
+  if (!res.ok) throw new Error("Failed to fetch agent processes");
+  return res.json();
+}
+
+export async function registerAgentProcess(
+  body: RegisterAgentProcessBody,
+): Promise<AgentProcessInfo> {
+  const res = await client["agent-processes"].$post({ json: body });
+  if (!res.ok) throw new Error("Failed to register agent process");
+  return res.json();
 }
 
 export async function fetchConnections(): Promise<ConnectionInfo[]> {
@@ -20,8 +40,8 @@ export async function fetchConnection(id: string): Promise<ConnectionInfo> {
   return res.json();
 }
 
-export async function createConnection(agent: AgentType): Promise<ConnectionInfo> {
-  const res = await client.connections.$post({ json: { agent } });
+export async function createConnection(body: CreateConnectionBody): Promise<ConnectionInfo> {
+  const res = await client.connections.$post({ json: body });
   if (!res.ok) throw new Error("Failed to create connection");
   return res.json();
 }
