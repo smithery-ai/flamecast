@@ -2,9 +2,12 @@
   "name": "acp",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "dev": "tsx watch src/server/index.ts & vite",
+    "dev:client": "vite",
+    "dev:server": "tsx watch src/server/index.ts",
+    "build": "vite build",
     "start": "node dist/index.js",
+    "cli": "tsx src/index.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -14,12 +17,18 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.16.1",
     "@hono/node-server": "^1.19.11",
+    "@vitejs/plugin-react": "^6.0.1",
     "hono": "^4.12.8",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "vite": "^8.0.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^20.11.17",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@typescript-eslint/eslint-plugin": "^8.57.1",
     "@typescript-eslint/parser": "^8.57.1",
     "eslint": "^10.0.3",
