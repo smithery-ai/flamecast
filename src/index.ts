@@ -1,71 +1,63 @@
 #!/usr/bin/env node
 
-import * as acp from "@agentclientprotocol/sdk";
-import { ExampleClient } from "./client.js";
-import {
-  createExampleAgentProcess,
-  getAgentTransport,
-  startCodexAgentProcess,
-} from "./transport.js";
+import { Flamecast } from "./flamecast";
 
-async function main({
-  agent = "example",
-  prompt = "Hello, agent!",
-}: {
-  agent?: "codex" | "example";
-  prompt?: string;
-}) {
-  // Create the client connection
-  const client = new ExampleClient();
-  const agentProcess = agent === "codex" ? startCodexAgentProcess() : createExampleAgentProcess();
-  const { input, output } = getAgentTransport(agentProcess);
-  const stream = acp.ndJsonStream(input, output);
-  const connection = new acp.ClientSideConnection((_agent) => client, stream);
+async function main() {
+  const flamecast = new Flamecast();
 
-  try {
-    // Initialize the connection
-    const initResult = await connection.initialize({
-      protocolVersion: acp.PROTOCOL_VERSION,
-      // This is the *client* capabilities that are told to the agent
-      clientCapabilities: {
-        fs: {
-          readTextFile: true,
-          writeTextFile: true,
-        },
-        terminal: true,
-      },
-    });
+  const conn = await flamecast.create({ agent: "codex" });
+  console.log(`✅ Connection ${conn.id} started at ${conn.startedAt.toISOString()}`);
+  console.log(`📝 Session: ${conn.sessionId}`);
+  console.log(
+    `📋 Active connections:`,
+    flamecast.list().map((c) => c.id),
+  );
 
-    console.log(`✅ Connected to agent (protocol v${initResult.protocolVersion})`);
+  const info = flamecast.get(conn.id);
+  console.log(`\n🔎 Connection info:`);
+  console.log(`   Started at:      ${info.startedAt.toISOString()}`);
+  console.log(`   Last updated at: ${info.lastUpdatedAt.toISOString()}`);
 
-    // Create a new session
-    const sessionResult = await connection.newSession({
-      cwd: process.cwd(),
-      mcpServers: [],
-    });
-
-    console.log(`📝 Created session: ${sessionResult.sessionId}`);
-    console.log(`💬 User: ${prompt}\n`);
-    process.stdout.write(" ");
-
-    // Send a test prompt
-    const promptResult = await connection.prompt({
-      sessionId: sessionResult.sessionId,
-      prompt: [
-        {
-          type: "text",
-          text: prompt,
-        },
-      ],
-    });
-
-    console.log(`\n\n✅ Agent completed with: ${promptResult.stopReason}`);
-  } catch (error) {
-    console.error("[Client] Error:", error);
-  } finally {
-    agentProcess.kill();
-    process.exit(0);
+  console.log(`\n💬 Sending prompt...\n`);
+  const promptPromise = flamecast.prompt(conn.id, "what files are in the current directory?");
+  let result;
+  while (true) {
+    // Wait for a second before checking the promise resolution
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    if (promptPromise instanceof Promise) {
+      const isSettled = await Promise.race([
+        promptPromise.then(() => true).catch(() => true),
+        new Promise((resolve) => setTimeout(() => resolve(false), 0)),
+      ]);
+      if (isSettled) {
+        result = await promptPromise;
+        break;
+      }
+    }
+    console.log(
+      "\n\n",
+      flamecast
+        .getLogs(conn.id)
+        .map((l) => JSON.stringify(l))
+        .join("\n"),
+      "\n\n",
+    );
   }
+  console.log(`\n✅ Agent completed with: ${result.stopReason}`);
+
+  console.log(`\n📜 Connection logs (${flamecast.getLogs(conn.id).length} entries):`);
+  for (const log of flamecast.getLogs(conn.id)) {
+    console.log(`   [${log.timestamp}] ${log.type}`, JSON.stringify(log.data));
+  }
+
+  flamecast.kill(conn.id);
+  console.log(`\n🗑️  Connection ${conn.id} killed`);
+  console.log(
+    `📋 Active connections:`,
+    flamecast.list().map((c) => c.id),
+  );
+
+  process.exit(0);
 }
 
-main({ agent: "codex", prompt: "what files are in the current directory?" }).catch(console.error);
+main().catch(console.error);
