@@ -1,36 +1,35 @@
 import type { ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import * as acp from "@agentclientprotocol/sdk";
+import type {
+  AgentType,
+  ConnectionInfo,
+  PendingPermission,
+  PendingPermissionOption,
+} from "../shared/connection.js";
 import {
   createExampleAgentProcess,
   getAgentTransport,
   startCodexAgentProcess,
 } from "./transport.js";
 
-export type AgentType = "codex" | "example";
+export type { AgentType, ConnectionInfo, PendingPermission } from "../shared/connection.js";
 
-export interface ConnectionLog {
-  timestamp: string;
-  type: string;
-  data: Record<string, unknown>;
-}
+// Runtime-only callback used to resume a pending permission request.
+type PermissionResolver = (response: acp.RequestPermissionResponse) => void;
 
-export interface ConnectionInfo {
-  id: string;
-  agentType: AgentType;
-  sessionId: string;
-  startedAt: Date;
-  lastUpdatedAt: Date;
-  logs: ConnectionLog[];
-}
-
+// Full in-memory connection record, including runtime-only handles.
 interface ManagedConnection {
   info: ConnectionInfo;
-  connection: acp.ClientSideConnection | null;
-  agentProcess: ChildProcess;
+  runtime: {
+    connection: acp.ClientSideConnection | null;
+    agentProcess: ChildProcess;
+  };
 }
 
 export class Flamecast {
   private connections = new Map<string, ManagedConnection>();
+  private permissionResolvers = new Map<string, PermissionResolver>();
   private nextId = 1;
 
   async create(
@@ -41,7 +40,7 @@ export class Flamecast {
   ): Promise<ConnectionInfo> {
     const { agent = "example", cwd = process.cwd() } = opts;
     const id = String(this.nextId++);
-    const now = new Date();
+    const now = new Date().toISOString();
 
     const agentProcess = agent === "codex" ? startCodexAgentProcess() : createExampleAgentProcess();
 
@@ -56,14 +55,17 @@ export class Flamecast {
         startedAt: now,
         lastUpdatedAt: now,
         logs: [],
+        pendingPermission: null,
       },
-      connection: null,
-      agentProcess,
+      runtime: {
+        connection: null,
+        agentProcess,
+      },
     };
 
     const client = this.createClient(managed);
     const connection = new acp.ClientSideConnection((_agent) => client, stream);
-    managed.connection = connection;
+    managed.runtime.connection = connection;
 
     const initResult = await connection.initialize({
       protocolVersion: acp.PROTOCOL_VERSION,
@@ -101,12 +103,12 @@ export class Flamecast {
 
   async prompt(id: string, text: string): Promise<acp.PromptResponse> {
     const managed = this.resolve(id);
-    if (!managed.connection) {
+    if (!managed.runtime.connection) {
       throw new Error(`Connection "${id}" is not initialized`);
     }
     this.pushLog(managed, "prompt_sent", { text });
 
-    const result = await managed.connection.prompt({
+    const result = await managed.runtime.connection.prompt({
       sessionId: managed.info.sessionId,
       prompt: [{ type: "text", text }],
     });
@@ -119,9 +121,37 @@ export class Flamecast {
 
   kill(id: string): void {
     const managed = this.resolve(id);
-    managed.agentProcess.kill();
+    if (managed.info.pendingPermission) {
+      this.permissionResolvers.delete(managed.info.pendingPermission.requestId);
+    }
+    managed.runtime.agentProcess.kill();
     this.pushLog(managed, "killed", {});
     this.connections.delete(id);
+  }
+
+  respondToPermission(
+    id: string,
+    requestId: string,
+    body: { optionId: string } | { outcome: "cancelled" },
+  ): void {
+    const managed = this.resolve(id);
+    const pending = this.takePendingPermissionResolution(managed, requestId);
+
+    if ("outcome" in body && body.outcome === "cancelled") {
+      this.logPermissionCancelled(managed, pending);
+      pending.resolve({ outcome: { outcome: "cancelled" } });
+      return;
+    }
+
+    if (!("optionId" in body)) {
+      throw new Error("Invalid permission response");
+    }
+
+    const option = this.getPermissionOption(pending, body.optionId);
+    this.logPermissionSelection(managed, pending, option);
+    pending.resolve({
+      outcome: { outcome: "selected", optionId: option.optionId },
+    });
   }
 
   private resolve(id: string): ManagedConnection {
@@ -133,13 +163,97 @@ export class Flamecast {
   }
 
   private snapshotInfo(managed: ManagedConnection): ConnectionInfo {
-    return { ...managed.info, logs: [...managed.info.logs] };
+    return {
+      ...managed.info,
+      logs: [...managed.info.logs],
+      pendingPermission: managed.info.pendingPermission
+        ? {
+            ...managed.info.pendingPermission,
+            options: managed.info.pendingPermission.options.map((option) => ({
+              ...option,
+            })),
+          }
+        : null,
+    };
   }
 
   private pushLog(managed: ManagedConnection, type: string, data: Record<string, unknown>): void {
-    const now = new Date();
+    const now = new Date().toISOString();
     managed.info.lastUpdatedAt = now;
-    managed.info.logs.push({ timestamp: now.toISOString(), type, data });
+    managed.info.logs.push({ timestamp: now, type, data });
+  }
+
+  private takePendingPermissionResolution(
+    managed: ManagedConnection,
+    requestId: string,
+  ): { permission: PendingPermission; resolve: PermissionResolver } {
+    const permission = managed.info.pendingPermission;
+    const resolve = this.permissionResolvers.get(requestId);
+    if (!permission || permission.requestId !== requestId || !resolve) {
+      throw new Error("Permission request not found or already resolved");
+    }
+    managed.info.pendingPermission = null;
+    this.permissionResolvers.delete(requestId);
+    return { permission, resolve };
+  }
+
+  private getPermissionOption(
+    pending: { permission: PendingPermission; resolve: PermissionResolver },
+    optionId: string,
+  ): PendingPermissionOption {
+    const option = pending.permission.options.find((candidate) => candidate.optionId === optionId);
+    if (!option) {
+      throw new Error(`Unknown permission option "${optionId}"`);
+    }
+    return option;
+  }
+
+  private logPermissionCancelled(
+    managed: ManagedConnection,
+    pending: { permission: PendingPermission; resolve: PermissionResolver },
+  ): void {
+    this.pushLog(managed, "permission_cancelled", {
+      requestId: pending.permission.requestId,
+      toolCallId: pending.permission.toolCallId,
+    });
+  }
+
+  private logPermissionSelection(
+    managed: ManagedConnection,
+    pending: { permission: PendingPermission; resolve: PermissionResolver },
+    option: PendingPermissionOption,
+  ): void {
+    this.pushLog(managed, this.getPermissionLogType(option.kind), {
+      requestId: pending.permission.requestId,
+      toolCallId: pending.permission.toolCallId,
+      optionId: option.optionId,
+      optionName: option.name,
+    });
+  }
+
+  private getPermissionLogType(kind: string): string {
+    switch (kind) {
+      case "allow_once":
+        return "permission_approved";
+      case "reject_once":
+        return "permission_rejected";
+      default:
+        return "permission_responded";
+    }
+  }
+
+  private createPendingPermission(params: acp.RequestPermissionRequest): PendingPermission {
+    return {
+      requestId: randomUUID(),
+      toolCallId: params.toolCall.toolCallId,
+      title: params.toolCall.title ?? "",
+      kind: params.toolCall.kind ?? undefined,
+      options: params.options.map((option) => ({
+        optionId: option.optionId,
+        name: option.name,
+        kind: String(option.kind),
+      })),
+    };
   }
 
   private createClient(managed: ManagedConnection): acp.Client {
@@ -178,22 +292,17 @@ export class Flamecast {
       requestPermission: async (
         params: acp.RequestPermissionRequest,
       ): Promise<acp.RequestPermissionResponse> => {
+        const pendingPermission = this.createPendingPermission(params);
+        managed.info.pendingPermission = pendingPermission;
         this.pushLog(managed, "permission_requested", {
-          toolCallId: params.toolCall.toolCallId,
-          title: params.toolCall.title,
-          options: params.options.map((o) => ({
-            optionId: o.optionId,
-            name: o.name,
-            kind: o.kind,
-          })),
+          requestId: pendingPermission.requestId,
+          toolCallId: pendingPermission.toolCallId,
+          title: pendingPermission.title,
+          options: pendingPermission.options,
         });
-        const firstAllow = params.options.find((o) => o.kind === "allow_once");
-        return {
-          outcome: {
-            outcome: "selected",
-            optionId: firstAllow?.optionId ?? params.options[0].optionId,
-          },
-        };
+        return new Promise<acp.RequestPermissionResponse>((resolve) => {
+          this.permissionResolvers.set(pendingPermission.requestId, resolve);
+        });
       },
 
       readTextFile: async (params: acp.ReadTextFileRequest): Promise<acp.ReadTextFileResponse> => {

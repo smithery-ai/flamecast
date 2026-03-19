@@ -1,17 +1,4 @@
-export interface ConnectionLog {
-  timestamp: string;
-  type: string;
-  data: Record<string, unknown>;
-}
-
-export interface ConnectionInfo {
-  id: string;
-  agentType: string;
-  sessionId: string;
-  startedAt: string;
-  lastUpdatedAt: string;
-  logs: ConnectionLog[];
-}
+import type { AgentType, ConnectionInfo } from "../../shared/connection";
 
 export interface PromptResult {
   stopReason: string;
@@ -29,7 +16,7 @@ export async function fetchConnection(id: string): Promise<ConnectionInfo> {
   return res.json();
 }
 
-export async function createConnection(agent: string): Promise<ConnectionInfo> {
+export async function createConnection(agent: AgentType): Promise<ConnectionInfo> {
   const res = await fetch("/api/connections", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -52,4 +39,20 @@ export async function sendPrompt(id: string, text: string): Promise<PromptResult
 export async function killConnection(id: string): Promise<void> {
   const res = await fetch(`/api/connections/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error("Failed to kill connection");
+}
+
+export async function respondToPermission(
+  connectionId: string,
+  requestId: string,
+  body: { optionId: string } | { outcome: "cancelled" },
+): Promise<void> {
+  const res = await fetch(
+    `/api/connections/${connectionId}/permissions/${requestId}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  if (!res.ok) throw new Error("Failed to respond to permission");
 }

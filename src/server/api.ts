@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { Flamecast } from "../flamecast/index.js";
-import type { AgentType } from "../flamecast/index.js";
+import type { AgentType } from "../shared/connection.js";
 
 const api = new Hono();
 const flamecast = new Flamecast();
@@ -36,6 +36,24 @@ api.post("/connections/:id/prompt", async (c) => {
   try {
     const result = await flamecast.prompt(c.req.param("id"), text);
     return c.json(result);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Unknown error";
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Respond to a pending permission request
+api.post("/connections/:id/permissions/:requestId", async (c) => {
+  const body = await c.req.json<
+    { optionId: string } | { outcome: "cancelled" }
+  >();
+  try {
+    flamecast.respondToPermission(
+      c.req.param("id"),
+      c.req.param("requestId"),
+      body,
+    );
+    return c.json({ ok: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
     return c.json({ error: message }, 400);
