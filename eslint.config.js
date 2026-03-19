@@ -1,6 +1,7 @@
 import eslint from "@eslint/js";
 import tseslint from "@typescript-eslint/eslint-plugin";
 import tsparser from "@typescript-eslint/parser";
+import noTypeAssertion from "eslint-plugin-no-type-assertion";
 import prettier from "eslint-plugin-prettier/recommended";
 import globals from "globals";
 
@@ -23,12 +24,14 @@ export default [
     },
     plugins: {
       "@typescript-eslint": tseslint,
+      "no-type-assertion": noTypeAssertion,
     },
     rules: {
       ...tseslint.configs.recommended.rules,
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
       "@typescript-eslint/no-explicit-any": "warn",
+      "no-type-assertion/no-type-assertion": "error",
     },
   },
   prettier,
