@@ -1,5 +1,6 @@
 // Supported agent backends that Flamecast can launch.
-export type AgentType = "codex" | "example";
+export const agentTypes = ["codex", "example"] as const;
+export type AgentType = (typeof agentTypes)[number];
 
 // Log entry surfaced to the client for connection activity.
 export interface ConnectionLog {

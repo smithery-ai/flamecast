@@ -1,67 +1,77 @@
 import { Hono } from "hono";
+import { zValidator } from "@hono/zod-validator";
+import { z } from "zod";
 import { Flamecast } from "../flamecast/index.js";
-import type { AgentType } from "../shared/connection.js";
+import { agentTypes } from "../shared/connection.js";
 
-const api = new Hono();
 const flamecast = new Flamecast();
 
-// List all active connections
-api.get("/connections", (c) => {
-  return c.json(flamecast.list());
-});
-
-// Create a new connection
-api.post("/connections", async (c) => {
-  const body = await c.req.json<{ agent?: AgentType; cwd?: string }>();
-  const info = await flamecast.create({
-    agent: body.agent ?? "example",
-    cwd: body.cwd,
+const api = new Hono()
+  .get("/connections", (c) => {
+    return c.json(flamecast.list());
+  })
+  .post(
+    "/connections",
+    zValidator(
+      "json",
+      z.object({ agent: z.enum(agentTypes).optional(), cwd: z.string().optional() }),
+    ),
+    async (c) => {
+      const body = c.req.valid("json");
+      const info = await flamecast.create({
+        agent: body.agent ?? "example",
+        cwd: body.cwd,
+      });
+      return c.json(info, 201);
+    },
+  )
+  .get("/connections/:id", (c) => {
+    try {
+      const info = flamecast.get(c.req.param("id"));
+      return c.json(info);
+    } catch {
+      return c.json({ error: "Connection not found" }, 404);
+    }
+  })
+  .post(
+    "/connections/:id/prompt",
+    zValidator("json", z.object({ text: z.string() })),
+    async (c) => {
+      const { text } = c.req.valid("json");
+      try {
+        const result = await flamecast.prompt(c.req.param("id"), text);
+        return c.json(result);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        return c.json({ error: message }, 400);
+      }
+    },
+  )
+  .post(
+    "/connections/:id/permissions/:requestId",
+    zValidator(
+      "json",
+      z.union([z.object({ optionId: z.string() }), z.object({ outcome: z.literal("cancelled") })]),
+    ),
+    async (c) => {
+      const body = c.req.valid("json");
+      try {
+        flamecast.respondToPermission(c.req.param("id"), c.req.param("requestId"), body);
+        return c.json({ ok: true });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        return c.json({ error: message }, 400);
+      }
+    },
+  )
+  .delete("/connections/:id", (c) => {
+    try {
+      flamecast.kill(c.req.param("id"));
+      return c.json({ ok: true });
+    } catch {
+      return c.json({ error: "Connection not found" }, 404);
+    }
   });
-  return c.json(info, 201);
-});
-
-// Get a specific connection
-api.get("/connections/:id", (c) => {
-  try {
-    const info = flamecast.get(c.req.param("id"));
-    return c.json(info);
-  } catch {
-    return c.json({ error: "Connection not found" }, 404);
-  }
-});
-
-// Send a prompt to a connection
-api.post("/connections/:id/prompt", async (c) => {
-  const { text } = await c.req.json<{ text: string }>();
-  try {
-    const result = await flamecast.prompt(c.req.param("id"), text);
-    return c.json(result);
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-    return c.json({ error: message }, 400);
-  }
-});
-
-// Respond to a pending permission request
-api.post("/connections/:id/permissions/:requestId", async (c) => {
-  const body = await c.req.json<{ optionId: string } | { outcome: "cancelled" }>();
-  try {
-    flamecast.respondToPermission(c.req.param("id"), c.req.param("requestId"), body);
-    return c.json({ ok: true });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-    return c.json({ error: message }, 400);
-  }
-});
-
-// Kill a connection
-api.delete("/connections/:id", (c) => {
-  try {
-    flamecast.kill(c.req.param("id"));
-    return c.json({ ok: true });
-  } catch {
-    return c.json({ error: "Connection not found" }, 404);
-  }
-});
 
 export default api;
+export type AppType = typeof api;
