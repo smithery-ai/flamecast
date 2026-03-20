@@ -23,7 +23,8 @@ This section summarizes what changed from the original SPEC. The rest of the doc
 | **State manager** | Described as future work (Phase 2) | Already built — memory and Postgres (PGLite / external) implementations exist |
 | **Chat integration** | Not mentioned | First-class `chat.adapters` option on constructor — Vercel Chat SDK for Slack, Discord, Teams, WhatsApp, etc. |
 | **Convex** | Phase 3 dedicated to optional Convex integration | Removed. State manager interface is vendor-agnostic; Convex can be added as an implementation later if needed |
-| **Phases** | Phase 1: sandbox orchestration, Phase 2: state manager, Phase 3: Convex | Phase 1: Flamecast wraps Hono + LocalProvisioner, Phase 2: remote provisioners, Phase 3: Chat SDK + multi-surface |
+| **Repo structure** | Single-package flat `src/` directory | Turborepo monorepo: `packages/flamecast` (SDK) + `apps/web` (dev app that imports SDK). `turbo dev` runs both. |
+| **Phases** | Phase 1: sandbox orchestration, Phase 2: state manager, Phase 3: Convex | Phase 1: Flamecast wraps Hono + LocalProvisioner + Turborepo, Phase 2: remote provisioners, Phase 3: Chat SDK + multi-surface |
 
 ## 1. Current state
 
@@ -187,7 +188,7 @@ DB creation and state manager setup happen on first request via `ensureReady()`.
 ### 5.3 `.fetch` and `.listen()`
 
 - `.fetch` is `(req: Request) => Promise<Response>` — the Hono app's fetch handler. Works in any serverless or edge runtime.
-- `.listen(port)` is a convenience that calls `@hono/node-server`'s `serve()`. For local dev and CLI use.
+- `.listen(port)` starts the API server via `@hono/node-server`'s `serve()`. API only — no frontend bundled or served. The frontend is a separate app (`apps/web` in the monorepo, or whatever the user builds).
 
 ### 5.4 Chat SDK integration
 
@@ -198,11 +199,51 @@ When `chat.adapters` are provided:
 3. Pending permissions → interactive approve/deny messages on the platform.
 4. Uses the same Flamecast methods as HTTP routes — just another client.
 
-## 6. Entry points
+## 6. Repo structure
 
-**Default CLI (`src/index.ts`):**
+Turborepo monorepo with two workspaces:
+
+```
+├── turbo.json
+├── package.json                    # root workspace config
+├── packages/
+│   └── flamecast/                  # SDK — publishable to npm as "flamecast"
+│       ├── package.json            # bin: { flamecast: "./dist/cli.js" }
+│       ├── src/
+│       │   ├── index.ts            # Flamecast class + public exports
+│       │   ├── cli.ts              # default CLI: new Flamecast({ stateManager: "psql" }).listen(3001)
+│       │   ├── api.ts              # Hono routes
+│       │   ├── transport.ts        # Provisioner interface + LocalProvisioner
+│       │   ├── state-manager.ts    # StateManager interface
+│       │   ├── state-managers/     # memory + psql implementations
+│       │   ├── db/                 # DB client (PGLite / Postgres)
+│       │   └── shared/             # Zod schemas, shared types
+│       └── tsconfig.json
+└── apps/
+    └── web/                        # dev app — consumes flamecast SDK
+        ├── package.json            # depends on "flamecast": "workspace:*"
+        ├── index.ts                # custom Flamecast config
+        ├── src/client/             # React UI
+        ├── vite.config.ts
+        └── tsconfig.json
+```
+
+`turbo dev` runs both: SDK build watcher + dev app (server + Vite). The dev app dogfoods the SDK — its `index.ts` is identical to what an external user would write.
+
+## 7. Entry points
+
+**Default CLI (`packages/flamecast/src/cli.ts`):**
 
 ```ts
+const flamecast = new Flamecast({ stateManager: "psql" });
+flamecast.listen(3001); // API only — no frontend
+```
+
+**Dev app (`apps/web/index.ts`):**
+
+```ts
+import { Flamecast } from "flamecast";
+
 const flamecast = new Flamecast({ stateManager: "psql" });
 flamecast.listen(3001);
 ```
@@ -224,7 +265,7 @@ flamecast.listen(3001);
 export default flamecast.fetch;
 ```
 
-## 7. Conflict and failure semantics
+## 8. Conflict and failure semantics
 
 | Situation                                   | Rule                                                                                                                                 |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
@@ -233,19 +274,22 @@ export default flamecast.fetch;
 | Two tabs / clients open                     | Both stay in sync via polling (or future realtime). Permission resolution is single-flight per `requestId` on server.                |
 | Serverless cold start during active session | `ensureReady()` re-initializes DB connection. `reconnect()` re-establishes transport. ACP session resume TBD.                        |
 
-## 8. Phases
+## 9. Phases
 
-### Phase 1 — Flamecast wraps Hono + LocalProvisioner
+### Phase 1 — Flamecast wraps Hono + LocalProvisioner + Turborepo
 
-**Goal:** Flamecast owns the HTTP layer. `npx flamecast` and custom config both work. API-first design established.
+**Goal:** Flamecast owns the HTTP layer. Repo restructured as a Turborepo monorepo. `npx flamecast` and custom config both work. API-first design established.
 
+- Restructure repo into Turborepo: `packages/flamecast` (SDK) + `apps/web` (dev app + React UI).
+- `turbo dev` runs the SDK build watcher + the dev app (which imports `flamecast` and calls `.listen()`) + Vite for the frontend.
 - Move Hono app creation into Flamecast (`.fetch` / `.listen()`).
 - `FlamecastOptions` takes `stateManager: "psql" | "memory"`.
-- New `src/index.ts` entry point. Delete `config.yaml`, `src/server/config.ts`, `src/server/index.ts`.
+- `packages/flamecast/src/cli.ts` is the default CLI entry point. Delete `config.yaml`, `src/server/config.ts`, `src/server/index.ts`.
 - `LocalProvisioner` wraps existing `startAgentProcess` + `getAgentTransport`.
 - `Provisioner` interface defined but only local impl ships.
+- `packages/flamecast` is publishable to npm. `apps/web` is the reference consumer.
 
-**Exit criteria:** Same functionality as today. `npx flamecast` works. Custom `index.ts` + build + link works. `.fetch` export works (serverless with local provisioner is non-functional but the plumbing exists).
+**Exit criteria:** Same functionality as today. `turbo dev` runs the dev app. `npx flamecast` works. Custom `index.ts` + build + link works. `.fetch` export works (serverless with local provisioner is non-functional but the plumbing exists). The dev app's `index.ts` is identical to what an external user would write.
 
 ### Phase 2 — Remote provisioners
 
@@ -268,7 +312,7 @@ export default flamecast.fetch;
 
 **Exit criteria:** A Slack message triggers an agent prompt. Permission request appears as Slack buttons. Response posts back to thread. Same connection visible in web UI.
 
-## 9. Open decisions
+## 10. Open decisions
 
 - [ ] Auth model for orchestrator API (API keys, OAuth, mTLS).
 - [ ] Whether log bodies are capped or paged in the state manager.

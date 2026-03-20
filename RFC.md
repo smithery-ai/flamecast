@@ -19,6 +19,7 @@ Today the server entry point (`src/server/index.ts`) manually wires together con
 - No more `config.yaml`. Constructor options replace it.
 - Agent lifecycle is managed by a pluggable **provisioner**, decoupling agent lifetime from the orchestrator process.
 - Chat platform integration via **Vercel Chat SDK** as a first-class constructor option.
+- Monorepo structure (Turborepo) — the SDK is a package, the dev experience is an app that imports it.
 
 ## Design
 
@@ -38,7 +39,7 @@ export class Flamecast {
 
   constructor(opts: FlamecastOptions);
 
-  /** Local dev / CLI convenience. Calls @hono/node-server serve(). */
+  /** Start the API server. */
   listen(port: number): void;
 }
 ```
@@ -55,11 +56,11 @@ DB initialization is **lazy** (runs once on first request via a private `ensureR
 
 ### Entry points
 
-**Default CLI (`src/index.ts`)** — what `npx flamecast` runs:
+**Default CLI (`packages/flamecast/src/cli.ts`)** — what `npx flamecast` runs:
+
+The CLI starts the API server only. The frontend is a separate concern — run it yourself, use the dev app in `apps/web`, or build your own.
 
 ```ts
-import { Flamecast } from "./flamecast/index.js";
-
 const flamecast = new Flamecast({ stateManager: "psql" });
 flamecast.listen(3001);
 ```
@@ -228,28 +229,81 @@ The `sandboxHandle` is stored in the state manager (new column on the `connectio
 
 Every Flamecast method starts with `const sm = await this.ensureReady()` and uses `sm` instead of `this.stateManager`. Self-contained — Flamecast is always safe to call regardless of how it's invoked, no middleware coordination.
 
-## File changes
+## Monorepo structure (Turborepo)
 
-| Action     | Path                             | Notes                                                                                                                                                              |
-| ---------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Modify** | `src/flamecast/index.ts`         | Add `fetch`, `listen()`, lazy init, provisioner + chat SDK integration. `FlamecastOptions` takes string `stateManager` + optional `Provisioner` + optional `chat`. |
-| **Modify** | `src/flamecast/transport.ts`     | Define `Provisioner`, `SandboxHandle`, `AcpTransport` interfaces. `LocalProvisioner` wraps existing `startAgentProcess` + `getAgentTransport`.                     |
-| **Modify** | `src/flamecast/state-manager.ts` | Add `sandboxHandle` to `ConnectionMeta`.                                                                                                                           |
-| **Modify** | `src/shared/connection.ts`       | Add `sandboxHandle` field to `ConnectionInfoSchema`.                                                                                                               |
-| **Modify** | `src/server/api.ts`              | No route changes. `createApi` keeps taking a `Flamecast` instance.                                                                                                 |
-| **Create** | `src/index.ts`                   | New CLI entry point (3 lines).                                                                                                                                     |
-| **Modify** | `package.json`                   | Scripts point to `src/index.ts`. Add `"bin": { "flamecast": "./src/index.ts" }`.                                                                                   |
-| **Delete** | `config.yaml`                    | Replaced by constructor options.                                                                                                                                   |
-| **Delete** | `src/server/config.ts`           | No longer needed.                                                                                                                                                  |
-| **Delete** | `src/server/index.ts`            | Replaced by `src/index.ts`.                                                                                                                                        |
+The repo becomes a Turborepo monorepo with two workspaces: the SDK package and a dev app that consumes it. This dogfoods the SDK — the dev app is a real consumer of `flamecast`, identical to what an external user would write.
 
-### What stays the same
+```
+├── turbo.json
+├── package.json              # root workspace config
+├── packages/
+│   └── flamecast/            # the SDK — publishable to npm
+│       ├── package.json      # name: "flamecast", bin: { flamecast: "./dist/cli.js" }
+│       ├── src/
+│       │   ├── index.ts      # Flamecast class, exports
+│       │   ├── cli.ts        # default CLI entry: new Flamecast({ stateManager: "psql" }).listen(3001)
+│       │   ├── api.ts        # Hono routes (moved from src/server/api.ts)
+│       │   ├── transport.ts  # Provisioner interface + LocalProvisioner
+│       │   ├── state-manager.ts
+│       │   ├── state-managers/
+│       │   │   ├── memory/
+│       │   │   └── psql/
+│       │   ├── db/
+│       │   │   └── client.ts
+│       │   └── shared/       # Zod schemas, types
+│       └── tsconfig.json
+└── apps/
+    └── web/                  # dev app — consumes flamecast as a dependency
+        ├── package.json      # depends on "flamecast": "workspace:*"
+        ├── index.ts          # custom Flamecast config (the entry point)
+        ├── src/
+        │   └── client/       # React UI (moved from src/client/)
+        ├── vite.config.ts
+        └── tsconfig.json
+```
 
-- `src/server/api.ts` — Hono route definitions (just imported by Flamecast now)
-- `src/server/db/client.ts` — DB creation logic (called by Flamecast's lazy init)
-- `src/flamecast/state-managers/*` — both implementations unchanged (schema migration for `sandboxHandle` column)
-- `src/client/*` — frontend unchanged, still hits `/api` via proxy or direct
-- `vite.config.ts` — unchanged (proxy to localhost:3001 in dev)
+### How `dev` works
+
+```bash
+turbo dev
+```
+
+This runs two tasks in parallel:
+1. **`packages/flamecast`** — watches and rebuilds the SDK on changes.
+2. **`apps/web`** — runs the dev app's `index.ts` (which imports `flamecast` and calls `.listen()`) + Vite for the frontend.
+
+The dev app's `index.ts` looks like any external consumer:
+
+```ts
+import { Flamecast } from "flamecast";
+
+const flamecast = new Flamecast({ stateManager: "psql" });
+flamecast.listen(3001);
+```
+
+This is the same code a user would write. The web UI in `apps/web/src/client/` hits `localhost:3001/api` via Vite's proxy, same as today.
+
+### Why Turborepo
+
+- **Dogfooding:** The dev app proves the SDK works as a library. If it breaks for us, it breaks for users.
+- **Clean boundary:** The SDK package has no knowledge of the React UI. The UI is just a consumer. This enforces the API-first design — the UI can't reach into SDK internals.
+- **Publishable:** `packages/flamecast` is what gets published to npm. `apps/web` is the reference app / dev harness, not part of the published package.
+- **Parallel builds:** Turborepo handles build ordering (SDK before app) and caching automatically.
+
+### What moves where
+
+| Current path | New path | Notes |
+|---|---|---|
+| `src/flamecast/` | `packages/flamecast/src/` | SDK core — Flamecast class, transport, state managers |
+| `src/server/api.ts` | `packages/flamecast/src/api.ts` | Hono routes, part of the SDK |
+| `src/server/db/` | `packages/flamecast/src/db/` | DB client, part of the SDK |
+| `src/shared/` | `packages/flamecast/src/shared/` | Zod schemas, shared types |
+| `src/client/` | `apps/web/src/client/` | React UI — consumer of the SDK |
+| `src/server/index.ts` | `packages/flamecast/src/cli.ts` | Default CLI entry point |
+| `src/server/config.ts` | Deleted | Replaced by constructor options |
+| `config.yaml` | Deleted | Replaced by constructor options |
+| `vite.config.ts` | `apps/web/vite.config.ts` | Frontend build config |
+| `package.json` | Split into root + `packages/flamecast/package.json` + `apps/web/package.json` | Dependencies split by concern |
 
 ## Deployment matrix
 
