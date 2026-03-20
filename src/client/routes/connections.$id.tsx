@@ -70,7 +70,6 @@ function ConnectionDetailPage() {
 
   const markdownSegments = useMemo(() => connectionLogsToSegments(conn?.logs ?? []), [conn?.logs]);
 
-
   if (isLoading) {
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-6">
@@ -266,11 +265,18 @@ function ConnectionDetailPage() {
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
             placeholder="Send a prompt to the agent..."
-            disabled={promptMutation.isPending}
+            disabled={promptMutation.isPending || !!conn.pendingPermission}
           />
-          <Button onClick={handleSend} disabled={promptMutation.isPending || !prompt.trim()}>
+          <Button
+            onClick={handleSend}
+            disabled={promptMutation.isPending || !!conn.pendingPermission || !prompt.trim()}
+          >
             <SendIcon data-icon="inline-start" />
-            {promptMutation.isPending ? "Sending…" : "Send"}
+            {conn.pendingPermission
+              ? "Permission required"
+              : promptMutation.isPending
+                ? "Sending…"
+                : "Send"}
           </Button>
         </div>
       </div>

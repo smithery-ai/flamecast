@@ -2,12 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createConnection, fetchAgentProcesses, registerAgentProcess } from "@/client/lib/api";
 import { Button } from "@/client/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/client/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/client/components/ui/card";
 import { Input } from "@/client/components/ui/input";
 import { Label } from "@/client/components/ui/label";
 import { Badge } from "@/client/components/ui/badge";
@@ -147,16 +142,14 @@ function ConnectionsPage() {
                     )}
                   </div>
                   <DialogFooter>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setDialogOpen(false)}
-                    >
+                    <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                       Cancel
                     </Button>
                     <Button
                       type="submit"
-                      disabled={registerMutation.isPending || !newLabel.trim() || !newCommand.trim()}
+                      disabled={
+                        registerMutation.isPending || !newLabel.trim() || !newCommand.trim()
+                      }
                     >
                       <PlusIcon data-icon="inline-start" />
                       {registerMutation.isPending ? "Saving…" : "Add agent"}
