@@ -138,10 +138,83 @@ Other scripts: `npm run build`, `npm start` (production build entry — verify `
 
 ## Current limitations (by design)
 
-- **No durable store** — restart clears connections and logs.
-- **No auth** — local dev assumption; do not expose raw to the internet.
-- **Single host** — one Node process; no sticky sessions or distributed Flamecast.
-- **Push updates** — UI relies on polling, not SSE/WebSocket (see `SPEC.md` if that changes).
+- **Core connections are still in-memory** — live ACP sessions do not survive restarts. The integration layer persists installs, bindings, and transcript events, then recreates sessions on demand.
+- **Operator UI is still local-first** — the React app has not been expanded into a full integration admin console yet.
+- **Single host** — one Node process owns live ACP sessions; there is no distributed coordinator.
+- **Push updates** — the web UI still relies on polling, not SSE/WebSocket.
+
+---
+
+## Integrated surfaces
+
+Flamecast now has a minimal shell-first integration layer for Slack and Linear:
+
+- **Inbound surfaces**
+  - `POST /api/webhooks/slack`
+  - `GET /api/oauth/slack/callback`
+  - `POST /api/webhooks/linear/comments`
+  - `POST /api/webhooks/linear/agent-sessions`
+- **Brokered outbound API access**
+  - `ALL /api/integrations/proxy/:service/*`
+
+The integration runtime does **not** hand raw provider secrets to the agent. Instead, integration-backed ACP sessions receive:
+
+- `FLAMECAST_PROXY_BASE`
+- `FLAMECAST_PROXY_TOKEN`
+- `FLAMECAST_INSTALL_ID`
+- `FLAMECAST_SOURCE_PLATFORM`
+
+This is intended for normal shell usage:
+
+```bash
+curl "$FLAMECAST_PROXY_BASE/linear/graphql" \
+  -H "Proxy-Authorization: Bearer $FLAMECAST_PROXY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ viewer { id name } }"}'
+```
+
+```bash
+curl "$FLAMECAST_PROXY_BASE/slack/api/chat.postMessage" \
+  -H "Proxy-Authorization: Bearer $FLAMECAST_PROXY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"channel":"C123","text":"hello from Flamecast"}'
+```
+
+### Required env vars
+
+The integration stack is enabled only when `POSTGRES_URL` (or `DATABASE_URL`) is set.
+
+Core:
+
+```bash
+POSTGRES_URL=postgres://...
+FLAMECAST_BROKER_ENCRYPTION_KEY=...   # 32-byte base64/hex/utf8 value
+FLAMECAST_PROXY_BASE_URL=http://127.0.0.1:3001/api/integrations/proxy
+FLAMECAST_BOT_NAME=flamecast
+```
+
+Slack:
+
+```bash
+SLACK_SIGNING_SECRET=...
+SLACK_CLIENT_ID=...
+SLACK_CLIENT_SECRET=...
+SLACK_ENCRYPTION_KEY=...              # optional, falls back to FLAMECAST_BROKER_ENCRYPTION_KEY
+```
+
+Linear:
+
+```bash
+LINEAR_WEBHOOK_SECRET=...
+
+# either a direct token:
+LINEAR_ACCESS_TOKEN=...
+
+# or app credentials for client_credentials:
+LINEAR_CLIENT_ID=...
+LINEAR_CLIENT_SECRET=...
+LINEAR_APP_SCOPES=read,write,comments:create
+```
 
 ---
 

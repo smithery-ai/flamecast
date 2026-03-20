@@ -1,14 +1,12 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { Flamecast } from "../flamecast/index.js";
 import {
   CreateConnectionBodySchema,
   PermissionResponseBodySchema,
   PromptBodySchema,
   RegisterAgentProcessBodySchema,
 } from "../shared/connection.js";
-
-const flamecast = new Flamecast();
+import { flamecast, integrations } from "./runtime.js";
 
 const api = new Hono()
   .get("/agent-processes", (c) => {
@@ -70,6 +68,15 @@ const api = new Hono()
       return c.json({ ok: true });
     } catch {
       return c.json({ error: "Connection not found" }, 404);
+    }
+  })
+  .get("/integrations/installs", async (c) => {
+    try {
+      const installs = await integrations.store.listInstalls();
+      return c.json(installs);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      return c.json({ error: message }, 503);
     }
   });
 
