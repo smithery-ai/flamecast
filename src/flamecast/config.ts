@@ -80,9 +80,9 @@ async function resolveStateManager(config?: StateManagerConfig): Promise<Flameca
 export async function createFlamecast(opts: FlamecastOptions = {}): Promise<Flamecast> {
   const stateManager = await resolveStateManager(opts.stateManager);
 
-  await alchemy("flamecast", { stage: opts.stage });
+  const scope = await alchemy("flamecast", { phase: "up", stage: opts.stage, quiet: true });
 
-  // Default provisioner: local ChildProcess (no Alchemy resource needed — process dies with orchestrator)
+  // Default provisioner: local ChildProcess via stdio
   const provisioner: Provisioner =
     opts.provisioner ??
     (async (_connectionId, spec) => {
@@ -90,5 +90,5 @@ export async function createFlamecast(opts: FlamecastOptions = {}): Promise<Flam
       return openLocalTransport(spec);
     });
 
-  return new Flamecast({ stateManager, provisioner });
+  return new Flamecast({ stateManager, provisioner, alchemyScope: scope });
 }
