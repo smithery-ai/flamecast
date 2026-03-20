@@ -31,4 +31,3 @@ dist/
 
 # local PGlite data (Flamecast RPC log)
 .acp/
-.alchemy/
