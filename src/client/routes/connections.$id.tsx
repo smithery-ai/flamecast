@@ -203,7 +203,7 @@ function ConnectionDetailPage() {
                         {new Date(log.timestamp).toLocaleTimeString()}
                       </span>
                       <Badge variant={getLogVariant(log.type)} className="shrink-0">
-                        {log.type}
+                        {logLabel(log)}
                       </Badge>
                       <pre className="min-w-0 flex-1 overflow-auto rounded-md bg-muted p-2 text-xs">
                         {JSON.stringify(log.data, null, 2)}
@@ -221,8 +221,19 @@ function ConnectionDetailPage() {
   );
 }
 
+function logLabel(log: { type: string; data: Record<string, unknown> }): string {
+  if (log.type === "rpc") {
+    const method = typeof log.data.method === "string" ? log.data.method : "?";
+    const phase = typeof log.data.phase === "string" ? log.data.phase : "?";
+    return `${method} (${phase})`;
+  }
+  return log.type;
+}
+
 function getLogVariant(type: string): "default" | "secondary" | "destructive" | "outline" {
   switch (type) {
+    case "rpc":
+      return "secondary";
     case "initialized":
     case "session_created":
       return "default";
