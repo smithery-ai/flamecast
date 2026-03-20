@@ -27,7 +27,7 @@ export type FlamecastOptions = {
   stateManager?: StateManagerConfig; // default: { type: "pglite" }
   /** Alchemy Resource that provisions agent sandboxes. Omit for local ChildProcess. */
   provisioner?: Provisioner;
-  workspaceDir?: string;
+
   /** Alchemy stage for resource isolation. Defaults to $USER. */
   stage?: string;
 };
@@ -81,6 +81,5 @@ export async function createFlamecast(opts: FlamecastOptions = {}): Promise<Flam
   return new Flamecast({
     stateManager,
     provisioner: opts.provisioner,
-    workspaceDir: opts.workspaceDir,
   });
 }

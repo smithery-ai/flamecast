@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import alchemy, { type Scope } from "alchemy";
@@ -51,7 +50,6 @@ interface SessionTextChunkLogBuffer {
 interface ManagedConnection {
   id: string;
   sessionId: string;
-  workspaceDir: string | undefined;
   scope: Scope | null;
   runtime: {
     connection: acp.ClientSideConnection | null;
@@ -62,7 +60,6 @@ interface ManagedConnection {
 export type FlamecastConstructorOptions = {
   stateManager: FlamecastStateManager;
   provisioner?: Provisioner;
-  workspaceDir?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -75,12 +72,10 @@ export class Flamecast {
   private agentProcesses = new Map<string, { label: string; spawn: AgentSpawn }>();
   private readonly stateManager: FlamecastStateManager;
   private readonly provisioner: Provisioner | undefined;
-  private readonly workspaceDir: string | undefined;
 
   constructor(opts: FlamecastConstructorOptions) {
     this.stateManager = opts.stateManager;
     this.provisioner = opts.provisioner;
-    this.workspaceDir = opts.workspaceDir;
     for (const preset of getBuiltinAgentProcessPresets()) {
       this.agentProcesses.set(preset.id, {
         label: preset.label,
@@ -173,7 +168,6 @@ export class Flamecast {
     const managed: ManagedConnection = {
       id,
       sessionId: "",
-      workspaceDir: this.workspaceDir ? path.resolve(this.workspaceDir) : cwd,
       scope,
       runtime: {
         connection: null,
@@ -322,13 +316,6 @@ export class Flamecast {
   // -----------------------------------------------------------------------
   // Private helpers
   // -----------------------------------------------------------------------
-
-  private resolveWorkspacePath(managed: ManagedConnection, filePath: string): string | undefined {
-    if (!managed.workspaceDir) return undefined;
-    const resolved = path.resolve(managed.workspaceDir, filePath);
-    if (!resolved.startsWith(managed.workspaceDir)) return undefined;
-    return resolved;
-  }
 
   private resolveRuntime(id: string): ManagedConnection {
     const managed = this.runtimes.get(id);
@@ -587,8 +574,7 @@ export class Flamecast {
           "request",
           params,
         );
-        const resolved = this.resolveWorkspacePath(managed, params.path);
-        const content = resolved ? await readFile(resolved, "utf8") : "";
+        const content = "";
         const response: acp.ReadTextFileResponse = { content };
         await this.pushRpcLog(
           managed,
@@ -610,11 +596,6 @@ export class Flamecast {
           "request",
           params,
         );
-        const resolved = this.resolveWorkspacePath(managed, params.path);
-        if (resolved) {
-          await mkdir(path.dirname(resolved), { recursive: true });
-          await writeFile(resolved, params.content, "utf8");
-        }
         const response: acp.WriteTextFileResponse = {};
         await this.pushRpcLog(
           managed,
