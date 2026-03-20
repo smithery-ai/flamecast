@@ -5,12 +5,14 @@ import type {
   AgentProcessInfo,
   AgentSpawn,
   ConnectionInfo,
+  ConnectionLog,
   CreateConnectionBody,
   PendingPermission,
   PendingPermissionOption,
   PermissionResponseBody,
   RegisterAgentProcessBody,
 } from "../shared/connection.js";
+import type { FlamecastProjection } from "./projection.js";
 import {
   getAgentTransport,
   getBuiltinAgentProcessPresets,
@@ -18,24 +20,25 @@ import {
 } from "./transport.js";
 
 export type { AgentProcessInfo, ConnectionInfo, PendingPermission } from "../shared/connection.js";
+export type { ConnectionMeta, FlamecastProjection } from "./projection.js";
+export { MemoryFlamecastProjection } from "./projections/memory/index.js";
+export { createPsqlProjection } from "./projections/psql/index.js";
+export type { PsqlAppDb } from "./projections/psql/types.js";
 
-// Runtime-only callback used to resume a pending permission request.
-type PermissionResolver = (response: acp.RequestPermissionResponse) => void;
+type PermissionResolver = (response: acp.RequestPermissionResponse) => void | Promise<void>;
 
-/** Coalesces RPC log rows for streaming text session updates (see `flushSessionTextChunkLogBuffer`). */
 type StreamingTextChunkKind = "agent_message_chunk" | "user_message_chunk" | "agent_thought_chunk";
 
 interface SessionTextChunkLogBuffer {
   sessionId: string;
   kind: StreamingTextChunkKind;
-  /** From ACP `ContentChunk.messageId`; chunks with different ids are separate messages. */
   messageId: string | null;
   texts: string[];
 }
 
-// Full in-memory connection record, including runtime-only handles.
 interface ManagedConnection {
-  info: ConnectionInfo;
+  id: string;
+  sessionId: string;
   runtime: {
     connection: acp.ClientSideConnection | null;
     agentProcess: ChildProcess;
@@ -43,13 +46,18 @@ interface ManagedConnection {
   };
 }
 
+export type FlamecastOptions = {
+  projection: FlamecastProjection;
+};
+
 export class Flamecast {
-  private connections = new Map<string, ManagedConnection>();
+  private runtimes = new Map<string, ManagedConnection>();
   private permissionResolvers = new Map<string, PermissionResolver>();
   private agentProcesses = new Map<string, { label: string; spawn: AgentSpawn }>();
-  private nextId = 1;
+  private readonly projection: FlamecastProjection;
 
-  constructor() {
+  constructor(opts: FlamecastOptions) {
+    this.projection = opts.projection;
     for (const preset of getBuiltinAgentProcessPresets()) {
       this.agentProcesses.set(preset.id, {
         label: preset.label,
@@ -78,7 +86,7 @@ export class Flamecast {
 
   async create(opts: CreateConnectionBody): Promise<ConnectionInfo> {
     const cwd = opts.cwd ?? process.cwd();
-    const id = String(this.nextId++);
+    const id = await this.projection.allocateConnectionId();
     const now = new Date().toISOString();
 
     let agentLabel: string;
@@ -99,22 +107,24 @@ export class Flamecast {
       throw new Error("Provide agentProcessId or spawn");
     }
 
+    await this.projection.createConnection({
+      id,
+      agentLabel,
+      spawn,
+      sessionId: "",
+      startedAt: now,
+      lastUpdatedAt: now,
+      pendingPermission: null,
+    });
+
     const agentProcess = startAgentProcess(spawn);
 
     const { input, output } = getAgentTransport(agentProcess);
     const stream = acp.ndJsonStream(input, output);
 
     const managed: ManagedConnection = {
-      info: {
-        id,
-        agentLabel,
-        spawn,
-        sessionId: "",
-        startedAt: now,
-        lastUpdatedAt: now,
-        logs: [],
-        pendingPermission: null,
-      },
+      id,
+      sessionId: "",
       runtime: {
         connection: null,
         agentProcess,
@@ -133,7 +143,7 @@ export class Flamecast {
         terminal: true,
       },
     };
-    this.pushRpcLog(
+    await this.pushRpcLog(
       managed,
       acp.AGENT_METHODS.initialize,
       "client_to_agent",
@@ -141,7 +151,7 @@ export class Flamecast {
       initParams,
     );
     const initResult = await connection.initialize(initParams);
-    this.pushRpcLog(
+    await this.pushRpcLog(
       managed,
       acp.AGENT_METHODS.initialize,
       "agent_to_client",
@@ -150,7 +160,7 @@ export class Flamecast {
     );
 
     const newSessionParams: acp.NewSessionRequest = { cwd, mcpServers: [] };
-    this.pushRpcLog(
+    await this.pushRpcLog(
       managed,
       acp.AGENT_METHODS.session_new,
       "client_to_agent",
@@ -158,7 +168,7 @@ export class Flamecast {
       newSessionParams,
     );
     const sessionResult = await connection.newSession(newSessionParams);
-    this.pushRpcLog(
+    await this.pushRpcLog(
       managed,
       acp.AGENT_METHODS.session_new,
       "agent_to_client",
@@ -166,30 +176,37 @@ export class Flamecast {
       sessionResult,
     );
 
-    managed.info.sessionId = sessionResult.sessionId;
+    managed.sessionId = sessionResult.sessionId;
+    const updatedAt = new Date().toISOString();
+    await this.projection.updateConnection(id, {
+      sessionId: managed.sessionId,
+      lastUpdatedAt: updatedAt,
+    });
 
-    this.connections.set(id, managed);
-    return this.snapshotInfo(managed);
+    this.runtimes.set(id, managed);
+    return this.snapshotInfo(id);
   }
 
-  list(): ConnectionInfo[] {
-    return [...this.connections.values()].map((m) => this.snapshotInfo(m));
+  async list(): Promise<ConnectionInfo[]> {
+    const ids = [...this.runtimes.keys()];
+    return Promise.all(ids.map((id) => this.snapshotInfo(id)));
   }
 
-  get(id: string): ConnectionInfo {
-    return this.snapshotInfo(this.resolve(id));
+  async get(id: string): Promise<ConnectionInfo> {
+    this.resolveRuntime(id);
+    return this.snapshotInfo(id);
   }
 
   async prompt(id: string, text: string): Promise<acp.PromptResponse> {
-    const managed = this.resolve(id);
+    const managed = this.resolveRuntime(id);
     if (!managed.runtime.connection) {
       throw new Error(`Connection "${id}" is not initialized`);
     }
     const promptParams: acp.PromptRequest = {
-      sessionId: managed.info.sessionId,
+      sessionId: managed.sessionId,
       prompt: [{ type: "text", text }],
     };
-    this.pushRpcLog(
+    await this.pushRpcLog(
       managed,
       acp.AGENT_METHODS.session_prompt,
       "client_to_agent",
@@ -199,8 +216,8 @@ export class Flamecast {
 
     try {
       const result = await managed.runtime.connection.prompt(promptParams);
-      this.flushSessionTextChunkLogBuffer(managed);
-      this.pushRpcLog(
+      await this.flushSessionTextChunkLogBuffer(managed);
+      await this.pushRpcLog(
         managed,
         acp.AGENT_METHODS.session_prompt,
         "agent_to_client",
@@ -209,29 +226,35 @@ export class Flamecast {
       );
       return result;
     } catch (e) {
-      this.flushSessionTextChunkLogBuffer(managed);
+      await this.flushSessionTextChunkLogBuffer(managed);
       throw e;
     }
   }
 
-  kill(id: string): void {
-    const managed = this.resolve(id);
-    if (managed.info.pendingPermission) {
-      this.permissionResolvers.delete(managed.info.pendingPermission.requestId);
+  async kill(id: string): Promise<void> {
+    const managed = this.resolveRuntime(id);
+    const meta = await this.projection.getConnectionMeta(id);
+    if (meta?.pendingPermission) {
+      this.permissionResolvers.delete(meta.pendingPermission.requestId);
     }
-    this.flushSessionTextChunkLogBuffer(managed);
+    await this.flushSessionTextChunkLogBuffer(managed);
     managed.runtime.agentProcess.kill();
-    this.pushLog(managed, "killed", {});
-    this.connections.delete(id);
+    await this.pushLog(managed, "killed", {});
+    await this.projection.finalizeConnection(id, "killed");
+    this.runtimes.delete(id);
   }
 
-  respondToPermission(id: string, requestId: string, body: PermissionResponseBody): void {
-    const managed = this.resolve(id);
-    const pending = this.takePendingPermissionResolution(managed, requestId);
+  async respondToPermission(
+    id: string,
+    requestId: string,
+    body: PermissionResponseBody,
+  ): Promise<void> {
+    const managed = this.resolveRuntime(id);
+    const pending = await this.takePendingPermissionResolution(managed, requestId);
 
     if ("outcome" in body && body.outcome === "cancelled") {
-      this.logPermissionCancelled(managed, pending);
-      pending.resolve({ outcome: { outcome: "cancelled" } });
+      await this.logPermissionCancelled(managed, pending);
+      await Promise.resolve(pending.resolve({ outcome: { outcome: "cancelled" } }));
       return;
     }
 
@@ -240,66 +263,65 @@ export class Flamecast {
     }
 
     const option = this.getPermissionOption(pending, body.optionId);
-    this.logPermissionSelection(managed, pending, option);
-    pending.resolve({
-      outcome: { outcome: "selected", optionId: option.optionId },
-    });
+    await this.logPermissionSelection(managed, pending, option);
+    await Promise.resolve(
+      pending.resolve({
+        outcome: { outcome: "selected", optionId: option.optionId },
+      }),
+    );
   }
 
-  private resolve(id: string): ManagedConnection {
-    const managed = this.connections.get(id);
+  private resolveRuntime(id: string): ManagedConnection {
+    const managed = this.runtimes.get(id);
     if (!managed) {
       throw new Error(`Connection "${id}" not found`);
     }
     return managed;
   }
 
-  private snapshotInfo(managed: ManagedConnection): ConnectionInfo {
+  private async snapshotInfo(id: string): Promise<ConnectionInfo> {
+    const meta = await this.projection.getConnectionMeta(id);
+    if (!meta) {
+      throw new Error(`Connection "${id}" not found`);
+    }
+    const logs = await this.projection.getLogs(id);
     return {
-      ...managed.info,
-      logs: [...managed.info.logs],
-      pendingPermission: managed.info.pendingPermission
+      ...meta,
+      logs: [...logs],
+      pendingPermission: meta.pendingPermission
         ? {
-            ...managed.info.pendingPermission,
-            options: managed.info.pendingPermission.options.map((option) => ({
-              ...option,
-            })),
+            ...meta.pendingPermission,
+            options: meta.pendingPermission.options.map((option) => ({ ...option })),
           }
         : null,
     };
   }
 
-  private pushLog(managed: ManagedConnection, type: string, data: Record<string, unknown>): void {
+  private async pushLog(
+    managed: ManagedConnection,
+    type: string,
+    data: Record<string, unknown>,
+  ): Promise<ConnectionLog> {
     const now = new Date().toISOString();
-    managed.info.lastUpdatedAt = now;
-    managed.info.logs.push({ timestamp: now, type, data });
+    const entry: ConnectionLog = { timestamp: now, type, data };
+    await this.projection.appendLog(managed.id, managed.sessionId, entry);
+    await this.projection.updateConnection(managed.id, { lastUpdatedAt: now });
+    return entry;
   }
 
-  /**
-   * One log row per JSON-RPC request/response/notification, using spec method names
-   * from {@link acp.AGENT_METHODS} / {@link acp.CLIENT_METHODS} where applicable.
-   */
-  private pushRpcLog(
+  private async pushRpcLog(
     managed: ManagedConnection,
     method: string,
     direction: "client_to_agent" | "agent_to_client",
     phase: "request" | "response" | "notification",
     payload?: unknown,
-  ): void {
-    this.pushLog(managed, "rpc", {
-      method,
-      direction,
-      phase,
-      ...(payload !== undefined ? { payload } : {}),
-    });
+  ): Promise<void> {
+    const data: Record<string, unknown> = { method, direction, phase };
+    if (payload !== undefined) data.payload = payload;
+    await this.pushLog(managed, "rpc", data);
   }
 
-  /**
-   * Writes one `rpc` row for all consecutive text chunks of the same stream
-   * (`sessionId` + chunk kind + optional `messageId`). Any other `session/update`
-   * flushes first so tool calls, plan updates, etc. stay ordered correctly.
-   */
-  private flushSessionTextChunkLogBuffer(managed: ManagedConnection): void {
+  private async flushSessionTextChunkLogBuffer(managed: ManagedConnection): Promise<void> {
     const buf = managed.runtime.sessionTextChunkLogBuffer;
     if (!buf || buf.texts.length === 0) {
       managed.runtime.sessionTextChunkLogBuffer = null;
@@ -310,13 +332,13 @@ export class Flamecast {
     try {
       combined = buf.texts.join("");
     } catch (e) {
-      this.pushLog(managed, "rpc_coalesce_error", {
+      await this.pushLog(managed, "rpc_coalesce_error", {
         reason: "join_failed",
         message: e instanceof Error ? e.message : String(e),
         partialParts: buf.texts.length,
       });
       for (const text of buf.texts) {
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.session_update,
           "agent_to_client",
@@ -338,16 +360,22 @@ export class Flamecast {
       content: { type: "text" as const, text: combined },
       ...(buf.messageId != null ? { messageId: buf.messageId } : {}),
     } satisfies acp.SessionUpdate;
-    this.pushRpcLog(managed, acp.CLIENT_METHODS.session_update, "agent_to_client", "notification", {
-      sessionId: buf.sessionId,
-      update,
-    });
+    await this.pushRpcLog(
+      managed,
+      acp.CLIENT_METHODS.session_update,
+      "agent_to_client",
+      "notification",
+      {
+        sessionId: buf.sessionId,
+        update,
+      },
+    );
   }
 
-  private logSessionUpdateNotification(
+  private async logSessionUpdateNotification(
     managed: ManagedConnection,
     params: acp.SessionNotification,
-  ): void {
+  ): Promise<void> {
     const u = params.update;
     if (
       (u.sessionUpdate === "agent_message_chunk" ||
@@ -365,7 +393,7 @@ export class Flamecast {
           buf.kind !== kind ||
           (buf.messageId ?? null) !== messageId)
       ) {
-        this.flushSessionTextChunkLogBuffer(managed);
+        await this.flushSessionTextChunkLogBuffer(managed);
       }
       const next = managed.runtime.sessionTextChunkLogBuffer;
       if (next) {
@@ -381,8 +409,8 @@ export class Flamecast {
       return;
     }
 
-    this.flushSessionTextChunkLogBuffer(managed);
-    this.pushRpcLog(
+    await this.flushSessionTextChunkLogBuffer(managed);
+    await this.pushRpcLog(
       managed,
       acp.CLIENT_METHODS.session_update,
       "agent_to_client",
@@ -391,16 +419,17 @@ export class Flamecast {
     );
   }
 
-  private takePendingPermissionResolution(
+  private async takePendingPermissionResolution(
     managed: ManagedConnection,
     requestId: string,
-  ): { permission: PendingPermission; resolve: PermissionResolver } {
-    const permission = managed.info.pendingPermission;
+  ): Promise<{ permission: PendingPermission; resolve: PermissionResolver }> {
+    const meta = await this.projection.getConnectionMeta(managed.id);
+    const permission = meta?.pendingPermission;
     const resolve = this.permissionResolvers.get(requestId);
     if (!permission || permission.requestId !== requestId || !resolve) {
       throw new Error("Permission request not found or already resolved");
     }
-    managed.info.pendingPermission = null;
+    await this.projection.updateConnection(managed.id, { pendingPermission: null });
     this.permissionResolvers.delete(requestId);
     return { permission, resolve };
   }
@@ -416,22 +445,22 @@ export class Flamecast {
     return option;
   }
 
-  private logPermissionCancelled(
+  private async logPermissionCancelled(
     managed: ManagedConnection,
     pending: { permission: PendingPermission; resolve: PermissionResolver },
-  ): void {
-    this.pushLog(managed, "permission_cancelled", {
+  ): Promise<void> {
+    await this.pushLog(managed, "permission_cancelled", {
       requestId: pending.permission.requestId,
       toolCallId: pending.permission.toolCallId,
     });
   }
 
-  private logPermissionSelection(
+  private async logPermissionSelection(
     managed: ManagedConnection,
     pending: { permission: PendingPermission; resolve: PermissionResolver },
     option: PendingPermissionOption,
-  ): void {
-    this.pushLog(managed, this.getPermissionLogType(option.kind), {
+  ): Promise<void> {
+    await this.pushLog(managed, this.getPermissionLogType(option.kind), {
       requestId: pending.permission.requestId,
       toolCallId: pending.permission.toolCallId,
       optionId: option.optionId,
@@ -467,13 +496,13 @@ export class Flamecast {
   private createClient(managed: ManagedConnection): acp.Client {
     return {
       sessionUpdate: async (params: acp.SessionNotification) => {
-        this.logSessionUpdateNotification(managed, params);
+        await this.logSessionUpdateNotification(managed, params);
       },
 
       requestPermission: async (
         params: acp.RequestPermissionRequest,
       ): Promise<acp.RequestPermissionResponse> => {
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.session_request_permission,
           "agent_to_client",
@@ -481,10 +510,15 @@ export class Flamecast {
           params,
         );
         const pendingPermission = this.createPendingPermission(params);
-        managed.info.pendingPermission = pendingPermission;
+        const now = new Date().toISOString();
+        await this.projection.updateConnection(managed.id, {
+          pendingPermission: pendingPermission,
+          lastUpdatedAt: now,
+        });
+
         return new Promise<acp.RequestPermissionResponse>((resolve) => {
-          const wrapped: PermissionResolver = (response) => {
-            this.pushRpcLog(
+          const wrapped: PermissionResolver = async (response) => {
+            await this.pushRpcLog(
               managed,
               acp.CLIENT_METHODS.session_request_permission,
               "client_to_agent",
@@ -498,7 +532,7 @@ export class Flamecast {
       },
 
       readTextFile: async (params: acp.ReadTextFileRequest): Promise<acp.ReadTextFileResponse> => {
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.fs_read_text_file,
           "agent_to_client",
@@ -506,7 +540,7 @@ export class Flamecast {
           params,
         );
         const response: acp.ReadTextFileResponse = { content: "" };
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.fs_read_text_file,
           "client_to_agent",
@@ -519,7 +553,7 @@ export class Flamecast {
       writeTextFile: async (
         params: acp.WriteTextFileRequest,
       ): Promise<acp.WriteTextFileResponse> => {
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.fs_write_text_file,
           "agent_to_client",
@@ -527,7 +561,7 @@ export class Flamecast {
           params,
         );
         const response: acp.WriteTextFileResponse = {};
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.fs_write_text_file,
           "client_to_agent",
@@ -540,7 +574,7 @@ export class Flamecast {
       createTerminal: async (
         params: acp.CreateTerminalRequest,
       ): Promise<acp.CreateTerminalResponse> => {
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.terminal_create,
           "agent_to_client",
@@ -548,7 +582,7 @@ export class Flamecast {
           params,
         );
         const response: acp.CreateTerminalResponse = { terminalId: `stub-${randomUUID()}` };
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.terminal_create,
           "client_to_agent",
@@ -561,7 +595,7 @@ export class Flamecast {
       terminalOutput: async (
         params: acp.TerminalOutputRequest,
       ): Promise<acp.TerminalOutputResponse> => {
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.terminal_output,
           "agent_to_client",
@@ -569,7 +603,7 @@ export class Flamecast {
           params,
         );
         const response: acp.TerminalOutputResponse = { output: "", truncated: false };
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.terminal_output,
           "client_to_agent",
@@ -582,7 +616,7 @@ export class Flamecast {
       releaseTerminal: async (
         params: acp.ReleaseTerminalRequest,
       ): Promise<acp.ReleaseTerminalResponse | void> => {
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.terminal_release,
           "agent_to_client",
@@ -590,7 +624,7 @@ export class Flamecast {
           params,
         );
         const response: acp.ReleaseTerminalResponse = {};
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.terminal_release,
           "client_to_agent",
@@ -603,7 +637,7 @@ export class Flamecast {
       waitForTerminalExit: async (
         params: acp.WaitForTerminalExitRequest,
       ): Promise<acp.WaitForTerminalExitResponse> => {
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.terminal_wait_for_exit,
           "agent_to_client",
@@ -611,7 +645,7 @@ export class Flamecast {
           params,
         );
         const response: acp.WaitForTerminalExitResponse = { exitCode: 0 };
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.terminal_wait_for_exit,
           "client_to_agent",
@@ -624,7 +658,7 @@ export class Flamecast {
       killTerminal: async (
         params: acp.KillTerminalRequest,
       ): Promise<acp.KillTerminalResponse | void> => {
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.terminal_kill,
           "agent_to_client",
@@ -632,7 +666,7 @@ export class Flamecast {
           params,
         );
         const response: acp.KillTerminalResponse = {};
-        this.pushRpcLog(
+        await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.terminal_kill,
           "client_to_agent",
@@ -646,12 +680,12 @@ export class Flamecast {
         method: string,
         params: Record<string, unknown>,
       ): Promise<Record<string, unknown>> => {
-        this.pushRpcLog(managed, method, "agent_to_client", "request", params);
+        await this.pushRpcLog(managed, method, "agent_to_client", "request", params);
         throw acp.RequestError.methodNotFound(method);
       },
 
       extNotification: async (method: string, params: Record<string, unknown>): Promise<void> => {
-        this.pushRpcLog(managed, method, "agent_to_client", "notification", params);
+        await this.pushRpcLog(managed, method, "agent_to_client", "notification", params);
       },
     };
   }

@@ -10,7 +10,7 @@ For **planned** evolution (sandboxing, durable projection, optional Convex), see
 
 | Layer               | Technology                                                                                                                                                                      |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Orchestration       | `Flamecast` class — in-memory state, `@agentclientprotocol/sdk`                                                                                                                 |
+| Orchestration       | `Flamecast` + injected **`FlamecastProjection`** (Drizzle/PGlite via `MemoryFlamecastProjection` in tests if needed), `@agentclientprotocol/sdk`                                |
 | Agent I/O           | `child_process.spawn`, stdin/stdout as Web Streams (`src/flamecast/transport.ts`)                                                                                               |
 | API                 | [Hono](https://hono.dev/) on Node, `@hono/node-server`, port **3001**, mounted at `/api`                                                                                        |
 | Validation          | [Zod](https://zod.dev/) — shared request/response shapes in `src/shared/connection.ts`                                                                                          |
@@ -31,9 +31,15 @@ src/
     index.ts        # Hono root, route("/api", api)
     api.ts          # REST handlers → Flamecast
   flamecast/
-    index.ts        # Flamecast — connections, ACP client, logs
+    index.ts        # Flamecast — runtime handles + ACP client
+    projection.ts   # durable port (metadata + logs)
+    projections/
+      memory/       # in-memory FlamecastProjection
+      psql/         # Drizzle schema + SQL migrations + createPsqlProjection (Postgres or PGLite)
     transport.ts    # spawn + stdio → streams; built-in agent presets
     agent.ts        # example agent process (tsx) for local dev
+  server/db/
+    client.ts       # createDatabase(): Postgres URL or local PGLite + migrate
   shared/
     connection.ts   # Zod schemas + TS types for API + Flamecast
 ```
@@ -66,22 +72,28 @@ flowchart LR
 
 `Flamecast` (`src/flamecast/index.ts`) is the **runtime authority** for:
 
-| Concern               | Implementation                                                                                                  |
-| --------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Connection registry   | `Map<string, ManagedConnection>` — numeric string IDs from a monotonic counter                                  |
-| Serializable snapshot | `ConnectionInfo`: label, spawn spec, `sessionId`, timestamps, `logs[]`, `pendingPermission`                     |
-| ACP session           | `ClientSideConnection` over `acp.ndJsonStream(stdin, stdout)`                                                   |
-| OS process            | `ChildProcess` from `startAgentProcess` — killed on `DELETE /connections/:id`                                   |
-| Permissions           | `requestPermission` from agent → UI-facing `PendingPermission` + `Map<requestId, resolver>` until user responds |
+| Concern          | Implementation                                                                                                                                                                                                                                                                    |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Live runtimes    | `Map<id, ManagedConnection>` — **only** `ClientSideConnection`, `ChildProcess`, stream buffer (not logs)                                                                                                                                                                          |
+| Connection IDs   | **UUID** strings (`projection.allocateConnectionId`)                                                                                                                                                                                                                              |
+| Durable snapshot | **`FlamecastProjection`** — `connections` row + append-only `connection_logs`; `GET` merges DB + live runtime                                                                                                                                                                     |
+| Serializable API | `ConnectionInfo`: label, spawn spec, `sessionId`, timestamps, `logs[]` from DB, `pendingPermission` from DB row                                                                                                                                                                   |
+| ACP session      | `ClientSideConnection` over `acp.ndJsonStream(stdin, stdout)`                                                                                                                                                                                                                     |
+| OS process       | `ChildProcess` from `startAgentProcess` — killed on `DELETE /connections/:id`                                                                                                                                                                                                     |
+| Permissions      | Pending request + resolver `Map` in-process; **durable** `pending_permission` on the connection row until **`POST /api/connections/:id/permissions/:requestId`** |
 
 **`ManagedConnection`** pairs:
 
-- **`info`** — what the API serializes (copy of logs on read via `snapshotInfo`).
-- **`runtime`** — `ClientSideConnection | null`, `ChildProcess` (not sent to clients).
+- **`id` / `sessionId`** — copied for hot paths; session id is kept in sync with the DB after `session/new`.
+- **`runtime`** — `ClientSideConnection | null`, `ChildProcess`, coalesce buffer (not sent to clients).
 
-**Client role (ACP “client” side):** Flamecast implements `acp.Client`: session updates and tool notifications become **log entries**; `readTextFile` / `writeTextFile` are stubbed (log + empty response); `requestPermission` blocks until HTTP resolves the pending request.
+**Client role (ACP “client” side):** Flamecast implements `acp.Client`: session updates and tool notifications become **log rows** in the projection; `readTextFile` / `writeTextFile` are stubbed (log + empty response). **`requestPermission`** resolves the ACP JSON-RPC response when the **web UI** (or any client) calls **`POST /api/connections/:id/permissions/:requestId`**.
 
-**Logging:** `pushLog(managed, type, data)` appends `{ timestamp, type, data }` to `info.logs`. **RPC tracing** uses `type: "rpc"` with `data.method` (spec method name), `data.direction` (`client_to_agent` or `agent_to_client`), `data.phase` (`request`, `response`, or `notification`), and `data.payload` (the RPC payload as received or sent). That covers every **client-handled** agent→client method in the SDK (`session/update`, `session/request_permission`, `fs/*`, `terminal/*`, client `ext*`) plus orchestrator→agent calls made today (`initialize`, `session/new`, `session/prompt`). UI flow events keep their own types: `permission_*` and `killed`.
+**Logging:** `pushLog` is async and appends to the projection (`connection_logs`). **RPC tracing** uses `type: "rpc"` with the same `data` shape as before (`method`, `direction`, `phase`, optional `payload`).
+
+**Database:** `createDatabase()` (`src/server/db/client.ts`) uses **Postgres** when `DATABASE_URL` or `ACP_DATABASE_URL` is set, otherwise **PGLite** under `.acp/pglite` (`ACP_PGLITE_DIR`). Schema lives in `src/flamecast/projections/psql/schema.ts`; Drizzle Kit writes SQL to `src/flamecast/projections/psql/migrations/`. Run `bun run db:generate` after schema edits and commit migrations.
+
+If you previously used the inlined DDL-only setup, remove `.acp/pglite` once so the migrator can create tables cleanly.
 
 **Stream coalescing (logs only):** consecutive agent→client `session/update` notifications with `sessionUpdate` `agent_message_chunk`, `user_message_chunk`, or `agent_thought_chunk` and **text** `content` are merged into a **single** `rpc` row (same shape as one notification, with concatenated `content.text`) until the stream breaks: different `sessionId`, different chunk kind, different optional `messageId`, any non–text chunk, any other `session/update` variant (e.g. `tool_call`), when a `session/prompt` turn finishes (success or throw), or when the connection is killed. The live ACP stream is unchanged. A rare `rpc_coalesce_error` row records join failures and falls back to per-fragment `rpc` rows.
 
@@ -134,7 +146,7 @@ npm run dev:client   # Vite only :3000
 
 Open **http://localhost:3000**. Ensure agent binaries (e.g. `npx`, `tsx`) are available if you use presets that need them.
 
-Other scripts: `npm run build`, `npm start` (production build entry — verify `dist` layout for your deploy target), `npm run lint`, `npm run format`, `npm run cli` (separate entrypoint in `src/index.ts`; may not match the latest `CreateConnectionBody` shape).
+Other scripts: `npm run build`, `npm start` (production build entry — verify `dist` layout for your deploy target), `npm run lint`, `npm run format`.
 
 ---
 
