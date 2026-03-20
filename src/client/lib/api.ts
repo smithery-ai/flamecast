@@ -7,11 +7,31 @@ import type {
   RegisterAgentProcessBody,
   PermissionResponseBody,
 } from "../../shared/connection";
+import type {
+  SlackConnectionStatus,
+  SlackInstallationSummary,
+} from "../../shared/integrations";
 
 const client = hc<AppType>("/api");
 
 export interface PromptResult {
   stopReason: string;
+}
+
+async function readErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json();
+    if (
+      body &&
+      typeof body === "object" &&
+      "error" in body &&
+      typeof body.error === "string" &&
+      body.error.trim()
+    ) {
+      return body.error;
+    }
+  } catch {}
+  return fallback;
 }
 
 export async function fetchAgentProcesses(): Promise<AgentProcessInfo[]> {
@@ -70,4 +90,45 @@ export async function respondToPermission(
     json: body,
   });
   if (!res.ok) throw new Error("Failed to respond to permission");
+}
+
+export async function fetchSlackConnectionStatus(id: string): Promise<SlackConnectionStatus> {
+  const res = await client.connections[":id"].integrations.slack.$get({
+    param: { id },
+  });
+  if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to fetch Slack status"));
+  return res.json();
+}
+
+export async function fetchSlackInstallations(): Promise<SlackInstallationSummary[]> {
+  const res = await client.integrations.slack.installations.$get();
+  if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to fetch Slack installations"));
+  return res.json();
+}
+
+export async function bindSlackConnection(
+  connectionId: string,
+  teamId: string,
+): Promise<SlackConnectionStatus> {
+  const res = await client.connections[":id"].integrations.slack.bind.$post({
+    param: { id: connectionId },
+    json: { teamId },
+  });
+  if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to bind Slack workspace"));
+  return res.json();
+}
+
+export async function unbindSlackConnection(connectionId: string): Promise<void> {
+  const res = await client.connections[":id"].integrations.slack.$delete({
+    param: { id: connectionId },
+  });
+  if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to unbind Slack workspace"));
+}
+
+export function buildSlackInstallUrl(returnTo?: string): string {
+  const url = new URL("/api/integrations/slack/install", window.location.origin);
+  if (returnTo) {
+    url.searchParams.set("returnTo", new URL(returnTo, window.location.origin).toString());
+  }
+  return `${url.pathname}${url.search}`;
 }

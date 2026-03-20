@@ -1,8 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchConnection, respondToPermission, sendPrompt } from "@/client/lib/api";
+import {
+  bindSlackConnection,
+  fetchConnection,
+  fetchSlackInstallations,
+  fetchSlackConnectionStatus,
+  respondToPermission,
+  sendPrompt,
+  unbindSlackConnection,
+} from "@/client/lib/api";
 import { connectionLogsToSegments } from "@/client/lib/logs-markdown";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Streamdown } from "streamdown";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import { Button } from "@/client/components/ui/button";
@@ -28,12 +36,25 @@ export const Route = createFileRoute("/connections/$id")({
 function ConnectionDetailPage() {
   const { id } = Route.useParams();
   const [prompt, setPrompt] = useState("");
+  const [selectedTeamId, setSelectedTeamId] = useState("");
+  const [slackError, setSlackError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const { data: conn, isLoading } = useQuery({
     queryKey: ["connection", id],
     queryFn: () => fetchConnection(id),
     refetchInterval: 1000,
+  });
+  const { data: slackStatus } = useQuery({
+    queryKey: ["connection", id, "slack"],
+    queryFn: () => fetchSlackConnectionStatus(id),
+    enabled: Boolean(conn),
+    refetchInterval: 3000,
+  });
+  const { data: slackInstallations = [] } = useQuery({
+    queryKey: ["integrations", "slack", "installations"],
+    queryFn: fetchSlackInstallations,
+    refetchInterval: 3000,
   });
 
   const promptMutation = useMutation({
@@ -56,6 +77,30 @@ function ConnectionDetailPage() {
     },
   });
 
+  const bindSlackMutation = useMutation({
+    mutationFn: (teamId: string) => bindSlackConnection(id, teamId),
+    onSuccess: () => {
+      setSlackError(null);
+      queryClient.invalidateQueries({ queryKey: ["connection", id, "slack"] });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "slack", "installations"] });
+    },
+    onError: (error) => {
+      setSlackError(error instanceof Error ? error.message : "Failed to bind Slack workspace");
+    },
+  });
+
+  const unbindSlackMutation = useMutation({
+    mutationFn: () => unbindSlackConnection(id),
+    onSuccess: () => {
+      setSlackError(null);
+      queryClient.invalidateQueries({ queryKey: ["connection", id, "slack"] });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "slack", "installations"] });
+    },
+    onError: (error) => {
+      setSlackError(error instanceof Error ? error.message : "Failed to unbind Slack workspace");
+    },
+  });
+
   const handlePermission = (
     requestId: string,
     body: { optionId: string } | { outcome: "cancelled" },
@@ -68,6 +113,17 @@ function ConnectionDetailPage() {
     promptMutation.mutate(prompt);
     setPrompt("");
   };
+
+  useEffect(() => {
+    if (slackStatus?.teamId) {
+      setSelectedTeamId(slackStatus.teamId);
+      return;
+    }
+
+    if (!selectedTeamId && slackInstallations.length > 0) {
+      setSelectedTeamId(slackInstallations[0].teamId);
+    }
+  }, [selectedTeamId, slackInstallations, slackStatus?.teamId]);
 
   const markdownSegments = useMemo(() => connectionLogsToSegments(conn?.logs ?? []), [conn?.logs]);
 
@@ -168,6 +224,96 @@ function ConnectionDetailPage() {
             </Card>
           );
         })()}
+
+      {/* Slack */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Slack</CardTitle>
+          <CardDescription>
+            Bind one globally installed Slack workspace to this live connection. Global installs
+            live in Integrations, while connection bindings remain per-session.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="space-y-1 text-sm text-muted-foreground">
+            {slackStatus?.bound ? (
+              <>
+                <p>
+                  Bound workspace:{" "}
+                  <span className="font-medium text-foreground">
+                    {slackStatus.teamName ?? slackStatus.teamId}
+                  </span>
+                </p>
+                <p className="text-xs">
+                  Team ID: <code>{slackStatus.teamId}</code>
+                  {slackStatus.botUserId ? (
+                    <>
+                      {" · "}Bot user: <code>{slackStatus.botUserId}</code>
+                    </>
+                  ) : null}
+                </p>
+              </>
+            ) : (
+              <p>No Slack workspace is bound to this connection yet.</p>
+            )}
+            <p className="text-xs">
+              Installed globally: <span className="font-medium">{slackInstallations.length}</span>
+            </p>
+            {slackInstallations.length === 0 ? (
+              <p className="text-xs">
+                No installed workspaces yet. Open Integrations to complete Slack setup first.
+              </p>
+            ) : null}
+            {slackError ? (
+              <p className="text-xs text-destructive">{slackError}</p>
+            ) : null}
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <label htmlFor="slack-team" className="text-xs font-medium text-muted-foreground">
+                Installed workspace
+              </label>
+              <select
+                id="slack-team"
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                value={selectedTeamId}
+                onChange={(e) => setSelectedTeamId(e.target.value)}
+                disabled={slackInstallations.length === 0 || bindSlackMutation.isPending}
+              >
+                {slackInstallations.length === 0 ? (
+                  <option value="">No installed workspaces yet</option>
+                ) : (
+                  slackInstallations.map((installation) => (
+                    <option key={installation.teamId} value={installation.teamId}>
+                      {installation.teamName ?? installation.teamId}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                onClick={() => selectedTeamId && bindSlackMutation.mutate(selectedTeamId)}
+                disabled={!selectedTeamId || bindSlackMutation.isPending}
+              >
+                {slackStatus?.bound ? "Rebind Workspace" : "Bind Workspace"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => unbindSlackMutation.mutate()}
+                disabled={!slackStatus?.bound || unbindSlackMutation.isPending}
+              >
+                Unbind
+              </Button>
+              <Button variant="outline" asChild>
+                <Link to="/integrations">Manage installs</Link>
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Prompt Input */}
       <Card>

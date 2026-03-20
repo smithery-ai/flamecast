@@ -1,24 +1,29 @@
-import { serve } from "@hono/node-server";
+import { createServer } from "node:http";
+import { getRequestListener } from "@hono/node-server";
 import { Hono } from "hono";
 import { createApi } from "./api.js";
-import { loadServerConfig } from "./config.js";
-import { createPsqlStateManager } from "../flamecast/state-managers/psql/index.js";
-import { MemoryFlamecastStateManager } from "../flamecast/state-managers/memory/index.js";
-import { createDatabase } from "./db/client.js";
-import { Flamecast } from "../flamecast/index.js";
-
-const serverConfig = await loadServerConfig();
-const stateManager =
-  serverConfig.stateManager === "memory"
-    ? new MemoryFlamecastStateManager()
-    : createPsqlStateManager((await createDatabase()).db);
-const flamecast = new Flamecast({ stateManager });
-const api = createApi(flamecast);
+import { createSlackRoutes } from "./integrations/slack.js";
+import { flamecast, slackInstaller } from "./runtime.js";
 
 const app = new Hono();
 
-app.route("/api", api);
+app.route("/api", createApi(flamecast, slackInstaller));
+app.route("/api", createSlackRoutes(slackInstaller));
 
-serve({ fetch: app.fetch, port: 3001 }, (info) => {
-  console.log(`🔥 API server running on http://localhost:${info.port}`);
+const honoListener = getRequestListener(app.fetch);
+
+const server = createServer((req, res) => {
+  honoListener(req, res).catch((error) => {
+    console.error("Server request failed:", error);
+    if (!res.headersSent) {
+      res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+      res.end("Internal server error");
+      return;
+    }
+    res.end();
+  });
+});
+
+server.listen(3001, () => {
+  console.log("🔥 API server running on http://localhost:3001");
 });

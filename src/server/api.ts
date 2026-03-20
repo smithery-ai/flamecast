@@ -7,8 +7,10 @@ import {
   PromptBodySchema,
   RegisterAgentProcessBodySchema,
 } from "../shared/connection.js";
+import { SlackBindConnectionBodySchema } from "../shared/integrations.js";
+import type { SlackInstaller } from "./integrations/slack.js";
 
-export function createApi(flamecast: Flamecast) {
+export function createApi(flamecast: Flamecast, slackInstaller: SlackInstaller) {
   return new Hono()
     .get("/agent-processes", (c) => {
       return c.json(flamecast.listAgentProcesses());
@@ -69,6 +71,60 @@ export function createApi(flamecast: Flamecast) {
         return c.json({ ok: true });
       } catch {
         return c.json({ error: "Connection not found" }, 404);
+      }
+    })
+    .get("/integrations/slack/installations", async (c) => {
+      return c.json(await slackInstaller.listInstallations());
+    })
+    .get("/connections/:id/integrations/slack", async (c) => {
+      const connectionId = c.req.param("id");
+      try {
+        await flamecast.get(connectionId);
+      } catch {
+        return c.json({ error: "Connection not found" }, 404);
+      }
+
+      try {
+        return c.json(await slackInstaller.getConnectionStatus(connectionId));
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        return c.json({ error: message }, 400);
+      }
+    })
+    .post(
+      "/connections/:id/integrations/slack/bind",
+      zValidator("json", SlackBindConnectionBodySchema),
+      async (c) => {
+        const connectionId = c.req.param("id");
+        const { teamId } = c.req.valid("json");
+        try {
+          await flamecast.get(connectionId);
+        } catch {
+          return c.json({ error: "Connection not found" }, 404);
+        }
+
+        try {
+          return c.json(await slackInstaller.bindConnection(connectionId, teamId));
+        } catch (e) {
+          const message = e instanceof Error ? e.message : "Unknown error";
+          return c.json({ error: message }, 400);
+        }
+      },
+    )
+    .delete("/connections/:id/integrations/slack", async (c) => {
+      const connectionId = c.req.param("id");
+      try {
+        await flamecast.get(connectionId);
+      } catch {
+        return c.json({ error: "Connection not found" }, 404);
+      }
+
+      try {
+        await slackInstaller.disconnect(connectionId);
+        return c.json({ ok: true });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        return c.json({ error: message }, 400);
       }
     });
 }

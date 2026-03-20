@@ -21,6 +21,12 @@ function RootLayout() {
             >
               Connections
             </Link>
+            <Link
+              to="/integrations"
+              className="text-muted-foreground transition-colors hover:text-foreground [&.active]:text-foreground [&.active]:font-medium"
+            >
+              Integrations
+            </Link>
           </nav>
         </div>
       </header>

@@ -46,9 +46,53 @@ interface ManagedConnection {
   };
 }
 
+export interface CapturedPromptResult {
+  assistantText: string;
+  logs: ConnectionLog[];
+  result: acp.PromptResponse;
+}
+
 export type FlamecastOptions = {
   stateManager: FlamecastStateManager;
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function extractAgentMessageTextFromUpdate(update: Record<string, unknown>): string {
+  if (update.sessionUpdate !== "agent_message_chunk") {
+    return "";
+  }
+  const content = update.content;
+  if (!isRecord(content)) {
+    return "";
+  }
+  const text = Reflect.get(content, "text");
+  return typeof text === "string" ? text : "";
+}
+
+function extractAgentMessageTextFromLog(entry: ConnectionLog): string {
+  if (entry.type !== "rpc") {
+    return "";
+  }
+  if (
+    entry.data.method !== acp.CLIENT_METHODS.session_update ||
+    entry.data.direction !== "agent_to_client" ||
+    entry.data.phase !== "notification"
+  ) {
+    return "";
+  }
+  const payload = entry.data.payload;
+  if (!isRecord(payload)) {
+    return "";
+  }
+  const update = payload.update;
+  if (!isRecord(update)) {
+    return "";
+  }
+  return extractAgentMessageTextFromUpdate(update);
+}
 
 export class Flamecast {
   private runtimes = new Map<string, ManagedConnection>();
@@ -229,6 +273,24 @@ export class Flamecast {
       await this.flushSessionTextChunkLogBuffer(managed);
       throw e;
     }
+  }
+
+  async promptCaptured(id: string, text: string): Promise<CapturedPromptResult> {
+    const startIndex = (await this.stateManager.getLogs(id)).length;
+    const result = await this.prompt(id, text);
+    const logs = (await this.stateManager.getLogs(id))
+      .slice(startIndex)
+      .map((entry) => ({
+        ...entry,
+        data: { ...entry.data },
+      }));
+    const assistantText = logs.map((entry) => extractAgentMessageTextFromLog(entry)).join("");
+
+    return {
+      assistantText,
+      logs,
+      result,
+    };
   }
 
   async kill(id: string): Promise<void> {

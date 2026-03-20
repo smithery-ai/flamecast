@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import * as acp from "@agentclientprotocol/sdk";
+import { randomBytes } from "node:crypto";
 import { Readable, Writable } from "node:stream";
 
 interface AgentSession {
@@ -26,9 +27,7 @@ class ExampleAgent implements acp.Agent {
   }
 
   async newSession(_params: acp.NewSessionRequest): Promise<acp.NewSessionResponse> {
-    const sessionId = Array.from(crypto.getRandomValues(new Uint8Array(16)))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+    const sessionId = randomBytes(16).toString("hex");
 
     this.sessions.set(sessionId, {
       pendingPrompt: null,
