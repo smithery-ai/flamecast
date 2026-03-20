@@ -1,281 +1,141 @@
-# Architecture
+# Rearchitecture plan
 
-This document describes the architecture for **Flamecast** — an ACP orchestrator that exposes agent management as an HTTP API. Flamecast owns the HTTP layer (Hono), manages agent lifecycle via pluggable provisioners, persists state via pluggable state managers, and optionally integrates with chat platforms via Vercel Chat SDK.
+This document describes a target architecture for evolving **acp** from a single-process prototype (Hono + in-memory Flamecast) toward a clear split between **orchestration** (live agents), **durable state** (history, config), and **presentation** (web UI). It is a plan, not a commitment to every phase or vendor.
 
-See **PRD.md** for product context and **RFC.md** for the implementation plan.
+## 1. Current state (baseline)
 
-## Diff from previous architecture
+- **`Flamecast`** (`src/flamecast/`): owns ACP `ClientSideConnection`, child processes, permission resolvers, and in-memory `ConnectionInfo` + logs.
+- **`src/server/api.ts`**: HTTP API over a singleton `Flamecast` instance.
+- **Client** (`src/client/`): TanStack Router + React Query; connection detail polls `GET /connections/:id` on an interval for logs and permission state.
 
-This section summarizes what changed from the original SPEC. The rest of the document reflects the new design.
-
-| Area                              | Before                                                                   | After                                                                                                                                             |
-| --------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Who owns Hono**                 | `src/server/index.ts` creates Hono app, mounts Flamecast as a dependency | Flamecast owns Hono internally, exposes `.fetch` and `.listen()`                                                                                  |
-| **Configuration**                 | `config.yaml` parsed at startup                                          | `FlamecastOptions` in TypeScript — constructor args replace config file                                                                           |
-| **Entry point**                   | `src/server/index.ts` wires config → DB → Flamecast → Hono → serve       | `src/index.ts` — 3 lines. Custom config via user's own `index.ts` + build + link                                                                  |
-| **Agent lifecycle**               | `ChildProcess` held in memory, dies with orchestrator                    | `Provisioner` interface with `start()` / `reconnect()` / `destroy()`. `SandboxHandle` persisted to DB. Agents can outlive the orchestrator        |
-| **Serverless support**            | None — long-running process required                                     | `.fetch` export works on Vercel, Cloudflare, etc. Remote provisioners reconnect per-request                                                       |
-| **Transport**                     | Hard-coded `startAgentProcess()` + `getAgentTransport()` returning stdio | `Provisioner` returns `AcpTransport` (same stream shape). Local stdio is one impl; Docker exec, K8s exec, TCP are others                          |
-| **`ManagedConnection`**           | `runtime.agentProcess: ChildProcess`                                     | `sandboxHandle: SandboxHandle` (persisted) + `runtime.transport: AcpTransport` or `null` (ephemeral)                                              |
-| **Permission flow**               | In-memory Promise resolver, works only in long-running mode              | Same for long-running. Serverless: timeout + poll + re-prompt (v1), persistent channel (future)                                                   |
-| **Runtime authority**             | Orchestrator process is always authoritative for liveness                | Depends on provisioner. Local: orchestrator is authoritative. Remote: provisioner is authoritative for liveness, orchestrator reconnects to check |
-| **"Thin edge, fat orchestrator"** | Orchestrator must be fat (holds processes)                               | Orchestrator can be thin (serverless) or fat (long-running) — provisioner decides                                                                 |
-| **State manager**                 | Described as future work (Phase 2)                                       | Already built — memory and Postgres (PGLite / external) implementations exist                                                                     |
-| **Chat integration**              | Not mentioned                                                            | First-class `chat.adapters` option on constructor — Vercel Chat SDK for Slack, Discord, Teams, WhatsApp, etc.                                     |
-| **Convex**                        | Phase 3 dedicated to optional Convex integration                         | Removed. State manager interface is vendor-agnostic; Convex can be added as an implementation later if needed                                     |
-| **Phases**                        | Phase 1: sandbox orchestration, Phase 2: state manager, Phase 3: Convex  | Phase 1: Flamecast wraps Hono + LocalProvisioner, Phase 2: remote provisioners, Phase 3: Chat SDK + multi-surface                                 |
-
-## 1. Current state
-
-- **`Flamecast`** (`src/flamecast/`): owns ACP `ClientSideConnection`, child processes (via `transport.ts`), permission resolvers, and in-memory `ManagedConnection` runtime state.
-- **`FlamecastStateManager`** (`src/flamecast/state-manager.ts`): persistence interface with two implementations — memory and Postgres (PGLite or external via `FLAMECAST_POSTGRES_URL`).
-- **`src/server/api.ts`**: Hono HTTP API over a singleton `Flamecast` instance.
-- **`src/server/index.ts`**: entry point that wires config, DB, Flamecast, and Hono together.
-- **Client** (`src/client/`): TanStack Router + React Query; polls `GET /connections/:id` for logs and permission state.
-
-**What works:** `npx flamecast` from any directory, local child processes, PGLite persistence, web UI.
-
-**What doesn't:** No serverless deployment. No sandboxed agents. Agent lifetime tied to orchestrator process. Config via `config.yaml` instead of code.
+**Constraint:** Runtime truth (subprocesses, streams, pending promises) cannot live in a database; only **durable state** (via the **state manager**) and **history** can.
 
 ## 2. Design principles
 
-1. **API-first.** The HTTP API is the product. The bundled web UI, Chat SDK integrations, and any future clients are consumers of this API. Every agent operation is a REST call.
+1. **Two sources of truth, explicit roles**
+   - **Runtime authority:** whatever process holds the ACP session and OS handles (today: `Flamecast`). It is authoritative for _liveness_, _in-flight prompts_, and _pending permissions_.
+   - **Durable authority:** a store for _surviving restarts_, _audit_, _multi-client read models_, and _optional realtime fan-out_. Implement as SQLite/Postgres **or** Convex (or similar)—choice is Phase 3.
 
-2. **Two sources of truth, explicit roles.**
-   - **Runtime authority:** whatever process holds the ACP session and OS handles (today: `Flamecast`). Authoritative for liveness, in-flight prompts, and pending permissions.
-   - **Durable authority:** the state manager. Authoritative for surviving restarts, audit, and multi-client read models.
+2. **Write-through state:** when runtime state changes in a way users care to persist, the orchestrator commits the same fact to the durable store (or appends an event). No silent divergence: if the DB is behind, it is _eventually_ consistent; after crash, DB may have partial history while runtime is empty.
 
-3. **Write-through state.** When runtime state changes, the orchestrator commits the fact to the state manager. No silent divergence.
+3. **Thin edge, fat orchestrator:** serverless/static frontends should not spawn agents. They call an **orchestrator API** that runs where containers/processes are allowed.
 
-4. **Orchestrator can be thin or fat.** With a local provisioner, the orchestrator must be long-running (holds child processes). With a remote provisioner (Docker, K8s, Fly), the orchestrator can be serverless — it reconnects to agents per-request via persisted `SandboxHandle`s.
-
-5. **Transport abstraction.** ACP rides on `{ input: WritableStream, output: ReadableStream }`. The provisioner decides what's behind those streams — local stdio, Docker exec, TCP to a sidecar, Fly machine attach.
-
-6. **Agents don't talk to the store.** The agent process speaks ACP only to Flamecast over the transport. Flamecast observes the protocol, applies policy, and persists via the state manager. DB credentials and write authority stay out of sandbox environments. One writer avoids split-brain.
+4. **Transport abstraction:** ACP rides on `{ input: WritableStream, output: ReadableStream }`. Local `ChildProcess` is one adapter; container attach / sidecar TCP is another (`src/flamecast/transport.ts` evolves into a small interface + implementations).
 
 ### 2.1 Persistence port (orchestration → durable)
 
-Flamecast must not import any specific DB SDK directly. Instead:
+**Flamecast must not import Convex** (or any specific DB SDK). Instead:
 
-- The narrow **`FlamecastStateManager`** interface handles lifecycle and log paths: `allocateConnectionId`, `createConnection`, `updateConnection`, `appendLog`, `getConnectionMeta`, `getLogs`, `finalizeConnection`.
-- The entry point constructs `Flamecast` with an implementation (memory or Postgres today; others swappable via the same interface).
-- All durable writes originate from orchestration. The client does not write to the store for session events.
+- Define a narrow **`FlamecastStateManager`** (or **`DurableSink`**) interface that Flamecast calls on lifecycle and log paths, e.g. `appendLog`, `upsertConnectionMeta`, `setPendingPermission` / `clearPendingPermission`, `onConnectionClosed`.
+- **Server wiring** (`src/server/…`) constructs `Flamecast` with an implementation: in-memory-only, SQLite, or later **`ConvexStateManager`** that forwards to Convex mutations.
+- **All durable writes originate from orchestration** (same transaction of intent as runtime actions). The client does not write log rows directly to Convex for session events—avoid split-brain.
+
+This seam is what makes **Phase 3** a swap of the adapter, not a rewrite of ACP logic.
 
 ### 2.2 Event-shaped durable records
 
-Prefer append-only, JSON-serializable events as the unit of persistence: `connection.opened`, `log.appended`, `permission.changed`, `connection.closed`. Materialized `ConnectionInfo` for HTTP can be rebuilt or denormalized from these rows.
+Prefer **append-only, JSON-serializable events** (optionally versioned) as the unit of persistence, e.g. `connection.opened`, `log.appended`, `permission.changed`, `connection.closed`. Materialized `ConnectionInfo` for HTTP can be rebuilt or denormalized from these rows.
+
+- Maps cleanly to Convex tables with indexes (`by_connection_id`, `by_timestamp`).
+- Keeps Flamecast focused on _when_ something happened; storage chooses layout.
 
 ### 2.3 Shared types
 
-Connection IDs, log entry shapes, and event payloads live in `src/shared/` (Zod schemas + TS types). All layers (orchestrator, API, client, state manager) share these definitions.
+Keep connection IDs, log entry shapes, and event payloads in **`src/shared/`** (Zod or TS types). When Convex is introduced, **align validators** with these shapes so orchestrator, API, and client stay consistent.
 
-### 2.4 HTTP as the command facade
+### 2.4 HTTP as the command façade
 
-Commands (create connection, prompt, respond to permission, kill) go through the orchestrator HTTP API. Reads can stay on the same API or move to direct DB queries for history — commands always hit the orchestrator.
+- **Commands** (create connection, prompt, respond to permission, kill) stay on the **orchestrator HTTP API** unless you explicitly move to another RPC. Convex does not replace Flamecast for _running_ agents.
+- **Reads** can remain `GET` on Hono **or** move to Convex `useQuery` for lists/history once durable reads live there—both are valid; commands still hit the orchestrator.
 
-## 3. Target architecture
+### 2.5 Who talks to the durable store?
+
+**The agent process (local child or code inside Docker/K8s) should not talk to the durable store** for session logs, permissions, or connection metadata.
+
+- It speaks **ACP only** to Flamecast over the transport (stdio, TCP to a sidecar, etc.). Flamecast observes the protocol, applies policy, and **persists via the state manager** through the persistence port.
+- **Why:** keeps DB credentials and write authority out of agent/sandbox environments; one writer avoids split-brain; matches today’s model (orchestrator owns `pushLog`).
+
+**Advanced / optional:** a **trusted control-plane sidecar** (not the agent binary) could emit metrics or checkpoints to a store if you design that explicitly—still not the default path for ACP session history; prefer Flamecast as the single writer for orchestration-derived events.
+
+The diagram below shows **Flamecast** as the hub: runtime peers on the left two branches; **durable store** is only on the right branch from Flamecast, not from the sandbox.
+
+## 3. Target logical architecture
 
 ```mermaid
 flowchart TB
-    WebUI["Web UI (reference client)"]
-    ChatSDK["Chat SDK (Slack, Discord, etc.)"]
-    CustomClient["Custom clients / scripts"]
-    FC["Flamecast\n.fetch / .listen\nHono API + orchestration"]
-    Local["Local process\nChildProcess · stdio"]
-    Docker["Docker container\nexec · TCP"]
-    K8s["K8s pod\nexec · TCP"]
-    Remote["Remote agent\nTCP / HTTP"]
-    Store["State manager\nMemory · PGLite · Postgres"]
+    Client["Web client"]
+    API["API + optional realtime edge"]
+    FC["Flamecast + injected StateManager"]
+    Local["Local process · ACP only"]
+    Sandbox["Sandbox · Docker / K8s · ACP only"]
+    Store["Durable store · SQLite / Convex"]
 
-    WebUI -->|HTTP /api| FC
-    ChatSDK -->|internal calls| FC
-    CustomClient -->|HTTP /api| FC
+    Client <-->|HTTPS; optional Convex reads| API
+    API --> FC
     FC <-->|ACP transport| Local
-    FC <-->|ACP transport| Docker
-    FC <-->|ACP transport| K8s
-    FC <-->|ACP transport| Remote
+    FC <-->|ACP transport| Sandbox
     FC <-->|persistence port| Store
 ```
 
-Agents do **not** connect to the store. Only Flamecast uses the persistence port.
+Agents do **not** connect to the durable store; only Flamecast uses the persistence port (see §2.5).
 
-## 4. Process management
+## 4. Phases
 
-### 4.1 Provisioner interface
+Phases **1 → 2 → 3** are listed in **recommended build order** when production targets **isolated agents first**, then persistence, then optional hosted Convex. Sandbox and durable store stay orthogonal; Convex does not replace orchestration.
 
-The provisioner replaces the current hard-coded `startAgentProcess()` / `getAgentTransport()`. It manages the full agent lifecycle: start, reconnect, destroy.
+**Pitfall:** Deferring the **`FlamecastStateManager` interface** until the end forces a large retrofit through every log/lifecycle path. Cheap mitigation: add **Phase 2’s** interface with a **no-op** (or tiny JSONL) while still in **Phase 1** if convenient; flesh out storage in Phase 2 and swap **Phase 3**’s adapter when ready.
 
-```ts
-export type SandboxHandle = Record<string, unknown>;
+### Phase 1 — Sandbox orchestration
 
-export type AcpTransport = {
-  input: WritableStream<Uint8Array>;
-  output: ReadableStream<Uint8Array>;
-};
+**Goal:** Replace direct `ChildProcess` with **provisioned sandboxes** for production paths. First milestone when the main unknown is _where and how_ agents run, not yet _where logs are stored_.
 
-export interface Provisioner {
-  start(spec: AgentSpawn): Promise<{ handle: SandboxHandle; transport: AcpTransport }>;
-  reconnect(handle: SandboxHandle): Promise<AcpTransport>;
-  destroy(handle: SandboxHandle): Promise<void>;
-}
-```
+- Define **`SandboxHandle`** + **`openAcpTransport(handle)`** returning Web Streams.
+- **Provisioner** implementations: local (current behavior), Docker, Kubernetes, etc.
+- **Policy:** allowlisted images/commands, resource limits, network profile; API maps presets to provisioner config.
+- **Scaling:** sticky routing or one orchestrator worker per active connection for in-memory ACP state.
 
-**Key property:** `SandboxHandle` is JSON-serializable and persisted in the state manager. This is what makes reconnection (and therefore serverless) possible.
+**Exit criteria:** Same HTTP/API surface for create/prompt/permission; transport implementation swaps.
 
-### 4.2 Implementations
+### Phase 2 — State manager layer (minimal durable model)
 
-| Provisioner         | Agent lifetime                | Transport          | Reconnectable? |
-| ------------------- | ----------------------------- | ------------------ | -------------- |
-| `LocalProvisioner`  | Dies with orchestrator        | stdio pipes        | No             |
-| `DockerProvisioner` | Survives orchestrator restart | Docker exec / TCP  | Yes            |
-| `K8sProvisioner`    | Survives orchestrator restart | K8s exec / TCP     | Yes            |
-| `FlyProvisioner`    | Survives orchestrator restart | Fly machine attach | Yes            |
-| `RemoteProvisioner` | Independent                   | TCP / HTTP         | Yes            |
+**Goal:** Persist enough to survive orchestrator restarts for _read models_ and establish the **persistence port** so Phase 3 is a drop-in.
 
-### 4.3 `ManagedConnection` lifecycle
+- Introduce the **`FlamecastStateManager` interface**; **Flamecast** invokes it from `pushLog`, create, kill, and permission paths.
+- **Implementation 1:** memory + **SQLite** or append-only **JSONL** under `./data` (minimal deps), or a no-op for fields not yet persisted.
+- Prefer **append-only log rows / events** plus optional denormalized connection row for fast list views.
+- **API:** `GET /connections/:id` merges **durable state** (history, metadata) with **runtime** (live pending permission, “actually connected”) where both exist.
 
-**Long-running mode (local provisioner):**
+**Exit criteria:** Restart orchestrator → list and historical logs still load; live session may be gone (document behavior). Flamecast has no direct dependency on a vendor DB.
 
-1. `create()` → provisioner starts agent → `SandboxHandle` + transport returned → ACP init + new session → runtime held in memory.
-2. `prompt()` → uses held transport → response returned.
-3. `kill()` → provisioner destroys agent → connection finalized in state manager.
+### Phase 3 — Optional Convex (or keep SQLite/Postgres)
 
-**Serverless mode (remote provisioner):**
+**Goal:** Hosted sync, subscriptions, or ops simplicity—only when the product needs it. Requires **Phase 2’s** state manager port (or a no-op you already added) so the swap is an adapter only.
 
-1. `create()` → provisioner starts agent → `SandboxHandle` persisted to DB → ACP init + new session → transport closed after setup.
-2. `prompt()` → `provisioner.reconnect(handle)` → opens fresh transport → sends prompt → response returned → transport closed.
-3. `kill()` → `provisioner.destroy(handle)` → connection finalized in state manager.
+- Implement **`ConvexStateManager`** (or HTTP calls to Convex mutations from Node) as the only new piece; **Flamecast code stays the same** aside from already using `FlamecastStateManager`.
+- Durable rows mirror **shared types** and event shapes from Phase 2.
+- Client may use Convex for **reads** (including reactive `useQuery` for live lists/logs) while **commands** stay on the orchestrator HTTP API; alternatively keep polling or manual refetch over REST.
 
-### 4.4 Permission flow
+**Rule:** Convex holds **durable state**; Flamecast owns **runtime**. Do not treat “subprocess alive” in Convex as authoritative without clear fields (`last_seen_at`, `runtime_generation`, `status: historical | live`).
 
-**Long-running:** Same as today — Promise resolver held in memory, resolved when user responds via API.
+## 5. Conflict and failure semantics (document in code + docs)
 
-**Serverless:** The in-memory resolver can't span requests. Options:
+| Situation                           | Rule                                                                                                                                                         |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Orchestrator up, DB down            | Prefer failing writes to the state manager after runtime success, or queue retries; define whether API returns 5xx if persistence fails.                     |
+| DB has connection, runtime does not | Show “historical” or “reconnect unavailable”; do not pretend session is live.                                                                                |
+| Two tabs open                       | Both stay in sync via Convex subscriptions or by refetching the API; permission resolution is single-flight per `requestId` on server (already one pending). |
 
-- **v1:** Agent blocks on permission. Prompt request times out. Client polls, sees pending permission, approves/denies, re-prompts. Agent retries tool call.
-- **Future:** Persistent message channel (Redis pub/sub, provisioner-specific push) to deliver the permission response to the blocked agent.
+## 6. Frontend: logs as markdown (orthogonal)
 
-### 4.5 Policy
+- Rendering markdown is **client-side** (e.g. `react-markdown`). Cost scales with DOM size → **virtualize** long lists; Convex does not reduce parse cost by itself.
+- Optional: derive a small markdown string per log type from `log.data` for readability; fallback to fenced `json` for unknown shapes.
 
-Provisioners should support:
-
-- Allowlisted images/commands
-- Resource limits (CPU, memory, disk, timeout)
-- Network profile (no egress, limited egress, full)
-- API maps agent presets to provisioner-specific config
-
-## 5. Flamecast class design
-
-### 5.1 Constructor
-
-```ts
-export type FlamecastOptions = {
-  stateManager: "psql" | "memory";
-  provisioner?: Provisioner; // defaults to LocalProvisioner
-  chat?: {
-    adapters: ChatAdapter[]; // Vercel Chat SDK adapters
-  };
-};
-```
-
-Constructor is **synchronous** — stores config, loads agent presets, builds Hono routes, binds `.fetch`. No async work.
-
-### 5.2 Lazy init
-
-DB creation and state manager setup happen on first request via `ensureReady()`. Concurrent requests share the same init promise.
-
-### 5.3 `.fetch` and `.listen()`
-
-- `.fetch` is `(req: Request) => Promise<Response>` — the Hono app's fetch handler. Works in any serverless or edge runtime.
-- `.listen(port)` is a convenience that calls `@hono/node-server`'s `serve()`. For local dev and CLI use.
-
-### 5.4 Chat SDK integration
-
-When `chat.adapters` are provided:
-
-1. Chat SDK initializes with adapters during `listen()` or on first `fetch`.
-2. Incoming messages → `this.prompt()` on the appropriate connection.
-3. Pending permissions → interactive approve/deny messages on the platform.
-4. Uses the same Flamecast methods as HTTP routes — just another client.
-
-## 6. Entry points
-
-**Default CLI (`src/index.ts`):**
-
-```ts
-const flamecast = new Flamecast({ stateManager: "psql" });
-flamecast.listen(3001);
-```
-
-**Custom config (user's `index.ts`, built + linked):**
-
-```ts
-const flamecast = new Flamecast({
-  stateManager: "psql",
-  provisioner: "docker",
-  chat: { adapters: [new SlackAdapter({ ... })] },
-});
-flamecast.listen(3001);
-```
-
-**Serverless (Vercel, Cloudflare):**
-
-```ts
-export default flamecast.fetch;
-```
-
-## 7. Conflict and failure semantics
-
-| Situation                                   | Rule                                                                                                                                 |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Orchestrator up, DB down                    | Fail writes to state manager after runtime success, or queue retries. Define whether API returns 5xx if persistence fails.           |
-| DB has connection, runtime does not         | Show "historical" or "reconnect unavailable". Do not pretend session is live. For reconnectable provisioners, attempt `reconnect()`. |
-| Two tabs / clients open                     | Both stay in sync via polling (or future realtime). Permission resolution is single-flight per `requestId` on server.                |
-| Serverless cold start during active session | `ensureReady()` re-initializes DB connection. `reconnect()` re-establishes transport. ACP session resume TBD.                        |
-
-## 8. Phases
-
-### Phase 1 — Flamecast wraps Hono + LocalProvisioner
-
-**Goal:** Flamecast owns the HTTP layer. `npx flamecast` and custom config both work. API-first design established.
-
-- Move Hono app creation into Flamecast (`.fetch` / `.listen()`).
-- `FlamecastOptions` takes `stateManager: "psql" | "memory"`.
-- New `src/index.ts` entry point. Delete `config.yaml`, `src/server/config.ts`, `src/server/index.ts`.
-- `LocalProvisioner` wraps existing `startAgentProcess` + `getAgentTransport`.
-- `Provisioner` interface defined but only local impl ships.
-
-**Exit criteria:** Same functionality as today. `npx flamecast` works. Custom `index.ts` + build + link works. `.fetch` export works (serverless with local provisioner is non-functional but the plumbing exists).
-
-### Phase 2 — Remote provisioners
-
-**Goal:** Agents run in sandboxes. Serverless deployment works end-to-end.
-
-- `DockerProvisioner`, `K8sProvisioner`, `FlyProvisioner` implementations.
-- `SandboxHandle` persisted in state manager (new column on `connections` table).
-- `reconnect()` path exercised — transport opened per-request.
-- Permission flow for serverless (Option A: timeout + re-prompt).
-
-**Exit criteria:** Deploy Flamecast to Vercel with a Fly provisioner. Create a connection, prompt it, approve permissions, kill it — all via the API. Agent runs on Fly, orchestrator runs on Vercel.
-
-### Phase 3 — Chat SDK + multi-surface
-
-**Goal:** Agents reachable from Slack, Discord, Teams, etc. alongside the web UI.
-
-- `chat` option on `FlamecastOptions`.
-- Vercel Chat SDK integration: message → prompt, permission → interactive message.
-- Connection mapping strategy (per-channel, per-thread, per-user).
-
-**Exit criteria:** A Slack message triggers an agent prompt. Permission request appears as Slack buttons. Response posts back to thread. Same connection visible in web UI.
-
-## 9. Open decisions
+## 7. Open decisions (fill in as the product clarifies)
 
 - [ ] Auth model for orchestrator API (API keys, OAuth, mTLS).
 - [ ] Whether log bodies are capped or paged in the state manager.
-- [ ] ACP session resume semantics for `reconnect()` — re-init vs resume handshake.
-- [ ] Chat SDK connection mapping — one connection per channel? per thread? per user?
-- [ ] Streaming strategy for serverless (SSE, chunked response, or poll-only).
+- [ ] Whether Phase 3 uses Convex, Postgres, or stays SQLite for self-hosted builds.
 
 ---
 
-_Last updated: architecture for Flamecast — ACP orchestration API._
+_Last updated: rearchitecture plan for acp / Flamecast evolution._
