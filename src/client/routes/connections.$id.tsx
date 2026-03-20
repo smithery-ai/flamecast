@@ -95,39 +95,26 @@ function ConnectionDetailPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col justify-between gap-6">
-      {/* Header */}
-      {conn && (
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link to="/">
-              <ArrowLeftIcon />
-            </Link>
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Connection #{conn.id}</h1>
-            <p className="text-sm text-muted-foreground">
-              <Badge variant="secondary" className="mr-2">
-                {conn.agentLabel}
-              </Badge>
-              Session: <code className="text-xs">{conn.sessionId}</code>
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              <code className="rounded bg-muted px-1 py-0.5">
-                {conn.spawn.command} {(conn.spawn.args ?? []).join(" ")}
-              </code>
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Logs */}
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col gap-4">
           <Tabs defaultValue="markdown" className="flex min-h-0 flex-1 flex-col gap-4">
-            <TabsList className="shrink-0">
-              <TabsTrigger value="markdown">Markdown</TabsTrigger>
-              <TabsTrigger value="log">Log view</TabsTrigger>
-            </TabsList>
+            <div className="flex shrink-0 flex-wrap items-center gap-3">
+              <TabsList>
+                <TabsTrigger value="markdown">Markdown</TabsTrigger>
+                <TabsTrigger value="log">Log view</TabsTrigger>
+              </TabsList>
+              <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 sm:gap-3">
+                <Badge variant="secondary" className="shrink-0">
+                  {conn.agentLabel}
+                </Badge>
+                <code
+                  className="max-w-full truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+                  title={conn.sessionId}
+                >
+                  {conn.sessionId}
+                </code>
+              </div>
+            </div>
             <TabsContent value="log" className="mt-4 flex min-h-0 flex-1 flex-col">
               <StickToBottom
                 className="relative flex min-h-0 flex-1 flex-col"
