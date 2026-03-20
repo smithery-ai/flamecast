@@ -8,14 +8,14 @@ For **planned** evolution (sandboxing, durable projection, optional Convex), see
 
 ## Stack
 
-| Layer | Technology |
-|--------|------------|
-| Orchestration | `Flamecast` class — in-memory state, `@agentclientprotocol/sdk` |
-| Agent I/O | `child_process.spawn`, stdin/stdout as Web Streams (`src/flamecast/transport.ts`) |
-| API | [Hono](https://hono.dev/) on Node, `@hono/node-server`, port **3001**, mounted at `/api` |
-| Validation | [Zod](https://zod.dev/) — shared request/response shapes in `src/shared/connection.ts` |
-| Client | React 19, [Vite](https://vitejs.dev/) 8, [TanStack Router](https://tanstack.com/router) + [TanStack Query](https://tanstack.com/query), [Tailwind](https://tailwindcss.com/) v4 |
-| Typesafe API client | `hono/client` — `src/client/lib/api.ts` |
+| Layer               | Technology                                                                                                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Orchestration       | `Flamecast` class — in-memory state, `@agentclientprotocol/sdk`                                                                                                                 |
+| Agent I/O           | `child_process.spawn`, stdin/stdout as Web Streams (`src/flamecast/transport.ts`)                                                                                               |
+| API                 | [Hono](https://hono.dev/) on Node, `@hono/node-server`, port **3001**, mounted at `/api`                                                                                        |
+| Validation          | [Zod](https://zod.dev/) — shared request/response shapes in `src/shared/connection.ts`                                                                                          |
+| Client              | React 19, [Vite](https://vitejs.dev/) 8, [TanStack Router](https://tanstack.com/router) + [TanStack Query](https://tanstack.com/query), [Tailwind](https://tailwindcss.com/) v4 |
+| Typesafe API client | `hono/client` — `src/client/lib/api.ts`                                                                                                                                         |
 
 ---
 
@@ -66,13 +66,13 @@ flowchart LR
 
 `Flamecast` (`src/flamecast/index.ts`) is the **runtime authority** for:
 
-| Concern | Implementation |
-|---------|----------------|
-| Connection registry | `Map<string, ManagedConnection>` — numeric string IDs from a monotonic counter |
-| Serializable snapshot | `ConnectionInfo`: label, spawn spec, `sessionId`, timestamps, `logs[]`, `pendingPermission` |
-| ACP session | `ClientSideConnection` over `acp.ndJsonStream(stdin, stdout)` |
-| OS process | `ChildProcess` from `startAgentProcess` — killed on `DELETE /connections/:id` |
-| Permissions | `requestPermission` from agent → UI-facing `PendingPermission` + `Map<requestId, resolver>` until user responds |
+| Concern               | Implementation                                                                                                  |
+| --------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Connection registry   | `Map<string, ManagedConnection>` — numeric string IDs from a monotonic counter                                  |
+| Serializable snapshot | `ConnectionInfo`: label, spawn spec, `sessionId`, timestamps, `logs[]`, `pendingPermission`                     |
+| ACP session           | `ClientSideConnection` over `acp.ndJsonStream(stdin, stdout)`                                                   |
+| OS process            | `ChildProcess` from `startAgentProcess` — killed on `DELETE /connections/:id`                                   |
+| Permissions           | `requestPermission` from agent → UI-facing `PendingPermission` + `Map<requestId, resolver>` until user responds |
 
 **`ManagedConnection`** pairs:
 
@@ -81,7 +81,7 @@ flowchart LR
 
 **Client role (ACP “client” side):** Flamecast implements `acp.Client`: session updates and tool notifications become **log entries**; `readTextFile` / `writeTextFile` are stubbed (log + empty response); `requestPermission` blocks until HTTP resolves the pending request.
 
-**Logging:** `pushLog(managed, type, data)` appends `{ timestamp, type, data }` to `info.logs`. Types include `initialized`, `session_created`, `prompt_sent`, `prompt_completed`, `session_update`, `permission_*`, `read_text_file`, `write_text_file`, `killed`, etc.
+**Logging:** `pushLog(managed, type, data)` appends `{ timestamp, type, data }` to `info.logs`. **RPC tracing** uses `type: "rpc"` with `data.method` (spec method name), `data.direction` (`client_to_agent` or `agent_to_client`), `data.phase` (`request`, `response`, or `notification`), and `data.payload` (the RPC payload as received or sent). That covers every **client-handled** agent→client method in the SDK (`session/update`, `session/request_permission`, `fs/*`, `terminal/*`, client `ext*`) plus orchestrator→agent calls made today (`initialize`, `session/new`, `session/prompt`). UI flow events keep their own types: `permission_*` and `killed`.
 
 ---
 
@@ -97,16 +97,16 @@ flowchart LR
 
 Base URL in dev: `http://localhost:3001/api` (browser uses `http://localhost:3000/api` via Vite proxy).
 
-| Method | Path | Body | Description |
-|--------|------|------|-------------|
-| `GET` | `/agent-processes` | — | List registerable agent definitions (built-ins + user-registered). |
-| `POST` | `/agent-processes` | `RegisterAgentProcessBody` | Register `{ label, spawn }`; returns `AgentProcessInfo` with new `id`. |
-| `GET` | `/connections` | — | List all connections (snapshots). |
-| `POST` | `/connections` | `CreateConnectionBody` | Spawn agent, `initialize`, `newSession`; `201` + `ConnectionInfo`. |
-| `GET` | `/connections/:id` | — | Snapshot for one connection; `404` if unknown. |
-| `POST` | `/connections/:id/prompt` | `{ text }` | Run ACP `prompt`; returns prompt result (e.g. `stopReason`). |
-| `POST` | `/connections/:id/permissions/:requestId` | `{ optionId }` or `{ outcome: "cancelled" }` | Resolve pending permission. |
-| `DELETE` | `/connections/:id` | — | Kill process, remove connection. |
+| Method   | Path                                      | Body                                         | Description                                                            |
+| -------- | ----------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------- |
+| `GET`    | `/agent-processes`                        | —                                            | List registerable agent definitions (built-ins + user-registered).     |
+| `POST`   | `/agent-processes`                        | `RegisterAgentProcessBody`                   | Register `{ label, spawn }`; returns `AgentProcessInfo` with new `id`. |
+| `GET`    | `/connections`                            | —                                            | List all connections (snapshots).                                      |
+| `POST`   | `/connections`                            | `CreateConnectionBody`                       | Spawn agent, `initialize`, `newSession`; `201` + `ConnectionInfo`.     |
+| `GET`    | `/connections/:id`                        | —                                            | Snapshot for one connection; `404` if unknown.                         |
+| `POST`   | `/connections/:id/prompt`                 | `{ text }`                                   | Run ACP `prompt`; returns prompt result (e.g. `stopReason`).           |
+| `POST`   | `/connections/:id/permissions/:requestId` | `{ optionId }` or `{ outcome: "cancelled" }` | Resolve pending permission.                                            |
+| `DELETE` | `/connections/:id`                        | —                                            | Kill process, remove connection.                                       |
 
 Schemas and TypeScript types: **`src/shared/connection.ts`**.
 

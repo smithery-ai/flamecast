@@ -13,10 +13,10 @@ This document describes a target architecture for evolving **acp** from a single
 ## 2. Design principles
 
 1. **Two sources of truth, explicit roles**
-   - **Runtime authority:** whatever process holds the ACP session and OS handles (today: `Flamecast`). It is authoritative for *liveness*, *in-flight prompts*, and *pending permissions*.
-   - **Durable authority:** a store for *surviving restarts*, *audit*, *multi-client read models*, and *optional realtime fan-out*. Implement as SQLite/Postgres **or** Convex (or similar)—choice is Phase 3.
+   - **Runtime authority:** whatever process holds the ACP session and OS handles (today: `Flamecast`). It is authoritative for _liveness_, _in-flight prompts_, and _pending permissions_.
+   - **Durable authority:** a store for _surviving restarts_, _audit_, _multi-client read models_, and _optional realtime fan-out_. Implement as SQLite/Postgres **or** Convex (or similar)—choice is Phase 3.
 
-2. **Write-through projection:** when runtime state changes in a way users care to persist, the orchestrator commits the same fact to the durable store (or appends an event). No silent divergence: if the DB is behind, it is *eventually* consistent; after crash, DB may have partial history while runtime is empty.
+2. **Write-through projection:** when runtime state changes in a way users care to persist, the orchestrator commits the same fact to the durable store (or appends an event). No silent divergence: if the DB is behind, it is _eventually_ consistent; after crash, DB may have partial history while runtime is empty.
 
 3. **Thin edge, fat orchestrator:** serverless/static frontends should not spawn agents. They call an **orchestrator API** that runs where containers/processes are allowed.
 
@@ -37,7 +37,7 @@ This seam is what makes **Phase 3** a swap of the adapter, not a rewrite of ACP 
 Prefer **append-only, JSON-serializable events** (optionally versioned) as the unit of persistence, e.g. `connection.opened`, `log.appended`, `permission.changed`, `connection.closed`. Materialized `ConnectionInfo` for HTTP can be rebuilt or denormalized from these rows.
 
 - Maps cleanly to Convex tables with indexes (`by_connection_id`, `by_timestamp`).
-- Keeps Flamecast focused on *when* something happened; storage chooses layout.
+- Keeps Flamecast focused on _when_ something happened; storage chooses layout.
 
 ### 2.3 Shared types
 
@@ -45,7 +45,7 @@ Keep connection IDs, log entry shapes, and event payloads in **`src/shared/`** (
 
 ### 2.4 HTTP as the command façade
 
-- **Commands** (create connection, prompt, respond to permission, kill) stay on the **orchestrator HTTP API** unless you explicitly move to another RPC. Convex does not replace Flamecast for *running* agents.
+- **Commands** (create connection, prompt, respond to permission, kill) stay on the **orchestrator HTTP API** unless you explicitly move to another RPC. Convex does not replace Flamecast for _running_ agents.
 - **Reads** can remain `GET` on Hono **or** move to Convex `useQuery` for lists/history once the projection lives there—both are valid; commands still hit the orchestrator.
 
 ### 2.5 Who talks to the durable store?
@@ -87,7 +87,7 @@ Phases **1 → 2 → 3** are listed in **recommended build order** when producti
 
 ### Phase 1 — Sandbox orchestration
 
-**Goal:** Replace direct `ChildProcess` with **provisioned sandboxes** for production paths. First milestone when the main unknown is *where and how* agents run, not yet *where logs are stored*.
+**Goal:** Replace direct `ChildProcess` with **provisioned sandboxes** for production paths. First milestone when the main unknown is _where and how_ agents run, not yet _where logs are stored_.
 
 - Define **`SandboxHandle`** + **`openAcpTransport(handle)`** returning Web Streams.
 - **Provisioner** implementations: local (current behavior), Docker, Kubernetes, etc.
@@ -98,7 +98,7 @@ Phases **1 → 2 → 3** are listed in **recommended build order** when producti
 
 ### Phase 2 — Projection layer (minimal durable model)
 
-**Goal:** Persist enough to survive orchestrator restarts for *read models* and establish the **persistence port** so Phase 3 is a drop-in.
+**Goal:** Persist enough to survive orchestrator restarts for _read models_ and establish the **persistence port** so Phase 3 is a drop-in.
 
 - Introduce the **`Projection`** interface; **Flamecast** invokes it from `pushLog`, create, kill, and permission paths.
 - **Implementation 1:** memory + **SQLite** or append-only **JSONL** under `./data` (minimal deps), or a no-op for fields not yet persisted.
@@ -119,11 +119,11 @@ Phases **1 → 2 → 3** are listed in **recommended build order** when producti
 
 ## 5. Conflict and failure semantics (document in code + docs)
 
-| Situation | Rule |
-|-----------|------|
-| Orchestrator up, DB down | Prefer failing writes to projection after runtime success, or queue retries; define whether API returns 5xx if projection fails. |
-| DB has connection, runtime does not | Show “historical” or “reconnect unavailable”; do not pretend session is live. |
-| Two tabs open | Both stay in sync via Convex subscriptions or by refetching the API; permission resolution is single-flight per `requestId` on server (already one pending). |
+| Situation                           | Rule                                                                                                                                                         |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Orchestrator up, DB down            | Prefer failing writes to projection after runtime success, or queue retries; define whether API returns 5xx if projection fails.                             |
+| DB has connection, runtime does not | Show “historical” or “reconnect unavailable”; do not pretend session is live.                                                                                |
+| Two tabs open                       | Both stay in sync via Convex subscriptions or by refetching the API; permission resolution is single-flight per `requestId` on server (already one pending). |
 
 ## 6. Frontend: logs as markdown (orthogonal)
 
@@ -138,4 +138,4 @@ Phases **1 → 2 → 3** are listed in **recommended build order** when producti
 
 ---
 
-*Last updated: rearchitecture plan for acp / Flamecast evolution.*
+_Last updated: rearchitecture plan for acp / Flamecast evolution._

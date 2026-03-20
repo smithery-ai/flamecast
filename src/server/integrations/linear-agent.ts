@@ -1,3 +1,4 @@
+import * as acp from "@agentclientprotocol/sdk";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -50,6 +51,10 @@ const AgentSessionUpdateSchema = z.object({
     }),
   }),
 });
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
 function verifySignature(body: string, signature: string | null, secret: string): boolean {
   if (!signature) {
@@ -140,11 +145,26 @@ function extractActionActivities(logs: Array<{ type: string; data: Record<string
   result?: string;
 }> {
   return logs.flatMap((entry) => {
-    if (entry.type !== "session_update" || entry.data.sessionUpdate !== "tool_call") {
+    let update: Record<string, unknown> | null = null;
+    if (entry.type === "session_update") {
+      update = entry.data;
+    } else if (
+      entry.type === "rpc" &&
+      entry.data.method === acp.CLIENT_METHODS.session_update &&
+      entry.data.direction === "agent_to_client" &&
+      entry.data.phase === "notification"
+    ) {
+      const payload = entry.data.payload;
+      if (isRecord(payload) && isRecord(payload.update)) {
+        update = payload.update;
+      }
+    }
+
+    if (!update || update.sessionUpdate !== "tool_call") {
       return [];
     }
-    const title = typeof entry.data.title === "string" ? entry.data.title : "Tool call";
-    const kind = typeof entry.data.kind === "string" ? entry.data.kind : "tool";
+    const title = typeof update.title === "string" ? update.title : "Tool call";
+    const kind = typeof update.kind === "string" ? update.kind : "tool";
     return [
       {
         action: title,
