@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { ConnectionLog } from "../../../shared/connection.js";
-import type { ConnectionMeta, FlamecastProjection } from "../../projection.js";
+import type { ConnectionMeta, FlamecastStateManager } from "../../state-manager.js";
 
-/** In-memory projection (tests / local tools) */
-export class MemoryFlamecastProjection implements FlamecastProjection {
+/** In-memory state manager (tests / local tools) */
+export class MemoryFlamecastStateManager implements FlamecastStateManager {
   private connections = new Map<string, ConnectionMeta>();
   private logs = new Map<string, ConnectionLog[]>();
 
@@ -21,7 +21,7 @@ export class MemoryFlamecastProjection implements FlamecastProjection {
     patch: Partial<Pick<ConnectionMeta, "sessionId" | "lastUpdatedAt" | "pendingPermission">>,
   ): Promise<void> {
     const row = this.connections.get(id);
-    if (!row) throw new Error(`Connection "${id}" not found in projection`);
+    if (!row) throw new Error(`Connection "${id}" not found in state manager`);
     this.connections.set(id, {
       ...row,
       ...patch,

@@ -12,7 +12,7 @@ import type {
   PermissionResponseBody,
   RegisterAgentProcessBody,
 } from "../shared/connection.js";
-import type { FlamecastProjection } from "./projection.js";
+import type { FlamecastStateManager } from "./state-manager.js";
 import {
   getAgentTransport,
   getBuiltinAgentProcessPresets,
@@ -20,10 +20,10 @@ import {
 } from "./transport.js";
 
 export type { AgentProcessInfo, ConnectionInfo, PendingPermission } from "../shared/connection.js";
-export type { ConnectionMeta, FlamecastProjection } from "./projection.js";
-export { MemoryFlamecastProjection } from "./projections/memory/index.js";
-export { createPsqlProjection } from "./projections/psql/index.js";
-export type { PsqlAppDb } from "./projections/psql/types.js";
+export type { ConnectionMeta, FlamecastStateManager } from "./state-manager.js";
+export { MemoryFlamecastStateManager } from "./state-managers/memory/index.js";
+export { createPsqlStateManager } from "./state-managers/psql/index.js";
+export type { PsqlAppDb } from "./state-managers/psql/types.js";
 
 type PermissionResolver = (response: acp.RequestPermissionResponse) => void | Promise<void>;
 
@@ -47,17 +47,17 @@ interface ManagedConnection {
 }
 
 export type FlamecastOptions = {
-  projection: FlamecastProjection;
+  stateManager: FlamecastStateManager;
 };
 
 export class Flamecast {
   private runtimes = new Map<string, ManagedConnection>();
   private permissionResolvers = new Map<string, PermissionResolver>();
   private agentProcesses = new Map<string, { label: string; spawn: AgentSpawn }>();
-  private readonly projection: FlamecastProjection;
+  private readonly stateManager: FlamecastStateManager;
 
   constructor(opts: FlamecastOptions) {
-    this.projection = opts.projection;
+    this.stateManager = opts.stateManager;
     for (const preset of getBuiltinAgentProcessPresets()) {
       this.agentProcesses.set(preset.id, {
         label: preset.label,
@@ -86,7 +86,7 @@ export class Flamecast {
 
   async create(opts: CreateConnectionBody): Promise<ConnectionInfo> {
     const cwd = opts.cwd ?? process.cwd();
-    const id = await this.projection.allocateConnectionId();
+    const id = await this.stateManager.allocateConnectionId();
     const now = new Date().toISOString();
 
     let agentLabel: string;
@@ -107,7 +107,7 @@ export class Flamecast {
       throw new Error("Provide agentProcessId or spawn");
     }
 
-    await this.projection.createConnection({
+    await this.stateManager.createConnection({
       id,
       agentLabel,
       spawn,
@@ -178,7 +178,7 @@ export class Flamecast {
 
     managed.sessionId = sessionResult.sessionId;
     const updatedAt = new Date().toISOString();
-    await this.projection.updateConnection(id, {
+    await this.stateManager.updateConnection(id, {
       sessionId: managed.sessionId,
       lastUpdatedAt: updatedAt,
     });
@@ -233,14 +233,14 @@ export class Flamecast {
 
   async kill(id: string): Promise<void> {
     const managed = this.resolveRuntime(id);
-    const meta = await this.projection.getConnectionMeta(id);
+    const meta = await this.stateManager.getConnectionMeta(id);
     if (meta?.pendingPermission) {
       this.permissionResolvers.delete(meta.pendingPermission.requestId);
     }
     await this.flushSessionTextChunkLogBuffer(managed);
     managed.runtime.agentProcess.kill();
     await this.pushLog(managed, "killed", {});
-    await this.projection.finalizeConnection(id, "killed");
+    await this.stateManager.finalizeConnection(id, "killed");
     this.runtimes.delete(id);
   }
 
@@ -280,11 +280,11 @@ export class Flamecast {
   }
 
   private async snapshotInfo(id: string): Promise<ConnectionInfo> {
-    const meta = await this.projection.getConnectionMeta(id);
+    const meta = await this.stateManager.getConnectionMeta(id);
     if (!meta) {
       throw new Error(`Connection "${id}" not found`);
     }
-    const logs = await this.projection.getLogs(id);
+    const logs = await this.stateManager.getLogs(id);
     return {
       ...meta,
       logs: [...logs],
@@ -304,8 +304,8 @@ export class Flamecast {
   ): Promise<ConnectionLog> {
     const now = new Date().toISOString();
     const entry: ConnectionLog = { timestamp: now, type, data };
-    await this.projection.appendLog(managed.id, managed.sessionId, entry);
-    await this.projection.updateConnection(managed.id, { lastUpdatedAt: now });
+    await this.stateManager.appendLog(managed.id, managed.sessionId, entry);
+    await this.stateManager.updateConnection(managed.id, { lastUpdatedAt: now });
     return entry;
   }
 
@@ -423,13 +423,13 @@ export class Flamecast {
     managed: ManagedConnection,
     requestId: string,
   ): Promise<{ permission: PendingPermission; resolve: PermissionResolver }> {
-    const meta = await this.projection.getConnectionMeta(managed.id);
+    const meta = await this.stateManager.getConnectionMeta(managed.id);
     const permission = meta?.pendingPermission;
     const resolve = this.permissionResolvers.get(requestId);
     if (!permission || permission.requestId !== requestId || !resolve) {
       throw new Error("Permission request not found or already resolved");
     }
-    await this.projection.updateConnection(managed.id, { pendingPermission: null });
+    await this.stateManager.updateConnection(managed.id, { pendingPermission: null });
     this.permissionResolvers.delete(requestId);
     return { permission, resolve };
   }
@@ -511,7 +511,7 @@ export class Flamecast {
         );
         const pendingPermission = this.createPendingPermission(params);
         const now = new Date().toISOString();
-        await this.projection.updateConnection(managed.id, {
+        await this.stateManager.updateConnection(managed.id, {
           pendingPermission: pendingPermission,
           lastUpdatedAt: now,
         });

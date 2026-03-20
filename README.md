@@ -2,7 +2,7 @@
 
 Local **Agent Client Protocol (ACP)** orchestrator: spawns agent processes, holds **ACP sessions** over NDJSON on stdio, exposes a **REST API**, and ships a small **React** UI to manage connections, send prompts, and resolve permission requests.
 
-For **planned** evolution (sandboxing, durable projection, optional Convex), see [`SPEC.md`](SPEC.md).
+For **planned** evolution (sandboxing, durable state via **state managers**, optional Convex), see [`SPEC.md`](SPEC.md).
 
 ---
 
@@ -10,7 +10,7 @@ For **planned** evolution (sandboxing, durable projection, optional Convex), see
 
 | Layer               | Technology                                                                                                                                                                      |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Orchestration       | `Flamecast` + injected **`FlamecastProjection`** (Drizzle/PGlite via `MemoryFlamecastProjection` in tests if needed), `@agentclientprotocol/sdk`                                |
+| Orchestration       | `Flamecast` + injected **`FlamecastStateManager`** (Drizzle/PGlite via `MemoryFlamecastStateManager` in tests if needed), `@agentclientprotocol/sdk`                            |
 | Agent I/O           | `child_process.spawn`, stdin/stdout as Web Streams (`src/flamecast/transport.ts`)                                                                                               |
 | API                 | [Hono](https://hono.dev/) on Node, `@hono/node-server`, port **3001**, mounted at `/api`                                                                                        |
 | Validation          | [Zod](https://zod.dev/) — shared request/response shapes in `src/shared/connection.ts`                                                                                          |
@@ -23,19 +23,19 @@ For **planned** evolution (sandboxing, durable projection, optional Convex), see
 
 The API server reads **`config.yaml`** from the process working directory (repo root when you run `dev:server` / `dev` from there). Set **`ACP_CONFIG_PATH`** to use another file path (resolved relative to `cwd`).
 
-| Field        | Values             | Meaning                                                                                                                            |
-| ------------ | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `projection` | `psql` _(default)_ | Drizzle + Postgres (`FLAMECAST_POSTGRES_URL`) or embedded PGLite if unset (see **`createDatabase`** in `src/server/db/client.ts`). |
-| `projection` | `memory`           | In-memory projection only; connection metadata and logs are **not** persisted across restarts.                                     |
+| Field          | Values             | Meaning                                                                                                                            |
+| -------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `stateManager` | `psql` _(default)_ | Drizzle + Postgres (`FLAMECAST_POSTGRES_URL`) or embedded PGLite if unset (see **`createDatabase`** in `src/server/db/client.ts`). |
+| `stateManager` | `memory`           | In-memory state only; connection metadata and logs are **not** persisted across restarts.                                          |
 
-If **`config.yaml` is missing**, the server behaves like **`projection: psql`** (unchanged from before this file existed).
+If **`config.yaml` is missing**, the server behaves like **`stateManager: psql`** (unchanged from before this file existed).
 
 ---
 
 ## Repository layout
 
 ```
-config.yaml       # optional; chooses Flamecast projection (memory vs psql)
+config.yaml       # optional; chooses Flamecast state manager (memory vs psql)
 src/
   client/           # Vite app (port 3000); proxies /api → 3001
     routes/         # TanStack file routes: /, /connections/$id
@@ -47,10 +47,10 @@ src/
     api.ts          # REST handlers → Flamecast
   flamecast/
     index.ts        # Flamecast — runtime handles + ACP client
-    projection.ts   # durable port (metadata + logs)
-    projections/
-      memory/       # in-memory FlamecastProjection
-      psql/         # schema, drizzle.config.ts, migrations/, createPsqlProjection (Postgres or PGLite)
+    state-manager.ts # FlamecastStateManager port (metadata + logs)
+    state-managers/
+      memory/       # in-memory MemoryFlamecastStateManager
+      psql/         # schema, drizzle.config.ts, migrations/, createPsqlStateManager (Postgres or PGLite)
     transport.ts    # spawn + stdio → streams; built-in agent presets
     agent.ts        # example agent process (tsx) for local dev
   server/db/
@@ -78,7 +78,7 @@ flowchart LR
   FC <-->|"NDJSON ACP"| CP
 ```
 
-- **Single process** owns all connections: one `Flamecast` instance in `api.ts`. No horizontal scaling or persistence across restarts.
+- **Single process** owns all **live** subprocesses: one `Flamecast` instance in `api.ts`. No horizontal scaling. With **`stateManager: psql`**, metadata and logs survive restart on disk; **live** ACP sessions do not.
 - **Agent** is always a **local subprocess** today; Flamecast does not provision containers (see `SPEC.md` Phase 1).
 
 ---
@@ -90,8 +90,8 @@ flowchart LR
 | Concern          | Implementation                                                                                                                                                   |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Live runtimes    | `Map<id, ManagedConnection>` — **only** `ClientSideConnection`, `ChildProcess`, stream buffer (not logs)                                                         |
-| Connection IDs   | **UUID** strings (`projection.allocateConnectionId`)                                                                                                             |
-| Durable snapshot | **`FlamecastProjection`** — `connections` row + append-only `connection_logs`; `GET` merges DB + live runtime                                                    |
+| Connection IDs   | **UUID** strings (`stateManager.allocateConnectionId`)                                                                                                           |
+| Durable snapshot | **`FlamecastStateManager`** — `connections` row + append-only `connection_logs`; source of truth for persisted metadata and logs                                 |
 | Serializable API | `ConnectionInfo`: label, spawn spec, `sessionId`, timestamps, `logs[]` from DB, `pendingPermission` from DB row                                                  |
 | ACP session      | `ClientSideConnection` over `acp.ndJsonStream(stdin, stdout)`                                                                                                    |
 | OS process       | `ChildProcess` from `startAgentProcess` — killed on `DELETE /connections/:id`                                                                                    |
@@ -102,11 +102,11 @@ flowchart LR
 - **`id` / `sessionId`** — copied for hot paths; session id is kept in sync with the DB after `session/new`.
 - **`runtime`** — `ClientSideConnection | null`, `ChildProcess`, coalesce buffer (not sent to clients).
 
-**Client role (ACP “client” side):** Flamecast implements `acp.Client`: session updates and tool notifications become **log rows** in the projection; `readTextFile` / `writeTextFile` are stubbed (log + empty response). **`requestPermission`** resolves the ACP JSON-RPC response when the **web UI** (or any client) calls **`POST /api/connections/:id/permissions/:requestId`**.
+**Client role (ACP “client” side):** Flamecast implements `acp.Client`: session updates and tool notifications become **log rows** in the state manager; `readTextFile` / `writeTextFile` are stubbed (log + empty response). **`requestPermission`** resolves the ACP JSON-RPC response when the **web UI** (or any client) calls **`POST /api/connections/:id/permissions/:requestId`**.
 
-**Logging:** `pushLog` is async and appends to the projection (`connection_logs`). **RPC tracing** uses `type: "rpc"` with the same `data` shape as before (`method`, `direction`, `phase`, optional `payload`).
+**Logging:** `pushLog` is async and appends to the state manager (`connection_logs`). **RPC tracing** uses `type: "rpc"` with the same `data` shape as before (`method`, `direction`, `phase`, optional `payload`).
 
-**Database:** `createDatabase()` (`src/server/db/client.ts`) uses **Postgres** when **`FLAMECAST_POSTGRES_URL`** is set; otherwise it logs a short warning and uses **PGLite** under `.acp/pglite` (`ACP_PGLITE_DIR`). Schema lives in `src/flamecast/projections/psql/schema.ts`; Drizzle Kit writes SQL to `src/flamecast/projections/psql/migrations/`. Run `bun run psql:generate` after schema edits and commit migrations (`drizzle.config.ts` lives next to the schema under `src/flamecast/projections/psql/`).
+**Database:** `createDatabase()` (`src/server/db/client.ts`) uses **Postgres** when **`FLAMECAST_POSTGRES_URL`** is set; otherwise it logs a short warning and uses **PGLite** under `.acp/pglite` (`ACP_PGLITE_DIR`). Schema lives in `src/flamecast/state-managers/psql/schema.ts`; Drizzle Kit writes SQL to `src/flamecast/state-managers/psql/migrations/`. Run `bun run psql:generate` after schema edits and commit migrations (`drizzle.config.ts` lives next to the schema under `src/flamecast/state-managers/psql/`).
 
 If you previously used the inlined DDL-only setup, remove `.acp/pglite` once so the migrator can create tables cleanly.
 
@@ -167,7 +167,7 @@ Other scripts: `npm run build`, `npm start` (production build entry — verify `
 
 ## Current limitations (by design)
 
-- **No durable store** — restart clears connections and logs.
+- **`stateManager: memory`** — restart clears connections and logs; with **`stateManager: psql`**, metadata and logs persist in PGLite/Postgres.
 - **No auth** — local dev assumption; do not expose raw to the internet.
 - **Single host** — one Node process; no sticky sessions or distributed Flamecast.
 - **Push updates** — UI relies on polling, not SSE/WebSocket (see `SPEC.md` if that changes).
@@ -176,5 +176,5 @@ Other scripts: `npm run build`, `npm start` (production build entry — verify `
 
 ## Related documentation
 
-- **[`SPEC.md`](SPEC.md)** — phased roadmap (sandbox orchestration, projection port, optional Convex).
+- **[`SPEC.md`](SPEC.md)** — phased roadmap (sandbox orchestration, state manager port, optional Convex).
 - **ACP** — protocol and behavior via `@agentclientprotocol/sdk`.

@@ -4,12 +4,12 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
 const ServerConfigSchema = z.object({
-  projection: z.enum(["memory", "psql"]).default("psql"),
+  stateManager: z.enum(["memory", "psql"]).default("psql"),
 });
 
 export type ServerConfig = z.infer<typeof ServerConfigSchema>;
 
-const DEFAULT_CONFIG: ServerConfig = { projection: "psql" };
+const DEFAULT_CONFIG: ServerConfig = { stateManager: "psql" };
 
 function configPathFromEnv(): string {
   const fromEnv = process.env.ACP_CONFIG_PATH?.trim();
@@ -19,7 +19,7 @@ function configPathFromEnv(): string {
 
 /**
  * Loads `config.yaml` from the current working directory, or `ACP_CONFIG_PATH` (relative to cwd).
- * Missing file → `{ projection: "psql" }` (same as previous server default).
+ * Missing file → `{ stateManager: "psql" }` (same as previous server default).
  */
 export async function loadServerConfig(): Promise<ServerConfig> {
   const configPath = configPathFromEnv();

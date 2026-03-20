@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
 import type { ConnectionLog } from "../../../shared/connection.js";
-import type { ConnectionMeta, FlamecastProjection } from "../../projection.js";
+import type { ConnectionMeta, FlamecastStateManager } from "../../state-manager.js";
 import { connectionLogs, connections } from "./schema.js";
 import type { PsqlAppDb } from "./types.js";
 
@@ -20,8 +20,8 @@ function rowToMeta(row: typeof connections.$inferSelect | undefined): Connection
   };
 }
 
-/** SQL-backed projection (Postgres `Pool` or embedded **PGLite** file) via Drizzle. */
-export function createPsqlProjection(db: PsqlAppDb): FlamecastProjection {
+/** SQL-backed state manager (Postgres `Pool` or embedded **PGLite** file) via Drizzle. */
+export function createPsqlStateManager(db: PsqlAppDb): FlamecastStateManager {
   return {
     async allocateConnectionId() {
       return randomUUID();

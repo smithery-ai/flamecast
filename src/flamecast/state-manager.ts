@@ -5,9 +5,9 @@ export type ConnectionMeta = Omit<ConnectionInfo, "logs">;
 
 /**
  * Durable backing store for orchestrator state. Runtime (child process, ACP stream)
- * stays in memory; projection is the source of truth for metadata and logs.
+ * stays in memory; the state manager is the source of truth for metadata and logs.
  */
-export type FlamecastProjection = {
+export type FlamecastStateManager = {
   allocateConnectionId(): Promise<string>;
   createConnection(meta: ConnectionMeta): Promise<void>;
   updateConnection(

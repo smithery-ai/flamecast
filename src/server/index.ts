@@ -2,17 +2,17 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { createApi } from "./api.js";
 import { loadServerConfig } from "./config.js";
-import { createPsqlProjection } from "../flamecast/projections/psql/index.js";
-import { MemoryFlamecastProjection } from "../flamecast/projections/memory/index.js";
+import { createPsqlStateManager } from "../flamecast/state-managers/psql/index.js";
+import { MemoryFlamecastStateManager } from "../flamecast/state-managers/memory/index.js";
 import { createDatabase } from "./db/client.js";
 import { Flamecast } from "../flamecast/index.js";
 
 const serverConfig = await loadServerConfig();
-const projection =
-  serverConfig.projection === "memory"
-    ? new MemoryFlamecastProjection()
-    : createPsqlProjection((await createDatabase()).db);
-const flamecast = new Flamecast({ projection });
+const stateManager =
+  serverConfig.stateManager === "memory"
+    ? new MemoryFlamecastStateManager()
+    : createPsqlStateManager((await createDatabase()).db);
+const flamecast = new Flamecast({ stateManager });
 const api = createApi(flamecast);
 
 const app = new Hono();
