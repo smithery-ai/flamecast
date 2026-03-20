@@ -231,7 +231,8 @@ function ConnectionDetailPage() {
           <CardTitle className="text-base">Slack</CardTitle>
           <CardDescription>
             Bind one globally installed Slack workspace to this live connection. Global installs
-            live in Integrations, while connection bindings remain per-session.
+            live in Integrations, while connection bindings remain per-session. Visible Slack output
+            only appears when the agent uses the Flamecast chat tools.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -264,9 +265,7 @@ function ConnectionDetailPage() {
                 No installed workspaces yet. Open Integrations to complete Slack setup first.
               </p>
             ) : null}
-            {slackError ? (
-              <p className="text-xs text-destructive">{slackError}</p>
-            ) : null}
+            {slackError ? <p className="text-xs text-destructive">{slackError}</p> : null}
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex min-w-0 flex-1 flex-col gap-2">

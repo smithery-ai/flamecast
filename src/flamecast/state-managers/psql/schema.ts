@@ -1,4 +1,13 @@
-import { index, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  index,
+  jsonb,
+  pgTable,
+  serial,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import type { AgentSpawn, PendingPermission } from "../../../shared/connection.js";
 
 export const connections = pgTable("connections", {
@@ -25,4 +34,38 @@ export const connectionLogs = pgTable(
     data: jsonb("data").$type<Record<string, unknown>>().notNull(),
   },
   (t) => [index("idx_connection_logs_conn").on(t.connectionId, t.id)],
+);
+
+export const chatStateKv = pgTable("chat_state_kv", {
+  key: text("key").primaryKey(),
+  valueJson: text("value_json").notNull(),
+  expiresAt: bigint("expires_at", { mode: "number" }),
+});
+
+export const chatStateSubscriptions = pgTable("chat_state_subscriptions", {
+  threadId: text("thread_id").primaryKey(),
+});
+
+export const chatStateLocks = pgTable("chat_state_locks", {
+  threadId: text("thread_id").primaryKey(),
+  token: text("token").notNull(),
+  expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+});
+
+export const slackWorkspaceInstalls = pgTable("slack_workspace_installs", {
+  teamId: text("team_id").primaryKey(),
+  installedAt: timestamp("installed_at", { withTimezone: true, mode: "string" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull(),
+});
+
+export const slackConnectionBindings = pgTable(
+  "slack_connection_bindings",
+  {
+    connectionId: text("connection_id").primaryKey(),
+    connectionSessionId: text("connection_session_id").notNull(),
+    teamId: text("team_id").notNull(),
+    boundAt: timestamp("bound_at", { withTimezone: true, mode: "string" }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull(),
+  },
+  (t) => [uniqueIndex("idx_slack_connection_bindings_team").on(t.teamId)],
 );

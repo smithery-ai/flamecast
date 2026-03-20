@@ -9,25 +9,6 @@ export const Route = createFileRoute("/integrations")({
   component: IntegrationsPage,
 });
 
-const providerCards = [
-  {
-    description: "Mentions, DMs, and thread replies routed into a bound Flamecast connection.",
-    href: "/api/integrations/slack/install",
-    id: "slack",
-    name: "Slack",
-    state: "Live",
-    tags: ["Workspace install", "Mentions", "DMs"],
-  },
-  {
-    description: "Issue comments and agent sessions bound to existing connections.",
-    href: null,
-    id: "linear",
-    name: "Linear",
-    state: "Soon",
-    tags: ["Issue comments", "Agent sessions", "Planned"],
-  },
-] as const;
-
 function IntegrationsPage() {
   const { data: installations = [], isLoading } = useQuery({
     queryKey: ["integrations", "slack", "installations"],
@@ -43,70 +24,47 @@ function IntegrationsPage() {
         <p className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground/80">
           Integrations
         </p>
-        <h1 className="text-3xl font-semibold tracking-tight">Install providers once.</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Install Slack once.</h1>
         <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-          Then bind an installed workspace from any live connection.
+          Chat ingress is Slack-only in v1, but the runtime uses the same generic chat event core
+          that future adapters will plug into.
         </p>
       </header>
 
-      <section className="border-t">
-        {providerCards.map((provider) => {
-          const isSlack = provider.id === "slack";
-          const installCount = isSlack ? installations.length : 0;
-
-          return (
-            <div
-              key={provider.id}
-              className={
-                isSlack
-                  ? "border-b py-6"
-                  : "border-b border-dashed py-6"
-              }
-            >
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <h2 className="text-xl font-medium">{provider.name}</h2>
-                    <Badge variant={isSlack ? "default" : "secondary"}>{provider.state}</Badge>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="max-w-xl text-sm leading-6 text-muted-foreground">
-                      {provider.description}
-                    </p>
-                    <p className="text-sm">
-                      {isSlack
-                        ? `${installCount} workspace${installCount === 1 ? "" : "s"} installed`
-                        : "Not available yet"}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {provider.tags.map((tag) => (
-                    <Badge key={tag} variant="outline" className="font-normal">
-                      {tag}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-              <div className="mt-4 flex items-center justify-between gap-4">
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {isSlack
-                    ? "Slack installs persist locally and can be rebound without re-running OAuth."
-                    : "Visible here so the page reads like a provider surface, not a Slack-only setup screen."}
-                </p>
-                {isSlack ? (
-                  <Button asChild>
-                    <a href={installHref}>Install Slack</a>
-                  </Button>
-                ) : (
-                  <Button type="button" variant="outline" disabled>
-                    Coming soon
-                  </Button>
-                )}
-              </div>
+      <section className="border-y py-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-medium">Slack</h2>
+              <Badge>Live</Badge>
             </div>
-          );
-        })}
+            <div className="space-y-1">
+              <p className="max-w-xl text-sm leading-6 text-muted-foreground">
+                Mentions, DMs, and subscribed thread messages become queued chat events for the
+                bound Flamecast connection.
+              </p>
+              <p className="text-sm">
+                {installations.length} workspace{installations.length === 1 ? "" : "s"} installed
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {["Workspace install", "Mentions", "DMs", "Explicit tool replies"].map((tag) => (
+              <Badge key={tag} variant="outline" className="font-normal">
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-4">
+          <p className="text-xs leading-5 text-muted-foreground">
+            Slack installs persist in the shared app database and can be rebound without re-running
+            OAuth.
+          </p>
+          <Button asChild>
+            <a href={installHref}>Install Slack</a>
+          </Button>
+        </div>
       </section>
 
       <section className="space-y-4">

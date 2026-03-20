@@ -2,6 +2,13 @@ import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
+  ChatActionRequest,
+  ChatActionResult,
+  ChatDispatchContext,
+  ChatInboundEvent,
+  QueuedExternalEvent,
+} from "@/shared/chat.js";
+import type {
   AgentProcessInfo,
   AgentSpawn,
   ConnectionInfo,
@@ -40,8 +47,11 @@ interface ManagedConnection {
   id: string;
   sessionId: string;
   runtime: {
+    activeDispatchContext: ChatDispatchContext | null;
+    activePrompt: boolean;
     connection: acp.ClientSideConnection | null;
     agentProcess: ChildProcess;
+    pendingEvents: QueuedExternalEvent[];
     sessionTextChunkLogBuffer: SessionTextChunkLogBuffer | null;
   };
 }
@@ -53,6 +63,12 @@ export interface CapturedPromptResult {
 }
 
 export type FlamecastOptions = {
+  executeChatAction?: (input: {
+    action: ChatActionRequest;
+    connectionId: string;
+    sourceContext: ChatDispatchContext | null;
+  }) => Promise<ChatActionResult>;
+  sessionMcpServers?: (connectionId: string) => acp.NewSessionRequest["mcpServers"];
   stateManager: FlamecastStateManager;
 };
 
@@ -94,13 +110,110 @@ function extractAgentMessageTextFromLog(entry: ConnectionLog): string {
   return extractAgentMessageTextFromUpdate(update);
 }
 
+function selectDispatchContext(events: QueuedExternalEvent[]): ChatDispatchContext | null {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event.type !== "chat_inbound") {
+      continue;
+    }
+    return {
+      authorId: event.event.authorId,
+      channelId: event.event.channelId,
+      isDM: event.event.isDM,
+      messageId: event.event.messageId,
+      provider: event.event.provider,
+      threadId: event.event.threadId,
+    };
+  }
+
+  return null;
+}
+
+function stringifyProviderMeta(providerMeta: Record<string, unknown> | undefined): string | null {
+  if (!providerMeta) {
+    return null;
+  }
+
+  try {
+    return JSON.stringify(providerMeta);
+  } catch {
+    return null;
+  }
+}
+
+function renderChatInboundEvent(event: ChatInboundEvent, index: number): string {
+  const lines = [
+    `Event ${index + 1}: chat_inbound`,
+    `provider: ${event.provider}`,
+    `thread_id: ${event.threadId}`,
+    `channel_id: ${event.channelId}`,
+    `message_id: ${event.messageId}`,
+    `author_id: ${event.authorId}`,
+    `author_name: ${event.authorName}`,
+    `is_dm: ${event.isDM ? "true" : "false"}`,
+    `occurred_at: ${event.occurredAt}`,
+  ];
+
+  const providerMeta = stringifyProviderMeta(event.providerMeta);
+  if (providerMeta) {
+    lines.push(`provider_meta: ${providerMeta}`);
+  }
+
+  lines.push("", event.text);
+  return lines.join("\n");
+}
+
+function renderQueuedExternalEventsPrompt(
+  events: QueuedExternalEvent[],
+  sourceContext: ChatDispatchContext | null,
+): string {
+  const renderedEvents = events.map((event, index) => {
+    switch (event.type) {
+      case "chat_inbound":
+        return renderChatInboundEvent(event.event, index);
+      default:
+        return `Event ${index + 1}: unsupported`;
+    }
+  });
+
+  const sourceContextLines = sourceContext
+    ? [
+        "reply_source target:",
+        `provider: ${sourceContext.provider}`,
+        `thread_id: ${sourceContext.threadId}`,
+        `channel_id: ${sourceContext.channelId}`,
+        `message_id: ${sourceContext.messageId}`,
+        `author_id: ${sourceContext.authorId}`,
+        `is_dm: ${sourceContext.isDM ? "true" : "false"}`,
+      ]
+    : ["reply_source target: unavailable"];
+
+  return [
+    "[Flamecast chat events]",
+    "You are receiving one or more inbound chat events.",
+    "Visible chat output is never automatic.",
+    "Use Flamecast chat tools if you want to send a reply, DM, reaction, channel post, or thread post.",
+    "reply_source always targets the most recent inbound event in this batch.",
+    "",
+    ...sourceContextLines,
+    "",
+    "Events:",
+    "",
+    renderedEvents.join("\n\n---\n\n"),
+  ].join("\n");
+}
+
 export class Flamecast {
   private runtimes = new Map<string, ManagedConnection>();
   private permissionResolvers = new Map<string, PermissionResolver>();
   private agentProcesses = new Map<string, { label: string; spawn: AgentSpawn }>();
+  private readonly executeChatAction: FlamecastOptions["executeChatAction"] | undefined;
+  private readonly sessionMcpServers: FlamecastOptions["sessionMcpServers"] | undefined;
   private readonly stateManager: FlamecastStateManager;
 
   constructor(opts: FlamecastOptions) {
+    this.executeChatAction = opts.executeChatAction;
+    this.sessionMcpServers = opts.sessionMcpServers;
     this.stateManager = opts.stateManager;
     for (const preset of getBuiltinAgentProcessPresets()) {
       this.agentProcesses.set(preset.id, {
@@ -170,8 +283,11 @@ export class Flamecast {
       id,
       sessionId: "",
       runtime: {
+        activeDispatchContext: null,
+        activePrompt: false,
         connection: null,
         agentProcess,
+        pendingEvents: [],
         sessionTextChunkLogBuffer: null,
       },
     };
@@ -203,7 +319,10 @@ export class Flamecast {
       initResult,
     );
 
-    const newSessionParams: acp.NewSessionRequest = { cwd, mcpServers: [] };
+    const newSessionParams: acp.NewSessionRequest = {
+      cwd,
+      mcpServers: this.sessionMcpServers?.(id) ?? [],
+    };
     await this.pushRpcLog(
       managed,
       acp.AGENT_METHODS.session_new,
@@ -243,9 +362,66 @@ export class Flamecast {
 
   async prompt(id: string, text: string): Promise<acp.PromptResponse> {
     const managed = this.resolveRuntime(id);
-    if (!managed.runtime.connection) {
-      throw new Error(`Connection "${id}" is not initialized`);
+    try {
+      return await this.runPromptTurn(managed, text, null);
+    } finally {
+      await this.processPendingExternalEvents(managed);
     }
+  }
+
+  async enqueueChatEvent(id: string, event: ChatInboundEvent): Promise<void> {
+    const managed = this.resolveRuntime(id);
+    managed.runtime.pendingEvents.push({
+      event,
+      type: "chat_inbound",
+    });
+    await this.pushLog(managed, "external_event_enqueued", {
+      messageId: event.messageId,
+      provider: event.provider,
+      threadId: event.threadId,
+      type: "chat_inbound",
+    });
+    await this.processPendingExternalEvents(managed);
+  }
+
+  async performChatAction(id: string, action: ChatActionRequest): Promise<ChatActionResult> {
+    const managed = this.resolveRuntime(id);
+    if (!this.executeChatAction) {
+      throw new Error("Chat actions are not configured for this Flamecast instance");
+    }
+
+    if (action.type === "reply_source" && !managed.runtime.activeDispatchContext) {
+      throw new Error("reply_source is unavailable without an active chat dispatch context");
+    }
+
+    const result = await this.executeChatAction({
+      action,
+      connectionId: id,
+      sourceContext: managed.runtime.activeDispatchContext,
+    });
+    await this.pushLog(managed, "chat_action", {
+      actionType: action.type,
+      channelId: result.channelId,
+      messageId: result.messageId,
+      provider: result.provider,
+      threadId: result.threadId,
+    });
+    return result;
+  }
+
+  private async runPromptTurn(
+    managed: ManagedConnection,
+    text: string,
+    dispatchContext: ChatDispatchContext | null,
+  ): Promise<acp.PromptResponse> {
+    if (managed.runtime.activePrompt) {
+      throw new Error(`Connection "${managed.id}" is busy`);
+    }
+    if (!managed.runtime.connection) {
+      throw new Error(`Connection "${managed.id}" is not initialized`);
+    }
+    managed.runtime.activePrompt = true;
+    managed.runtime.activeDispatchContext = dispatchContext;
     const promptParams: acp.PromptRequest = {
       sessionId: managed.sessionId,
       prompt: [{ type: "text", text }],
@@ -272,18 +448,19 @@ export class Flamecast {
     } catch (e) {
       await this.flushSessionTextChunkLogBuffer(managed);
       throw e;
+    } finally {
+      managed.runtime.activePrompt = false;
+      managed.runtime.activeDispatchContext = null;
     }
   }
 
   async promptCaptured(id: string, text: string): Promise<CapturedPromptResult> {
     const startIndex = (await this.stateManager.getLogs(id)).length;
     const result = await this.prompt(id, text);
-    const logs = (await this.stateManager.getLogs(id))
-      .slice(startIndex)
-      .map((entry) => ({
-        ...entry,
-        data: { ...entry.data },
-      }));
+    const logs = (await this.stateManager.getLogs(id)).slice(startIndex).map((entry) => ({
+      ...entry,
+      data: { ...entry.data },
+    }));
     const assistantText = logs.map((entry) => extractAgentMessageTextFromLog(entry)).join("");
 
     return {
@@ -300,6 +477,9 @@ export class Flamecast {
       this.permissionResolvers.delete(meta.pendingPermission.requestId);
     }
     await this.flushSessionTextChunkLogBuffer(managed);
+    managed.runtime.activeDispatchContext = null;
+    managed.runtime.activePrompt = false;
+    managed.runtime.pendingEvents = [];
     managed.runtime.agentProcess.kill();
     await this.pushLog(managed, "killed", {});
     await this.stateManager.finalizeConnection(id, "killed");
@@ -339,6 +519,41 @@ export class Flamecast {
       throw new Error(`Connection "${id}" not found`);
     }
     return managed;
+  }
+
+  private async processPendingExternalEvents(managed: ManagedConnection): Promise<void> {
+    if (managed.runtime.activePrompt || managed.runtime.pendingEvents.length === 0) {
+      return;
+    }
+
+    const queuedEvents = managed.runtime.pendingEvents.splice(
+      0,
+      managed.runtime.pendingEvents.length,
+    );
+    const dispatchContext = selectDispatchContext(queuedEvents);
+    await this.pushLog(managed, "external_event_batch_dispatched", {
+      count: queuedEvents.length,
+      sourceThreadId: dispatchContext?.threadId ?? null,
+    });
+
+    try {
+      await this.runPromptTurn(
+        managed,
+        renderQueuedExternalEventsPrompt(queuedEvents, dispatchContext),
+        dispatchContext,
+      );
+    } catch (error) {
+      managed.runtime.pendingEvents = [...queuedEvents, ...managed.runtime.pendingEvents];
+      await this.pushLog(managed, "external_event_prompt_failed", {
+        count: queuedEvents.length,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    if (managed.runtime.pendingEvents.length > 0) {
+      await this.processPendingExternalEvents(managed);
+    }
   }
 
   private async snapshotInfo(id: string): Promise<ConnectionInfo> {

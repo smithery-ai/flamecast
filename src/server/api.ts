@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { Flamecast } from "../flamecast/index.js";
+import { ChatActionRequestSchema } from "../shared/chat.js";
 import {
   CreateConnectionBodySchema,
   PermissionResponseBodySchema,
@@ -8,9 +9,17 @@ import {
   RegisterAgentProcessBodySchema,
 } from "../shared/connection.js";
 import { SlackBindConnectionBodySchema } from "../shared/integrations.js";
-import type { SlackInstaller } from "./integrations/slack.js";
+import type { ChatGateway } from "./integrations/chat-gateway.js";
 
-export function createApi(flamecast: Flamecast, slackInstaller: SlackInstaller) {
+function hasInternalAccessToken(request: Request, expectedToken: string): boolean {
+  return request.headers.get("authorization") === `Bearer ${expectedToken}`;
+}
+
+export function createApi(
+  flamecast: Flamecast,
+  chatGateway: ChatGateway,
+  internalApiToken: string,
+) {
   return new Hono()
     .get("/agent-processes", (c) => {
       return c.json(flamecast.listAgentProcesses());
@@ -73,8 +82,25 @@ export function createApi(flamecast: Flamecast, slackInstaller: SlackInstaller) 
         return c.json({ error: "Connection not found" }, 404);
       }
     })
+    .post(
+      "/internal/connections/:id/chat/actions",
+      zValidator("json", ChatActionRequestSchema),
+      async (c) => {
+        if (!hasInternalAccessToken(c.req.raw, internalApiToken)) {
+          return c.json({ error: "Unauthorized" }, 401);
+        }
+
+        try {
+          const result = await flamecast.performChatAction(c.req.param("id"), c.req.valid("json"));
+          return c.json(result);
+        } catch (e) {
+          const message = e instanceof Error ? e.message : "Unknown error";
+          return c.json({ error: message }, 400);
+        }
+      },
+    )
     .get("/integrations/slack/installations", async (c) => {
-      return c.json(await slackInstaller.listInstallations());
+      return c.json(await chatGateway.listSlackInstallations());
     })
     .get("/connections/:id/integrations/slack", async (c) => {
       const connectionId = c.req.param("id");
@@ -85,7 +111,7 @@ export function createApi(flamecast: Flamecast, slackInstaller: SlackInstaller) 
       }
 
       try {
-        return c.json(await slackInstaller.getConnectionStatus(connectionId));
+        return c.json(await chatGateway.getSlackConnectionStatus(connectionId));
       } catch (e) {
         const message = e instanceof Error ? e.message : "Unknown error";
         return c.json({ error: message }, 400);
@@ -104,7 +130,7 @@ export function createApi(flamecast: Flamecast, slackInstaller: SlackInstaller) 
         }
 
         try {
-          return c.json(await slackInstaller.bindConnection(connectionId, teamId));
+          return c.json(await chatGateway.bindSlackWorkspace(connectionId, teamId));
         } catch (e) {
           const message = e instanceof Error ? e.message : "Unknown error";
           return c.json({ error: message }, 400);
@@ -120,7 +146,7 @@ export function createApi(flamecast: Flamecast, slackInstaller: SlackInstaller) 
       }
 
       try {
-        await slackInstaller.disconnect(connectionId);
+        await chatGateway.disconnectSlackWorkspace(connectionId);
         return c.json({ ok: true });
       } catch (e) {
         const message = e instanceof Error ? e.message : "Unknown error";

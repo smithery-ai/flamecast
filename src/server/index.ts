@@ -3,12 +3,12 @@ import { getRequestListener } from "@hono/node-server";
 import { Hono } from "hono";
 import { createApi } from "./api.js";
 import { createSlackRoutes } from "./integrations/slack.js";
-import { flamecast, slackInstaller } from "./runtime.js";
+import { chatGateway, flamecast, internalApiToken } from "./runtime.js";
 
 const app = new Hono();
 
-app.route("/api", createApi(flamecast, slackInstaller));
-app.route("/api", createSlackRoutes(slackInstaller));
+app.route("/api", createApi(flamecast, chatGateway, internalApiToken));
+app.route("/api", createSlackRoutes(chatGateway));
 
 const honoListener = getRequestListener(app.fetch);
 

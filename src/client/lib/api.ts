@@ -7,10 +7,7 @@ import type {
   RegisterAgentProcessBody,
   PermissionResponseBody,
 } from "../../shared/connection";
-import type {
-  SlackConnectionStatus,
-  SlackInstallationSummary,
-} from "../../shared/integrations";
+import type { SlackConnectionStatus, SlackInstallationSummary } from "../../shared/integrations";
 
 const client = hc<AppType>("/api");
 
@@ -30,7 +27,9 @@ async function readErrorMessage(res: Response, fallback: string): Promise<string
     ) {
       return body.error;
     }
-  } catch {}
+  } catch {
+    // Ignore non-JSON error bodies and fall back to the provided message.
+  }
   return fallback;
 }
 

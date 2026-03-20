@@ -54,7 +54,7 @@ export function getBuiltinAgentProcessPresets(): BuiltinAgentPreset[] {
 
 export function startAgentProcess(
   spec: { command: string; args?: string[] },
-  envOverrides?: NodeJS.ProcessEnv,
+  envOverrides?: Record<string, string | undefined>,
 ): ChildProcess {
   const args = spec.args ?? [];
   return spawn(spec.command, args, {
