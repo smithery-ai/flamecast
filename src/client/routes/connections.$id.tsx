@@ -70,6 +70,7 @@ function ConnectionDetailPage() {
 
   const markdownSegments = useMemo(() => connectionLogsToSegments(conn?.logs ?? []), [conn?.logs]);
 
+
   if (isLoading) {
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-6">
@@ -259,7 +260,7 @@ function ConnectionDetailPage() {
         </Tabs>
       </div>
       <div className="flex shrink-0 flex-col gap-2 pt-4">
-        <div className="flex gap-2">
+        <div className="flex gap-2 p-1">
           <Input
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
