@@ -53,14 +53,22 @@ function applySessionUpdateRecord(
     segments.push({ kind: "tool", toolCallId, title, status });
   } else if (su === "tool_call_update") {
     const toolCallId = typeof d.toolCallId === "string" ? d.toolCallId : "";
-    if (!toolCallId) return;
     const status = typeof d.status === "string" ? d.status : "";
-    for (let i = segments.length - 1; i >= 0; i--) {
-      const seg = segments[i];
-      if (seg.kind === "tool" && seg.toolCallId === toolCallId) {
-        if (status) seg.status = status;
-        break;
-      }
+    applyToolSegmentStatus(segments, toolCallId, status);
+  }
+}
+
+function applyToolSegmentStatus(
+  segments: ConnectionLogMarkdownSegment[],
+  toolCallId: string,
+  status: string,
+): void {
+  if (!toolCallId || !status) return;
+  for (let i = segments.length - 1; i >= 0; i--) {
+    const seg = segments[i];
+    if (seg.kind === "tool" && seg.toolCallId === toolCallId) {
+      seg.status = status;
+      break;
     }
   }
 }
@@ -82,6 +90,22 @@ export function connectionLogsToSegments(logs: ConnectionLog[]): ConnectionLogMa
       const d = log.data;
       if (isRecord(d)) {
         applySessionUpdateRecord(d, segments);
+      }
+      continue;
+    }
+
+    if (log.type === "permission_cancelled") {
+      const d = log.data;
+      if (isRecord(d) && typeof d.toolCallId === "string") {
+        applyToolSegmentStatus(segments, d.toolCallId, "cancelled");
+      }
+      continue;
+    }
+
+    if (log.type === "permission_rejected") {
+      const d = log.data;
+      if (isRecord(d) && typeof d.toolCallId === "string") {
+        applyToolSegmentStatus(segments, d.toolCallId, "rejected");
       }
       continue;
     }

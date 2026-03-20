@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchConnection, respondToPermission, sendPrompt } from "@/client/lib/api";
 import { connectionLogsToSegments } from "@/client/lib/logs-markdown";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Streamdown } from "streamdown";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import { Button } from "@/client/components/ui/button";
@@ -15,7 +15,6 @@ import {
 } from "@/client/components/ui/card";
 import { Badge } from "@/client/components/ui/badge";
 import { Input } from "@/client/components/ui/input";
-import { ScrollArea } from "@/client/components/ui/scroll-area";
 import { Separator } from "@/client/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/client/components/ui/tabs";
 import { Skeleton } from "@/client/components/ui/skeleton";
@@ -73,7 +72,7 @@ function ConnectionDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-6">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-64 w-full rounded-xl" />
       </div>
@@ -82,7 +81,7 @@ function ConnectionDetailPage() {
 
   if (!conn) {
     return (
-      <div className="flex flex-col items-center gap-4 py-16">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center py-16">
         <p className="text-muted-foreground">Connection not found.</p>
         <Button variant="outline" asChild>
           <Link to="/">
@@ -95,198 +94,197 @@ function ConnectionDetailPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild>
-          <Link to="/">
-            <ArrowLeftIcon />
-          </Link>
-        </Button>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Connection #{conn.id}</h1>
-          <p className="text-sm text-muted-foreground">
-            <Badge variant="secondary" className="mr-2">
-              {conn.agentLabel}
-            </Badge>
-            Session: <code className="text-xs">{conn.sessionId}</code>
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            <code className="rounded bg-muted px-1 py-0.5">
-              {conn.spawn.command} {(conn.spawn.args ?? []).join(" ")}
-            </code>
-          </p>
-        </div>
-      </div>
-
-      {/* Pending permission approval */}
-      {conn.pendingPermission &&
-        (() => {
-          const pending = conn.pendingPermission;
-          return (
-            <Card className="border-amber-500/50 bg-amber-500/5">
-              <CardHeader>
-                <CardTitle className="text-base">Permission required</CardTitle>
-                <CardDescription>
-                  {pending.title}
-                  {pending.kind && (
-                    <Badge variant="outline" className="ml-2">
-                      {pending.kind}
-                    </Badge>
-                  )}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-wrap gap-2">
-                {pending.options.map((opt) => (
-                  <Button
-                    key={opt.optionId}
-                    variant={opt.kind === "allow_once" ? "default" : "secondary"}
-                    size="sm"
-                    disabled={permissionMutation.isPending}
-                    onClick={() =>
-                      handlePermission(pending.requestId, {
-                        optionId: opt.optionId,
-                      })
-                    }
-                  >
-                    {opt.name}
-                  </Button>
-                ))}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={permissionMutation.isPending}
-                  onClick={() =>
-                    handlePermission(pending.requestId, {
-                      outcome: "cancelled",
-                    })
-                  }
-                >
-                  Cancel
-                </Button>
-              </CardContent>
-            </Card>
-          );
-        })()}
-
-      {/* Prompt Input */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex gap-2">
-            <Input
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSend()}
-              placeholder="Send a prompt to the agent..."
-              disabled={promptMutation.isPending}
-            />
-            <Button onClick={handleSend} disabled={promptMutation.isPending || !prompt.trim()}>
-              <SendIcon data-icon="inline-start" />
-              {promptMutation.isPending ? "Sending…" : "Send"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Logs */}
-      <Card>
-        <CardHeader className="flex flex-col gap-4 space-y-0 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1.5">
-            <CardTitle>Logs</CardTitle>
-            <CardDescription>{conn.logs.length} entries</CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <Tabs defaultValue="markdown" className="w-full gap-4">
+    <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <Tabs defaultValue="markdown" className="flex min-h-0 flex-1 flex-col gap-3">
+          <div className="flex shrink-0 flex-wrap items-center gap-3">
             <TabsList>
               <TabsTrigger value="markdown">Markdown</TabsTrigger>
-              <TabsTrigger value="log">Log view</TabsTrigger>
+              <TabsTrigger value="log">Traces</TabsTrigger>
             </TabsList>
-            <TabsContent value="log" className="mt-4">
-              <ScrollArea className="h-[500px]">
-                <div className="flex flex-col gap-3 pr-4">
-                  {conn.logs.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-muted-foreground">
-                      No logs yet. Send a prompt to get started.
-                    </p>
-                  ) : (
-                    conn.logs.map((log, i) => (
-                      <div key={i}>
-                        <div className="flex items-start gap-3 text-sm">
-                          <span className="shrink-0 text-xs text-muted-foreground">
-                            {new Date(log.timestamp).toLocaleTimeString()}
-                          </span>
-                          <Badge variant={getLogVariant(log.type)} className="shrink-0">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 sm:gap-3">
+              <Badge variant="secondary" className="shrink-0">
+                {conn.agentLabel}
+              </Badge>
+              <code
+                className="max-w-full truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+                title={conn.sessionId}
+              >
+                {conn.sessionId}
+              </code>
+            </div>
+          </div>
+          <TabsContent value="log" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+            <StickToBottom
+              className="relative flex min-h-0 flex-1 flex-col"
+              resize="smooth"
+              initial="smooth"
+            >
+              <StickToBottom.Content className="flex flex-col gap-3">
+                {conn.logs.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-muted-foreground">
+                    No logs yet. Send a prompt to get started.
+                  </p>
+                ) : (
+                  conn.logs.map((log, i) => (
+                    <Fragment key={i}>
+                      {i > 0 ? <Separator /> : null}
+                      <div className="flex items-start gap-3 text-sm">
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {new Date(log.timestamp).toLocaleTimeString()}
+                        </span>
+                        <div className="min-w-0 flex-1 flex flex-col gap-2">
+                          <Badge variant={getLogVariant(log.type)} className="w-fit shrink-0">
                             {log.type}
                           </Badge>
-                          <pre className="min-w-0 flex-1 overflow-auto rounded-md bg-muted p-2 text-xs">
+                          <pre className="min-w-0 overflow-auto rounded-md bg-muted p-2 text-xs">
                             {JSON.stringify(log.data, null, 2)}
                           </pre>
                         </div>
-                        {i < conn.logs.length - 1 && <Separator className="mt-3" />}
                       </div>
-                    ))
-                  )}
-                </div>
-              </ScrollArea>
-            </TabsContent>
-            <TabsContent value="markdown" className="mt-4">
-              <StickToBottom className="relative h-[500px]" resize="smooth" initial="smooth">
-                <StickToBottom.Content className="flex flex-col gap-4 pr-4">
-                  {markdownSegments.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-muted-foreground">
-                      No conversation yet. Send a prompt or wait for session updates to show here.
-                    </p>
-                  ) : (
-                    markdownSegments.map((seg, i) => {
-                      const isLiveAssistant =
-                        seg.kind === "assistant" &&
-                        promptMutation.isPending &&
-                        i === markdownSegments.length - 1;
-                      if (seg.kind === "user") {
-                        return (
-                          <div
-                            key={i}
-                            className="rounded-lg border border-border/70 bg-muted/70 px-3 py-2.5 dark:bg-muted/40"
-                          >
-                            <Streamdown className="max-w-none text-foreground">
-                              {seg.text}
-                            </Streamdown>
-                          </div>
-                        );
-                      }
-                      if (seg.kind === "assistant") {
-                        return (
-                          <Streamdown
-                            key={i}
-                            className="max-w-none"
-                            animated
-                            isAnimating={isLiveAssistant}
-                          >
-                            {seg.text}
-                          </Streamdown>
-                        );
-                      }
-                      const toolMd = `**Tool:** ${seg.title}${seg.status ? ` — \`${seg.status}\`` : ""}`;
+                    </Fragment>
+                  ))
+                )}
+              </StickToBottom.Content>
+              <StickToBottomFab />
+            </StickToBottom>
+          </TabsContent>
+          <TabsContent
+            value="markdown"
+            className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+          >
+            <StickToBottom
+              className="relative flex min-h-0 flex-1 flex-col"
+              resize="smooth"
+              initial="smooth"
+            >
+              <StickToBottom.Content className="flex flex-col gap-4 px-px">
+                {markdownSegments.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-muted-foreground">
+                    No conversation yet. Send a prompt or wait for session updates to show here.
+                  </p>
+                ) : (
+                  markdownSegments.map((seg, i) => {
+                    const isLiveAssistant =
+                      seg.kind === "assistant" &&
+                      promptMutation.isPending &&
+                      i === markdownSegments.length - 1;
+                    if (seg.kind === "user") {
                       return (
-                        <Streamdown key={i} className="max-w-none text-muted-foreground">
-                          {`\n\n---\n\n${toolMd}\n\n`}
+                        <div
+                          key={i}
+                          className="rounded-lg border border-border/70 bg-muted/70 px-3 py-2.5 dark:bg-muted/40"
+                        >
+                          <Streamdown className="max-w-none text-foreground">{seg.text}</Streamdown>
+                        </div>
+                      );
+                    }
+                    if (seg.kind === "assistant") {
+                      return (
+                        <Streamdown
+                          key={i}
+                          className="max-w-none"
+                          animated
+                          isAnimating={isLiveAssistant}
+                        >
+                          {seg.text}
                         </Streamdown>
                       );
-                    })
-                  )}
-                </StickToBottom.Content>
-                <MarkdownStickToBottomFab />
-              </StickToBottom>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+                    }
+                    if (seg.kind === "tool") {
+                      const toolMd = `**Tool:** ${seg.title}${seg.status ? ` — \`${seg.status}\`` : ""}`;
+                      return (
+                        <Fragment key={i}>
+                          <Streamdown className="max-w-none text-muted-foreground">
+                            {toolMd}
+                          </Streamdown>
+                        </Fragment>
+                      );
+                    }
+                    return null;
+                  })
+                )}
+                {conn.pendingPermission &&
+                  (() => {
+                    const pending = conn.pendingPermission;
+                    return (
+                      <Card className="max-w-2xl border-primary/50 bg-primary/5">
+                        <CardHeader>
+                          <CardTitle className="text-base">Permission required</CardTitle>
+                          <CardDescription>
+                            {pending.title}
+                            {pending.kind && (
+                              <Badge variant="outline" className="ml-2">
+                                {pending.kind}
+                              </Badge>
+                            )}
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="flex flex-wrap gap-2">
+                          {pending.options.map((opt) => (
+                            <Button
+                              key={opt.optionId}
+                              variant={opt.kind === "allow_once" ? "default" : "secondary"}
+                              size="sm"
+                              disabled={permissionMutation.isPending}
+                              onClick={() =>
+                                handlePermission(pending.requestId, {
+                                  optionId: opt.optionId,
+                                })
+                              }
+                            >
+                              {opt.name}
+                            </Button>
+                          ))}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={permissionMutation.isPending}
+                            onClick={() =>
+                              handlePermission(pending.requestId, {
+                                outcome: "cancelled",
+                              })
+                            }
+                          >
+                            Cancel
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    );
+                  })()}
+              </StickToBottom.Content>
+              <StickToBottomFab />
+            </StickToBottom>
+          </TabsContent>
+        </Tabs>
+      </div>
+      <div className="flex shrink-0 flex-col gap-2 pt-4">
+        <div className="flex gap-2 p-1">
+          <Input
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSend()}
+            placeholder="Send a prompt to the agent..."
+            disabled={promptMutation.isPending || !!conn.pendingPermission}
+          />
+          <Button
+            onClick={handleSend}
+            disabled={promptMutation.isPending || !!conn.pendingPermission || !prompt.trim()}
+          >
+            <SendIcon data-icon="inline-start" />
+            {conn.pendingPermission
+              ? "Permission required"
+              : promptMutation.isPending
+                ? "Sending…"
+                : "Send"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
 
-function MarkdownStickToBottomFab() {
+function StickToBottomFab() {
   const { isAtBottom, scrollToBottom } = useStickToBottomContext();
   if (isAtBottom) return null;
   return (
