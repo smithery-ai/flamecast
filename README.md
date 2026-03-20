@@ -72,14 +72,14 @@ flowchart LR
 
 `Flamecast` (`src/flamecast/index.ts`) is the **runtime authority** for:
 
-| Concern          | Implementation                                                                                                                                                                                                                                                                    |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Live runtimes    | `Map<id, ManagedConnection>` — **only** `ClientSideConnection`, `ChildProcess`, stream buffer (not logs)                                                                                                                                                                          |
-| Connection IDs   | **UUID** strings (`projection.allocateConnectionId`)                                                                                                                                                                                                                              |
-| Durable snapshot | **`FlamecastProjection`** — `connections` row + append-only `connection_logs`; `GET` merges DB + live runtime                                                                                                                                                                     |
-| Serializable API | `ConnectionInfo`: label, spawn spec, `sessionId`, timestamps, `logs[]` from DB, `pendingPermission` from DB row                                                                                                                                                                   |
-| ACP session      | `ClientSideConnection` over `acp.ndJsonStream(stdin, stdout)`                                                                                                                                                                                                                     |
-| OS process       | `ChildProcess` from `startAgentProcess` — killed on `DELETE /connections/:id`                                                                                                                                                                                                     |
+| Concern          | Implementation                                                                                                                                                   |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Live runtimes    | `Map<id, ManagedConnection>` — **only** `ClientSideConnection`, `ChildProcess`, stream buffer (not logs)                                                         |
+| Connection IDs   | **UUID** strings (`projection.allocateConnectionId`)                                                                                                             |
+| Durable snapshot | **`FlamecastProjection`** — `connections` row + append-only `connection_logs`; `GET` merges DB + live runtime                                                    |
+| Serializable API | `ConnectionInfo`: label, spawn spec, `sessionId`, timestamps, `logs[]` from DB, `pendingPermission` from DB row                                                  |
+| ACP session      | `ClientSideConnection` over `acp.ndJsonStream(stdin, stdout)`                                                                                                    |
+| OS process       | `ChildProcess` from `startAgentProcess` — killed on `DELETE /connections/:id`                                                                                    |
 | Permissions      | Pending request + resolver `Map` in-process; **durable** `pending_permission` on the connection row until **`POST /api/connections/:id/permissions/:requestId`** |
 
 **`ManagedConnection`** pairs:
