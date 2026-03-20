@@ -83,6 +83,8 @@ flowchart LR
 
 **Logging:** `pushLog(managed, type, data)` appends `{ timestamp, type, data }` to `info.logs`. **RPC tracing** uses `type: "rpc"` with `data.method` (spec method name), `data.direction` (`client_to_agent` or `agent_to_client`), `data.phase` (`request`, `response`, or `notification`), and `data.payload` (the RPC payload as received or sent). That covers every **client-handled** agent→client method in the SDK (`session/update`, `session/request_permission`, `fs/*`, `terminal/*`, client `ext*`) plus orchestrator→agent calls made today (`initialize`, `session/new`, `session/prompt`). UI flow events keep their own types: `permission_*` and `killed`.
 
+**Stream coalescing (logs only):** consecutive agent→client `session/update` notifications with `sessionUpdate` `agent_message_chunk`, `user_message_chunk`, or `agent_thought_chunk` and **text** `content` are merged into a **single** `rpc` row (same shape as one notification, with concatenated `content.text`) until the stream breaks: different `sessionId`, different chunk kind, different optional `messageId`, any non–text chunk, any other `session/update` variant (e.g. `tool_call`), when a `session/prompt` turn finishes (success or throw), or when the connection is killed. The live ACP stream is unchanged. A rare `rpc_coalesce_error` row records join failures and falls back to per-fragment `rpc` rows.
+
 ---
 
 ## Agent processes and transport

@@ -22,12 +22,24 @@ export type { AgentProcessInfo, ConnectionInfo, PendingPermission } from "../sha
 // Runtime-only callback used to resume a pending permission request.
 type PermissionResolver = (response: acp.RequestPermissionResponse) => void;
 
+/** Coalesces RPC log rows for streaming text session updates (see `flushSessionTextChunkLogBuffer`). */
+type StreamingTextChunkKind = "agent_message_chunk" | "user_message_chunk" | "agent_thought_chunk";
+
+interface SessionTextChunkLogBuffer {
+  sessionId: string;
+  kind: StreamingTextChunkKind;
+  /** From ACP `ContentChunk.messageId`; chunks with different ids are separate messages. */
+  messageId: string | null;
+  texts: string[];
+}
+
 // Full in-memory connection record, including runtime-only handles.
 interface ManagedConnection {
   info: ConnectionInfo;
   runtime: {
     connection: acp.ClientSideConnection | null;
     agentProcess: ChildProcess;
+    sessionTextChunkLogBuffer: SessionTextChunkLogBuffer | null;
   };
 }
 
@@ -106,6 +118,7 @@ export class Flamecast {
       runtime: {
         connection: null,
         agentProcess,
+        sessionTextChunkLogBuffer: null,
       },
     };
 
@@ -184,16 +197,21 @@ export class Flamecast {
       promptParams,
     );
 
-    const result = await managed.runtime.connection.prompt(promptParams);
-
-    this.pushRpcLog(
-      managed,
-      acp.AGENT_METHODS.session_prompt,
-      "agent_to_client",
-      "response",
-      result,
-    );
-    return result;
+    try {
+      const result = await managed.runtime.connection.prompt(promptParams);
+      this.flushSessionTextChunkLogBuffer(managed);
+      this.pushRpcLog(
+        managed,
+        acp.AGENT_METHODS.session_prompt,
+        "agent_to_client",
+        "response",
+        result,
+      );
+      return result;
+    } catch (e) {
+      this.flushSessionTextChunkLogBuffer(managed);
+      throw e;
+    }
   }
 
   kill(id: string): void {
@@ -201,6 +219,7 @@ export class Flamecast {
     if (managed.info.pendingPermission) {
       this.permissionResolvers.delete(managed.info.pendingPermission.requestId);
     }
+    this.flushSessionTextChunkLogBuffer(managed);
     managed.runtime.agentProcess.kill();
     this.pushLog(managed, "killed", {});
     this.connections.delete(id);
@@ -273,6 +292,103 @@ export class Flamecast {
       phase,
       ...(payload !== undefined ? { payload } : {}),
     });
+  }
+
+  /**
+   * Writes one `rpc` row for all consecutive text chunks of the same stream
+   * (`sessionId` + chunk kind + optional `messageId`). Any other `session/update`
+   * flushes first so tool calls, plan updates, etc. stay ordered correctly.
+   */
+  private flushSessionTextChunkLogBuffer(managed: ManagedConnection): void {
+    const buf = managed.runtime.sessionTextChunkLogBuffer;
+    if (!buf || buf.texts.length === 0) {
+      managed.runtime.sessionTextChunkLogBuffer = null;
+      return;
+    }
+    managed.runtime.sessionTextChunkLogBuffer = null;
+    let combined: string;
+    try {
+      combined = buf.texts.join("");
+    } catch (e) {
+      this.pushLog(managed, "rpc_coalesce_error", {
+        reason: "join_failed",
+        message: e instanceof Error ? e.message : String(e),
+        partialParts: buf.texts.length,
+      });
+      for (const text of buf.texts) {
+        this.pushRpcLog(
+          managed,
+          acp.CLIENT_METHODS.session_update,
+          "agent_to_client",
+          "notification",
+          {
+            sessionId: buf.sessionId,
+            update: {
+              sessionUpdate: buf.kind,
+              content: { type: "text", text },
+              ...(buf.messageId != null ? { messageId: buf.messageId } : {}),
+            },
+          },
+        );
+      }
+      return;
+    }
+    const update = {
+      sessionUpdate: buf.kind,
+      content: { type: "text" as const, text: combined },
+      ...(buf.messageId != null ? { messageId: buf.messageId } : {}),
+    } satisfies acp.SessionUpdate;
+    this.pushRpcLog(managed, acp.CLIENT_METHODS.session_update, "agent_to_client", "notification", {
+      sessionId: buf.sessionId,
+      update,
+    });
+  }
+
+  private logSessionUpdateNotification(
+    managed: ManagedConnection,
+    params: acp.SessionNotification,
+  ): void {
+    const u = params.update;
+    if (
+      (u.sessionUpdate === "agent_message_chunk" ||
+        u.sessionUpdate === "user_message_chunk" ||
+        u.sessionUpdate === "agent_thought_chunk") &&
+      u.content.type === "text" &&
+      typeof u.content.text === "string"
+    ) {
+      const kind = u.sessionUpdate;
+      const messageId = u.messageId ?? null;
+      const buf = managed.runtime.sessionTextChunkLogBuffer;
+      if (
+        buf &&
+        (buf.sessionId !== params.sessionId ||
+          buf.kind !== kind ||
+          (buf.messageId ?? null) !== messageId)
+      ) {
+        this.flushSessionTextChunkLogBuffer(managed);
+      }
+      const next = managed.runtime.sessionTextChunkLogBuffer;
+      if (next) {
+        next.texts.push(u.content.text);
+      } else {
+        managed.runtime.sessionTextChunkLogBuffer = {
+          sessionId: params.sessionId,
+          kind,
+          messageId,
+          texts: [u.content.text],
+        };
+      }
+      return;
+    }
+
+    this.flushSessionTextChunkLogBuffer(managed);
+    this.pushRpcLog(
+      managed,
+      acp.CLIENT_METHODS.session_update,
+      "agent_to_client",
+      "notification",
+      params,
+    );
   }
 
   private takePendingPermissionResolution(
@@ -351,13 +467,7 @@ export class Flamecast {
   private createClient(managed: ManagedConnection): acp.Client {
     return {
       sessionUpdate: async (params: acp.SessionNotification) => {
-        this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.session_update,
-          "agent_to_client",
-          "notification",
-          params,
-        );
+        this.logSessionUpdateNotification(managed, params);
       },
 
       requestPermission: async (
