@@ -33,8 +33,6 @@ function ConnectionsPage() {
   const navigate = useNavigate();
   const [selectedProcessId, setSelectedProcessId] = useState<string | null>(null);
   const [runtimeKind, setRuntimeKind] = useState<CreateConnectionBody["runtimeKind"]>("local");
-  const [dockerfile, setDockerfile] = useState("Dockerfile");
-  const [dockerBuildContext, setDockerBuildContext] = useState("");
   const [newLabel, setNewLabel] = useState("");
   const [newCommand, setNewCommand] = useState("");
   const [newArgs, setNewArgs] = useState("");
@@ -68,14 +66,6 @@ function ConnectionsPage() {
         agentProcessId: selectedProcessId,
         runtimeKind,
         cwd: undefined,
-        ...(runtimeKind === "docker"
-          ? {
-              dockerfile: dockerfile.trim() || "Dockerfile",
-              ...(dockerBuildContext.trim()
-                ? { dockerBuildContext: dockerBuildContext.trim() }
-                : {}),
-            }
-          : {}),
       });
     },
     onSuccess: (conn) => {
@@ -137,9 +127,11 @@ function ConnectionsPage() {
                 id="runtime-kind"
                 className="h-9 rounded-md border bg-background px-2 text-sm"
                 value={runtimeKind}
-                onChange={(event) =>
-                  setRuntimeKind(event.target.value as CreateConnectionBody["runtimeKind"])
-                }
+                onChange={(event) => {
+                  const value: CreateConnectionBody["runtimeKind"] =
+                    event.target.value === "docker" ? "docker" : "local";
+                  setRuntimeKind(value);
+                }}
               >
                 <option value="local">Local</option>
                 <option value="docker">Docker</option>
@@ -182,37 +174,16 @@ function ConnectionsPage() {
             <Button
               className="shrink-0"
               onClick={() => createMutation.mutate()}
-              disabled={
-                createMutation.isPending ||
-                !selectedProcessId ||
-                processes.length === 0 ||
-                (runtimeKind === "docker" && !dockerfile.trim())
-              }
+              disabled={createMutation.isPending || !selectedProcessId || processes.length === 0}
             >
               <PlusIcon data-icon="inline-start" />
               New connection
             </Button>
           </div>
           {runtimeKind === "docker" && (
-            <div className="flex flex-col gap-2">
-              <Input
-                placeholder="Dockerfile path (e.g. Dockerfile or docker/agent.Dockerfile)"
-                value={dockerfile}
-                onChange={(e) => setDockerfile(e.target.value)}
-                aria-label="Path to Dockerfile"
-              />
-              <Input
-                placeholder="Build context directory (optional, defaults to session cwd on server)"
-                value={dockerBuildContext}
-                onChange={(e) => setDockerBuildContext(e.target.value)}
-                aria-label="Docker build context directory"
-              />
-              <p className="text-xs text-muted-foreground">
-                Runs <code className="rounded bg-muted px-1">docker build</code> then{" "}
-                <code className="rounded bg-muted px-1">docker run -i</code> with the selected
-                agent&apos;s command and args inside the image.
-              </p>
-            </div>
+            <p className="text-xs text-muted-foreground">
+              Attaches to an alchemy-managed Docker container for the selected agent.
+            </p>
           )}
           {selectedProcess && (
             <p className="text-xs text-muted-foreground">

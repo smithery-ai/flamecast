@@ -2,9 +2,10 @@
   "name": "acp",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server/index.ts & vite",
+    "dev": "tsx alchemy.run.ts && (tsx watch src/server/index.ts & vite)",
     "dev:client": "vite",
-    "dev:server": "tsx watch src/server/index.ts",
+    "dev:server": "tsx alchemy.run.ts && tsx watch src/server/index.ts",
+    "dev:destroy": "tsx alchemy.run.ts --destroy",
     "build": "vite build",
     "start": "node dist/index.js",
     "cli": "tsx src/index.ts",
@@ -12,7 +13,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "fmt": "eslint . --fix && prettier --write ."
+    "fmt": "eslint . --fix && prettier --write .",
+    "test": "npx vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.16.1",
@@ -24,6 +26,7 @@
     "@tanstack/react-query": "^5.91.0",
     "@tanstack/react-router": "^1.167.5",
     "@vitejs/plugin-react": "^6.0.1",
+    "alchemy": "^0.89.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "hono": "^4.12.8",
@@ -54,6 +57,7 @@
     "globals": "^17.4.0",
     "prettier": "^3.8.1",
     "tsx": "^4.7.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.0"
   }
 }

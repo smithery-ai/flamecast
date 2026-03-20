@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
   AgentProcessInfo,
@@ -13,10 +12,10 @@ import type {
 } from "../shared/connection.js";
 import {
   getBuiltinAgentProcessPresets,
+  openLocalTransport,
+  openTcpTransport,
+  type AcpTransport,
 } from "./transport.js";
-import type { RuntimeKind, SandboxProvisioner } from "./sandbox.js";
-import { localProvisioner } from "./provisioners/local.js";
-import { dockerProvisioner } from "./provisioners/docker.js";
 
 export type { AgentProcessInfo, ConnectionInfo, PendingPermission } from "../shared/connection.js";
 
@@ -28,24 +27,30 @@ interface ManagedConnection {
   info: ConnectionInfo;
   runtime: {
     connection: acp.ClientSideConnection | null;
-    dispose: () => void | Promise<void>;
+    dispose: () => void;
   };
+}
+
+/** ACP port inside Docker containers — must match ACP_PORT in alchemy.run.ts. */
+const ACP_CONTAINER_PORT = 9100;
+
+/**
+ * Derives the host port for an alchemy-managed agent container.
+ * Convention: base port + offset per preset, matching alchemy.run.ts port mappings.
+ */
+function agentHostPort(presetId: string): number {
+  const presets = getBuiltinAgentProcessPresets();
+  const index = presets.findIndex((p) => p.id === presetId);
+  return ACP_CONTAINER_PORT + (index >= 0 ? index : 0);
 }
 
 export class Flamecast {
   private connections = new Map<string, ManagedConnection>();
   private permissionResolvers = new Map<string, PermissionResolver>();
   private agentProcesses = new Map<string, { label: string; spawn: AgentSpawn }>();
-  private provisioners: Record<RuntimeKind, SandboxProvisioner>;
   private nextId = 1;
 
-  constructor(
-    provisioners: Partial<Record<RuntimeKind, SandboxProvisioner>> = {},
-  ) {
-    this.provisioners = {
-      local: provisioners.local ?? localProvisioner,
-      docker: provisioners.docker ?? dockerProvisioner,
-    };
+  constructor() {
     for (const preset of getBuiltinAgentProcessPresets()) {
       this.agentProcesses.set(preset.id, {
         label: preset.label,
@@ -74,7 +79,7 @@ export class Flamecast {
 
   async create(opts: CreateConnectionBody): Promise<ConnectionInfo> {
     const cwd = opts.cwd ?? process.cwd();
-    const runtimeKind: RuntimeKind = opts.runtimeKind ?? "local";
+    const runtimeKind = opts.runtimeKind ?? "local";
     const id = String(this.nextId++);
     const now = new Date().toISOString();
 
@@ -96,23 +101,16 @@ export class Flamecast {
       throw new Error("Provide agentProcessId or spawn");
     }
 
-    const provisioner = this.provisioners[runtimeKind];
-    if (!provisioner) {
-      throw new Error(`Unsupported runtime kind "${runtimeKind}"`);
+    // Open transport — local spawns a process, docker connects via TCP
+    let transport: AcpTransport;
+    if (runtimeKind === "docker") {
+      const port = agentHostPort(opts.agentProcessId ?? id);
+      transport = await openTcpTransport("localhost", port);
+    } else {
+      transport = openLocalTransport(spawn);
     }
-    const runtime = await provisioner.start({
-      spawn,
-      agentProcessId: opts.agentProcessId,
-      connectionId: id,
-      docker:
-        runtimeKind === "docker" && opts.dockerfile?.trim()
-          ? {
-              dockerfile: opts.dockerfile.trim(),
-              contextDir: path.resolve(opts.dockerBuildContext ?? cwd),
-            }
-          : undefined,
-    });
-    const stream = acp.ndJsonStream(runtime.streams.input, runtime.streams.output);
+
+    const acpStream = acp.ndJsonStream(transport.input, transport.output);
 
     const managed: ManagedConnection = {
       info: {
@@ -127,13 +125,13 @@ export class Flamecast {
       },
       runtime: {
         connection: null,
-        dispose: runtime.dispose,
+        dispose: transport.dispose,
       },
     };
 
     try {
       const client = this.createClient(managed);
-      const connection = new acp.ClientSideConnection((_agent) => client, stream);
+      const connection = new acp.ClientSideConnection((_agent) => client, acpStream);
       managed.runtime.connection = connection;
 
       const initResult = await connection.initialize({
@@ -161,7 +159,7 @@ export class Flamecast {
       this.connections.set(id, managed);
       return this.snapshotInfo(managed);
     } catch (error) {
-      await Promise.resolve(managed.runtime.dispose());
+      transport.dispose();
       throw error;
     }
   }
@@ -197,7 +195,7 @@ export class Flamecast {
     if (managed.info.pendingPermission) {
       this.permissionResolvers.delete(managed.info.pendingPermission.requestId);
     }
-    void Promise.resolve(managed.runtime.dispose());
+    managed.runtime.dispose();
     this.pushLog(managed, "killed", {});
     this.connections.delete(id);
   }

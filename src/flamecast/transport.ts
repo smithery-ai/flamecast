@@ -1,7 +1,19 @@
 import { ChildProcess, spawn } from "node:child_process";
+import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { Writable, Readable } from "node:stream";
+
+/** The ACP transport pair — spec §2.4. */
+export interface AcpTransport {
+  input: WritableStream<Uint8Array>;
+  output: ReadableStream<Uint8Array>;
+  dispose: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// Web Stream helpers
+// ---------------------------------------------------------------------------
 
 function toUint8ReadableStream(
   stream: ReturnType<typeof Readable.toWeb>,
@@ -23,6 +35,10 @@ function toUint8ReadableStream(
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Local transport — ChildProcess stdio
+// ---------------------------------------------------------------------------
 
 const npxCmd = () => (process.platform === "win32" ? "npx.cmd" : "npx");
 
@@ -52,31 +68,62 @@ export function getBuiltinAgentProcessPresets(): BuiltinAgentPreset[] {
   ];
 }
 
-export function startAgentProcess(spec: { command: string; args?: string[] }): ChildProcess {
-  const args = spec.args ?? [];
-  return spawn(spec.command, args, {
+export function openLocalTransport(spec: { command: string; args?: string[] }): AcpTransport {
+  const agentProcess: ChildProcess = spawn(spec.command, spec.args ?? [], {
     stdio: ["pipe", "pipe", "inherit"],
   });
-}
-
-/**
- * This allows the client to communicate with the agent process.
- * @param agentProcess - The agent process to use. Defaults to a mock agent process, but can be replaced with Claude Agent SDK, Codex, etc.
- * @returns A transport object containing the agent process, input stream, and output stream.
- */
-export function getAgentTransport(agentProcess: ChildProcess) {
-  // Create streams to communicate with the agent
   const stdin = agentProcess.stdin;
   const stdout = agentProcess.stdout;
   if (!stdin || !stdout) {
     throw new Error("Failed to get stdin/stdout from agent process");
   }
-  const input = Writable.toWeb(stdin);
-  const output = toUint8ReadableStream(Readable.toWeb(stdout));
-
   return {
-    input,
-    output,
-    agentProcess,
+    input: Writable.toWeb(stdin),
+    output: toUint8ReadableStream(Readable.toWeb(stdout)),
+    dispose: () => {
+      agentProcess.kill();
+    },
   };
+}
+
+// ---------------------------------------------------------------------------
+// TCP transport — connect to an alchemy-managed container over the network
+// ---------------------------------------------------------------------------
+
+export function openTcpTransport(host: string, port: number): Promise<AcpTransport> {
+  return new Promise((resolve, reject) => {
+    const socket = createConnection({ host, port }, () => {
+      // For a duplex socket, split read/write manually rather than
+      // using Writable.toWeb + Readable.toWeb on the same object.
+      const input = new WritableStream<Uint8Array>({
+        write(chunk) {
+          return new Promise((res, rej) => {
+            socket.write(chunk, (err) => (err ? rej(err) : res()));
+          });
+        },
+        close() {
+          socket.end();
+        },
+      });
+
+      const output = new ReadableStream<Uint8Array>({
+        start(controller) {
+          socket.on("data", (chunk: Buffer) => {
+            controller.enqueue(new Uint8Array(chunk));
+          });
+          socket.on("end", () => controller.close());
+          socket.on("error", (err) => controller.error(err));
+        },
+      });
+
+      resolve({
+        input,
+        output,
+        dispose: () => {
+          socket.destroy();
+        },
+      });
+    });
+    socket.on("error", reject);
+  });
 }

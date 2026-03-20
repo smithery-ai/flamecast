@@ -59,10 +59,6 @@ export const CreateConnectionBodySchema = z
   .object({
     cwd: z.string().optional(),
     runtimeKind: z.enum(["local", "docker"]).default("local"),
-    /** Path to Dockerfile (absolute, or relative to `dockerBuildContext`). Required when `runtimeKind` is `docker`. */
-    dockerfile: z.string().optional(),
-    /** Build context directory for `docker build` (defaults to `cwd` / server cwd). */
-    dockerBuildContext: z.string().optional(),
     /** Use a process definition from `GET /agent-processes`. */
     agentProcessId: z.string().optional(),
     /** Spawn a one-off process without registering it. */
@@ -72,9 +68,6 @@ export const CreateConnectionBodySchema = z
   })
   .refine((b) => Boolean(b.agentProcessId) !== Boolean(b.spawn), {
     message: "Provide exactly one of agentProcessId or spawn",
-  })
-  .refine((b) => b.runtimeKind !== "docker" || Boolean(b.dockerfile?.trim()), {
-    message: "Docker runtime requires dockerfile",
   });
 export type CreateConnectionBody = z.infer<typeof CreateConnectionBodySchema>;
 

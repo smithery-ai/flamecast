@@ -282,7 +282,6 @@ class ExampleAgent implements acp.Agent {
   }
 }
 
-const input = Writable.toWeb(process.stdout);
 function toUint8ReadableStream(
   stream: ReturnType<typeof Readable.toWeb>,
 ): ReadableStream<Uint8Array> {
@@ -304,7 +303,48 @@ function toUint8ReadableStream(
   });
 }
 
-const output = toUint8ReadableStream(Readable.toWeb(process.stdin));
+function connectStdio(): void {
+  const input = Writable.toWeb(process.stdout);
+  const output = toUint8ReadableStream(Readable.toWeb(process.stdin));
+  const stream = acp.ndJsonStream(input, output);
+  new acp.AgentSideConnection((conn) => new ExampleAgent(conn), stream);
+}
 
-const stream = acp.ndJsonStream(input, output);
-new acp.AgentSideConnection((conn) => new ExampleAgent(conn), stream);
+async function listenTcp(port: number): Promise<void> {
+  const net = await import("node:net");
+  const server = net.createServer((socket) => {
+    const input = new WritableStream<Uint8Array>({
+      write(chunk) {
+        return new Promise((res, rej) => {
+          socket.write(chunk, (err) => (err ? rej(err) : res()));
+        });
+      },
+      close() {
+        socket.end();
+      },
+    });
+
+    const output = new ReadableStream<Uint8Array>({
+      start(controller) {
+        socket.on("data", (chunk: Buffer) => {
+          controller.enqueue(new Uint8Array(chunk));
+        });
+        socket.on("end", () => controller.close());
+        socket.on("error", (err) => controller.error(err));
+      },
+    });
+
+    const stream = acp.ndJsonStream(input, output);
+    new acp.AgentSideConnection((conn) => new ExampleAgent(conn), stream);
+  });
+  server.listen(port, () => {
+    console.error(`Agent listening on port ${port}`);
+  });
+}
+
+const acpPort = process.env.ACP_PORT ? parseInt(process.env.ACP_PORT, 10) : undefined;
+if (acpPort) {
+  listenTcp(acpPort);
+} else {
+  connectStdio();
+}
