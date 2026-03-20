@@ -4,6 +4,7 @@ import { fetchConnection, respondToPermission, sendPrompt } from "@/client/lib/a
 import { connectionLogsToSegments } from "@/client/lib/logs-markdown";
 import { useMemo, useState } from "react";
 import { Streamdown } from "streamdown";
+import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import { Button } from "@/client/components/ui/button";
 import {
   Card,
@@ -18,7 +19,7 @@ import { ScrollArea } from "@/client/components/ui/scroll-area";
 import { Separator } from "@/client/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/client/components/ui/tabs";
 import { Skeleton } from "@/client/components/ui/skeleton";
-import { ArrowLeftIcon, SendIcon } from "lucide-react";
+import { ArrowLeftIcon, ChevronDownIcon, SendIcon } from "lucide-react";
 
 export const Route = createFileRoute("/connections/$id")({
   component: ConnectionDetailPage,
@@ -230,59 +231,75 @@ function ConnectionDetailPage() {
               </ScrollArea>
             </TabsContent>
             <TabsContent value="markdown" className="mt-4">
-              <ScrollArea className="h-[500px]">
-                <div className="pr-4">
+              <StickToBottom className="relative h-[500px]" resize="smooth" initial="smooth">
+                <StickToBottom.Content className="flex flex-col gap-4 pr-4">
                   {markdownSegments.length === 0 ? (
                     <p className="py-8 text-center text-sm text-muted-foreground">
                       No conversation yet. Send a prompt or wait for session updates to show here.
                     </p>
                   ) : (
-                    <div className="flex flex-col gap-4">
-                      {markdownSegments.map((seg, i) => {
-                        const isLiveAssistant =
-                          seg.kind === "assistant" &&
-                          promptMutation.isPending &&
-                          i === markdownSegments.length - 1;
-                        if (seg.kind === "user") {
-                          return (
-                            <div
-                              key={i}
-                              className="rounded-lg border border-border/70 bg-muted/70 px-3 py-2.5 dark:bg-muted/40"
-                            >
-                              <Streamdown className="max-w-none text-foreground">
-                                {seg.text}
-                              </Streamdown>
-                            </div>
-                          );
-                        }
-                        if (seg.kind === "assistant") {
-                          return (
-                            <Streamdown
-                              key={i}
-                              className="max-w-none"
-                              animated
-                              isAnimating={isLiveAssistant}
-                            >
+                    markdownSegments.map((seg, i) => {
+                      const isLiveAssistant =
+                        seg.kind === "assistant" &&
+                        promptMutation.isPending &&
+                        i === markdownSegments.length - 1;
+                      if (seg.kind === "user") {
+                        return (
+                          <div
+                            key={i}
+                            className="rounded-lg border border-border/70 bg-muted/70 px-3 py-2.5 dark:bg-muted/40"
+                          >
+                            <Streamdown className="max-w-none text-foreground">
                               {seg.text}
                             </Streamdown>
-                          );
-                        }
-                        const toolMd = `**Tool:** ${seg.title}${seg.status ? ` — \`${seg.status}\`` : ""}`;
+                          </div>
+                        );
+                      }
+                      if (seg.kind === "assistant") {
                         return (
-                          <Streamdown key={i} className="max-w-none text-muted-foreground">
-                            {`\n\n---\n\n${toolMd}\n\n`}
+                          <Streamdown
+                            key={i}
+                            className="max-w-none"
+                            animated
+                            isAnimating={isLiveAssistant}
+                          >
+                            {seg.text}
                           </Streamdown>
                         );
-                      })}
-                    </div>
+                      }
+                      const toolMd = `**Tool:** ${seg.title}${seg.status ? ` — \`${seg.status}\`` : ""}`;
+                      return (
+                        <Streamdown key={i} className="max-w-none text-muted-foreground">
+                          {`\n\n---\n\n${toolMd}\n\n`}
+                        </Streamdown>
+                      );
+                    })
                   )}
-                </div>
-              </ScrollArea>
+                </StickToBottom.Content>
+                <MarkdownStickToBottomFab />
+              </StickToBottom>
             </TabsContent>
           </Tabs>
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function MarkdownStickToBottomFab() {
+  const { isAtBottom, scrollToBottom } = useStickToBottomContext();
+  if (isAtBottom) return null;
+  return (
+    <Button
+      type="button"
+      variant="secondary"
+      size="icon"
+      className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 shadow-md"
+      onClick={() => void scrollToBottom()}
+      aria-label="Scroll to latest"
+    >
+      <ChevronDownIcon />
+    </Button>
   );
 }
 
