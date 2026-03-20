@@ -8,22 +8,22 @@ See **PRD.md** for product context and **RFC.md** for the implementation plan.
 
 This section summarizes what changed from the original SPEC. The rest of the document reflects the new design.
 
-| Area | Before | After |
-|---|---|---|
-| **Who owns Hono** | `src/server/index.ts` creates Hono app, mounts Flamecast as a dependency | Flamecast owns Hono internally, exposes `.fetch` and `.listen()` |
-| **Configuration** | `config.yaml` parsed at startup | `FlamecastOptions` in TypeScript — constructor args replace config file |
-| **Entry point** | `src/server/index.ts` wires config → DB → Flamecast → Hono → serve | `src/index.ts` — 3 lines. Custom config via user's own `index.ts` + build + link |
-| **Agent lifecycle** | `ChildProcess` held in memory, dies with orchestrator | `Provisioner` interface with `start()` / `reconnect()` / `destroy()`. `SandboxHandle` persisted to DB. Agents can outlive the orchestrator |
-| **Serverless support** | None — long-running process required | `.fetch` export works on Vercel, Cloudflare, etc. Remote provisioners reconnect per-request |
-| **Transport** | Hard-coded `startAgentProcess()` + `getAgentTransport()` returning stdio | `Provisioner` returns `AcpTransport` (same stream shape). Local stdio is one impl; Docker exec, K8s exec, TCP are others |
-| **`ManagedConnection`** | `runtime.agentProcess: ChildProcess` | `sandboxHandle: SandboxHandle` (persisted) + `runtime.transport: AcpTransport` or `null` (ephemeral) |
-| **Permission flow** | In-memory Promise resolver, works only in long-running mode | Same for long-running. Serverless: timeout + poll + re-prompt (v1), persistent channel (future) |
-| **Runtime authority** | Orchestrator process is always authoritative for liveness | Depends on provisioner. Local: orchestrator is authoritative. Remote: provisioner is authoritative for liveness, orchestrator reconnects to check |
-| **"Thin edge, fat orchestrator"** | Orchestrator must be fat (holds processes) | Orchestrator can be thin (serverless) or fat (long-running) — provisioner decides |
-| **State manager** | Described as future work (Phase 2) | Already built — memory and Postgres (PGLite / external) implementations exist |
-| **Chat integration** | Not mentioned | First-class `chat.adapters` option on constructor — Vercel Chat SDK for Slack, Discord, Teams, WhatsApp, etc. |
-| **Convex** | Phase 3 dedicated to optional Convex integration | Removed. State manager interface is vendor-agnostic; Convex can be added as an implementation later if needed |
-| **Phases** | Phase 1: sandbox orchestration, Phase 2: state manager, Phase 3: Convex | Phase 1: Flamecast wraps Hono + LocalProvisioner, Phase 2: remote provisioners, Phase 3: Chat SDK + multi-surface |
+| Area                              | Before                                                                   | After                                                                                                                                             |
+| --------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Who owns Hono**                 | `src/server/index.ts` creates Hono app, mounts Flamecast as a dependency | Flamecast owns Hono internally, exposes `.fetch` and `.listen()`                                                                                  |
+| **Configuration**                 | `config.yaml` parsed at startup                                          | `FlamecastOptions` in TypeScript — constructor args replace config file                                                                           |
+| **Entry point**                   | `src/server/index.ts` wires config → DB → Flamecast → Hono → serve       | `src/index.ts` — 3 lines. Custom config via user's own `index.ts` + build + link                                                                  |
+| **Agent lifecycle**               | `ChildProcess` held in memory, dies with orchestrator                    | `Provisioner` interface with `start()` / `reconnect()` / `destroy()`. `SandboxHandle` persisted to DB. Agents can outlive the orchestrator        |
+| **Serverless support**            | None — long-running process required                                     | `.fetch` export works on Vercel, Cloudflare, etc. Remote provisioners reconnect per-request                                                       |
+| **Transport**                     | Hard-coded `startAgentProcess()` + `getAgentTransport()` returning stdio | `Provisioner` returns `AcpTransport` (same stream shape). Local stdio is one impl; Docker exec, K8s exec, TCP are others                          |
+| **`ManagedConnection`**           | `runtime.agentProcess: ChildProcess`                                     | `sandboxHandle: SandboxHandle` (persisted) + `runtime.transport: AcpTransport` or `null` (ephemeral)                                              |
+| **Permission flow**               | In-memory Promise resolver, works only in long-running mode              | Same for long-running. Serverless: timeout + poll + re-prompt (v1), persistent channel (future)                                                   |
+| **Runtime authority**             | Orchestrator process is always authoritative for liveness                | Depends on provisioner. Local: orchestrator is authoritative. Remote: provisioner is authoritative for liveness, orchestrator reconnects to check |
+| **"Thin edge, fat orchestrator"** | Orchestrator must be fat (holds processes)                               | Orchestrator can be thin (serverless) or fat (long-running) — provisioner decides                                                                 |
+| **State manager**                 | Described as future work (Phase 2)                                       | Already built — memory and Postgres (PGLite / external) implementations exist                                                                     |
+| **Chat integration**              | Not mentioned                                                            | First-class `chat.adapters` option on constructor — Vercel Chat SDK for Slack, Discord, Teams, WhatsApp, etc.                                     |
+| **Convex**                        | Phase 3 dedicated to optional Convex integration                         | Removed. State manager interface is vendor-agnostic; Convex can be added as an implementation later if needed                                     |
+| **Phases**                        | Phase 1: sandbox orchestration, Phase 2: state manager, Phase 3: Convex  | Phase 1: Flamecast wraps Hono + LocalProvisioner, Phase 2: remote provisioners, Phase 3: Chat SDK + multi-surface                                 |
 
 ## 1. Current state
 

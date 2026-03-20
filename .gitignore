@@ -31,3 +31,6 @@ dist/
 
 # local PGlite data (Flamecast RPC log)
 .acp/
+.alchemy/
+src/client/routeTree.gen.ts
+ALCHEMY_PROVISIONER_SPEC.md

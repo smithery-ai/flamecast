@@ -1,4 +1,14 @@
-# Flamecast API server — which state manager backs connection metadata + logs.
-# - psql: Postgres (FLAMECAST_POSTGRES_URL) or local PGLite under .acp/pglite if unset
-# - memory: in-process only; data is lost when the server exits
+# Flamecast server config
 stateManager: psql
+
+# Provisioner — how agent processes are created per-connection.
+# - local: child_process.spawn() (default)
+# - docker: container per-connection from a pre-built image (alchemy)
+# - remote: connect to an already-running agent via TCP
+provisioner:
+  type: docker
+  image: flamecast/example-agent:gnijor
+  network: flamecast-agents-gnijor
+
+# Workspace directory mounted into containers for filesystem access
+workspaceDir: ./workspace
