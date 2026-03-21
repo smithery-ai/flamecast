@@ -80,33 +80,31 @@ const defaultProvisioner: Provisioner = async (connectionId, spec) => {
   const match = Object.entries(DOCKER_AGENTS).find(([key]) => cmd.includes(key));
 
   if (match) {
-    const [, { image }] = match;
-    const Docker = (await import("dockerode")).default;
+    const [, { image, dockerfile }] = match;
+    const docker = await import("alchemy/docker");
     const { findFreePort, waitForPort, openTcpTransport } = await import("./transport.js");
-    const docker = new Docker();
     const port = await findFreePort();
 
-    const container = await docker.createContainer({
-      Image: `${image}:latest`,
-      name: `flamecast-sandbox-${connectionId}`,
-      Env: [`ACP_PORT=${port}`],
-      ExposedPorts: { [`${port}/tcp`]: {} },
-      HostConfig: {
-        PortBindings: { [`${port}/tcp`]: [{ HostPort: String(port) }] },
-      },
+    await docker.Image(`agent-image-${connectionId}`, {
+      name: image,
+      tag: "latest",
+      build: { context: ".", dockerfile },
+      skipPush: true,
     });
-    await container.start();
+
+    await docker.Container(`sandbox-${connectionId}`, {
+      image: `${image}:latest`,
+      name: `flamecast-sandbox-${connectionId}`,
+      environment: { ACP_PORT: String(port) },
+      ports: [{ external: port, internal: port }],
+      start: true,
+    });
+
     await waitForPort("localhost", port);
     // Agent needs time to fully init after port opens
     await new Promise((r) => setTimeout(r, 1000));
 
-    return {
-      ...(await openTcpTransport("localhost", port)),
-      dispose: async () => {
-        await container.stop().catch(() => {});
-        await container.remove().catch(() => {});
-      },
-    };
+    return openTcpTransport("localhost", port);
   }
 
   const { openLocalTransport } = await import("./transport.js");
