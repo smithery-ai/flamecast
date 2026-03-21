@@ -30,7 +30,8 @@ lerna-debug.log*
 dist/
 coverage/
 
-# local PGlite data (Flamecast RPC log)
+# local PGlite data (Flamecast session logs)
+.flamecast/
 .acp/
 .flamecast/
 .alchemy/

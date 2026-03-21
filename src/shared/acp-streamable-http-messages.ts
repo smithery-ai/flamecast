@@ -4,35 +4,83 @@ import { z } from "zod";
 
 export type JsonRpcId = string | number | null;
 
+type JsonRpcNotificationMessage = {
+  jsonrpc: "2.0";
+  method: string;
+  params?: unknown;
+};
+
+type JsonRpcRequestMessage = JsonRpcNotificationMessage & {
+  id: JsonRpcId;
+};
+
+type JsonRpcErrorResponse = {
+  code: number;
+  message: string;
+  data?: unknown;
+};
+
+type JsonRpcSuccessResponseMessage = {
+  jsonrpc: "2.0";
+  id: JsonRpcId;
+  result: unknown;
+};
+
+type JsonRpcErrorResponseMessage = {
+  jsonrpc: "2.0";
+  id: JsonRpcId;
+  error: JsonRpcErrorResponse;
+};
+
+type JsonRpcResponseMessage = JsonRpcSuccessResponseMessage | JsonRpcErrorResponseMessage;
+type JsonRpcMessage = JsonRpcRequestMessage | JsonRpcNotificationMessage | JsonRpcResponseMessage;
+
 const JsonRpcIdSchema = z.union([z.string(), z.number(), z.null()]);
 
-const JsonRpcRequestMessageSchema = z.object({
+const JsonRpcNotificationMessageSchema: z.ZodType<JsonRpcNotificationMessage> = z.object({
   jsonrpc: z.literal("2.0"),
-  id: JsonRpcIdSchema.optional(),
   method: z.string(),
   params: z.unknown().optional(),
 });
 
-const JsonRpcResponseMessageSchema = z
-  .object({
-    jsonrpc: z.literal("2.0"),
-    id: JsonRpcIdSchema,
-    result: z.unknown().optional(),
-    error: z
-      .object({
-        code: z.number(),
-        message: z.string(),
-        data: z.unknown().optional(),
-      })
-      .optional(),
-  })
-  .refine((message) => message.result !== undefined || message.error !== undefined, {
-    message: "A JSON-RPC response must include result or error",
-  });
+const JsonRpcRequestMessageSchema: z.ZodType<JsonRpcRequestMessage> = z.object({
+  jsonrpc: z.literal("2.0"),
+  id: JsonRpcIdSchema,
+  method: z.string(),
+  params: z.unknown().optional(),
+});
 
-const JsonRpcMessageSchema = z.union([JsonRpcRequestMessageSchema, JsonRpcResponseMessageSchema]);
+const JsonRpcErrorSchema: z.ZodType<JsonRpcErrorResponse> = z.object({
+  code: z.number(),
+  message: z.string(),
+  data: z.unknown().optional(),
+});
 
-const InitializeRequestMessageSchema = JsonRpcRequestMessageSchema.extend({
+const JsonRpcSuccessResponseMessageSchema: z.ZodType<JsonRpcSuccessResponseMessage> = z.object({
+  jsonrpc: z.literal("2.0"),
+  id: JsonRpcIdSchema,
+  result: z.unknown(),
+});
+
+const JsonRpcErrorResponseMessageSchema: z.ZodType<JsonRpcErrorResponseMessage> = z.object({
+  jsonrpc: z.literal("2.0"),
+  id: JsonRpcIdSchema,
+  error: JsonRpcErrorSchema,
+});
+
+const JsonRpcResponseMessageSchema: z.ZodType<JsonRpcResponseMessage> = z.union([
+  JsonRpcSuccessResponseMessageSchema,
+  JsonRpcErrorResponseMessageSchema,
+]);
+
+const JsonRpcMessageSchema: z.ZodType<JsonRpcMessage> = z.union([
+  JsonRpcRequestMessageSchema,
+  JsonRpcNotificationMessageSchema,
+  JsonRpcResponseMessageSchema,
+]);
+
+const InitializeRequestMessageSchema = z.object({
+  jsonrpc: z.literal("2.0"),
   id: JsonRpcIdSchema,
   method: z.literal(acp.AGENT_METHODS.initialize),
   params: zInitializeRequest,

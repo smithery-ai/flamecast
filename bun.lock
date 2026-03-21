@@ -2,7 +2,7 @@
   "lockfileVersion": 1,
   "workspaces": {
     "": {
-      "name": "acp",
+      "name": "flamecast",
       "dependencies": {
         "@agentclientprotocol/sdk": "^0.16.1",
         "@base-ui/react": "^1.3.0",

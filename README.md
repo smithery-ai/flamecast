@@ -8,10 +8,19 @@ Flamecast is an open-source, self-hostable control plane for ACP-compatible agen
 
 ```bash
 npm install
+npm run build
+npm start
+```
+
+The `flamecast` CLI starts the API on port 3001 by default. During local package development, `npm start` runs that same entrypoint.
+
+For the split dev loop:
+
+```bash
 npm run dev
 ```
 
-Open **http://localhost:3000**. The home page lists the registered agent templates; click **Start session** on one to launch a session.
+Open **http://localhost:3000** for the Vite app in development.
 
 ---
 
@@ -145,7 +154,7 @@ Runtime providers are responsible for starting the actual agent runtime and retu
 Custom providers can be added through the `runtimeProviders` option:
 
 ```ts
-import { Flamecast } from "./src/flamecast/index.js";
+import { Flamecast } from "flamecast";
 
 const flamecast = new Flamecast({
   runtimeProviders: {
@@ -215,7 +224,7 @@ test/
 Configuration is TypeScript via the `Flamecast` constructor:
 
 ```ts
-import { Flamecast } from "./src/flamecast/index.js";
+import { Flamecast } from "flamecast";
 
 const flamecast = new Flamecast({
   storage: "pglite",
@@ -227,7 +236,7 @@ await flamecast.listen(3001);
 The same instance also exposes a standard `fetch` handler:
 
 ```ts
-import { Flamecast } from "./src/flamecast/index.js";
+import { Flamecast } from "flamecast";
 
 const flamecast = new Flamecast({
   storage: { type: "postgres", url: process.env.DATABASE_URL! },
@@ -259,7 +268,7 @@ export default flamecast.fetch;
 | Variable | Purpose |
 |---|---|
 | `FLAMECAST_POSTGRES_URL` | External Postgres connection string |
-| `ACP_PGLITE_DIR` | Override the default PGLite data directory |
+| `FLAMECAST_PGLITE_DIR` | Override the default PGLite data directory |
 
 ---
 
