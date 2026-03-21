@@ -7,27 +7,12 @@ export const AgentSpawnSchema = z.object({
 });
 export type AgentSpawn = z.infer<typeof AgentSpawnSchema>;
 
-export const AgentTemplateRuntimeSchema = z.object({
+export const RuntimeConfigSchema = z.object({
   provider: z.string().min(1),
   image: z.string().optional(),
   dockerfile: z.string().optional(),
 });
-export type AgentTemplateRuntime = z.infer<typeof AgentTemplateRuntimeSchema>;
-
-export const AgentTemplateSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  spawn: AgentSpawnSchema,
-  runtime: AgentTemplateRuntimeSchema,
-});
-export type AgentTemplate = z.infer<typeof AgentTemplateSchema>;
-
-export const RegisterAgentTemplateBodySchema = z.object({
-  name: z.string().min(1),
-  spawn: AgentSpawnSchema,
-  runtime: AgentTemplateRuntimeSchema.optional(),
-});
-export type RegisterAgentTemplateBody = z.infer<typeof RegisterAgentTemplateBodySchema>;
+export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;
 
 export const SessionLogSchema = z.object({
   timestamp: z.string(),
@@ -78,7 +63,7 @@ export const AgentSchema = z.object({
   id: z.string(),
   agentName: z.string(),
   spawn: AgentSpawnSchema,
-  runtime: AgentTemplateRuntimeSchema,
+  runtime: RuntimeConfigSchema,
   startedAt: z.string(),
   lastUpdatedAt: z.string(),
   latestSessionId: z.string().nullable(),
@@ -100,20 +85,22 @@ export const SessionSchema = z.object({
 });
 export type Session = z.infer<typeof SessionSchema>;
 
-export const CreateAgentBodySchema = z
-  .object({
-    /** Use a reusable template definition from `GET /agent-templates`. */
-    agentTemplateId: z.string().optional(),
-    /** Spawn a one-off process without registering it. */
-    spawn: AgentSpawnSchema.optional(),
-    /** Runtime configuration when using an explicit spawn definition. */
-    runtime: AgentTemplateRuntimeSchema.optional(),
-    /** Display name when using an explicit config (defaults to `command` + `args`). */
-    name: z.string().optional(),
-  })
-  .refine((b) => Boolean(b.agentTemplateId) !== Boolean(b.spawn), {
-    message: "Provide exactly one of agentTemplateId or spawn",
-  });
+export const SessionSummarySchema = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  agentName: z.string(),
+  cwd: z.string(),
+  startedAt: z.string(),
+  lastUpdatedAt: z.string(),
+  pendingPermission: PendingPermissionSchema.nullable(),
+});
+export type SessionSummary = z.infer<typeof SessionSummarySchema>;
+
+export const CreateAgentBodySchema = z.object({
+  spawn: AgentSpawnSchema,
+  runtime: RuntimeConfigSchema.optional(),
+  name: z.string().optional(),
+});
 export type CreateAgentBody = z.infer<typeof CreateAgentBodySchema>;
 
 export const PermissionResponseBodySchema = z.union([

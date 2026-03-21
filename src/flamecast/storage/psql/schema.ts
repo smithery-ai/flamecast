@@ -1,5 +1,4 @@
 import {
-  boolean,
   index,
   integer,
   jsonb,
@@ -10,7 +9,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type {
   AgentSpawn,
-  AgentTemplateRuntime,
+  RuntimeConfig,
   PendingPermission,
 } from "../../../shared/session.js";
 
@@ -18,7 +17,7 @@ export const agents = pgTable("agents", {
   id: text("id").primaryKey(),
   agentName: text("agent_name").notNull(),
   spawn: jsonb("spawn").$type<AgentSpawn>().notNull(),
-  runtime: jsonb("runtime").$type<AgentTemplateRuntime>().notNull(),
+  runtime: jsonb("runtime").$type<RuntimeConfig>().notNull(),
   startedAt: timestamp("started_at", { withTimezone: true, mode: "string" }).notNull(),
   lastUpdatedAt: timestamp("last_updated_at", { withTimezone: true, mode: "string" }).notNull(),
   latestSessionId: text("latest_session_id"),
@@ -54,20 +53,4 @@ export const sessionLogs = pgTable(
     data: jsonb("data").$type<Record<string, unknown>>().notNull(),
   },
   (t) => [index("idx_session_logs_session").on(t.sessionId, t.id)],
-);
-
-export const agentTemplates = pgTable(
-  "agent_templates",
-  {
-    id: text("id").primaryKey(),
-    name: text("name").notNull(),
-    spawn: jsonb("spawn").$type<AgentSpawn>().notNull(),
-    runtime: jsonb("runtime").$type<AgentTemplateRuntime>().notNull(),
-    managed: boolean("managed").notNull().default(false),
-    sortOrder: integer("sort_order").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => [index("idx_agent_templates_list").on(t.managed, t.sortOrder, t.createdAt, t.id)],
 );

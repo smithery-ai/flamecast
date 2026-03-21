@@ -16,6 +16,9 @@ export class AgentAcpClient {
     params: acp.RequestPermissionRequest,
   ) => void | Promise<void>;
   private initialized = false;
+  private closed = false;
+  private connectPromise: Promise<void> | null = null;
+  private closePromise: Promise<void> | null = null;
 
   constructor(
     agentId: string,
@@ -37,13 +40,33 @@ export class AgentAcpClient {
 
   async connect(): Promise<void> {
     if (this.initialized) return;
+    if (this.closed) {
+      throw new Error("ACP client is closed");
+    }
 
-    await this.transport.start();
-    await this.connection.initialize({
-      protocolVersion: acp.PROTOCOL_VERSION,
-      clientCapabilities: {},
-    });
-    this.initialized = true;
+    if (!this.connectPromise) {
+      this.connectPromise = (async () => {
+        await this.transport.start();
+        if (this.closed) return;
+
+        await this.connection.initialize({
+          protocolVersion: acp.PROTOCOL_VERSION,
+          clientCapabilities: {},
+        });
+
+        if (!this.closed) {
+          this.initialized = true;
+        }
+      })().finally(() => {
+        this.connectPromise = null;
+      });
+    }
+
+    await this.connectPromise;
+
+    if (this.closed && !this.initialized) {
+      throw new Error("ACP client is closed");
+    }
   }
 
   async createSession(cwd = "."): Promise<acp.NewSessionResponse> {
@@ -96,8 +119,21 @@ export class AgentAcpClient {
   }
 
   async close(): Promise<void> {
-    this.pendingPermissions.clear();
-    await this.transport.close();
+    if (this.closePromise) {
+      await this.closePromise;
+      return;
+    }
+
+    this.closed = true;
+    for (const [sessionId, pending] of this.pendingPermissions) {
+      this.pendingPermissions.delete(sessionId);
+      pending.resolve({ outcome: { outcome: "cancelled" } });
+    }
+    this.closePromise = (async () => {
+      await this.connectPromise?.catch(() => undefined);
+      await this.transport.close();
+    })();
+    await this.closePromise;
   }
 
   private createClientHandler(): acp.Client {

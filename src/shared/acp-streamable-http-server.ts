@@ -3,16 +3,22 @@ import {
   isInitializeRequest,
   isRequestMessage,
   isResponseMessage,
-  parseAcpMessages,
+  parseServerInboundAcpMessages,
   type JsonRpcId,
 } from "./acp-streamable-http-messages.js";
 
 const ACP_SESSION_HEADER = "acp-session-id";
 
-type StreamState = {
+type ResponseStreamState = {
   controller: ReadableStreamDefaultController<Uint8Array>;
   encoder: TextEncoder;
   requestIds: Set<JsonRpcId>;
+  closed: boolean;
+};
+
+type EventStreamState = {
+  controller: ReadableStreamDefaultController<Uint8Array>;
+  encoder: TextEncoder;
   closed: boolean;
 };
 
@@ -35,9 +41,11 @@ export class AcpStreamableHttpServerTransport {
   private readonly onsessioninitialized?: (sessionId: string) => void | Promise<void>;
   private readonly onsessionclosed?: (sessionId: string) => void | Promise<void>;
   private initialized = false;
-  private readonly streams = new Map<string, StreamState>();
+  private readonly responseStreams = new Map<string, ResponseStreamState>();
   private readonly requestToStreamId = new Map<JsonRpcId, string>();
   private readonly responseCache = new Map<JsonRpcId, acp.AnyMessage>();
+  private readonly pendingEventMessages: acp.AnyMessage[] = [];
+  private eventStream: EventStreamState | null = null;
   private controller: ReadableStreamDefaultController<acp.AnyMessage> | null = null;
 
   constructor(options: AcpStreamableHttpServerOptions = {}) {
@@ -70,24 +78,23 @@ export class AcpStreamableHttpServerTransport {
       case "POST":
         return this.handlePostRequest(req, options.parsedBody);
       case "GET":
-        return new Response(null, {
-          status: 405,
-          headers: { Allow: "POST, DELETE" },
-        });
+        return this.handleGetRequest(req);
       case "DELETE":
         return this.handleDeleteRequest(req);
       default:
         return new Response(null, {
           status: 405,
-          headers: { Allow: "POST, DELETE" },
+          headers: { Allow: "GET, POST, DELETE" },
         });
     }
   }
 
   async close(): Promise<void> {
-    for (const streamId of [...this.streams.keys()]) {
+    for (const streamId of [...this.responseStreams.keys()]) {
       this.closeResponseStream(streamId);
     }
+    this.closeEventStream();
+    this.pendingEventMessages.length = 0;
     this.responseCache.clear();
     this.requestToStreamId.clear();
     if (this.controller) {
@@ -98,31 +105,65 @@ export class AcpStreamableHttpServerTransport {
 
   private async send(message: acp.AnyMessage): Promise<void> {
     const relatedRequestId = isResponseMessage(message) ? message.id : undefined;
-    const streamId =
-      relatedRequestId !== undefined
-        ? this.requestToStreamId.get(relatedRequestId)
-        : this.streams.size === 1
-          ? this.streams.keys().next().value
-          : undefined;
+    const responseStreamId =
+      relatedRequestId !== undefined ? this.requestToStreamId.get(relatedRequestId) : undefined;
 
-    if (!streamId) {
+    if (!responseStreamId) {
+      this.enqueueEventMessage(message);
       return;
     }
 
-    const stream = this.streams.get(streamId);
+    const stream = this.responseStreams.get(responseStreamId);
     if (!stream || stream.closed) {
       throw new Error(`Response stream closed for request ID: ${String(relatedRequestId)}`);
     }
 
     this.writeSseEvent(stream, message);
 
-    if (isResponseMessage(message)) {
-      this.responseCache.set(message.id, message);
-      const ready = [...stream.requestIds].every((requestId) => this.responseCache.has(requestId));
-      if (ready) {
-        this.closeResponseStream(streamId);
-      }
+    if (relatedRequestId === undefined) {
+      return;
     }
+    this.responseCache.set(relatedRequestId, message);
+    const ready = [...stream.requestIds].every((requestId) => this.responseCache.has(requestId));
+    if (ready) {
+      this.closeResponseStream(responseStreamId);
+    }
+  }
+
+  private async handleGetRequest(req: Request): Promise<Response> {
+    const sessionError = this.validateSession(req);
+    if (sessionError) {
+      return sessionError;
+    }
+
+    this.closeEventStream();
+
+    const encoder = new TextEncoder();
+    let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+    const readable = new ReadableStream<Uint8Array>({
+      start(nextController) {
+        controller = nextController;
+      },
+      cancel: () => {
+        this.closeEventStream();
+      },
+    });
+
+    if (!controller) {
+      return this.createJsonErrorResponse(500, -32603, "Internal Error");
+    }
+
+    this.eventStream = {
+      controller,
+      encoder,
+      closed: false,
+    };
+    this.flushPendingEventMessages();
+
+    return new Response(readable, {
+      status: 200,
+      headers: this.createSseHeaders(),
+    });
   }
 
   private async handlePostRequest(req: Request, parsedBody?: unknown): Promise<Response> {
@@ -135,7 +176,7 @@ export class AcpStreamableHttpServerTransport {
       }
     }
 
-    const messages = parseAcpMessages(rawMessage);
+    const messages = parseServerInboundAcpMessages(rawMessage);
     if (!messages) {
       return this.createJsonErrorResponse(400, -32600, "Invalid JSON-RPC message");
     }
@@ -176,6 +217,17 @@ export class AcpStreamableHttpServerTransport {
       return new Response(null, { status: 202 });
     }
 
+    for (const message of messages) {
+      this.controller?.enqueue(message);
+    }
+
+    if (!isInitializationRequest && this.eventStream && !this.eventStream.closed) {
+      return new Response(null, {
+        status: 202,
+        headers: this.createAcceptedHeaders(),
+      });
+    }
+
     const encoder = new TextEncoder();
     let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
     const streamId = crypto.randomUUID();
@@ -192,7 +244,7 @@ export class AcpStreamableHttpServerTransport {
       return this.createJsonErrorResponse(500, -32603, "Internal Error");
     }
 
-    this.streams.set(streamId, {
+    this.responseStreams.set(streamId, {
       controller,
       encoder,
       requestIds: new Set(requestMessages.map((message) => message.id)),
@@ -203,20 +255,10 @@ export class AcpStreamableHttpServerTransport {
       this.requestToStreamId.set(message.id, streamId);
     }
 
-    const headers = new Headers({
-      "content-type": "text/event-stream",
-      "cache-control": "no-cache",
-      connection: "keep-alive",
+    return new Response(readable, {
+      status: 200,
+      headers: this.createSseHeaders(),
     });
-    if (this.sessionId) {
-      headers.set(ACP_SESSION_HEADER, this.sessionId);
-    }
-
-    for (const message of messages) {
-      this.controller?.enqueue(message);
-    }
-
-    return new Response(readable, { status: 200, headers });
   }
 
   private async handleDeleteRequest(req: Request): Promise<Response> {
@@ -253,13 +295,58 @@ export class AcpStreamableHttpServerTransport {
     return undefined;
   }
 
-  private writeSseEvent(stream: StreamState, message: acp.AnyMessage): void {
+  private enqueueEventMessage(message: acp.AnyMessage): void {
+    if (!this.eventStream || this.eventStream.closed) {
+      this.pendingEventMessages.push(message);
+      return;
+    }
+
+    this.writeSseEvent(this.eventStream, message);
+  }
+
+  private flushPendingEventMessages(): void {
+    if (!this.eventStream || this.eventStream.closed) {
+      return;
+    }
+
+    while (this.pendingEventMessages.length > 0) {
+      const message = this.pendingEventMessages.shift();
+      if (message) {
+        this.writeSseEvent(this.eventStream, message);
+      }
+    }
+  }
+
+  private createSseHeaders(): Headers {
+    const headers = new Headers({
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+    });
+    if (this.sessionId) {
+      headers.set(ACP_SESSION_HEADER, this.sessionId);
+    }
+    return headers;
+  }
+
+  private createAcceptedHeaders(): Headers {
+    const headers = new Headers();
+    if (this.sessionId) {
+      headers.set(ACP_SESSION_HEADER, this.sessionId);
+    }
+    return headers;
+  }
+
+  private writeSseEvent(
+    stream: ResponseStreamState | EventStreamState,
+    message: acp.AnyMessage,
+  ): void {
     const payload = `data: ${JSON.stringify(message)}\n\n`;
     stream.controller.enqueue(stream.encoder.encode(payload));
   }
 
   private closeResponseStream(streamId: string): void {
-    const stream = this.streams.get(streamId);
+    const stream = this.responseStreams.get(streamId);
     if (!stream || stream.closed) {
       return;
     }
@@ -271,11 +358,25 @@ export class AcpStreamableHttpServerTransport {
       // Ignore already-closed streams.
     }
 
-    this.streams.delete(streamId);
+    this.responseStreams.delete(streamId);
     for (const requestId of stream.requestIds) {
       this.requestToStreamId.delete(requestId);
       this.responseCache.delete(requestId);
     }
+  }
+
+  private closeEventStream(): void {
+    if (!this.eventStream || this.eventStream.closed) {
+      return;
+    }
+
+    this.eventStream.closed = true;
+    try {
+      this.eventStream.controller.close();
+    } catch {
+      // Ignore already-closed streams.
+    }
+    this.eventStream = null;
   }
 
   private createJsonErrorResponse(status: number, code: number, message: string): Response {

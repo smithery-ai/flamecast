@@ -1,17 +1,22 @@
+import { hc } from "hono/client";
+import type { AppType } from "../../flamecast/api";
 import type {
   Agent,
-  AgentTemplate,
   CreateAgentBody,
   FilePreview,
-  RegisterAgentTemplateBody,
+  FileSystemSnapshot,
   Session,
+  SessionSummary,
 } from "../../shared/session";
 import {
   AgentSchema,
-  AgentTemplateSchema,
   FilePreviewSchema,
+  FileSystemSnapshotSchema,
   SessionSchema,
+  SessionSummarySchema,
 } from "../../shared/session";
+
+const client = hc<AppType>("/api");
 
 function isErrorPayload(value: unknown): value is { error?: string } {
   return typeof value === "object" && value !== null;
@@ -32,50 +37,16 @@ async function readJsonOrThrow<T>(
   return parse(await response.json());
 }
 
-export async function fetchAgentTemplates(): Promise<AgentTemplate[]> {
-  const response = await fetch("/api/agent-templates");
-  return readJsonOrThrow(response, "Failed to fetch agent templates", (value) =>
-    AgentTemplateSchema.array().parse(value),
-  );
-}
-
-export async function registerAgentTemplate(
-  body: RegisterAgentTemplateBody,
-): Promise<AgentTemplate> {
-  const response = await fetch("/api/agent-templates", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return readJsonOrThrow(response, "Failed to register agent template", (value) =>
-    AgentTemplateSchema.parse(value),
-  );
-}
-
-export async function fetchSessions(): Promise<Session[]> {
-  const response = await fetch("/api/sessions");
+export async function fetchSessions(): Promise<SessionSummary[]> {
+  const response = await client.sessions.$get();
   return readJsonOrThrow(response, "Failed to fetch sessions", (value) =>
-    SessionSchema.array().parse(value),
+    SessionSummarySchema.array().parse(value),
   );
-}
-
-export async function fetchAgents(): Promise<Agent[]> {
-  const response = await fetch("/api/agents");
-  return readJsonOrThrow(response, "Failed to fetch agents", (value) =>
-    AgentSchema.array().parse(value),
-  );
-}
-
-export async function fetchAgent(agentId: string): Promise<Agent> {
-  const response = await fetch(`/api/agents/${encodeURIComponent(agentId)}`);
-  return readJsonOrThrow(response, "Agent not found", (value) => AgentSchema.parse(value));
 }
 
 export async function createAgent(body: CreateAgentBody): Promise<Agent> {
-  const response = await fetch("/api/agents", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+  const response = await client.agents.$post({
+    json: body,
   });
   return readJsonOrThrow(response, "Failed to create agent", (value) => AgentSchema.parse(value));
 }
@@ -85,14 +56,32 @@ export async function fetchSession(
   sessionId: string,
   opts: { includeFileSystem?: boolean; showAllFiles?: boolean } = {},
 ): Promise<Session> {
-  const query = new URLSearchParams();
-  if (opts.includeFileSystem) query.set("includeFileSystem", "true");
-  if (opts.showAllFiles) query.set("showAllFiles", "true");
-  const suffix = query.size > 0 ? `?${query.toString()}` : "";
-  const response = await fetch(
-    `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}${suffix}`,
-  );
+  const query: { includeFileSystem?: "true"; showAllFiles?: "true" } = {
+    ...(opts.includeFileSystem ? { includeFileSystem: "true" } : {}),
+    ...(opts.showAllFiles ? { showAllFiles: "true" } : {}),
+  };
+
+  const response = await client.agents[":agentId"].sessions[":sessionId"].$get({
+    param: { agentId, sessionId },
+    query,
+  });
   return readJsonOrThrow(response, "Session not found", (value) => SessionSchema.parse(value));
+}
+
+export async function fetchSessionFileSystem(
+  agentId: string,
+  sessionId: string,
+  opts: { showAllFiles?: boolean } = {},
+): Promise<FileSystemSnapshot> {
+  const response = await client.agents[":agentId"].sessions[":sessionId"].filesystem.$get({
+    param: { agentId, sessionId },
+    query: {
+      ...(opts.showAllFiles ? { showAllFiles: "true" } : {}),
+    },
+  });
+  return readJsonOrThrow(response, "Failed to fetch filesystem", (value) =>
+    FileSystemSnapshotSchema.parse(value),
+  );
 }
 
 export async function fetchFilePreview(
@@ -100,18 +89,18 @@ export async function fetchFilePreview(
   sessionId: string,
   path: string,
 ): Promise<FilePreview> {
-  const query = new URLSearchParams({ path });
-  const response = await fetch(
-    `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/file?${query.toString()}`,
-  );
+  const response = await client.agents[":agentId"].sessions[":sessionId"].file.$get({
+    param: { agentId, sessionId },
+    query: { path },
+  });
   return readJsonOrThrow(response, "Failed to fetch file preview", (value) =>
     FilePreviewSchema.parse(value),
   );
 }
 
 export async function terminateAgent(agentId: string): Promise<void> {
-  const response = await fetch(`/api/agents/${encodeURIComponent(agentId)}`, {
-    method: "DELETE",
+  const response = await client.agents[":agentId"].$delete({
+    param: { agentId },
   });
   await readJsonOrThrow(response, "Failed to terminate agent", (value) => value);
 }

@@ -1,5 +1,5 @@
 import * as acp from "@agentclientprotocol/sdk";
-import { AcpStreamableHttpClientTransport } from "./acp-streamable-http-client.js";
+import { AcpStreamableHttpClientTransport } from "../../src/shared/acp-streamable-http-client.js";
 
 export async function createAcpClientConnection(url: URL, opts: { fetch?: typeof fetch } = {}) {
   const transport = new AcpStreamableHttpClientTransport(url, opts);

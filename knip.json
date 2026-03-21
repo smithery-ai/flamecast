@@ -4,7 +4,7 @@
     "src/flamecast/agent.ts",
     "src/flamecast/chat-action-mcp.ts",
     "src/flamecast/client.ts",
-    "src/flamecast/state-managers/psql/drizzle.config.ts"
+    "src/flamecast/storage/psql/drizzle.config.ts"
   ],
   "ignore": ["src/client/routeTree.gen.ts"]
 }

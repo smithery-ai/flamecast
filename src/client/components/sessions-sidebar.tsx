@@ -91,7 +91,8 @@ export function SessionsSidebar() {
                         <span className="grid min-w-0 flex-1 gap-1 leading-snug">
                           <span className="truncate font-medium">{session.agentName}</span>
                           <span className="truncate text-xs text-sidebar-foreground/65">
-                            {session.id.slice(0, 10)}… · {session.logs.length} entries
+                            {session.id.slice(0, 10)}…
+                            {session.pendingPermission ? " · Permission required" : ""}
                           </span>
                         </span>
                       </Link>
@@ -111,11 +112,18 @@ export function SessionsSidebar() {
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
+                        if (
+                          !window.confirm(
+                            `Terminate agent "${session.agentName}" and close all of its sessions?`,
+                          )
+                        ) {
+                          return;
+                        }
                         terminateMutation.mutate(session.agentId);
                       }}
                     >
                       <Trash2Icon className="size-4 shrink-0" />
-                      <span className="sr-only">Terminate agent</span>
+                      <span className="sr-only">Terminate agent and all sessions</span>
                     </SidebarMenuAction>
                   </SidebarMenuItem>
                 ))

@@ -1,93 +1,50 @@
-import type * as acp from "@agentclientprotocol/sdk";
+import * as acp from "@agentclientprotocol/sdk";
+import { zInitializeRequest } from "@agentclientprotocol/sdk/dist/schema/zod.gen.js";
+import { z } from "zod";
 
 export type JsonRpcId = string | number | null;
 
-type JsonRpcObject = Record<string, unknown>;
+const JsonRpcIdSchema = z.union([z.string(), z.number(), z.null()]);
 
-export function parseAcpMessage(value: unknown): acp.AnyMessage | null {
-  if (!isJsonRpcObject(value) || value.jsonrpc !== "2.0") {
-    return null;
-  }
+const JsonRpcRequestMessageSchema = z.object({
+  jsonrpc: z.literal("2.0"),
+  id: JsonRpcIdSchema.optional(),
+  method: z.string(),
+  params: z.unknown().optional(),
+});
 
-  if (typeof value.method === "string") {
-    if ("id" in value) {
-      if (!isJsonRpcId(value.id)) {
-        return null;
-      }
-      return value.params === undefined
-        ? {
-            jsonrpc: "2.0",
-            id: value.id,
-            method: value.method,
-          }
-        : {
-            jsonrpc: "2.0",
-            id: value.id,
-            method: value.method,
-            params: value.params,
-          };
-    }
-    return value.params === undefined
-      ? {
-          jsonrpc: "2.0",
-          method: value.method,
-        }
-      : {
-          jsonrpc: "2.0",
-          method: value.method,
-          params: value.params,
-        };
-  }
+const JsonRpcResponseMessageSchema = z
+  .object({
+    jsonrpc: z.literal("2.0"),
+    id: JsonRpcIdSchema,
+    result: z.unknown().optional(),
+    error: z
+      .object({
+        code: z.number(),
+        message: z.string(),
+        data: z.unknown().optional(),
+      })
+      .optional(),
+  })
+  .refine((message) => message.result !== undefined || message.error !== undefined, {
+    message: "A JSON-RPC response must include result or error",
+  });
 
-  if (!("id" in value) || !isJsonRpcId(value.id)) {
-    return null;
-  }
+const JsonRpcMessageSchema = z.union([JsonRpcRequestMessageSchema, JsonRpcResponseMessageSchema]);
 
-  if ("result" in value) {
-    return {
-      jsonrpc: "2.0",
-      id: value.id,
-      result: value.result,
-    };
-  }
+const InitializeRequestMessageSchema = JsonRpcRequestMessageSchema.extend({
+  id: JsonRpcIdSchema,
+  method: z.literal(acp.AGENT_METHODS.initialize),
+  params: zInitializeRequest,
+});
 
-  if (
-    "error" in value &&
-    isJsonRpcObject(value.error) &&
-    typeof value.error.code === "number" &&
-    typeof value.error.message === "string"
-  ) {
-    return value.error.data === undefined
-      ? {
-          jsonrpc: "2.0",
-          id: value.id,
-          error: {
-            code: value.error.code,
-            message: value.error.message,
-          },
-        }
-      : {
-          jsonrpc: "2.0",
-          id: value.id,
-          error: {
-            code: value.error.code,
-            message: value.error.message,
-            data: value.error.data,
-          },
-        };
-  }
-
-  return null;
+export function parseServerInboundAcpMessages(value: unknown): acp.AnyMessage[] | null {
+  return parseMessageBatch(value);
 }
 
-export function parseAcpMessages(value: unknown): acp.AnyMessage[] | null {
-  const values = Array.isArray(value) ? value : [value];
-  if (values.length === 0) {
-    return null;
-  }
-
-  const messages = values.map(parseAcpMessage);
-  return messages.every((message) => message !== null) ? messages : null;
+export function parseClientInboundAcpMessage(value: unknown): acp.AnyMessage | null {
+  const result = JsonRpcMessageSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 export function isRequestMessage(
@@ -103,13 +60,15 @@ export function isResponseMessage(
 }
 
 export function isInitializeRequest(message: acp.AnyMessage): boolean {
-  return isRequestMessage(message) && message.method === "initialize";
+  return InitializeRequestMessageSchema.safeParse(message).success;
 }
 
-function isJsonRpcObject(value: unknown): value is JsonRpcObject {
-  return typeof value === "object" && value !== null;
-}
+function parseMessageBatch(value: unknown): acp.AnyMessage[] | null {
+  const batchSchema = z.union([JsonRpcMessageSchema, z.array(JsonRpcMessageSchema).min(1)]);
+  const result = batchSchema.safeParse(value);
+  if (!result.success) {
+    return null;
+  }
 
-function isJsonRpcId(value: unknown): value is JsonRpcId {
-  return typeof value === "string" || typeof value === "number" || value === null;
+  return Array.isArray(result.data) ? result.data : [result.data];
 }

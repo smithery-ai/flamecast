@@ -1,4 +1,4 @@
-import type { Agent, AgentTemplate, Session, SessionLog } from "../shared/session.js";
+import type { Agent, Session, SessionLog } from "../shared/session.js";
 
 /** Durable slice of {@link Agent} used by storage-backed runtime metadata. */
 export type AgentMeta = Agent;
@@ -12,10 +12,6 @@ export type SessionMeta = Omit<Session, "logs" | "fileSystem">;
  * and per-session logs.
  */
 export type FlamecastStorage = {
-  seedAgentTemplates(templates: AgentTemplate[]): Promise<void>;
-  listAgentTemplates(): Promise<AgentTemplate[]>;
-  getAgentTemplate(id: string): Promise<AgentTemplate | null>;
-  saveAgentTemplate(template: AgentTemplate): Promise<void>;
   listAgents(): Promise<AgentMeta[]>;
   getAgent(id: string): Promise<AgentMeta | null>;
   createAgent(meta: AgentMeta): Promise<void>;

@@ -9,8 +9,8 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { Flamecast } from "../src/flamecast/index.js";
-import { createAcpClientConnection } from "../src/shared/acp-client-connection.js";
 import type { RuntimeProvider } from "../src/flamecast/runtime-provider.js";
+import { createAcpClientConnection } from "./utils/acp-client-connection.js";
 
 type AlchemyTestFactory = (meta: ImportMeta, opts: { prefix: string }) => typeof describe;
 
@@ -156,22 +156,6 @@ describe("flamecast", () => {
     }
   });
 
-  test("local - agent template is optional but supported", async (scope: unknown) => {
-    const flamecast = new Flamecast({
-      storage: "memory",
-    });
-
-    try {
-      const templates = await flamecast.listAgentTemplates();
-      expect(templates.length).toBeGreaterThan(0);
-      expect(templates.find((template) => template.id === "example")).toBeDefined();
-
-      await runAgentLifecycle(flamecast, { agentTemplateId: "example" });
-    } finally {
-      await alchemy.destroy(scope);
-    }
-  });
-
   test("local - agent management", async (scope: unknown) => {
     const flamecast = new Flamecast({
       storage: "memory",
@@ -207,20 +191,16 @@ describe("flamecast", () => {
     const flamecast = new Flamecast({
       storage: "memory",
       runtimeProviders: { fixture: fixtureProvider },
-      agentTemplates: [
-        {
-          id: "fixture",
-          name: "Fixture agent",
-          spawn: { command: "unused", args: [] },
-          runtime: { provider: "fixture" },
-        },
-      ],
     });
 
     try {
-      await expect(flamecast.createAgent({ agentTemplateId: "fixture" })).rejects.toThrow(
-        "fixture runtime unavailable",
-      );
+      await expect(
+        flamecast.createAgent({
+          name: "Fixture agent",
+          spawn: { command: "unused", args: [] },
+          runtime: { provider: "fixture" },
+        }),
+      ).rejects.toThrow("fixture runtime unavailable");
     } finally {
       await alchemy.destroy(scope);
       if (existsSync(testFilePath)) rmSync(testFilePath);
@@ -250,18 +230,14 @@ describe("flamecast", () => {
       const flamecast = new Flamecast({
         storage: "memory",
         runtimeProviders: { fixture: dockerProvider },
-        agentTemplates: [
-          {
-            id: "fixture",
-            name: "Fixture agent",
-            spawn: { command: "unused", args: [] },
-            runtime: { provider: "fixture" },
-          },
-        ],
       });
 
       try {
-        await flamecast.createAgent({ agentTemplateId: "fixture" });
+        await flamecast.createAgent({
+          name: "Fixture agent",
+          spawn: { command: "unused", args: [] },
+          runtime: { provider: "fixture" },
+        });
       } catch {
         // Expected - this test only verifies provider wiring.
       }

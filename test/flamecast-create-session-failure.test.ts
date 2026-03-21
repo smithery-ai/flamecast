@@ -24,6 +24,9 @@ describe("flamecast createAgent failure cleanup", () => {
 
       return {
         ...actual,
+        AGENT_METHODS: actual.AGENT_METHODS,
+        CLIENT_METHODS: actual.CLIENT_METHODS,
+        PROTOCOL_VERSION: actual.PROTOCOL_VERSION,
         ndJsonStream: vi.fn(() => ({ kind: "stream" })),
         ClientSideConnection: FailingClientSideConnection,
       };

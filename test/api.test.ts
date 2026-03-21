@@ -35,21 +35,6 @@ function createClient(app: ReturnType<typeof createApp>) {
 }
 
 describe("api contract", () => {
-  test("list agent templates", async (scope: unknown) => {
-    const flamecast = new Flamecast({ storage: "memory" });
-    const client = createClient(createApp(flamecast));
-
-    try {
-      const res = await client["agent-templates"].$get();
-      expect(res.status).toBe(200);
-      const templates = await res.json();
-      expect(templates.length).toBeGreaterThan(0);
-      expect(templates.find((template: { id: string }) => template.id === "example")).toBeDefined();
-    } finally {
-      await alchemy.destroy(scope);
-    }
-  });
-
   test("list sessions (empty)", async (scope: unknown) => {
     const flamecast = new Flamecast({ storage: "memory" });
     const client = createClient(createApp(flamecast));

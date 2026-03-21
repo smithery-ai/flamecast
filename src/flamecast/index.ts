@@ -6,20 +6,23 @@ import { serve } from "@hono/node-server";
 import type {
   Agent,
   AgentSpawn,
-  AgentTemplate,
-  AgentTemplateRuntime,
+  RuntimeConfig,
   CreateAgentBody,
   FilePreview,
   FileSystemEntry,
   FileSystemSnapshot,
   PendingPermission,
-  RegisterAgentTemplateBody,
   Session,
+  SessionSummary,
   SessionLog,
 } from "../shared/session.js";
 import { createServerApp } from "../server/app.js";
+import { FlamecastNotFoundError } from "./errors.js";
 import { AcpStreamableHttpServerTransport } from "../shared/acp-streamable-http-server.js";
-import { getBuiltinAgentTemplates, localRuntime } from "./agent-templates.js";
+import {
+  isInitializeRequest,
+  parseServerInboundAcpMessages,
+} from "../shared/acp-streamable-http-messages.js";
 import type { FlamecastStorage, SessionMeta, StorageConfig } from "./storage.js";
 import { resolveStorage } from "./storage.js";
 import type { RuntimeProviderRegistry, StartedRuntime } from "./runtime-provider.js";
@@ -29,10 +32,10 @@ import type { AcpTransport } from "./transport.js";
 export type {
   Agent,
   AgentSpawn,
-  AgentTemplate,
   CreateAgentBody,
   PendingPermission,
   Session,
+  SessionSummary,
 } from "../shared/session.js";
 export type { AgentMeta, SessionMeta, FlamecastStorage, StorageConfig } from "./storage.js";
 export type { RuntimeProvider, RuntimeProviderRegistry } from "./runtime-provider.js";
@@ -53,7 +56,7 @@ interface ManagedAgent {
   id: string;
   agentName: string;
   spawn: AgentSpawn;
-  runtime: AgentTemplateRuntime;
+  runtime: RuntimeConfig;
   transport: AcpTransport;
   terminate: () => Promise<void>;
   connection: acp.ClientSideConnection;
@@ -65,6 +68,13 @@ interface PendingPermissionState {
   permission: PendingPermission;
   request: acp.RequestPermissionRequest;
   resolve: PermissionResolver;
+}
+
+interface PendingSessionBootstrapState {
+  agentId: string;
+  logs: SessionLog[];
+  pendingPermission: PendingPermission | null;
+  lastUpdatedAt: string | null;
 }
 
 interface UpstreamTransportContext {
@@ -80,10 +90,11 @@ type GitIgnoreRule = {
   regex: RegExp;
 };
 
+const DEFAULT_RUNTIME: RuntimeConfig = { provider: "local" };
+
 export type FlamecastOptions = {
   storage?: StorageConfig;
   runtimeProviders?: RuntimeProviderRegistry;
-  agentTemplates?: AgentTemplate[];
 };
 
 async function loadGitIgnoreRules(workspaceRoot: string): Promise<GitIgnoreRule[]> {
@@ -190,6 +201,23 @@ function isGitIgnored(path: string, rules: GitIgnoreRule[]): boolean {
   return ignored;
 }
 
+function describeTransportFailure(transport: AcpTransport): string | null {
+  return transport.describeFailure?.() ?? null;
+}
+
+function withTransportFailureContext(
+  error: unknown,
+  transport: AcpTransport,
+  action: string,
+): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  const details = describeTransportFailure(transport);
+  if (!details || details.includes(message)) {
+    return error instanceof Error ? error : new Error(message);
+  }
+  return new Error(`${action}: ${message}\n\nDownstream runtime error:\n${details}`);
+}
+
 function methodNotSupported(method: string): never {
   throw acp.RequestError.methodNotFound(method);
 }
@@ -202,13 +230,13 @@ function clonePromptResponse(
 
 export class Flamecast {
   private static readonly MAX_FILE_PREVIEW_CHARS = 20_000;
-  private readonly initialAgentTemplates: AgentTemplate[];
   private readonly runtimeProviders: RuntimeProviderRegistry;
   private readonly storageConfig?: StorageConfig;
   private readonly agents = new Map<string, ManagedAgent>();
   private readonly sessionToAgentId = new Map<string, string>();
   private readonly sessionAttachments = new Map<string, string>();
   private readonly permissionResolvers = new Map<string, PendingPermissionState>();
+  private readonly pendingSessionBootstraps = new Map<string, PendingSessionBootstrapState>();
   private readonly upstreamContexts = new Map<string, Map<string, UpstreamTransportContext>>();
   private readonly app = createServerApp(this);
   private storage: FlamecastStorage | null = null;
@@ -219,7 +247,6 @@ export class Flamecast {
   constructor(opts: FlamecastOptions = {}) {
     this.storageConfig = opts.storage;
     this.runtimeProviders = resolveRuntimeProviders(opts.runtimeProviders);
-    this.initialAgentTemplates = opts.agentTemplates ?? getBuiltinAgentTemplates();
     this.fetch = async (request: Request) => this.app.fetch(request);
   }
 
@@ -234,28 +261,6 @@ export class Flamecast {
     for (const agentId of [...this.agents.keys()]) {
       await this.terminateAgent(agentId).catch(() => {});
     }
-  }
-
-  async listAgentTemplates(): Promise<AgentTemplate[]> {
-    await this.ensureReady();
-    return this.requireStorage().listAgentTemplates();
-  }
-
-  async registerAgentTemplate(body: RegisterAgentTemplateBody): Promise<AgentTemplate> {
-    await this.ensureReady();
-
-    const template: AgentTemplate = {
-      id: randomUUID(),
-      name: body.name,
-      spawn: {
-        command: body.spawn.command,
-        args: [...body.spawn.args],
-      },
-      runtime: body.runtime ? { ...body.runtime } : localRuntime(),
-    };
-
-    await this.requireStorage().saveAgentTemplate(template);
-    return template;
   }
 
   async createAgent(opts: CreateAgentBody): Promise<Agent> {
@@ -315,8 +320,13 @@ export class Flamecast {
       this.agents.set(agentId, managed);
       return this.getAgent(agentId);
     } catch (error) {
+      const wrappedError = withTransportFailureContext(
+        error,
+        startedRuntime.transport,
+        "Failed to initialize agent runtime",
+      );
       await this.stopRuntime(startedRuntime);
-      throw error;
+      throw wrappedError;
     }
   }
 
@@ -325,19 +335,30 @@ export class Flamecast {
     return Promise.all([...this.agents.keys()].map((id) => this.getAgent(id)));
   }
 
-  async listSessions(): Promise<Session[]> {
+  async listSessions(): Promise<SessionSummary[]> {
     await this.ensureReady();
 
     const sessions = await Promise.all(
       [...this.agents.keys()].map((agentId) => this.requireStorage().listSessionsByAgent(agentId)),
     );
 
-    return Promise.all(
-      sessions
-        .flat()
-        .sort((a, b) => b.lastUpdatedAt.localeCompare(a.lastUpdatedAt) || a.id.localeCompare(b.id))
-        .map((session) => this.snapshotSession(session.agentId, session.id)),
-    );
+    return sessions
+      .flat()
+      .sort((a, b) => b.lastUpdatedAt.localeCompare(a.lastUpdatedAt) || a.id.localeCompare(b.id))
+      .map((session) => ({
+        id: session.id,
+        agentId: session.agentId,
+        agentName: session.agentName,
+        cwd: session.cwd,
+        startedAt: session.startedAt,
+        lastUpdatedAt: session.lastUpdatedAt,
+        pendingPermission: session.pendingPermission
+          ? {
+              ...session.pendingPermission,
+              options: session.pendingPermission.options.map((option) => ({ ...option })),
+            }
+          : null,
+      }));
   }
 
   async getAgent(id: string): Promise<Agent> {
@@ -345,7 +366,7 @@ export class Flamecast {
     this.resolveManagedAgent(id);
     const agent = await this.requireStorage().getAgent(id);
     if (!agent) {
-      throw new Error(`Agent "${id}" not found`);
+      throw new FlamecastNotFoundError(`Agent "${id}" not found`);
     }
     return agent;
   }
@@ -381,6 +402,19 @@ export class Flamecast {
     };
   }
 
+  async getSessionFileSystem(
+    agentId: string,
+    sessionId: string,
+    opts: { showAllFiles?: boolean } = {},
+  ): Promise<FileSystemSnapshot> {
+    await this.ensureReady();
+    this.resolveManagedAgent(agentId);
+    const session = await this.getSessionMetaForAgent(agentId, sessionId);
+    return this.buildFileSystemSnapshot(session.cwd, {
+      showAllFiles: opts.showAllFiles === true,
+    });
+  }
+
   async terminateAgent(id: string): Promise<void> {
     await this.ensureReady();
 
@@ -398,6 +432,7 @@ export class Flamecast {
       await this.flushSessionTextChunkLogBuffer(managed, session.id);
       await this.pushLog(session.id, "killed", {});
       this.sessionToAgentId.delete(session.id);
+      this.pendingSessionBootstraps.delete(session.id);
       this.detachSession(session.id);
     }
 
@@ -451,7 +486,7 @@ export class Flamecast {
     }
 
     if (request.method !== "POST" || !this.isInitializeMessage(parsedBody)) {
-      return new Response("Missing MCP transport session", { status: 400 });
+      return new Response("Missing ACP transport session", { status: 400 });
     }
 
     const context = this.createUpstreamContext(agentId);
@@ -588,11 +623,17 @@ export class Flamecast {
       }),
     ];
 
-    const response = await managed.connection.newSession({ cwd, mcpServers: [] });
+    let response: acp.NewSessionResponse;
+    try {
+      response = await managed.connection.newSession({ cwd, mcpServers: [] });
+    } catch (error) {
+      throw withTransportFailureContext(error, managed.transport, "Failed to create ACP session");
+    }
     startupLogs.push(
       this.createRpcLog(acp.AGENT_METHODS.session_new, "agent_to_client", "response", response),
     );
 
+    const pendingBootstrap = this.pendingSessionBootstraps.get(response.sessionId) ?? null;
     const now = new Date().toISOString();
     await this.requireStorage().createSession({
       id: response.sessionId,
@@ -601,19 +642,31 @@ export class Flamecast {
       spawn: managed.spawn,
       cwd,
       startedAt,
-      lastUpdatedAt: now,
-      pendingPermission: null,
+      lastUpdatedAt: pendingBootstrap?.lastUpdatedAt ?? now,
+      pendingPermission: pendingBootstrap?.pendingPermission ?? null,
     });
+
+    this.sessionToAgentId.set(response.sessionId, agentId);
 
     for (const log of startupLogs) {
       await this.requireStorage().appendLog(response.sessionId, log);
     }
 
-    this.sessionToAgentId.set(response.sessionId, agentId);
+    if (pendingBootstrap) {
+      for (const log of pendingBootstrap.logs) {
+        await this.requireStorage().appendLog(response.sessionId, log);
+      }
+      this.pendingSessionBootstraps.delete(response.sessionId);
+    }
+
     await this.recordAgentSessionCreation(agentId, response.sessionId, now);
 
     if (transportSessionId) {
       this.attachSession(response.sessionId, transportSessionId);
+    }
+
+    if (pendingBootstrap?.pendingPermission) {
+      await this.replayPendingPermission(response.sessionId);
     }
 
     return response;
@@ -728,7 +781,6 @@ export class Flamecast {
     if (!this.readyPromise) {
       this.readyPromise = resolveStorage(this.storageConfig).then((storage) => {
         this.storage = storage;
-        return storage.seedAgentTemplates(this.initialAgentTemplates);
       });
     }
     await this.readyPromise;
@@ -744,28 +796,8 @@ export class Flamecast {
   private async resolveAgentDefinition(opts: CreateAgentBody): Promise<{
     agentName: string;
     spawn: AgentSpawn;
-    runtime: AgentTemplateRuntime;
+    runtime: RuntimeConfig;
   }> {
-    if (opts.agentTemplateId) {
-      const template = await this.requireStorage().getAgentTemplate(opts.agentTemplateId);
-      if (!template) {
-        throw new Error(`Unknown agent template "${opts.agentTemplateId}"`);
-      }
-
-      return {
-        agentName: template.name,
-        spawn: {
-          command: template.spawn.command,
-          args: [...template.spawn.args],
-        },
-        runtime: { ...template.runtime },
-      };
-    }
-
-    if (!opts.spawn) {
-      throw new Error("Provide agentTemplateId or spawn");
-    }
-
     return {
       agentName:
         opts.name?.trim() ||
@@ -774,14 +806,14 @@ export class Flamecast {
         command: opts.spawn.command,
         args: [...(opts.spawn.args ?? [])],
       },
-      runtime: opts.runtime ? { ...opts.runtime } : localRuntime(),
+      runtime: opts.runtime ? { ...opts.runtime } : DEFAULT_RUNTIME,
     };
   }
 
   protected async resolveSessionDefinition(opts: CreateAgentBody): Promise<{
     agentName: string;
     spawn: AgentSpawn;
-    runtime: AgentTemplateRuntime;
+    runtime: RuntimeConfig;
   }> {
     return this.resolveAgentDefinition(opts);
   }
@@ -789,7 +821,7 @@ export class Flamecast {
   private resolveManagedAgent(id: string): ManagedAgent {
     const managed = this.agents.get(id);
     if (!managed) {
-      throw new Error(`Agent "${id}" not found`);
+      throw new FlamecastNotFoundError(`Agent "${id}" not found`);
     }
     return managed;
   }
@@ -797,11 +829,11 @@ export class Flamecast {
   private async getSessionMetaForAgent(agentId: string, sessionId: string): Promise<SessionMeta> {
     const session = await this.requireStorage().getSessionMeta(sessionId);
     if (!session) {
-      throw new Error(`Session "${sessionId}" not found for agent "${agentId}"`);
+      throw new FlamecastNotFoundError(`Session "${sessionId}" not found for agent "${agentId}"`);
     }
 
     if (session.agentId !== agentId) {
-      throw new Error(`Session "${sessionId}" not found for agent "${agentId}"`);
+      throw new FlamecastNotFoundError(`Session "${sessionId}" not found for agent "${agentId}"`);
     }
 
     return session;
@@ -834,6 +866,25 @@ export class Flamecast {
         ?.attachedSessionIds.delete(sessionId);
     }
     this.sessionAttachments.delete(sessionId);
+  }
+
+  private getPendingSessionBootstrap(
+    sessionId: string,
+    agentId: string,
+  ): PendingSessionBootstrapState {
+    const existing = this.pendingSessionBootstraps.get(sessionId);
+    if (existing) {
+      return existing;
+    }
+
+    const created: PendingSessionBootstrapState = {
+      agentId,
+      logs: [],
+      pendingPermission: null,
+      lastUpdatedAt: null,
+    };
+    this.pendingSessionBootstraps.set(sessionId, created);
+    return created;
   }
 
   private resolveAttachedConnection(sessionId: string): acp.AgentSideConnection | null {
@@ -940,7 +991,7 @@ export class Flamecast {
   private async resolveSessionWorkspaceRoot(sessionId: string): Promise<string> {
     const session = await this.requireStorage().getSessionMeta(sessionId);
     if (!session) {
-      throw new Error(`Session "${sessionId}" not found`);
+      throw new FlamecastNotFoundError(`Session "${sessionId}" not found`);
     }
     return session.cwd;
   }
@@ -1018,10 +1069,19 @@ export class Flamecast {
     sessionOrId: string | { id: string },
     type: string,
     data: Record<string, unknown>,
+    opts?: { agentId?: string },
   ): Promise<void> {
     const sessionId = typeof sessionOrId === "string" ? sessionOrId : sessionOrId.id;
     const entry = this.createLogEntry(type, data);
     const storage = this.requireStorage();
+
+    if (!this.sessionToAgentId.has(sessionId) && opts?.agentId) {
+      const pending = this.getPendingSessionBootstrap(sessionId, opts.agentId);
+      pending.logs.push(entry);
+      pending.lastUpdatedAt = entry.timestamp;
+      return;
+    }
+
     await storage.appendLog(sessionId, entry);
     await storage.updateSession(sessionId, { lastUpdatedAt: entry.timestamp });
     await this.touchAgentForSession(sessionId, entry.timestamp);
@@ -1033,10 +1093,19 @@ export class Flamecast {
     direction: "client_to_agent" | "agent_to_client",
     phase: "request" | "response" | "notification",
     payload?: unknown,
+    opts?: { agentId?: string },
   ): Promise<void> {
     const sessionId = typeof sessionOrId === "string" ? sessionOrId : sessionOrId.id;
     const entry = this.createRpcLog(method, direction, phase, payload);
     const storage = this.requireStorage();
+
+    if (!this.sessionToAgentId.has(sessionId) && opts?.agentId) {
+      const pending = this.getPendingSessionBootstrap(sessionId, opts.agentId);
+      pending.logs.push(entry);
+      pending.lastUpdatedAt = entry.timestamp;
+      return;
+    }
+
     await storage.appendLog(sessionId, entry);
     await storage.updateSession(sessionId, { lastUpdatedAt: entry.timestamp });
     await this.touchAgentForSession(sessionId, entry.timestamp);
@@ -1053,11 +1122,12 @@ export class Flamecast {
     }
 
     managed.sessionTextChunkLogBuffers.delete(sessionId);
-    await this.flushBufferedTextChunks(sessionId, buffer);
+    await this.flushBufferedTextChunks(sessionId, managed.id, buffer);
   }
 
   private async flushBufferedTextChunks(
     sessionId: string,
+    agentId: string,
     buffer: SessionTextChunkLogBuffer,
   ): Promise<void> {
     if (buffer.texts.length === 0) {
@@ -1068,11 +1138,16 @@ export class Flamecast {
     try {
       combined = buffer.texts.join("");
     } catch (error) {
-      await this.pushLog(sessionId, "rpc_coalesce_error", {
-        reason: "join_failed",
-        message: error instanceof Error ? error.message : String(error),
-        partialParts: buffer.texts.length,
-      });
+      await this.pushLog(
+        sessionId,
+        "rpc_coalesce_error",
+        {
+          reason: "join_failed",
+          message: error instanceof Error ? error.message : String(error),
+          partialParts: buffer.texts.length,
+        },
+        { agentId },
+      );
 
       for (const text of buffer.texts) {
         await this.pushRpcLog(
@@ -1088,6 +1163,7 @@ export class Flamecast {
               ...(buffer.messageId != null ? { messageId: buffer.messageId } : {}),
             },
           },
+          { agentId },
         );
       }
       return;
@@ -1105,6 +1181,7 @@ export class Flamecast {
       "agent_to_client",
       "notification",
       { sessionId: buffer.sessionId, update },
+      { agentId },
     );
   }
 
@@ -1161,6 +1238,7 @@ export class Flamecast {
       "agent_to_client",
       "notification",
       params,
+      { agentId: managed.id },
     );
     await this.forwardSessionUpdate(params);
   }
@@ -1267,15 +1345,21 @@ export class Flamecast {
           "agent_to_client",
           "request",
           params,
+          { agentId: getManaged().id },
         );
 
         const pendingPermission = this.createPendingPermission(params);
         const now = new Date().toISOString();
-
-        await this.requireStorage().updateSession(params.sessionId, {
-          pendingPermission,
-          lastUpdatedAt: now,
-        });
+        if (!this.sessionToAgentId.has(params.sessionId)) {
+          const pending = this.getPendingSessionBootstrap(params.sessionId, getManaged().id);
+          pending.pendingPermission = pendingPermission;
+          pending.lastUpdatedAt = now;
+        } else {
+          await this.requireStorage().updateSession(params.sessionId, {
+            pendingPermission,
+            lastUpdatedAt: now,
+          });
+        }
 
         return new Promise<acp.RequestPermissionResponse>((resolve) => {
           const state: PendingPermissionState = {
@@ -1454,12 +1538,8 @@ export class Flamecast {
   }
 
   private isInitializeMessage(value: unknown): boolean {
-    return (
-      typeof value === "object" &&
-      value !== null &&
-      "method" in value &&
-      value.method === "initialize"
-    );
+    const messages = parseServerInboundAcpMessages(value);
+    return messages?.length === 1 && isInitializeRequest(messages[0]);
   }
 
   private isAllowedAcpOrigin(request: Request): boolean {

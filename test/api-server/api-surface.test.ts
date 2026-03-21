@@ -1,27 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   Agent,
-  AgentTemplate,
   CreateAgentBody,
   FilePreview,
-  RegisterAgentTemplateBody,
+  FileSystemSnapshot,
   Session,
+  SessionSummary,
 } from "../../src/shared/session.js";
+import { FlamecastNotFoundError } from "../../src/flamecast/errors.js";
 import { createServerApp } from "../../src/server/app.js";
 import type { FlamecastApi } from "../../src/flamecast/api.js";
-
-const sampleAgentTemplate: AgentTemplate = {
-  id: "codex",
-  name: "Codex ACP",
-  spawn: { command: "npx", args: ["@zed-industries/codex-acp"] },
-  runtime: { provider: "local" },
-};
 
 const sampleAgent: Agent = {
   id: "agent-1",
   agentName: "Codex ACP",
-  spawn: sampleAgentTemplate.spawn,
-  runtime: sampleAgentTemplate.runtime,
+  spawn: { command: "npx", args: ["@zed-industries/codex-acp"] },
+  runtime: { provider: "local" },
   startedAt: "2026-03-21T00:00:00.000Z",
   lastUpdatedAt: "2026-03-21T00:00:00.000Z",
   latestSessionId: "session-1",
@@ -41,6 +35,23 @@ const sampleSession: Session = {
   fileSystem: null,
 };
 
+const sampleSessionSummary: SessionSummary = {
+  id: sampleSession.id,
+  agentId: sampleSession.agentId,
+  agentName: sampleSession.agentName,
+  cwd: sampleSession.cwd,
+  startedAt: sampleSession.startedAt,
+  lastUpdatedAt: sampleSession.lastUpdatedAt,
+  pendingPermission: sampleSession.pendingPermission,
+};
+
+const sampleFileSystem: FileSystemSnapshot = {
+  root: "/tmp/flamecast",
+  entries: [{ path: "src", type: "directory" }],
+  truncated: false,
+  maxEntries: 1,
+};
+
 const sampleFilePreview: FilePreview = {
   path: "src/app.tsx",
   content: "console.log('preview');\n",
@@ -55,6 +66,10 @@ function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastAp
     getFilePreview: vi.fn(
       async (_agentId: string, _sessionId: string, _path: string) => sampleFilePreview,
     ),
+    getSessionFileSystem: vi.fn(
+      async (_agentId: string, _sessionId: string, _opts?: { showAllFiles?: boolean }) =>
+        sampleFileSystem,
+    ),
     getSession: vi.fn(
       async (
         _agentId: string,
@@ -64,14 +79,7 @@ function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastAp
     ),
     handleAcp: vi.fn(async (_agentId: string, _request: Request) => new Response("ok")),
     listAgents: vi.fn(async () => [sampleAgent]),
-    listSessions: vi.fn(async () => [sampleSession]),
-    listAgentTemplates: vi.fn(async () => [sampleAgentTemplate]),
-    registerAgentTemplate: vi.fn(async (body: RegisterAgentTemplateBody) => ({
-      id: "registered-template",
-      name: body.name,
-      spawn: body.spawn,
-      runtime: body.runtime ?? { provider: "local" },
-    })),
+    listSessions: vi.fn(async () => [sampleSessionSummary]),
     terminateAgent: vi.fn(async () => undefined),
     ...overrides,
   };
@@ -86,52 +94,13 @@ afterEach(() => {
 });
 
 describe("API server surface", () => {
-  it("lists agent templates", async () => {
-    const app = createServerApp(createFlamecastStub());
-    const response = await app.request("/api/agent-templates");
-
-    expect(response.status).toBe(200);
-    expect(await readJson(response)).toEqual([sampleAgentTemplate]);
-  });
-
-  it("registers agent templates", async () => {
-    const app = createServerApp(createFlamecastStub());
-    const response = await app.request("/api/agent-templates", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name: "Custom agent",
-        spawn: { command: "node", args: ["agent.js"] },
-      } satisfies RegisterAgentTemplateBody),
-    });
-
-    expect(response.status).toBe(201);
-    expect(await readJson(response)).toEqual({
-      id: "registered-template",
-      name: "Custom agent",
-      spawn: { command: "node", args: ["agent.js"] },
-      runtime: { provider: "local" },
-    });
-  });
-
-  it("rejects invalid agent template payloads", async () => {
-    const app = createServerApp(createFlamecastStub());
-    const response = await app.request("/api/agent-templates", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ spawn: { command: "node", args: [] } }),
-    });
-
-    expect(response.status).toBe(400);
-  });
-
   it("lists read-only sessions for the sidebar", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
     const response = await app.request("/api/sessions");
 
     expect(response.status).toBe(200);
-    expect(await readJson(response)).toEqual([sampleSession]);
+    expect(await readJson(response)).toEqual([sampleSessionSummary]);
     expect(flamecast.listSessions).toHaveBeenCalledTimes(1);
   });
 
@@ -228,7 +197,7 @@ describe("API server surface", () => {
     const app = createServerApp(
       createFlamecastStub({
         getAgent: vi.fn(async () => {
-          throw new Error("missing");
+          throw new FlamecastNotFoundError('Agent "missing" not found');
         }),
       }),
     );
@@ -253,11 +222,27 @@ describe("API server surface", () => {
     });
   });
 
+  it("fetches a nested filesystem snapshot separately", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+    const response = await app.request(
+      `/api/agents/${sampleAgent.id}/sessions/${sampleSession.id}/filesystem?showAllFiles=true`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual(sampleFileSystem);
+    expect(flamecast.getSessionFileSystem).toHaveBeenCalledWith(
+      sampleAgent.id,
+      sampleSession.id,
+      { showAllFiles: true },
+    );
+  });
+
   it("returns 404 for unknown nested sessions", async () => {
     const app = createServerApp(
       createFlamecastStub({
         getSession: vi.fn(async () => {
-          throw new Error("missing");
+          throw new FlamecastNotFoundError('Session "missing" not found');
         }),
       }),
     );
@@ -343,7 +328,7 @@ describe("API server surface", () => {
     const app = createServerApp(
       createFlamecastStub({
         handleAcp: vi.fn(async () => {
-          throw new Error("missing");
+          throw new FlamecastNotFoundError('Agent "missing" not found');
         }),
       }),
     );
@@ -355,6 +340,24 @@ describe("API server surface", () => {
 
     expect(response.status).toBe(404);
     expect(await readJson(response)).toEqual({ error: "Agent not found" });
+  });
+
+  it("returns 500 for ACP transport failures", async () => {
+    const app = createServerApp(
+      createFlamecastStub({
+        handleAcp: vi.fn(async () => {
+          throw new Error("transport exploded");
+        }),
+      }),
+    );
+    const response = await app.request(`/api/agents/${sampleAgent.id}/acp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    });
+
+    expect(response.status).toBe(500);
+    expect(await readJson(response)).toEqual({ error: "transport exploded" });
   });
 
   it("terminates agents", async () => {
@@ -371,7 +374,7 @@ describe("API server surface", () => {
     const app = createServerApp(
       createFlamecastStub({
         terminateAgent: vi.fn(async () => {
-          throw new Error("missing");
+          throw new FlamecastNotFoundError('Agent "missing" not found');
         }),
       }),
     );

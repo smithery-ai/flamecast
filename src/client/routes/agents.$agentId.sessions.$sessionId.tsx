@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchFilePreview, fetchSession } from "@/client/lib/api";
+import { fetchFilePreview, fetchSession, fetchSessionFileSystem } from "@/client/lib/api";
 import { AgentAcpClient } from "@/client/lib/agent-acp";
 import { FileTree, FileTreeFile, FileTreeFolder } from "@/components/ai-elements/file-tree";
 import { sessionLogsToSegments } from "@/client/lib/logs-markdown";
@@ -37,6 +37,7 @@ type TreeNode = {
 
 function SessionDetailPage() {
   const { agentId, sessionId } = Route.useParams();
+  const [activeTab, setActiveTab] = useState("markdown");
   const [prompt, setPrompt] = useState("");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
@@ -44,7 +45,17 @@ function SessionDetailPage() {
   const acpClientRef = useRef<AgentAcpClient | null>(null);
   const queryClient = useQueryClient();
 
+  const { data: session, isLoading } = useQuery({
+    queryKey: ["session", agentId, sessionId],
+    queryFn: () => fetchSession(agentId, sessionId),
+    refetchInterval: 1000,
+  });
+
   useEffect(() => {
+    if (!session?.cwd) {
+      return;
+    }
+
     const acpClient = new AgentAcpClient(agentId);
     acpClientRef.current = acpClient;
     let cancelled = false;
@@ -53,7 +64,7 @@ function SessionDetailPage() {
       try {
         await acpClient.connect();
         if (cancelled) return;
-        await acpClient.loadSession(sessionId, ".");
+        await acpClient.loadSession(sessionId, session.cwd);
       } catch (error) {
         if (!cancelled) {
           console.error("Failed to attach ACP session", error);
@@ -68,12 +79,13 @@ function SessionDetailPage() {
       }
       void acpClient.close();
     };
-  }, [agentId, sessionId]);
+  }, [agentId, session?.cwd, sessionId]);
 
-  const { data: session, isLoading } = useQuery({
-    queryKey: ["session", agentId, sessionId, showAllFiles],
-    queryFn: () => fetchSession(agentId, sessionId, { includeFileSystem: true, showAllFiles }),
-    refetchInterval: 1000,
+  const fileSystemQuery = useQuery({
+    queryKey: ["session-file-system", agentId, sessionId, showAllFiles],
+    queryFn: () => fetchSessionFileSystem(agentId, sessionId, { showAllFiles }),
+    staleTime: 5_000,
+    enabled: activeTab === "files",
   });
 
   const promptMutation = useMutation({
@@ -86,6 +98,7 @@ function SessionDetailPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["session", agentId, sessionId] });
+      queryClient.invalidateQueries({ queryKey: ["session-file-system", agentId, sessionId] });
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
     },
   });
@@ -100,52 +113,46 @@ function SessionDetailPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["session", agentId, sessionId] });
+      queryClient.invalidateQueries({ queryKey: ["session-file-system", agentId, sessionId] });
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
     },
   });
 
-  const fileEntries = session?.fileSystem?.entries ?? [];
+  const fileSystem = fileSystemQuery.data ?? session?.fileSystem ?? null;
+  const fileEntries = fileSystem?.entries ?? [];
   const fileEntryMap = useMemo(
     () => new Map(fileEntries.map((entry) => [entry.path, entry])),
     [fileEntries],
   );
   const fileTree = useMemo(() => buildTree(fileEntries), [fileEntries]);
+  const defaultExpandedPaths = useMemo(() => getInitialExpandedPaths(fileTree), [fileTree]);
   const markdownSegments = useMemo(
     () => sessionLogsToSegments(session?.logs ?? []),
     [session?.logs],
   );
-
-  useEffect(() => {
-    setExpandedPaths((current) => {
-      if (current.size > 0) {
-        return current;
-      }
-
-      const initial = getInitialExpandedPaths(fileTree);
-      return initial.size > 0 ? initial : current;
-    });
-  }, [fileTree]);
-
-  useEffect(() => {
-    const nextPath =
-      selectedPath && fileEntryMap.get(selectedPath)?.type === "file"
+  const defaultFilePath = useMemo(
+    () => fileEntries.find((entry) => entry.type === "file")?.path ?? null,
+    [fileEntries],
+  );
+  const visibleExpandedPaths = expandedPaths.size > 0 ? expandedPaths : defaultExpandedPaths;
+  const treeSelectedPath = selectedPath ?? defaultFilePath;
+  const previewPath =
+    selectedPath == null
+      ? defaultFilePath
+      : fileEntryMap.get(selectedPath)?.type === "file"
         ? selectedPath
-        : (fileEntries.find((entry) => entry.type === "file")?.path ?? null);
-
-    setSelectedPath((current) => (current === nextPath ? current : nextPath));
-  }, [fileEntries, fileEntryMap, selectedPath]);
-
-  const selectedEntry = selectedPath ? (fileEntryMap.get(selectedPath) ?? null) : null;
+        : null;
+  const selectedEntry = previewPath ? (fileEntryMap.get(previewPath) ?? null) : null;
 
   const previewQuery = useQuery({
-    queryKey: ["session-file-preview", agentId, sessionId, selectedPath],
+    queryKey: ["session-file-preview", agentId, sessionId, previewPath],
     queryFn: () => {
-      if (!selectedPath) {
+      if (!previewPath) {
         throw new Error("No file selected");
       }
-      return fetchFilePreview(agentId, sessionId, selectedPath);
+      return fetchFilePreview(agentId, sessionId, previewPath);
     },
-    enabled: Boolean(selectedPath && selectedEntry?.type === "file"),
+    enabled: Boolean(previewPath && selectedEntry?.type === "file"),
   });
 
   const handlePermission = (body: { optionId: string } | { outcome: "cancelled" }) => {
@@ -201,7 +208,11 @@ function SessionDetailPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="markdown" className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+      >
         <div className="flex shrink-0 items-center gap-3">
           <TabsList>
             <TabsTrigger value="markdown">Markdown</TabsTrigger>
@@ -351,7 +362,7 @@ function SessionDetailPage() {
                   Workspace
                 </CardTitle>
                 <CardDescription className="flex items-center justify-between gap-3">
-                  <span>{session.fileSystem?.root ?? "No workspace snapshot available"}</span>
+                  <span>{fileSystem?.root ?? "No workspace snapshot available"}</span>
                   <label className="flex items-center gap-2 text-xs">
                     <Switch checked={showAllFiles} onCheckedChange={setShowAllFiles} />
                     Show all
@@ -359,12 +370,14 @@ function SessionDetailPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="min-h-0 overflow-auto pb-4">
-                {fileTree.length === 0 ? (
+                {fileSystemQuery.isLoading ? (
+                  <Skeleton className="h-48 w-full rounded-lg" />
+                ) : fileTree.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No files available.</p>
                 ) : (
                   <FileTree
-                    expanded={expandedPaths}
-                    selectedPath={selectedPath ?? undefined}
+                    expanded={visibleExpandedPaths}
+                    selectedPath={treeSelectedPath ?? undefined}
                     onSelect={handleTreeSelect}
                     onExpandedChange={setExpandedPaths}
                   >
@@ -380,7 +393,7 @@ function SessionDetailPage() {
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <FileCode2Icon className="h-4 w-4" />
-                  {selectedPath ?? "Select a file"}
+                  {previewPath ?? selectedPath ?? "Select a file"}
                 </CardTitle>
                 {previewQuery.data ? (
                   <CardDescription>
@@ -391,7 +404,7 @@ function SessionDetailPage() {
                 ) : null}
               </CardHeader>
               <CardContent className="min-h-0 overflow-auto pb-4">
-                {!selectedPath ? (
+                {!previewPath ? (
                   <p className="text-sm text-muted-foreground">
                     Select a file from the tree to inspect it here.
                   </p>

@@ -67,7 +67,7 @@ describe("transport helpers", () => {
       2,
       "node",
       [],
-      expect.objectContaining({ stdio: ["pipe", "pipe", "inherit"] }),
+      expect.objectContaining({ stdio: ["pipe", "pipe", "pipe"] }),
     );
     expect(kill).toHaveBeenCalledTimes(2);
 

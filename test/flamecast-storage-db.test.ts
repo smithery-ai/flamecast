@@ -3,11 +3,13 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 function createStorageStub(label: string) {
   return {
     label,
-    seedAgentTemplates: vi.fn(async () => {}),
-    listAgentTemplates: vi.fn(async () => []),
-    getAgentTemplate: vi.fn(async () => null),
-    saveAgentTemplate: vi.fn(async () => {}),
+    listAgents: vi.fn(async () => []),
+    getAgent: vi.fn(async () => null),
+    createAgent: vi.fn(async () => {}),
+    updateAgent: vi.fn(async () => {}),
     createSession: vi.fn(async () => {}),
+    listSessionsByAgent: vi.fn(async () => []),
+    finalizeAgent: vi.fn(async () => {}),
     updateSession: vi.fn(async () => {}),
     appendLog: vi.fn(async () => {}),
     getSessionMeta: vi.fn(async () => null),

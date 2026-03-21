@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import alchemy from "alchemy";
 import type { AgentSpawn } from "../shared/session.js";
-import type { AgentTemplateRuntime } from "../shared/session.js";
+import type { RuntimeConfig } from "../shared/session.js";
 import type { AcpTransport } from "./transport.js";
 import { findFreePort, openLocalTransport, openTcpTransport } from "./transport.js";
 
@@ -12,7 +12,7 @@ export type StartedRuntime = {
 };
 
 export type RuntimeProviderStartRequest = {
-  runtime: AgentTemplateRuntime;
+  runtime: RuntimeConfig;
   spawn: AgentSpawn;
 };
 

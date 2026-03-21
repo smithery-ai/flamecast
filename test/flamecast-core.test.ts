@@ -3,7 +3,6 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { getBuiltinAgentTemplates } from "../src/flamecast/agent-templates.js";
 import { Flamecast } from "../src/flamecast/index.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 
@@ -138,9 +137,6 @@ describe("flamecast orchestration internals", () => {
 
     expect(await flamecast.listSessions()).toEqual([]);
     expect(await flamecast.listSessions()).toEqual([]);
-    expect(
-      (await flamecast.listAgentTemplates()).some((template) => template.id === "example"),
-    ).toBe(true);
 
     const server = await flamecast.listen(0);
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -217,15 +213,13 @@ describe("flamecast orchestration internals", () => {
   test("covers current helper methods and downstream client wiring", async () => {
     const flamecast = new Flamecast({ storage: "memory" });
     const storage = attachStorage(flamecast);
-    await storage.seedAgentTemplates(getBuiltinAgentTemplates());
 
     const requireStorage = getMethod<[], MemoryFlamecastStorage>(flamecast, "requireStorage");
     const resolveSessionDefinition = getMethod<
       [
         {
-          agentTemplateId?: string;
           name?: string;
-          spawn?: { command: string; args?: string[] };
+          spawn: { command: string; args?: string[] };
           runtime?: { provider: string };
         },
       ],
@@ -297,7 +291,7 @@ describe("flamecast orchestration internals", () => {
       ],
       Promise<void>
     >(flamecast, "stopRuntime");
-    const createDownstreamClient = getMethod<[ManagedAgentLike], acp.Client>(
+    const createDownstreamClient = getMethod<[() => ManagedAgentLike], acp.Client>(
       flamecast,
       "createDownstreamClient",
     );
@@ -321,14 +315,6 @@ describe("flamecast orchestration internals", () => {
     ).toEqual({
       agentName: "Explicit Name",
       spawn: { command: "node", args: [] },
-      runtime: { provider: "local" },
-    });
-    await expect(resolveSessionDefinition({ agentTemplateId: "missing" })).rejects.toThrow(
-      'Unknown agent template "missing"',
-    );
-    await expect(resolveSessionDefinition({})).rejects.toThrow("Provide agentTemplateId or spawn");
-    expect(await resolveSessionDefinition({ agentTemplateId: "example" })).toMatchObject({
-      agentName: "Example agent",
       runtime: { provider: "local" },
     });
 
@@ -502,20 +488,89 @@ describe("flamecast orchestration internals", () => {
   });
 
   test("fails fast when an agent references an unknown runtime provider", async () => {
-    const flamecast = new Flamecast({
-      storage: "memory",
-      agentTemplates: [
-        {
-          id: "missing-provider",
-          name: "Missing provider",
-          spawn: { command: "node", args: [] },
-          runtime: { provider: "missing" },
-        },
-      ],
-    });
+    const flamecast = new Flamecast({ storage: "memory" });
 
-    await expect(flamecast.createAgent({ agentTemplateId: "missing-provider" })).rejects.toThrow(
-      'Unknown runtime provider "missing"',
+    await expect(
+      flamecast.createAgent({
+        name: "Missing provider",
+        spawn: { command: "node", args: [] },
+        runtime: { provider: "missing" },
+      }),
+    ).rejects.toThrow('Unknown runtime provider "missing"');
+  });
+
+  test("buffers downstream session updates that arrive before the session is persisted", async () => {
+    const flamecast = new Flamecast({ storage: "memory" });
+    const storage = attachStorage(flamecast);
+    const agentId = "agent-buffer";
+    const sessionId = "session-buffer";
+    const tempDir = await mkdtemp(path.join(process.cwd(), ".flamecast-buffer-"));
+
+    const createManagedSession = getMethod<
+      [string, acp.NewSessionRequest, string?],
+      Promise<acp.NewSessionResponse>
+    >(flamecast, "createManagedSession");
+    const createDownstreamClient = getMethod<[() => ManagedAgentLike], acp.Client>(
+      flamecast,
+      "createDownstreamClient",
     );
+
+    await storage.createAgent(createAgentMeta(agentId));
+
+    let managed!: ManagedAgentLike;
+    const downstreamClient = createDownstreamClient(() => managed);
+
+    managed = {
+      ...createManagedAgent(agentId),
+      connection: {
+        newSession: vi.fn(async () => {
+          await downstreamClient.sessionUpdate({
+            sessionId,
+            update: {
+              sessionUpdate: "available_commands_update",
+              availableCommands: [
+                {
+                  name: "review",
+                  description: "Review the current changes",
+                  input: null,
+                },
+              ],
+            },
+          });
+
+          return { sessionId };
+        }),
+      } as unknown as acp.ClientSideConnection,
+    };
+
+    getAgentMap(flamecast).set(agentId, managed);
+
+    try {
+      await expect(
+        createManagedSession(agentId, { cwd: tempDir, mcpServers: [] }),
+      ).resolves.toEqual({ sessionId });
+
+      const session = await storage.getSessionMeta(sessionId);
+      expect(session).not.toBeNull();
+
+      const logs = await storage.getLogs(sessionId);
+      expect(logs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "rpc",
+            data: expect.objectContaining({
+              method: "session/update",
+              payload: expect.objectContaining({
+                update: expect.objectContaining({
+                  sessionUpdate: "available_commands_update",
+                }),
+              }),
+            }),
+          }),
+        ]),
+      );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 });

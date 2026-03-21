@@ -77,4 +77,15 @@ describe("database client pglite branch", () => {
     await defaultBundle.close();
     expect(mocks.close).toHaveBeenCalledTimes(3);
   });
+
+  test("rewrites the raw pglite abort into an actionable startup error", async () => {
+    process.env.FLAMECAST_POSTGRES_URL = "";
+    mocks.createPGlite.mockRejectedValueOnce(
+      new Error("RuntimeError: Aborted(). Build with -sASSERTIONS for more info."),
+    );
+
+    await expect(createDatabase({ pgliteDataDir: "/tmp/locked-pglite" })).rejects.toThrow(
+      /Failed to open the local PGlite database at ".*locked-pglite".*another Flamecast process is already using that directory/s,
+    );
+  });
 });

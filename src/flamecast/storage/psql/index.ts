@@ -1,7 +1,7 @@
-import { and, asc, desc, eq, inArray, not } from "drizzle-orm";
-import type { Agent, AgentTemplate, SessionLog } from "../../../shared/session.js";
+import { and, asc, desc, eq } from "drizzle-orm";
+import type { Agent, SessionLog } from "../../../shared/session.js";
 import type { AgentMeta, FlamecastStorage, SessionMeta } from "../../storage.js";
-import { agentTemplates, agents, sessionLogs, sessions } from "./schema.js";
+import { agents, sessionLogs, sessions } from "./schema.js";
 import type { PsqlAppDb } from "./types.js";
 
 export type { PsqlAppDb } from "./types.js";
@@ -41,99 +41,8 @@ function rowToSession(
   };
 }
 
-function rowToTemplate(row: typeof agentTemplates.$inferSelect): AgentTemplate {
-  return {
-    id: row.id,
-    name: row.name,
-    spawn: row.spawn,
-    runtime: row.runtime,
-  };
-}
-
 export function createPsqlStorage(db: PsqlAppDb): FlamecastStorage {
   return {
-    async seedAgentTemplates(templates: AgentTemplate[]) {
-      const managedTemplateIds = templates.map((template) => template.id);
-
-      if (managedTemplateIds.length === 0) {
-        await db.delete(agentTemplates).where(eq(agentTemplates.managed, true));
-      } else {
-        await db
-          .delete(agentTemplates)
-          .where(
-            and(
-              eq(agentTemplates.managed, true),
-              not(inArray(agentTemplates.id, managedTemplateIds)),
-            ),
-          );
-      }
-
-      for (const [index, template] of templates.entries()) {
-        await db
-          .insert(agentTemplates)
-          .values({
-            id: template.id,
-            name: template.name,
-            spawn: template.spawn,
-            runtime: template.runtime,
-            managed: true,
-            sortOrder: index,
-          })
-          .onConflictDoUpdate({
-            target: agentTemplates.id,
-            set: {
-              name: template.name,
-              spawn: template.spawn,
-              runtime: template.runtime,
-              managed: true,
-              sortOrder: index,
-            },
-          });
-      }
-    },
-
-    async listAgentTemplates() {
-      const rows = await db
-        .select()
-        .from(agentTemplates)
-        .orderBy(
-          desc(agentTemplates.managed),
-          asc(agentTemplates.sortOrder),
-          asc(agentTemplates.createdAt),
-          asc(agentTemplates.id),
-        );
-
-      return rows.map(rowToTemplate);
-    },
-
-    async getAgentTemplate(id: string) {
-      const rows = await db.select().from(agentTemplates).where(eq(agentTemplates.id, id)).limit(1);
-      return rows[0] ? rowToTemplate(rows[0]) : null;
-    },
-
-    async saveAgentTemplate(template: AgentTemplate) {
-      await db
-        .insert(agentTemplates)
-        .values({
-          id: template.id,
-          name: template.name,
-          spawn: template.spawn,
-          runtime: template.runtime,
-          managed: false,
-          sortOrder: 0,
-        })
-        .onConflictDoUpdate({
-          target: agentTemplates.id,
-          set: {
-            name: template.name,
-            spawn: template.spawn,
-            runtime: template.runtime,
-            managed: false,
-            sortOrder: 0,
-          },
-        });
-    },
-
     async listAgents() {
       const rows = await db
         .select()
