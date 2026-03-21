@@ -159,6 +159,61 @@ describe("flamecast orchestration internals", () => {
     );
   });
 
+  test("allows loopback ACP origins in local development and blocks foreign origins", async () => {
+    const flamecast = new Flamecast({ storage: "memory" });
+    const storage = attachStorage(flamecast);
+    const agentId = "agent-origin-test";
+
+    await storage.createAgent(createAgentMeta(agentId));
+    getAgentMap(flamecast).set(agentId, createManagedAgent(agentId));
+
+    const initializeBody = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: acp.PROTOCOL_VERSION,
+        clientCapabilities: {},
+      },
+    });
+
+    const allowedResponse = await flamecast.handleAcp(
+      agentId,
+      new Request(`http://127.0.0.1:3001/api/agents/${agentId}/acp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "http://localhost:3000",
+        },
+        body: initializeBody,
+      }),
+    );
+
+    expect(allowedResponse.status).toBe(200);
+    expect(allowedResponse.headers.get("mcp-session-id")).toBeTruthy();
+
+    const blockedResponse = await flamecast.handleAcp(
+      agentId,
+      new Request(`http://127.0.0.1:3001/api/agents/${agentId}/acp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://example.com",
+        },
+        body: initializeBody,
+      }),
+    );
+
+    expect(blockedResponse.status).toBe(403);
+    await expect(blockedResponse.json()).resolves.toEqual({
+      jsonrpc: "2.0",
+      error: {
+        code: -32003,
+        message: "Forbidden origin",
+      },
+    });
+  });
+
   test("covers current helper methods and downstream client wiring", async () => {
     const flamecast = new Flamecast({ storage: "memory" });
     const storage = attachStorage(flamecast);

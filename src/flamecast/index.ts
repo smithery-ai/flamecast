@@ -421,8 +421,7 @@ export class Flamecast {
     await this.ensureReady();
     this.resolveManagedAgent(agentId);
 
-    const origin = request.headers.get("origin");
-    if (origin && origin !== new URL(request.url).origin) {
+    if (!this.isAllowedAcpOrigin(request)) {
       return new Response(
         JSON.stringify({ jsonrpc: "2.0", error: { code: -32003, message: "Forbidden origin" } }),
         {
@@ -1466,9 +1465,37 @@ export class Flamecast {
     );
   }
 
+  private isAllowedAcpOrigin(request: Request): boolean {
+    const origin = request.headers.get("origin");
+    if (!origin) {
+      return true;
+    }
+
+    try {
+      const originUrl = new URL(origin);
+      const requestUrl = new URL(request.url);
+
+      if (originUrl.origin === requestUrl.origin) {
+        return true;
+      }
+
+      return (
+        originUrl.protocol === requestUrl.protocol &&
+        isLoopbackHostname(originUrl.hostname) &&
+        isLoopbackHostname(requestUrl.hostname)
+      );
+    } catch {
+      return false;
+    }
+  }
+
   private async stopRuntime(startedRuntime: StartedRuntime): Promise<void> {
     await startedRuntime.terminate().catch(async () => {
       await startedRuntime.transport?.dispose?.().catch(() => undefined);
     });
   }
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
