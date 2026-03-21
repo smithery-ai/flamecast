@@ -1,19 +1,17 @@
-import { randomUUID } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
-import type { ConnectionLog } from "../../../shared/connection.js";
-import type { ConnectionMeta, FlamecastStateManager } from "../../state-manager.js";
+import type { SessionLog } from "../../../shared/session.js";
+import type { FlamecastStorage, SessionMeta } from "../../storage.js";
 import { connectionLogs, connections } from "./schema.js";
 import type { PsqlAppDb } from "./types.js";
 
 export type { PsqlAppDb } from "./types.js";
 
-function rowToMeta(row: typeof connections.$inferSelect | undefined): ConnectionMeta | null {
+function rowToMeta(row: typeof connections.$inferSelect | undefined): SessionMeta | null {
   if (!row || row.status !== "active") return null;
   return {
     id: row.id,
-    agentLabel: row.agentLabel,
+    agentName: row.agentName,
     spawn: row.spawn,
-    sessionId: row.sessionId,
     startedAt: row.startedAt,
     lastUpdatedAt: row.lastUpdatedAt,
     pendingPermission: row.pendingPermission ?? null,
@@ -21,18 +19,14 @@ function rowToMeta(row: typeof connections.$inferSelect | undefined): Connection
 }
 
 /** SQL-backed state manager (Postgres `Pool` or embedded **PGLite** file) via Drizzle. */
-export function createPsqlStateManager(db: PsqlAppDb): FlamecastStateManager {
+export function createPsqlStorage(db: PsqlAppDb): FlamecastStorage {
   return {
-    async allocateConnectionId() {
-      return randomUUID();
-    },
-
-    async createConnection(meta: ConnectionMeta) {
+    async createSession(meta: SessionMeta) {
       await db.insert(connections).values({
         id: meta.id,
-        agentLabel: meta.agentLabel,
+        agentName: meta.agentName,
         spawn: meta.spawn,
-        sessionId: meta.sessionId,
+        sessionId: meta.id,
         startedAt: meta.startedAt,
         lastUpdatedAt: meta.lastUpdatedAt,
         pendingPermission: meta.pendingPermission,
@@ -40,9 +34,8 @@ export function createPsqlStateManager(db: PsqlAppDb): FlamecastStateManager {
       });
     },
 
-    async updateConnection(id, patch) {
+    async updateSession(id, patch) {
       const updates: Partial<typeof connections.$inferInsert> = {};
-      if (patch.sessionId !== undefined) updates.sessionId = patch.sessionId;
       if (patch.lastUpdatedAt !== undefined) updates.lastUpdatedAt = patch.lastUpdatedAt;
       if (patch.pendingPermission !== undefined)
         updates.pendingPermission = patch.pendingPermission;
@@ -50,9 +43,9 @@ export function createPsqlStateManager(db: PsqlAppDb): FlamecastStateManager {
       await db.update(connections).set(updates).where(eq(connections.id, id));
     },
 
-    async appendLog(connectionId: string, sessionId: string, log: ConnectionLog) {
+    async appendLog(sessionId: string, log: SessionLog) {
       await db.insert(connectionLogs).values({
-        connectionId,
+        connectionId: sessionId,
         sessionId,
         occurredAt: log.timestamp,
         type: log.type,
@@ -60,7 +53,7 @@ export function createPsqlStateManager(db: PsqlAppDb): FlamecastStateManager {
       });
     },
 
-    async getConnectionMeta(id: string) {
+    async getSessionMeta(id: string) {
       const rows = await db
         .select()
         .from(connections)
@@ -69,11 +62,11 @@ export function createPsqlStateManager(db: PsqlAppDb): FlamecastStateManager {
       return rowToMeta(rows[0]);
     },
 
-    async getLogs(connectionId: string): Promise<ConnectionLog[]> {
+    async getLogs(sessionId: string): Promise<SessionLog[]> {
       const rows = await db
         .select()
         .from(connectionLogs)
-        .where(eq(connectionLogs.connectionId, connectionId))
+        .where(eq(connectionLogs.connectionId, sessionId))
         .orderBy(asc(connectionLogs.id));
       return rows.map((r) => ({
         timestamp: r.occurredAt,
@@ -82,8 +75,8 @@ export function createPsqlStateManager(db: PsqlAppDb): FlamecastStateManager {
       }));
     },
 
-    async finalizeConnection(id: string, reason: "killed") {
-      if (reason === "killed") {
+    async finalizeSession(id: string, reason: "terminated") {
+      if (reason === "terminated") {
         await db.update(connections).set({ status: "killed" }).where(eq(connections.id, id));
       }
     },

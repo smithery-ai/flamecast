@@ -1,28 +1,23 @@
-import { randomUUID } from "node:crypto";
-import type { ConnectionLog } from "../../../shared/connection.js";
-import type { ConnectionMeta, FlamecastStateManager } from "../../state-manager.js";
+import type { SessionLog } from "../../../shared/session.js";
+import type { FlamecastStorage, SessionMeta } from "../../storage.js";
 
-/** In-memory state manager (tests / local tools) */
-export class MemoryFlamecastStateManager implements FlamecastStateManager {
-  private connections = new Map<string, ConnectionMeta>();
-  private logs = new Map<string, ConnectionLog[]>();
+/** In-memory storage (tests / local tools) */
+export class MemoryFlamecastStorage implements FlamecastStorage {
+  private sessions = new Map<string, SessionMeta>();
+  private logs = new Map<string, SessionLog[]>();
 
-  async allocateConnectionId(): Promise<string> {
-    return randomUUID();
-  }
-
-  async createConnection(meta: ConnectionMeta): Promise<void> {
-    this.connections.set(meta.id, { ...meta });
+  async createSession(meta: SessionMeta): Promise<void> {
+    this.sessions.set(meta.id, { ...meta });
     this.logs.set(meta.id, []);
   }
 
-  async updateConnection(
+  async updateSession(
     id: string,
-    patch: Partial<Pick<ConnectionMeta, "sessionId" | "lastUpdatedAt" | "pendingPermission">>,
+    patch: Partial<Pick<SessionMeta, "lastUpdatedAt" | "pendingPermission">>,
   ): Promise<void> {
-    const row = this.connections.get(id);
-    if (!row) throw new Error(`Connection "${id}" not found in state manager`);
-    this.connections.set(id, {
+    const row = this.sessions.get(id);
+    if (!row) throw new Error(`Session "${id}" not found in storage`);
+    this.sessions.set(id, {
       ...row,
       ...patch,
       pendingPermission:
@@ -30,23 +25,23 @@ export class MemoryFlamecastStateManager implements FlamecastStateManager {
     });
   }
 
-  async appendLog(connectionId: string, _sessionId: string, log: ConnectionLog): Promise<void> {
-    const list = this.logs.get(connectionId);
-    if (!list) throw new Error(`Connection "${connectionId}" has no log stream`);
+  async appendLog(sessionId: string, log: SessionLog): Promise<void> {
+    const list = this.logs.get(sessionId);
+    if (!list) throw new Error(`Session "${sessionId}" has no log stream`);
     list.push(log);
   }
 
-  async getConnectionMeta(id: string): Promise<ConnectionMeta | null> {
-    const row = this.connections.get(id);
+  async getSessionMeta(id: string): Promise<SessionMeta | null> {
+    const row = this.sessions.get(id);
     return row ? { ...row } : null;
   }
 
-  async getLogs(connectionId: string): Promise<ConnectionLog[]> {
-    return [...(this.logs.get(connectionId) ?? [])];
+  async getLogs(sessionId: string): Promise<SessionLog[]> {
+    return [...(this.logs.get(sessionId) ?? [])];
   }
 
-  async finalizeConnection(id: string, _reason: "killed"): Promise<void> {
-    this.connections.delete(id);
+  async finalizeSession(id: string, _reason: "terminated"): Promise<void> {
+    this.sessions.delete(id);
     this.logs.delete(id);
   }
 }

@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createConnection, fetchAgentProcesses, registerAgentProcess } from "@/client/lib/api";
+import { createSession, fetchAgentTemplates, registerAgentTemplate } from "@/client/lib/api";
 import { Button } from "@/client/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/client/components/ui/card";
 import { Input } from "@/client/components/ui/input";
@@ -16,42 +16,42 @@ import {
 } from "@/client/components/ui/dialog";
 import { PlusIcon, PlayIcon, TerminalIcon } from "lucide-react";
 import { useState } from "react";
-import type { AgentProcessInfo } from "@/shared/connection";
+import type { AgentTemplate } from "@/shared/session";
 
 export const Route = createFileRoute("/")({
-  component: ConnectionsPage,
+  component: SessionsPage,
 });
 
-function ConnectionsPage() {
+function SessionsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [newLabel, setNewLabel] = useState("");
+  const [newName, setNewName] = useState("");
   const [newCommand, setNewCommand] = useState("");
   const [newArgs, setNewArgs] = useState("");
 
-  const { data: processes = [], isLoading: processesLoading } = useQuery({
-    queryKey: ["agent-processes"],
-    queryFn: fetchAgentProcesses,
+  const { data: templates = [], isLoading: templatesLoading } = useQuery({
+    queryKey: ["agent-templates"],
+    queryFn: fetchAgentTemplates,
   });
 
   const createMutation = useMutation({
-    mutationFn: (agentProcessId: string) => createConnection({ agentProcessId, cwd: undefined }),
-    onSuccess: (conn) => {
-      queryClient.invalidateQueries({ queryKey: ["connections"] });
-      navigate({ to: "/connections/$id", params: { id: conn.id } });
+    mutationFn: (agentTemplateId: string) => createSession({ agentTemplateId, cwd: undefined }),
+    onSuccess: (session) => {
+      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      navigate({ to: "/sessions/$id", params: { id: session.id } });
     },
   });
 
   const registerMutation = useMutation({
-    mutationFn: (body: { label: string; command: string; args: string[] }) =>
-      registerAgentProcess({
-        label: body.label,
+    mutationFn: (body: { name: string; command: string; args: string[] }) =>
+      registerAgentTemplate({
+        name: body.name,
         spawn: { command: body.command, args: body.args },
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["agent-processes"] });
-      setNewLabel("");
+      queryClient.invalidateQueries({ queryKey: ["agent-templates"] });
+      setNewName("");
       setNewCommand("");
       setNewArgs("");
       setDialogOpen(false);
@@ -59,11 +59,11 @@ function ConnectionsPage() {
   });
 
   const handleRegister = () => {
-    const label = newLabel.trim();
+    const name = newName.trim();
     const command = newCommand.trim();
-    if (!label || !command) return;
+    if (!name || !command) return;
     const args = newArgs.trim() ? newArgs.trim().split(/\s+/).filter(Boolean) : [];
-    registerMutation.mutate({ label, command, args });
+    registerMutation.mutate({ name, command, args });
   };
 
   return (
@@ -71,17 +71,17 @@ function ConnectionsPage() {
       <div className="flex flex-col gap-8">
         {/* Header */}
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Agents</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Agent templates</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Register agent processes and launch new connections.
+            Register reusable agent templates and launch new sessions.
           </p>
         </div>
 
-        {/* Registered agents */}
+        {/* Registered agent templates */}
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-              Registered agents
+              Registered templates
             </h2>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
@@ -98,19 +98,19 @@ function ConnectionsPage() {
                   }}
                 >
                   <DialogHeader>
-                    <DialogTitle>Add agent process</DialogTitle>
+                    <DialogTitle>Add agent template</DialogTitle>
                     <DialogDescription>
-                      Register a spawn configuration so you can quickly launch connections to it.
+                      Register a spawn configuration so you can quickly launch sessions from it.
                     </DialogDescription>
                   </DialogHeader>
                   <div className="flex flex-col gap-4 py-4">
                     <div className="flex flex-col gap-2">
-                      <Label htmlFor="agent-label">Label</Label>
+                      <Label htmlFor="agent-name">Name</Label>
                       <Input
-                        id="agent-label"
+                        id="agent-name"
                         placeholder="My agent"
-                        value={newLabel}
-                        onChange={(e) => setNewLabel(e.target.value)}
+                        value={newName}
+                        onChange={(e) => setNewName(e.target.value)}
                       />
                     </div>
                     <div className="flex flex-col gap-2">
@@ -146,12 +146,10 @@ function ConnectionsPage() {
                     </Button>
                     <Button
                       type="submit"
-                      disabled={
-                        registerMutation.isPending || !newLabel.trim() || !newCommand.trim()
-                      }
+                      disabled={registerMutation.isPending || !newName.trim() || !newCommand.trim()}
                     >
                       <PlusIcon data-icon="inline-start" />
-                      {registerMutation.isPending ? "Saving…" : "Add agent"}
+                      {registerMutation.isPending ? "Saving…" : "Add template"}
                     </Button>
                   </DialogFooter>
                 </form>
@@ -159,7 +157,7 @@ function ConnectionsPage() {
             </Dialog>
           </div>
 
-          {processesLoading ? (
+          {templatesLoading ? (
             <div className="grid gap-3 sm:grid-cols-2">
               {[1, 2].map((i) => (
                 <Card key={i} className="animate-pulse">
@@ -170,24 +168,24 @@ function ConnectionsPage() {
                 </Card>
               ))}
             </div>
-          ) : processes.length === 0 ? (
+          ) : templates.length === 0 ? (
             <Card className="border-dashed">
               <CardContent className="flex flex-col items-center justify-center py-8 text-center">
                 <TerminalIcon className="mb-3 h-8 w-8 text-muted-foreground/50" />
-                <p className="text-sm font-medium">No agents registered</p>
+                <p className="text-sm font-medium">No agent templates registered</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Click "Create" above to add your first agent process.
+                  Click "Create" above to add your first agent template.
                 </p>
               </CardContent>
             </Card>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
-              {processes.map((proc) => (
-                <AgentCard
-                  key={proc.id}
-                  process={proc}
-                  onConnect={() => createMutation.mutate(proc.id)}
-                  isConnecting={createMutation.isPending}
+              {templates.map((template) => (
+                <AgentTemplateCard
+                  key={template.id}
+                  template={template}
+                  onStartSession={() => createMutation.mutate(template.id)}
+                  isStartingSession={createMutation.isPending}
                 />
               ))}
             </div>
@@ -198,14 +196,14 @@ function ConnectionsPage() {
   );
 }
 
-function AgentCard({
-  process,
-  onConnect,
-  isConnecting,
+function AgentTemplateCard({
+  template,
+  onStartSession,
+  isStartingSession,
 }: {
-  process: AgentProcessInfo;
-  onConnect: () => void;
-  isConnecting: boolean;
+  template: AgentTemplate;
+  onStartSession: () => void;
+  isStartingSession: boolean;
 }) {
   return (
     <Card className="group transition-colors hover:border-foreground/20">
@@ -214,16 +212,16 @@ function AgentCard({
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
             <TerminalIcon className="h-4 w-4" />
           </div>
-          <CardTitle className="text-sm font-semibold">{process.label}</CardTitle>
+          <CardTitle className="text-sm font-semibold">{template.name}</CardTitle>
         </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <code className="block truncate rounded bg-muted px-2 py-1.5 text-xs text-muted-foreground">
-          {process.spawn.command} {(process.spawn.args ?? []).join(" ")}
+          {template.spawn.command} {(template.spawn.args ?? []).join(" ")}
         </code>
-        <Button size="sm" className="w-full" onClick={onConnect} disabled={isConnecting}>
+        <Button size="sm" className="w-full" onClick={onStartSession} disabled={isStartingSession}>
           <PlayIcon data-icon="inline-start" />
-          Connect
+          Start session
         </Button>
       </CardContent>
     </Card>

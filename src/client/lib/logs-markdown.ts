@@ -1,5 +1,5 @@
 import * as acp from "@agentclientprotocol/sdk";
-import type { ConnectionLog } from "@/shared/connection";
+import type { SessionLog } from "@/shared/session";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -74,7 +74,7 @@ function applyToolSegmentStatus(
 }
 
 /** Ordered segments for the markdown tab (prompts + session stream updates). */
-export function connectionLogsToSegments(logs: ConnectionLog[]): ConnectionLogMarkdownSegment[] {
+export function connectionLogsToSegments(logs: SessionLog[]): ConnectionLogMarkdownSegment[] {
   const segments: ConnectionLogMarkdownSegment[] = [];
 
   for (const log of logs) {

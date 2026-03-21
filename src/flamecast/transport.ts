@@ -44,7 +44,14 @@ export function openLocalTransport(spec: {
 }): AcpTransport & { kill: () => void } {
   const agentProcess = startAgentProcess(spec);
   const { input, output } = getAgentTransport(agentProcess);
-  return { input, output, kill: () => agentProcess.kill() };
+  return {
+    input,
+    output,
+    kill: () => agentProcess.kill(),
+    dispose: async () => {
+      agentProcess.kill();
+    },
+  };
 }
 
 export function getAgentTransport(agentProcess: ChildProcess) {
@@ -96,7 +103,14 @@ export function openTcpTransport(host: string, port: number): Promise<AcpTranspo
           socket.destroy();
         },
       });
-      resolve({ input, output });
+      resolve({
+        input,
+        output,
+        dispose: async () => {
+          socket.end();
+          socket.destroy();
+        },
+      });
     });
     socket.on("error", reject);
   });

@@ -1,6 +1,6 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchConnections, killConnection } from "@/client/lib/api";
+import { fetchSessions, terminateSession } from "@/client/lib/api";
 import { cn } from "@/client/lib/utils";
 import {
   Sidebar,
@@ -17,24 +17,24 @@ import {
 } from "@/client/components/ui/sidebar";
 import { Trash2Icon } from "lucide-react";
 
-export function ConnectionsSidebar() {
+export function SessionsSidebar() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const activeConnectionId = useRouterState({
-    select: (s) => s.matches.find((m) => m.routeId === "/connections/$id")?.params.id,
+  const activeSessionId = useRouterState({
+    select: (s) => s.matches.find((m) => m.routeId === "/sessions/$id")?.params.id,
   });
 
-  const { data: connections, isLoading } = useQuery({
-    queryKey: ["connections"],
-    queryFn: fetchConnections,
+  const { data: sessions, isLoading } = useQuery({
+    queryKey: ["sessions"],
+    queryFn: fetchSessions,
     refetchInterval: 3000,
   });
 
-  const killMutation = useMutation({
-    mutationFn: killConnection,
+  const terminateMutation = useMutation({
+    mutationFn: terminateSession,
     onSuccess: (_, id) => {
-      queryClient.invalidateQueries({ queryKey: ["connections"] });
-      if (id === activeConnectionId) {
+      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      if (id === activeSessionId) {
         void navigate({ to: "/" });
       }
     },
@@ -60,7 +60,7 @@ export function ConnectionsSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Connections</SidebarGroupLabel>
+          <SidebarGroupLabel>Sessions</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {isLoading ? (
@@ -69,32 +69,32 @@ export function ConnectionsSidebar() {
                   <SidebarMenuSkeleton showIcon />
                   <SidebarMenuSkeleton showIcon />
                 </>
-              ) : !connections?.length ? (
+              ) : !sessions?.length ? (
                 <p className="px-2 text-xs text-sidebar-foreground/70">
-                  No active connections. Open the home page to create one.
+                  No active sessions. Open the home page to create one.
                 </p>
               ) : (
-                connections.map((conn) => (
-                  <SidebarMenuItem key={conn.id}>
+                sessions.map((session) => (
+                  <SidebarMenuItem key={session.id}>
                     <SidebarMenuButton
                       asChild
-                      isActive={conn.id === activeConnectionId}
-                      tooltip={`${conn.agentLabel} · ${conn.id.slice(0, 8)}…`}
+                      isActive={session.id === activeSessionId}
+                      tooltip={`${session.agentName} · ${session.id.slice(0, 8)}…`}
                       className="!h-auto min-h-8 items-start py-2 pr-10"
                     >
-                      <Link to="/connections/$id" params={{ id: conn.id }}>
+                      <Link to="/sessions/$id" params={{ id: session.id }}>
                         <span className="grid min-w-0 flex-1 gap-1 leading-snug">
-                          <span className="truncate font-medium">{conn.agentLabel}</span>
+                          <span className="truncate font-medium">{session.agentName}</span>
                           <span className="truncate text-xs text-sidebar-foreground/65">
-                            {conn.sessionId.slice(0, 10)}… · {conn.logs.length} entries
+                            {session.id.slice(0, 10)}… · {session.logs.length} entries
                           </span>
                         </span>
                       </Link>
                     </SidebarMenuButton>
                     <SidebarMenuAction
                       showOnHover
-                      title="Close connection"
-                      disabled={killMutation.isPending}
+                      title="Terminate session"
+                      disabled={terminateMutation.isPending}
                       className={cn(
                         "z-10 !top-1/2 right-1 !-translate-y-1/2 size-8 cursor-pointer rounded-md",
                         "text-destructive/90 transition-[opacity,transform,colors] duration-150",
@@ -106,11 +106,11 @@ export function ConnectionsSidebar() {
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        killMutation.mutate(conn.id);
+                        terminateMutation.mutate(session.id);
                       }}
                     >
                       <Trash2Icon className="size-4 shrink-0" />
-                      <span className="sr-only">Close connection</span>
+                      <span className="sr-only">Terminate session</span>
                     </SidebarMenuAction>
                   </SidebarMenuItem>
                 ))
