@@ -3,12 +3,13 @@
 import * as acp from "@agentclientprotocol/sdk";
 import * as net from "node:net";
 import { Readable, Writable } from "node:stream";
+import { pathToFileURL } from "node:url";
 
 interface AgentSession {
   pendingPrompt: AbortController | null;
 }
 
-class ExampleAgent implements acp.Agent {
+export class ExampleAgent implements acp.Agent {
   private connection: acp.AgentSideConnection;
   private sessions: Map<string, AgentSession>;
 
@@ -224,7 +225,18 @@ class ExampleAgent implements acp.Agent {
     abortSignal: AbortSignal,
   ): Promise<void> {
     const wordChunks = text.match(/\s*\S+\s*/g);
-    const chunks = wordChunks ?? (text.length > 0 ? (text.match(/.{1,4}/gu) ?? [text]) : []);
+    let chunks: string[];
+    if (wordChunks) {
+      chunks = wordChunks;
+    } else if (text.length > 0) {
+      const characters = Array.from(text);
+      chunks = [];
+      for (let i = 0; i < characters.length; i += 4) {
+        chunks.push(characters.slice(i, i + 4).join(""));
+      }
+    } else {
+      chunks = [];
+    }
 
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
@@ -245,23 +257,26 @@ class ExampleAgent implements acp.Agent {
   }
 
   private delayBetweenStreamChunks(abortSignal: AbortSignal): Promise<void> {
+    if (abortSignal.aborted) {
+      return Promise.reject(new Error("aborted"));
+    }
+
     const ms = 35 + Math.floor(Math.random() * 55);
     return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(t);
+        abortSignal.removeEventListener("abort", onAbort);
+        reject(new Error("aborted"));
+      };
       const t = setTimeout(() => {
+        abortSignal.removeEventListener("abort", onAbort);
         if (abortSignal.aborted) {
           reject(new Error("aborted"));
         } else {
           resolve();
         }
       }, ms);
-      abortSignal.addEventListener(
-        "abort",
-        () => {
-          clearTimeout(t);
-          reject(new Error("aborted"));
-        },
-        { once: true },
-      );
+      abortSignal.addEventListener("abort", onAbort, { once: true });
     });
   }
 
@@ -283,7 +298,7 @@ class ExampleAgent implements acp.Agent {
   }
 }
 
-function toUint8ReadableStream(
+export function toUint8ReadableStream(
   stream: ReturnType<typeof Readable.toWeb>,
 ): ReadableStream<Uint8Array> {
   return new ReadableStream({
@@ -304,14 +319,14 @@ function toUint8ReadableStream(
   });
 }
 
-function connectStdio(): void {
+export function connectStdio(): void {
   const input = Writable.toWeb(process.stdout);
   const output = toUint8ReadableStream(Readable.toWeb(process.stdin));
   const stream = acp.ndJsonStream(input, output);
   new acp.AgentSideConnection((conn) => new ExampleAgent(conn), stream);
 }
 
-async function listenTcp(port: number): Promise<void> {
+export async function listenTcp(port: number): Promise<void> {
   const server = net.createServer((socket) => {
     socket.setNoDelay(true); // Disable Nagle — NDJSON needs immediate flush
     const input = new WritableStream<Uint8Array>({
@@ -343,9 +358,22 @@ async function listenTcp(port: number): Promise<void> {
   });
 }
 
-const acpPort = process.env.ACP_PORT ? parseInt(process.env.ACP_PORT, 10) : undefined;
-if (acpPort) {
-  listenTcp(acpPort);
-} else {
-  connectStdio();
+export function main(): void {
+  const acpPort = process.env.ACP_PORT ? parseInt(process.env.ACP_PORT, 10) : undefined;
+  if (acpPort) {
+    void listenTcp(acpPort);
+  } else {
+    connectStdio();
+  }
+}
+
+function isMainModule(): boolean {
+  if (!process.argv[1]) {
+    return false;
+  }
+  return import.meta.url === pathToFileURL(process.argv[1]).href;
+}
+
+if (isMainModule()) {
+  main();
 }

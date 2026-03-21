@@ -4,6 +4,9 @@ import "alchemy/test/vitest";
 import { File } from "alchemy/fs";
 import * as docker from "alchemy/docker";
 import { existsSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { Flamecast } from "../src/flamecast/index.js";
 import type { RuntimeProvider } from "../src/flamecast/runtime-provider.js";
 
@@ -29,6 +32,20 @@ async function pollForPermission(flamecast: Flamecast, sessionId: string, timeou
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`No pending permission after ${timeoutMs}ms`);
+}
+
+function hasDockerDaemon(): boolean {
+  const dockerInfo = spawnSync("docker", ["info"], { stdio: "ignore" });
+  if (!dockerInfo.error) {
+    return dockerInfo.status === 0;
+  }
+  const dockerHost = process.env.DOCKER_HOST?.replace(/^unix:\/\//, "");
+  const socketCandidates = [
+    dockerHost,
+    path.join(homedir(), ".docker", "run", "docker.sock"),
+    "/var/run/docker.sock",
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  return socketCandidates.some((candidate) => existsSync(candidate));
 }
 
 async function runSessionLifecycle(
@@ -147,44 +164,47 @@ describe("flamecast", () => {
     }
   });
 
-  test("docker runtime provider - container lifecycle wiring", async (_scope: unknown) => {
-    let containerCreated = false;
-    let containerId = "";
+  test.skipIf(!hasDockerDaemon())(
+    "docker runtime provider - container lifecycle wiring",
+    async (_scope: unknown) => {
+      let containerCreated = false;
+      let containerId = "";
 
-    const dockerProvider: RuntimeProvider = {
-      async start() {
-        const container = await docker.Container("sandbox", {
-          image: "nginx:latest",
-          name: `flamecast-test-${Date.now()}`,
-          ports: [{ external: 0, internal: 80 }],
-          start: true,
-        });
-        containerCreated = true;
-        containerId = container.id;
-        throw new Error("docker ACP handshake unavailable");
-      },
-    };
-
-    const flamecast = new Flamecast({
-      storage: "memory",
-      runtimeProviders: { fixture: dockerProvider },
-      agentTemplates: [
-        {
-          id: "fixture",
-          name: "Fixture agent",
-          spawn: { command: "unused", args: [] },
-          runtime: { provider: "fixture" },
+      const dockerProvider: RuntimeProvider = {
+        async start() {
+          const container = await docker.Container("sandbox", {
+            image: "nginx:latest",
+            name: `flamecast-test-${Date.now()}`,
+            ports: [{ external: 0, internal: 80 }],
+            start: true,
+          });
+          containerCreated = true;
+          containerId = container.id;
+          throw new Error("docker ACP handshake unavailable");
         },
-      ],
-    });
+      };
 
-    try {
-      await flamecast.createSession({ agentTemplateId: "fixture" });
-    } catch {
-      // Expected - this test only verifies provider wiring.
-    }
+      const flamecast = new Flamecast({
+        storage: "memory",
+        runtimeProviders: { fixture: dockerProvider },
+        agentTemplates: [
+          {
+            id: "fixture",
+            name: "Fixture agent",
+            spawn: { command: "unused", args: [] },
+            runtime: { provider: "fixture" },
+          },
+        ],
+      });
 
-    expect(containerCreated).toBe(true);
-    expect(containerId).toBeTruthy();
-  });
+      try {
+        await flamecast.createSession({ agentTemplateId: "fixture" });
+      } catch {
+        // Expected - this test only verifies provider wiring.
+      }
+
+      expect(containerCreated).toBe(true);
+      expect(containerId).toBeTruthy();
+    },
+  );
 });

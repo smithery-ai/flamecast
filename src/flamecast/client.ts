@@ -19,6 +19,7 @@ export class ExampleClient implements acp.Client {
       });
 
       const answer = await rl.question("\nChoose an option: ");
+      rl.close();
       const trimmedAnswer = answer.trim();
 
       const optionIndex = parseInt(trimmedAnswer) - 1;

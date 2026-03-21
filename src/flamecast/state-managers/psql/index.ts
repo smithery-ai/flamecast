@@ -14,7 +14,7 @@ function rowToMeta(row: typeof sessions.$inferSelect | undefined): SessionMeta |
     spawn: row.spawn,
     startedAt: row.startedAt,
     lastUpdatedAt: row.lastUpdatedAt,
-    pendingPermission: row.pendingPermission ?? null,
+    pendingPermission: row.pendingPermission,
   };
 }
 
@@ -164,10 +164,8 @@ export function createPsqlStorage(db: PsqlAppDb): FlamecastStorage {
       }));
     },
 
-    async finalizeSession(id: string, reason: "terminated") {
-      if (reason === "terminated") {
-        await db.update(sessions).set({ status: "killed" }).where(eq(sessions.id, id));
-      }
+    async finalizeSession(id: string, _reason: "terminated") {
+      await db.update(sessions).set({ status: "killed" }).where(eq(sessions.id, id));
     },
   };
 }

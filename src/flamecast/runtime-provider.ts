@@ -39,7 +39,17 @@ async function waitForAcp(host: string, port: number, timeoutMs = 30_000): Promi
   while (Date.now() < deadline) {
     try {
       await new Promise<void>((resolve, reject) => {
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        const onError = (error: Error) => {
+          clearTimeout(timeout);
+          socket.destroy();
+          reject(error);
+        };
         const socket = createConnection({ host, port }, () => {
+          timeout = setTimeout(() => {
+            socket.destroy();
+            reject(new Error("timeout"));
+          }, 2000);
           socket.setNoDelay(true);
           const msg =
             JSON.stringify({
@@ -50,19 +60,15 @@ async function waitForAcp(host: string, port: number, timeoutMs = 30_000): Promi
             }) + "\n";
 
           socket.once("data", () => {
+            clearTimeout(timeout);
+            socket.off("error", onError);
             socket.destroy();
             resolve();
           });
 
           socket.write(msg);
-
-          setTimeout(() => {
-            socket.destroy();
-            reject(new Error("timeout"));
-          }, 2000);
         });
-
-        socket.on("error", reject);
+        socket.once("error", onError);
       });
       return;
     } catch {

@@ -62,12 +62,26 @@ describe("storage alignment", () => {
       ]);
 
       const templates = await storage.listAgentTemplates();
+      const managedTemplate = await storage.getAgentTemplate("managed-a");
+      const missingTemplate = await storage.getAgentTemplate("missing-template");
 
       expect(templates.map((template) => template.id)).toEqual(["managed-a", "user-a"]);
       expect(templates.find((template) => template.id === "managed-a")?.name).toBe(
         "Managed A (updated)",
       );
       expect(templates.find((template) => template.id === "managed-b")).toBeUndefined();
+      expect(managedTemplate?.spawn.args).toEqual(["managed-a-v2.js"]);
+      expect(missingTemplate).toBeNull();
+
+      await storage.seedAgentTemplates([]);
+      expect(await storage.listAgentTemplates()).toEqual([
+        {
+          id: "user-a",
+          name: "User A",
+          spawn: { command: "node", args: ["user-a.js"] },
+          runtime: { provider: "local" },
+        },
+      ]);
     } finally {
       await close();
       await rm(dataDir, { recursive: true, force: true });
@@ -94,11 +108,23 @@ describe("storage alignment", () => {
         type: "rpc",
         data: { method: "session/new" },
       });
+      await storage.updateSession("session-1", {});
+      await storage.updateSession("session-1", {
+        lastUpdatedAt: "2026-03-21T00:00:02.000Z",
+        pendingPermission: {
+          requestId: "request-1",
+          toolCallId: "tool-1",
+          title: "Approve",
+          options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+        },
+      });
 
       const session = await storage.getSessionMeta("session-1");
       const logs = await storage.getLogs("session-1");
 
       expect(session?.agentName).toBe("Example agent");
+      expect(new Date(session?.lastUpdatedAt ?? "").toISOString()).toBe("2026-03-21T00:00:02.000Z");
+      expect(session?.pendingPermission?.requestId).toBe("request-1");
       expect(logs).toHaveLength(1);
       expect(logs[0]?.type).toBe("rpc");
       expect(logs[0]?.data).toEqual({ method: "session/new" });
