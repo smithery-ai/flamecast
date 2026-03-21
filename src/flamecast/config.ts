@@ -80,28 +80,31 @@ const defaultProvisioner: Provisioner = async (connectionId, spec) => {
   const match = Object.entries(DOCKER_AGENTS).find(([key]) => cmd.includes(key));
 
   if (match) {
-    const [, { image, dockerfile }] = match;
-    const docker = await import("alchemy/docker");
+    const [, { image }] = match;
+    const Docker = (await import("dockerode")).default;
     const { findFreePort, waitForPort, openTcpTransport } = await import("./transport.js");
+    const docker = new Docker();
     const port = await findFreePort();
 
-    await docker.Image(`agent-image-${connectionId}`, {
-      name: image,
-      tag: "latest",
-      build: { context: ".", dockerfile },
-      skipPush: true,
-    });
-
-    await docker.Container(`sandbox-${connectionId}`, {
-      image: `${image}:latest`,
+    const container = await docker.createContainer({
+      Image: `${image}:latest`,
       name: `flamecast-sandbox-${connectionId}`,
-      environment: { ACP_PORT: String(port) },
-      ports: [{ external: port, internal: port }],
-      start: true,
+      Env: [`ACP_PORT=${port}`],
+      ExposedPorts: { [`${port}/tcp`]: {} },
+      HostConfig: {
+        PortBindings: { [`${port}/tcp`]: [{ HostPort: String(port) }] },
+      },
     });
-
+    await container.start();
     await waitForPort("localhost", port);
-    return openTcpTransport("localhost", port);
+
+    return {
+      ...(await openTcpTransport("localhost", port)),
+      dispose: async () => {
+        await container.stop().catch(() => {});
+        await container.remove().catch(() => {});
+      },
+    };
   }
 
   const { openLocalTransport } = await import("./transport.js");

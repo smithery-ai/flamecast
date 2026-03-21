@@ -163,7 +163,9 @@ export class Flamecast {
       "request",
       initParams,
     );
+    console.log("[flamecast] calling connection.initialize...");
     const initResult = await connection.initialize(initParams);
+    console.log("[flamecast] initialize response received");
     await this.pushRpcLog(
       managed,
       acp.AGENT_METHODS.initialize,

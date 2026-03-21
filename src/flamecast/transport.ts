@@ -104,12 +104,36 @@ export function getAgentTransport(agentProcess: ChildProcess) {
 // ---------------------------------------------------------------------------
 
 export function openTcpTransport(host: string, port: number): Promise<AcpTransport> {
+  console.log(`[tcp] createConnection to ${host}:${port}`);
   return new Promise((resolve, reject) => {
     const socket = createConnection({ host, port }, () => {
+      console.log(`[tcp] socket connected to ${host}:${port}`);
       socket.setNoDelay(true);
       // Use the same Writable.toWeb / Readable.toWeb pattern as stdio — proven to work
-      const input = Writable.toWeb(socket);
-      const output = toUint8ReadableStream(Readable.toWeb(socket));
+      const input = new WritableStream<Uint8Array>({
+        write(chunk) {
+          console.log(`[tcp-write] ${chunk.length} bytes, socket writable: ${socket.writable}, destroyed: ${socket.destroyed}`);
+          console.log(`[tcp-write] content: ${new TextDecoder().decode(chunk).substring(0, 200)}`);
+          return new Promise<void>((res, rej) => {
+            const flushed = socket.write(chunk, (err) => {
+              console.log(`[tcp-write] callback, err: ${err}, flushed: ${flushed}`);
+              err ? rej(err) : res();
+            });
+          });
+        },
+        close() { socket.end(); },
+      });
+      const output = new ReadableStream<Uint8Array>({
+        start(controller) {
+          socket.on("data", (chunk: Buffer) => {
+            console.log(`[transport] received ${chunk.length} bytes`);
+            controller.enqueue(new Uint8Array(chunk));
+          });
+          socket.on("end", () => controller.close());
+          socket.on("error", (err) => controller.error(err));
+        },
+        cancel() { socket.destroy(); },
+      });
       resolve({ input, output });
     });
     socket.on("error", reject);
@@ -133,6 +157,7 @@ export function findFreePort(): Promise<number> {
 }
 
 export function waitForPort(host: string, port: number, timeoutMs = 30_000): Promise<void> {
+  console.log(`[waitForPort] waiting for ${host}:${port}`);
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + timeoutMs;
     function attempt() {
