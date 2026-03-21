@@ -11,6 +11,7 @@ type PromptHandler = (params: acp.PromptRequest) => Promise<acp.PromptResponse>;
 
 type ManagedSessionLike = {
   id: string;
+  workspaceRoot: string;
   transport: {
     input: WritableStream<Uint8Array>;
     output: ReadableStream<Uint8Array>;
@@ -45,6 +46,7 @@ function createManagedSession(id: string, prompt?: PromptHandler) {
   const passthrough = new TransformStream<Uint8Array, Uint8Array>();
   return {
     id,
+    workspaceRoot: process.cwd(),
     transport: {
       input: passthrough.writable,
       output: passthrough.readable,
