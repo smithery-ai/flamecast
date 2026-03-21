@@ -49,7 +49,7 @@ describe("database client postgres branch", () => {
       { kind: "pg-db" },
       expect.objectContaining({
         migrationsFolder: expect.stringContaining(
-          path.join("src", "flamecast", "storage", "psql", "migrations"),
+          path.join("src", "flamecast", "state-managers", "psql", "migrations"),
         ),
       }),
     );

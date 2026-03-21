@@ -12,7 +12,11 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "lcov"],
       reportsDirectory: "./coverage/api-server",
-      include: ["src/flamecast/api.ts", "src/server/app.ts"],
+      include: ["src/flamecast/**/*.ts", "src/server/**/*.ts"],
+      exclude: [
+        "src/flamecast/state-managers/psql/drizzle.config.ts",
+        "src/flamecast/state-managers/psql/types.ts",
+      ],
       thresholds: {
         branches: 100,
         functions: 100,

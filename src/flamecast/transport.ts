@@ -29,13 +29,12 @@ export type AcpTransport = {
   output: ReadableStream<Uint8Array>;
   /** Clean up the transport and any backing resources (process, container, scope). */
   dispose?: () => Promise<void>;
-  describeFailure?: () => string | null;
 };
 
 export function startAgentProcess(spec: { command: string; args?: string[] }): ChildProcess {
   const args = spec.args ?? [];
   return spawn(spec.command, args, {
-    stdio: ["pipe", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "inherit"],
   });
 }
 
@@ -44,42 +43,11 @@ export function openLocalTransport(spec: {
   args?: string[];
 }): AcpTransport & { kill: () => void } {
   const agentProcess = startAgentProcess(spec);
-  const stderrChunks: string[] = [];
-  let exitCode: number | null = null;
-  let exitSignal: string | null = null;
-
-  agentProcess.stderr?.setEncoding?.("utf8");
-  agentProcess.stderr?.on?.("data", (chunk: string) => {
-    process.stderr.write(chunk);
-    stderrChunks.push(chunk);
-    if (stderrChunks.length > 20) {
-      stderrChunks.splice(0, stderrChunks.length - 20);
-    }
-  });
-
-  agentProcess.once?.("exit", (code, signal) => {
-    exitCode = code;
-    exitSignal = signal;
-  });
-
   const { input, output } = getAgentTransport(agentProcess);
   return {
     input,
     output,
     kill: () => agentProcess.kill(),
-    describeFailure: () => {
-      const stderr = stderrChunks.join("").trim();
-      if (stderr) {
-        return stderr;
-      }
-      if (exitSignal) {
-        return `Agent process exited via signal ${exitSignal}`;
-      }
-      if (exitCode !== null) {
-        return `Agent process exited with code ${exitCode}`;
-      }
-      return null;
-    },
     dispose: async () => {
       agentProcess.kill();
     },

@@ -3,13 +3,11 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 function createStorageStub(label: string) {
   return {
     label,
-    listAgents: vi.fn(async () => []),
-    getAgent: vi.fn(async () => null),
-    createAgent: vi.fn(async () => {}),
-    updateAgent: vi.fn(async () => {}),
+    seedAgentTemplates: vi.fn(async () => {}),
+    listAgentTemplates: vi.fn(async () => []),
+    getAgentTemplate: vi.fn(async () => null),
+    saveAgentTemplate: vi.fn(async () => {}),
     createSession: vi.fn(async () => {}),
-    listSessionsByAgent: vi.fn(async () => []),
-    finalizeAgent: vi.fn(async () => {}),
     updateSession: vi.fn(async () => {}),
     appendLog: vi.fn(async () => {}),
     getSessionMeta: vi.fn(async () => null),
@@ -23,8 +21,8 @@ afterEach(() => {
   delete process.env.ACP_PGLITE_DIR;
   vi.restoreAllMocks();
   vi.doUnmock("../src/flamecast/db/client.js");
-  vi.doUnmock("../src/flamecast/storage/psql/index.js");
-  vi.doUnmock("../src/flamecast/storage/memory/index.js");
+  vi.doUnmock("../src/flamecast/state-managers/psql/index.js");
+  vi.doUnmock("../src/flamecast/state-managers/memory/index.js");
   vi.resetModules();
 });
 
@@ -45,8 +43,8 @@ describe("storage resolution", () => {
     });
 
     vi.doMock("../src/flamecast/db/client.js", () => ({ createDatabase }));
-    vi.doMock("../src/flamecast/storage/psql/index.js", () => ({ createPsqlStorage }));
-    vi.doMock("../src/flamecast/storage/memory/index.js", () => ({
+    vi.doMock("../src/flamecast/state-managers/psql/index.js", () => ({ createPsqlStorage }));
+    vi.doMock("../src/flamecast/state-managers/memory/index.js", () => ({
       MemoryFlamecastStorage,
     }));
 
