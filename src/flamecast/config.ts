@@ -115,31 +115,9 @@ const defaultProvisioner: Provisioner = async (connectionId, spec) => {
 export async function createFlamecast(opts: FlamecastOptions = {}): Promise<Flamecast> {
   const stateManager = await resolveStateManager(opts.stateManager);
 
-  // Dynamic import — keeps alchemy out of the Worker bundle
-  const alchemy = (await import("alchemy")).default;
-  await alchemy("flamecast", { phase: "up", stage: opts.stage, quiet: true });
-
-  const userProvisioner: Provisioner = opts.provisioner ?? defaultProvisioner;
-
-  // Wrap in an Alchemy scope per connection so any resources created
-  // inside (docker.Container, etc.) get lifecycle-managed automatically.
-  const provisioner: Provisioner = async (connectionId, spec) => {
-    let scope: Awaited<ReturnType<typeof alchemy.run>> | undefined;
-    const transport = await alchemy.run(
-      `connection-${connectionId}`,
-      async (s: Awaited<ReturnType<typeof alchemy.run>>) => {
-        scope = s;
-        return userProvisioner(connectionId, spec);
-      },
-    );
-    return {
-      ...transport,
-      dispose: async () => {
-        await transport.dispose?.();
-        if (scope) await alchemy.destroy(scope);
-      },
-    };
-  };
+  // No alchemy init here — provisioner handles its own lifecycle.
+  // Alchemy scoping (if needed) is the provisioner's responsibility.
+  const provisioner: Provisioner = opts.provisioner ?? defaultProvisioner;
 
   const { getBuiltinAgentPresets } = await import("./presets.js");
   const presets = getBuiltinAgentPresets();
