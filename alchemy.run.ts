@@ -1,5 +1,5 @@
 import alchemy from "alchemy";
-import { Worker, Vite } from "alchemy/cloudflare";
+import { Vite } from "alchemy/cloudflare";
 import * as docker from "alchemy/docker";
 
 const app = await alchemy("flamecast-infra");
@@ -25,35 +25,15 @@ const db = await docker.Container("flamecast-db", {
 const DATABASE_URL = `postgres://flamecast:flamecast@localhost:5432/flamecast`;
 
 // ---------------------------------------------------------------------------
-// API server
+// Flamecast — API + Frontend via Vite
 // ---------------------------------------------------------------------------
 
-export const server = await Worker("flamecast-api", {
-  name: `flamecast-api-${app.stage}`,
-  entrypoint: "./src/worker.ts",
-  format: "esm",
-  compatibility: "node",
+export const server = await Vite("flamecast", {
+  name: `flamecast-${app.stage}`,
   bindings: {
     DATABASE_URL,
   },
-  url: true,
-  dev: {
-    port: 3001,
-  },
 });
-
-// ---------------------------------------------------------------------------
-// Frontend
-// ---------------------------------------------------------------------------
-
-export const client = await Vite("flamecast-client", {
-  name: `flamecast-client-${app.stage}`,
-  bindings: {
-    VITE_API_URL: Worker.DevUrl,
-  },
-});
-
-console.log(`API: ${server.url}`);
 
 await app.finalize();
 
