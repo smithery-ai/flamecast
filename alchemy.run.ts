@@ -39,6 +39,9 @@ export const server = await Worker("flamecast-api", {
   dev: {
     port: 3001,
   },
+  bundle: {
+    external: ["alchemy", "alchemy/*"],
+  },
 });
 
 // ---------------------------------------------------------------------------

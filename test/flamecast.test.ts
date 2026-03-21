@@ -5,7 +5,8 @@ import { File } from "alchemy/fs";
 import * as docker from "alchemy/docker";
 import { createServer, createConnection } from "node:net";
 import { existsSync, rmSync } from "node:fs";
-import { createFlamecast, type Flamecast } from "../src/flamecast/index.js";
+import { createFlamecast } from "../src/flamecast/config.js";
+import type { Flamecast } from "../src/flamecast/index.js";
 
 const test = alchemy.test(import.meta, { prefix: "test" });
 

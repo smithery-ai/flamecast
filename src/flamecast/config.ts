@@ -1,4 +1,3 @@
-import alchemy from "alchemy";
 import type { FlamecastStateManager } from "./state-manager.js";
 import { MemoryFlamecastStateManager } from "./state-managers/memory/index.js";
 import { Flamecast } from "./index.js";
@@ -116,13 +115,14 @@ const defaultProvisioner: Provisioner = async (connectionId, spec) => {
 export async function createFlamecast(opts: FlamecastOptions = {}): Promise<Flamecast> {
   const stateManager = await resolveStateManager(opts.stateManager);
 
+  // Dynamic import — keeps alchemy out of the Worker bundle
+  const alchemy = (await import("alchemy")).default;
   await alchemy("flamecast", { phase: "up", stage: opts.stage, quiet: true });
 
   const userProvisioner: Provisioner = opts.provisioner ?? defaultProvisioner;
 
   // Wrap in an Alchemy scope per connection so any resources created
   // inside (docker.Container, etc.) get lifecycle-managed automatically.
-  // transport.dispose() destroys the scope, cleaning up all resources.
   const provisioner: Provisioner = async (connectionId, spec) => {
     let scope: Awaited<ReturnType<typeof alchemy.run>> | undefined;
     const transport = await alchemy.run(
@@ -141,9 +141,8 @@ export async function createFlamecast(opts: FlamecastOptions = {}): Promise<Flam
     };
   };
 
-  // Load presets (dynamic import to avoid bundling child_process in Workers)
-  const { getBuiltinAgentProcessPresets } = await import("./transport.js");
-  const presets = getBuiltinAgentProcessPresets();
+  const { getBuiltinAgentPresets } = await import("./presets.js");
+  const presets = getBuiltinAgentPresets();
 
   return new Flamecast({ stateManager, provisioner, presets });
 }
