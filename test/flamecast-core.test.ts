@@ -190,7 +190,7 @@ describe("flamecast orchestration internals", () => {
     );
 
     expect(allowedResponse.status).toBe(200);
-    expect(allowedResponse.headers.get("mcp-session-id")).toBeTruthy();
+    expect(allowedResponse.headers.get("acp-session-id")).toBeTruthy();
 
     const blockedResponse = await flamecast.handleAcp(
       agentId,

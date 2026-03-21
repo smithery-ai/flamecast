@@ -1,7 +1,9 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import { parseAcpMessage } from "./acp-streamable-http-messages.js";
 
-const STREAMABLE_HTTP_PROTOCOL_VERSION = "2025-11-25";
+const ACP_HTTP_PROTOCOL_VERSION = "2025-11-25";
+const ACP_PROTOCOL_VERSION_HEADER = "acp-protocol-version";
+const ACP_SESSION_HEADER = "acp-session-id";
 
 type AcpStreamableHttpClientOptions = {
   fetch?: typeof fetch;
@@ -29,7 +31,7 @@ export class AcpStreamableHttpClientTransport {
     this.endpoint = endpoint;
     const fetchImpl = options.fetch ?? globalThis.fetch;
     this.fetchImpl = (input, init) => fetchImpl.call(globalThis, input, init);
-    this.protocolVersion = options.protocolVersion ?? STREAMABLE_HTTP_PROTOCOL_VERSION;
+    this.protocolVersion = options.protocolVersion ?? ACP_HTTP_PROTOCOL_VERSION;
     this.stream = {
       readable: new ReadableStream<acp.AnyMessage>({
         start: (controller) => {
@@ -138,16 +140,16 @@ export class AcpStreamableHttpClientTransport {
     const headers = new Headers({
       accept: "text/event-stream, application/json",
       "content-type": "application/json",
-      "mcp-protocol-version": this.protocolVersion,
+      [ACP_PROTOCOL_VERSION_HEADER]: this.protocolVersion,
     });
     if (this.sessionId) {
-      headers.set("mcp-session-id", this.sessionId);
+      headers.set(ACP_SESSION_HEADER, this.sessionId);
     }
     return headers;
   }
 
   private captureSessionId(response: Response): void {
-    const sessionId = response.headers.get("mcp-session-id");
+    const sessionId = response.headers.get(ACP_SESSION_HEADER);
     if (!sessionId) {
       return;
     }
@@ -173,7 +175,7 @@ export class AcpStreamableHttpClientTransport {
       return payload.error.message;
     }
 
-    return response.statusText || "Streamable HTTP request failed";
+    return response.statusText || "ACP HTTP request failed";
   }
 
   private async consumeEventStream(body: ReadableStream<Uint8Array>): Promise<void> {

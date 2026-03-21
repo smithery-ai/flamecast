@@ -430,7 +430,7 @@ export class Flamecast {
       );
     }
 
-    const transportSessionId = request.headers.get("mcp-session-id");
+    const transportSessionId = request.headers.get("acp-session-id");
     const parsedBody =
       request.method === "POST"
         ? await request

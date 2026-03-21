@@ -7,6 +7,8 @@ import {
   type JsonRpcId,
 } from "./acp-streamable-http-messages.js";
 
+const ACP_SESSION_HEADER = "acp-session-id";
+
 type StreamState = {
   controller: ReadableStreamDefaultController<Uint8Array>;
   encoder: TextEncoder;
@@ -207,7 +209,7 @@ export class AcpStreamableHttpServerTransport {
       connection: "keep-alive",
     });
     if (this.sessionId) {
-      headers.set("mcp-session-id", this.sessionId);
+      headers.set(ACP_SESSION_HEADER, this.sessionId);
     }
 
     for (const message of messages) {
@@ -237,12 +239,12 @@ export class AcpStreamableHttpServerTransport {
     if (!this.initialized) {
       return this.createJsonErrorResponse(400, -32000, "Bad Request: Server not initialized");
     }
-    const sessionId = req.headers.get("mcp-session-id");
+    const sessionId = req.headers.get(ACP_SESSION_HEADER);
     if (!sessionId) {
       return this.createJsonErrorResponse(
         400,
         -32000,
-        "Bad Request: Mcp-Session-Id header is required",
+        "Bad Request: acp-session-id header is required",
       );
     }
     if (sessionId !== this.sessionId) {
