@@ -9,6 +9,7 @@ const app = await alchemy("flamecast-infra");
 // ---------------------------------------------------------------------------
 
 const db = await docker.Container("flamecast-db", {
+  adopt: true,
   image: "postgres:16",
   name: `flamecast-db-${app.stage}`,
   environment: {
