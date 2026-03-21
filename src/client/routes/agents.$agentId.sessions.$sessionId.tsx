@@ -45,8 +45,22 @@ function SessionDetailPage() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    void acpClient.connect().then(() => acpClient.loadSession(sessionId, "."));
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        await acpClient.connect();
+        if (cancelled) return;
+        await acpClient.loadSession(sessionId, ".");
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to attach ACP session", error);
+        }
+      }
+    })();
+
     return () => {
+      cancelled = true;
       void acpClient.close();
     };
   }, [acpClient, sessionId]);
@@ -86,16 +100,23 @@ function SessionDetailPage() {
   );
 
   useEffect(() => {
-    setExpandedPaths((current) => (current.size > 0 ? current : getInitialExpandedPaths(fileTree)));
+    setExpandedPaths((current) => {
+      if (current.size > 0) {
+        return current;
+      }
+
+      const initial = getInitialExpandedPaths(fileTree);
+      return initial.size > 0 ? initial : current;
+    });
   }, [fileTree]);
 
   useEffect(() => {
-    if (selectedPath && fileEntryMap.get(selectedPath)?.type === "file") {
-      return;
-    }
+    const nextPath =
+      selectedPath && fileEntryMap.get(selectedPath)?.type === "file"
+        ? selectedPath
+        : (fileEntries.find((entry) => entry.type === "file")?.path ?? null);
 
-    const firstFile = fileEntries.find((entry) => entry.type === "file");
-    setSelectedPath(firstFile?.path ?? null);
+    setSelectedPath((current) => (current === nextPath ? current : nextPath));
   }, [fileEntries, fileEntryMap, selectedPath]);
 
   const selectedEntry = selectedPath ? (fileEntryMap.get(selectedPath) ?? null) : null;
@@ -123,17 +144,6 @@ function SessionDetailPage() {
 
   const handleTreeSelect = (path: string) => {
     setSelectedPath(path);
-    setExpandedPaths((current) => {
-      const next = new Set(current);
-      for (const parentPath of getParentPaths(path)) {
-        next.add(parentPath);
-      }
-      const entry = fileEntryMap.get(path);
-      if (entry?.type === "directory") {
-        next.add(path);
-      }
-      return next;
-    });
   };
 
   if (isLoading) {
@@ -336,26 +346,14 @@ function SessionDetailPage() {
                 {fileTree.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No files available.</p>
                 ) : (
-                  <FileTree>
+                  <FileTree
+                    expanded={expandedPaths}
+                    selectedPath={selectedPath ?? undefined}
+                    onSelect={handleTreeSelect}
+                    onExpandedChange={setExpandedPaths}
+                  >
                     {fileTree.map((node) => (
-                      <FileTreeNode
-                        key={node.path}
-                        node={node}
-                        selectedPath={selectedPath}
-                        expandedPaths={expandedPaths}
-                        onToggleExpanded={(path) => {
-                          setExpandedPaths((current) => {
-                            const next = new Set(current);
-                            if (next.has(path)) {
-                              next.delete(path);
-                            } else {
-                              next.add(path);
-                            }
-                            return next;
-                          });
-                        }}
-                        onSelect={handleTreeSelect}
-                      />
+                      <FileTreeNode key={node.path} node={node} selectedPath={selectedPath} />
                     ))}
                   </FileTree>
                 )}
@@ -420,31 +418,12 @@ function SessionDetailPage() {
   );
 }
 
-function FileTreeNode({
-  node,
-  selectedPath,
-  expandedPaths,
-  onToggleExpanded,
-  onSelect,
-}: {
-  node: TreeNode;
-  selectedPath: string | null;
-  expandedPaths: Set<string>;
-  onToggleExpanded: (path: string) => void;
-  onSelect: (path: string) => void;
-}) {
+function FileTreeNode({ node, selectedPath }: { node: TreeNode; selectedPath: string | null }) {
   if (node.type === "directory") {
     return (
-      <FileTreeFolder path={node.path} name={node.name} onClick={() => onSelect(node.path)}>
+      <FileTreeFolder path={node.path} name={node.name}>
         {node.children.map((child) => (
-          <FileTreeNode
-            key={child.path}
-            node={child}
-            selectedPath={selectedPath}
-            expandedPaths={expandedPaths}
-            onToggleExpanded={onToggleExpanded}
-            onSelect={onSelect}
-          />
+          <FileTreeNode key={child.path} node={child} selectedPath={selectedPath} />
         ))}
       </FileTreeFolder>
     );
@@ -457,7 +436,6 @@ function FileTreeNode({
         className={`w-full rounded-md px-2 py-1 text-left text-sm hover:bg-muted ${
           selectedPath === node.path ? "bg-muted font-medium" : ""
         }`}
-        onClick={() => onSelect(node.path)}
       >
         {node.name}
       </button>
@@ -493,17 +471,6 @@ function buildTree(entries: FileSystemEntry[]): TreeNode[] {
   }
 
   return root;
-}
-
-function getParentPaths(path: string): string[] {
-  const segments = path.split("/");
-  const parents: string[] = [];
-
-  for (let i = 1; i < segments.length; i += 1) {
-    parents.push(segments.slice(0, i).join("/"));
-  }
-
-  return parents;
 }
 
 function getInitialExpandedPaths(nodes: TreeNode[]): Set<string> {
