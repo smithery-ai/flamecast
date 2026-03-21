@@ -290,5 +290,5 @@ Tests use `alchemy.test()` for isolated scopes with automatic cleanup. Each test
 
 - **[`PRD.md`](PRD.md)** — product requirements
 - **[`SPEC.md`](SPEC.md)** — architecture spec
-- **[`RFC.md`](RFC.md)** — implementation RFC
 - **ACP** — protocol via `@agentclientprotocol/sdk`
+- **[Alchemy](https://alchemy.run)** — infrastructure-as-code for provisioning
