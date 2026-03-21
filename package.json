@@ -7,16 +7,19 @@
     "dev:server": "tsx watch src/server/index.ts",
     "build": "vite build",
     "start": "node dist/index.js",
+    "ci:lint": "npm run lint && npm run format:check && npm run format:check:biome",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "format:biome": "biome format . --write",
+    "format:check:biome": "biome format .",
     "fmt": "eslint . --fix --max-warnings 0 && prettier --write .",
     "psql:generate": "drizzle-kit generate --config src/flamecast/state-managers/psql/drizzle.config.ts",
     "test": "npm run test:api",
     "test:api": "vitest run --config vitest.integration.config.ts",
     "test:api:coverage": "vitest run --coverage --config vitest.integration.config.ts",
-    "check": "npm run lint && npm run format:check && npm run build && npm run test:api:coverage",
+    "check": "npm run ci:lint && npm run build && npm run test:api:coverage",
     "alchemy:deploy": "alchemy deploy",
     "alchemy:dev": "alchemy dev",
     "alchemy:destroy": "alchemy destroy"
@@ -63,6 +66,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.8",
     "@cloudflare/vite-plugin": "^1.30.0",
     "@eslint/js": "^10.0.1",
     "@libsql/client": "^0.17.2",

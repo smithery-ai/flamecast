@@ -7,7 +7,7 @@ on:
       - main
 
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -25,5 +25,43 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Run npm run check
-        run: npm run check
+      - name: Run lint and format checks
+        run: npm run ci:lint
+
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build
+        run: npm run build
+
+      - name: Run tests
+        run: npm run test:api:coverage
+
+  check:
+    runs-on: ubuntu-latest
+    needs:
+      - lint
+      - test
+    if: ${{ always() }}
+
+    steps:
+      - name: Verify required jobs passed
+        run: |
+          echo "lint: ${{ needs.lint.result }}"
+          echo "test: ${{ needs.test.result }}"
+          [ "${{ needs.lint.result }}" = "success" ] && [ "${{ needs.test.result }}" = "success" ]
