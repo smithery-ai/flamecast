@@ -1,6 +1,6 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchSessions, terminateSession } from "@/client/lib/api";
+import { fetchSessions, terminateAgent } from "@/client/lib/api";
 import { cn } from "@/client/lib/utils";
 import {
   Sidebar,
@@ -20,8 +20,9 @@ import { Trash2Icon } from "lucide-react";
 export function SessionsSidebar() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const activeSessionId = useRouterState({
-    select: (s) => s.matches.find((m) => m.routeId === "/sessions/$id")?.params.id,
+  const activeSessionParams = useRouterState({
+    select: (state) =>
+      state.matches.find((m) => m.routeId === "/agents/$agentId/sessions/$sessionId")?.params,
   });
 
   const { data: sessions, isLoading } = useQuery({
@@ -31,10 +32,11 @@ export function SessionsSidebar() {
   });
 
   const terminateMutation = useMutation({
-    mutationFn: terminateSession,
-    onSuccess: (_, id) => {
+    mutationFn: terminateAgent,
+    onSuccess: (_, agentId) => {
+      queryClient.invalidateQueries({ queryKey: ["agents"] });
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      if (id === activeSessionId) {
+      if (agentId === activeSessionParams?.agentId) {
         void navigate({ to: "/" });
       }
     },
@@ -78,11 +80,14 @@ export function SessionsSidebar() {
                   <SidebarMenuItem key={session.id}>
                     <SidebarMenuButton
                       asChild
-                      isActive={session.id === activeSessionId}
+                      isActive={session.id === activeSessionParams?.sessionId}
                       tooltip={`${session.agentName} · ${session.id.slice(0, 8)}…`}
                       className="!h-auto min-h-8 items-start py-2 pr-10"
                     >
-                      <Link to="/sessions/$id" params={{ id: session.id }}>
+                      <Link
+                        to="/agents/$agentId/sessions/$sessionId"
+                        params={{ agentId: session.agentId, sessionId: session.id }}
+                      >
                         <span className="grid min-w-0 flex-1 gap-1 leading-snug">
                           <span className="truncate font-medium">{session.agentName}</span>
                           <span className="truncate text-xs text-sidebar-foreground/65">
@@ -93,7 +98,7 @@ export function SessionsSidebar() {
                     </SidebarMenuButton>
                     <SidebarMenuAction
                       showOnHover
-                      title="Terminate session"
+                      title="Terminate agent"
                       disabled={terminateMutation.isPending}
                       className={cn(
                         "z-10 !top-1/2 right-1 !-translate-y-1/2 size-8 cursor-pointer rounded-md",
@@ -106,11 +111,11 @@ export function SessionsSidebar() {
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        terminateMutation.mutate(session.id);
+                        terminateMutation.mutate(session.agentId);
                       }}
                     >
                       <Trash2Icon className="size-4 shrink-0" />
-                      <span className="sr-only">Terminate session</span>
+                      <span className="sr-only">Terminate agent</span>
                     </SidebarMenuAction>
                   </SidebarMenuItem>
                 ))

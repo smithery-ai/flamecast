@@ -5,7 +5,7 @@ afterEach(() => {
   vi.resetModules();
 });
 
-describe("flamecast createSession failure cleanup", () => {
+describe("flamecast createAgent failure cleanup", () => {
   test("terminates the started runtime when ACP initialization fails", async () => {
     const terminate = vi.fn(async () => {});
 
@@ -29,7 +29,7 @@ describe("flamecast createSession failure cleanup", () => {
       };
     });
 
-    const { Flamecast } = await import("../src/flamecast/index.js?create-session-failure");
+    const { Flamecast } = await import("../src/flamecast/index.js?create-agent-failure");
 
     const flamecast = new Flamecast({
       storage: "memory",
@@ -47,7 +47,7 @@ describe("flamecast createSession failure cleanup", () => {
     });
 
     await expect(
-      flamecast.createSession({
+      flamecast.createAgent({
         spawn: { command: "node", args: ["agent.js"] },
       }),
     ).rejects.toThrow("initialize failed");

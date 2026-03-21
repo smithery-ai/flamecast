@@ -27,7 +27,7 @@ function postgresConnectionString(): string | undefined {
 }
 
 export type CreateDatabaseOptions = {
-  /** PGLite data directory when no Postgres URL is set. Default: `ACP_PGLITE_DIR` or `<cwd>/.acp/pglite`. */
+  /** PGLite data directory when no Postgres URL is set. Default: `FLAMECAST_PGLITE_DIR` or `<cwd>/.flamecast/pglite`. */
   pgliteDataDir?: string;
 };
 
@@ -55,8 +55,9 @@ export async function createDatabase(options: CreateDatabaseOptions = {}): Promi
 
   const dataDir = path.resolve(
     options.pgliteDataDir ??
+      process.env.FLAMECAST_PGLITE_DIR ??
       process.env.ACP_PGLITE_DIR ??
-      path.join(process.cwd(), ".acp", "pglite"),
+      path.join(process.cwd(), ".flamecast", "pglite"),
   );
   await mkdir(dataDir, { recursive: true });
   const client = await PGlite.create(dataDir);

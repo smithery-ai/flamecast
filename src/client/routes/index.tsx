@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createSession, fetchAgentTemplates, registerAgentTemplate } from "@/client/lib/api";
+import { createAgent, fetchAgentTemplates, registerAgentTemplate } from "@/client/lib/api";
+import { AgentAcpClient } from "@/client/lib/agent-acp";
 import { Button } from "@/client/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/client/components/ui/card";
 import { Input } from "@/client/components/ui/input";
@@ -19,10 +20,10 @@ import { useState } from "react";
 import type { AgentTemplate } from "@/shared/session";
 
 export const Route = createFileRoute("/")({
-  component: SessionsPage,
+  component: AgentsPage,
 });
 
-function SessionsPage() {
+function AgentsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -36,10 +37,22 @@ function SessionsPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (agentTemplateId: string) => createSession({ agentTemplateId, cwd: undefined }),
-    onSuccess: (session) => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      navigate({ to: "/sessions/$id", params: { id: session.id } });
+    mutationFn: async (agentTemplateId: string) => {
+      const agent = await createAgent({ agentTemplateId });
+      const acpClient = new AgentAcpClient(agent.id);
+      try {
+        const session = await acpClient.createSession(".");
+        return { agent, sessionId: session.sessionId };
+      } finally {
+        await acpClient.close();
+      }
+    },
+    onSuccess: ({ agent, sessionId }) => {
+      queryClient.invalidateQueries({ queryKey: ["agents"] });
+      navigate({
+        to: "/agents/$agentId/sessions/$sessionId",
+        params: { agentId: agent.id, sessionId },
+      });
     },
   });
 
@@ -69,15 +82,13 @@ function SessionsPage() {
   return (
     <div className="mx-auto min-h-0 w-full max-w-3xl flex-1 overflow-y-auto px-1">
       <div className="flex flex-col gap-8">
-        {/* Header */}
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Agent templates</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Register reusable agent templates and launch new sessions.
+            Register reusable agent templates and launch new managed agents.
           </p>
         </div>
 
-        {/* Registered agent templates */}
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
@@ -100,7 +111,7 @@ function SessionsPage() {
                   <DialogHeader>
                     <DialogTitle>Add agent template</DialogTitle>
                     <DialogDescription>
-                      Register a spawn configuration so you can quickly launch sessions from it.
+                      Register a spawn configuration so you can quickly launch agents from it.
                     </DialogDescription>
                   </DialogHeader>
                   <div className="flex flex-col gap-4 py-4">
@@ -184,8 +195,8 @@ function SessionsPage() {
                 <AgentTemplateCard
                   key={template.id}
                   template={template}
-                  onStartSession={() => createMutation.mutate(template.id)}
-                  isStartingSession={createMutation.isPending}
+                  onStartAgent={() => createMutation.mutate(template.id)}
+                  isStartingAgent={createMutation.isPending}
                 />
               ))}
             </div>
@@ -198,12 +209,12 @@ function SessionsPage() {
 
 function AgentTemplateCard({
   template,
-  onStartSession,
-  isStartingSession,
+  onStartAgent,
+  isStartingAgent,
 }: {
   template: AgentTemplate;
-  onStartSession: () => void;
-  isStartingSession: boolean;
+  onStartAgent: () => void;
+  isStartingAgent: boolean;
 }) {
   return (
     <Card className="group transition-colors hover:border-foreground/20">
@@ -219,9 +230,9 @@ function AgentTemplateCard({
         <code className="block truncate rounded bg-muted px-2 py-1.5 text-xs text-muted-foreground">
           {template.spawn.command} {(template.spawn.args ?? []).join(" ")}
         </code>
-        <Button size="sm" className="w-full" onClick={onStartSession} disabled={isStartingSession}>
+        <Button size="sm" className="w-full" onClick={onStartAgent} disabled={isStartingAgent}>
           <PlayIcon data-icon="inline-start" />
-          Start session
+          Start agent
         </Button>
       </CardContent>
     </Card>

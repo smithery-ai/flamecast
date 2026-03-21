@@ -32,5 +32,6 @@ coverage/
 
 # local PGlite data (Flamecast RPC log)
 .acp/
+.flamecast/
 .alchemy/
 src/client/routeTree.gen.ts

@@ -32,8 +32,19 @@ async function ensureAlchemy(): Promise<void> {
   await alchemyReady;
 }
 
-async function waitForAcp(host: string, port: number, timeoutMs = 30_000): Promise<void> {
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+async function waitForAcp(
+  host: string,
+  port: number,
+  timeoutMs = readPositiveIntEnv("FLAMECAST_ACP_WAIT_TIMEOUT_MS", 30_000),
+): Promise<void> {
   const { createConnection } = await import("node:net");
+  const retryDelayMs = readPositiveIntEnv("FLAMECAST_ACP_WAIT_RETRY_MS", 200);
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
@@ -72,7 +83,7 @@ async function waitForAcp(host: string, port: number, timeoutMs = 30_000): Promi
       });
       return;
     } catch {
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     }
   }
 
@@ -104,7 +115,6 @@ function createDockerRuntimeProvider(): RuntimeProvider {
 
       if (runtime.image && runtime.dockerfile) {
         await provider.Image(`agent-image-${resourceId}`, {
-          adopt: true,
           name: runtime.image,
           tag: "latest",
           build: { context: ".", dockerfile: runtime.dockerfile },
@@ -113,7 +123,7 @@ function createDockerRuntimeProvider(): RuntimeProvider {
       }
 
       await provider.Container(`sandbox-${resourceId}`, {
-        image: runtime.image ? `${runtime.image}:latest` : undefined,
+        image: runtime.image ? `${runtime.image}:latest` : "node:20",
         name: `flamecast-sandbox-${resourceId}`,
         environment: { ACP_PORT: String(port) },
         ports: [{ external: port, internal: port }],

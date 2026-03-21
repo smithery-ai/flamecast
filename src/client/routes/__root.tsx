@@ -8,8 +8,9 @@ export const Route = createRootRoute({
 });
 
 function RootLayout() {
-  const sessionId = useRouterState({
-    select: (state) => state.matches.find((m) => m.routeId === "/sessions/$id")?.params.id,
+  const routeParams = useRouterState({
+    select: (state) =>
+      state.matches.find((m) => m.routeId === "/agents/$agentId/sessions/$sessionId")?.params,
   });
 
   return (
@@ -23,16 +24,23 @@ function RootLayout() {
               to="/"
               className="shrink-0 text-muted-foreground transition-colors hover:text-foreground [&.active]:text-foreground [&.active]:font-medium"
             >
-              Sessions
+              Templates
             </Link>
-            {sessionId ? (
+            {routeParams ? (
               <>
                 <ChevronRightIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
                 <span
                   className="min-w-0 truncate font-mono text-xs text-muted-foreground"
-                  title={sessionId}
+                  title={routeParams.agentId}
                 >
-                  {sessionId}
+                  {routeParams.agentId}
+                </span>
+                <ChevronRightIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span
+                  className="min-w-0 truncate font-mono text-xs text-muted-foreground"
+                  title={routeParams.sessionId}
+                >
+                  {routeParams.sessionId}
                 </span>
               </>
             ) : null}

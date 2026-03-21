@@ -1,17 +1,40 @@
 import { and, asc, desc, eq, inArray, not } from "drizzle-orm";
-import type { AgentTemplate, SessionLog } from "../../../shared/session.js";
-import type { FlamecastStorage, SessionMeta } from "../../storage.js";
-import { agentTemplates, sessionLogs, sessions } from "./schema.js";
+import type { Agent, AgentTemplate, SessionLog } from "../../../shared/session.js";
+import type { AgentMeta, FlamecastStorage, SessionMeta } from "../../storage.js";
+import { agentTemplates, agents, sessionLogs, sessions } from "./schema.js";
 import type { PsqlAppDb } from "./types.js";
 
 export type { PsqlAppDb } from "./types.js";
 
-function rowToMeta(row: typeof sessions.$inferSelect | undefined): SessionMeta | null {
+function rowToAgent(row: typeof agents.$inferSelect | undefined): AgentMeta | null {
   if (!row || row.status !== "active") return null;
   return {
     id: row.id,
     agentName: row.agentName,
     spawn: row.spawn,
+    runtime: row.runtime,
+    startedAt: row.startedAt,
+    lastUpdatedAt: row.lastUpdatedAt,
+    latestSessionId: row.latestSessionId,
+    sessionCount: row.sessionCount,
+  };
+}
+
+function rowToSession(
+  row:
+    | (typeof sessions.$inferSelect & {
+        agentName: string;
+        spawn: Agent["spawn"];
+      })
+    | undefined,
+): SessionMeta | null {
+  if (!row || row.status !== "active") return null;
+  return {
+    id: row.id,
+    agentId: row.agentId,
+    agentName: row.agentName,
+    spawn: row.spawn,
+    cwd: row.cwd,
     startedAt: row.startedAt,
     lastUpdatedAt: row.lastUpdatedAt,
     pendingPermission: row.pendingPermission,
@@ -27,7 +50,6 @@ function rowToTemplate(row: typeof agentTemplates.$inferSelect): AgentTemplate {
   };
 }
 
-/** SQL-backed state manager (Postgres `Pool` or embedded **PGLite** file) via Drizzle. */
 export function createPsqlStorage(db: PsqlAppDb): FlamecastStorage {
   return {
     async seedAgentTemplates(templates: AgentTemplate[]) {
@@ -112,16 +134,97 @@ export function createPsqlStorage(db: PsqlAppDb): FlamecastStorage {
         });
     },
 
-    async createSession(meta: SessionMeta) {
-      await db.insert(sessions).values({
+    async listAgents() {
+      const rows = await db
+        .select()
+        .from(agents)
+        .where(eq(agents.status, "active"))
+        .orderBy(desc(agents.lastUpdatedAt), asc(agents.id));
+      return rows.map((row) => rowToAgent(row)).filter((row): row is AgentMeta => row !== null);
+    },
+
+    async getAgent(id: string) {
+      const rows = await db
+        .select()
+        .from(agents)
+        .where(and(eq(agents.id, id), eq(agents.status, "active")))
+        .limit(1);
+      return rowToAgent(rows[0]);
+    },
+
+    async createAgent(meta: AgentMeta) {
+      await db.insert(agents).values({
         id: meta.id,
         agentName: meta.agentName,
         spawn: meta.spawn,
+        runtime: meta.runtime,
+        startedAt: meta.startedAt,
+        lastUpdatedAt: meta.lastUpdatedAt,
+        latestSessionId: meta.latestSessionId,
+        sessionCount: meta.sessionCount,
+        status: "active",
+      });
+    },
+
+    async updateAgent(id, patch) {
+      const updates: Partial<typeof agents.$inferInsert> = {};
+      if (patch.lastUpdatedAt !== undefined) updates.lastUpdatedAt = patch.lastUpdatedAt;
+      if (patch.latestSessionId !== undefined) updates.latestSessionId = patch.latestSessionId;
+      if (patch.sessionCount !== undefined) updates.sessionCount = patch.sessionCount;
+      if (Object.keys(updates).length === 0) return;
+      await db.update(agents).set(updates).where(eq(agents.id, id));
+    },
+
+    async createSession(meta: SessionMeta) {
+      await db.insert(sessions).values({
+        id: meta.id,
+        agentId: meta.agentId,
+        cwd: meta.cwd,
         startedAt: meta.startedAt,
         lastUpdatedAt: meta.lastUpdatedAt,
         pendingPermission: meta.pendingPermission,
         status: "active",
       });
+    },
+
+    async listSessionsByAgent(agentId: string) {
+      const rows = await db
+        .select({
+          id: sessions.id,
+          agentId: sessions.agentId,
+          cwd: sessions.cwd,
+          startedAt: sessions.startedAt,
+          lastUpdatedAt: sessions.lastUpdatedAt,
+          pendingPermission: sessions.pendingPermission,
+          status: sessions.status,
+          agentName: agents.agentName,
+          spawn: agents.spawn,
+        })
+        .from(sessions)
+        .innerJoin(agents, eq(sessions.agentId, agents.id))
+        .where(and(eq(sessions.agentId, agentId), eq(sessions.status, "active")))
+        .orderBy(desc(sessions.lastUpdatedAt), asc(sessions.id));
+      return rows.map((row) => rowToSession(row)).filter((row): row is SessionMeta => row !== null);
+    },
+
+    async getSessionMeta(id: string) {
+      const rows = await db
+        .select({
+          id: sessions.id,
+          agentId: sessions.agentId,
+          cwd: sessions.cwd,
+          startedAt: sessions.startedAt,
+          lastUpdatedAt: sessions.lastUpdatedAt,
+          pendingPermission: sessions.pendingPermission,
+          status: sessions.status,
+          agentName: agents.agentName,
+          spawn: agents.spawn,
+        })
+        .from(sessions)
+        .innerJoin(agents, eq(sessions.agentId, agents.id))
+        .where(and(eq(sessions.id, id), eq(sessions.status, "active"), eq(agents.status, "active")))
+        .limit(1);
+      return rowToSession(rows[0]);
     },
 
     async updateSession(id, patch) {
@@ -142,15 +245,6 @@ export function createPsqlStorage(db: PsqlAppDb): FlamecastStorage {
       });
     },
 
-    async getSessionMeta(id: string) {
-      const rows = await db
-        .select()
-        .from(sessions)
-        .where(and(eq(sessions.id, id), eq(sessions.status, "active")))
-        .limit(1);
-      return rowToMeta(rows[0]);
-    },
-
     async getLogs(sessionId: string): Promise<SessionLog[]> {
       const rows = await db
         .select()
@@ -166,6 +260,11 @@ export function createPsqlStorage(db: PsqlAppDb): FlamecastStorage {
 
     async finalizeSession(id: string, _reason: "terminated") {
       await db.update(sessions).set({ status: "killed" }).where(eq(sessions.id, id));
+    },
+
+    async finalizeAgent(id: string, _reason: "terminated") {
+      await db.update(agents).set({ status: "killed" }).where(eq(agents.id, id));
+      await db.update(sessions).set({ status: "killed" }).where(eq(sessions.agentId, id));
     },
   };
 }

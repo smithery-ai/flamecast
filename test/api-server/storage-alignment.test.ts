@@ -94,10 +94,23 @@ describe("storage alignment", () => {
     const storage = createPsqlStorage(db);
 
     try {
-      await storage.createSession({
-        id: "session-1",
+      await storage.createAgent({
+        id: "agent-1",
         agentName: "Example agent",
         spawn: { command: "node", args: ["agent.js"] },
+        runtime: { provider: "local" },
+        startedAt: "2026-03-21T00:00:00.000Z",
+        lastUpdatedAt: "2026-03-21T00:00:00.000Z",
+        latestSessionId: "session-1",
+        sessionCount: 1,
+      });
+
+      await storage.createSession({
+        id: "session-1",
+        agentId: "agent-1",
+        agentName: "Example agent",
+        spawn: { command: "node", args: ["agent.js"] },
+        cwd: "/tmp/flamecast",
         startedAt: "2026-03-21T00:00:00.000Z",
         lastUpdatedAt: "2026-03-21T00:00:00.000Z",
         pendingPermission: null,
