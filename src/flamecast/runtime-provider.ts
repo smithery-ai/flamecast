@@ -92,7 +92,7 @@ function createDockerRuntimeProvider(): RuntimeProvider {
     async start({ runtime }) {
       await ensureAlchemy();
 
-      const provider = await import(`alchemy/${runtime.provider}`);
+      const provider = await import("alchemy/docker");
       const port = await findFreePort();
       const resourceId = randomUUID();
 

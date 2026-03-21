@@ -1,4 +1,4 @@
-import type { Session, SessionLog } from "../shared/session.js";
+import type { AgentTemplate, Session, SessionLog } from "../shared/session.js";
 
 /** Durable slice of {@link Session} (everything except `logs`). */
 export type SessionMeta = Omit<Session, "logs">;
@@ -8,6 +8,15 @@ export type SessionMeta = Omit<Session, "logs">;
  * stays in memory; storage is the source of truth for metadata and logs.
  */
 export type FlamecastStorage = {
+  /**
+   * Synchronize the constructor-provided template set.
+   * Managed templates are upserted and any previously managed templates that are
+   * no longer present are pruned. User-registered templates are preserved.
+   */
+  seedAgentTemplates(templates: AgentTemplate[]): Promise<void>;
+  listAgentTemplates(): Promise<AgentTemplate[]>;
+  getAgentTemplate(id: string): Promise<AgentTemplate | null>;
+  saveAgentTemplate(template: AgentTemplate): Promise<void>;
   createSession(meta: SessionMeta): Promise<void>;
   updateSession(
     id: string,

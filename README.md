@@ -103,7 +103,7 @@ Built-in templates live in `src/flamecast/agent-templates.ts`:
 }
 ```
 
-`POST /api/agent-templates` registers additional templates at runtime. Those registrations are currently in-memory only.
+`POST /api/agent-templates` registers additional templates in storage, so they survive Flamecast restarts as long as the configured storage backend is durable.
 
 ### Template-driven session creation
 
@@ -194,7 +194,6 @@ src/
     storage.ts              # FlamecastStorage + config resolution
     runtime-provider.ts     # Built-in runtime providers
     agent-templates.ts      # Built-in agent templates
-    agent-template-catalog.ts
     transport.ts            # AcpTransport, local/tcp helpers
     agent.ts                # Example ACP agent (stdio + TCP modes)
     db/client.ts            # PGLite / Postgres connection
@@ -333,7 +332,6 @@ Tests create isolated Flamecast instances and exercise the API surface end-to-en
 - No auth or multi-tenancy.
 - Single-process control plane; no distributed coordination.
 - The UI polls rather than streaming over SSE or WebSockets.
-- Custom agent templates registered through the API are not persisted yet.
 - Worker deployment needs non-local runtime providers.
 - Runtime reconnection across process restarts is not implemented yet.
 

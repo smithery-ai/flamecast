@@ -30,7 +30,7 @@ function createClient(flamecast: Flamecast) {
   const api = createApi(flamecast);
   const app = new Hono().route("/api", api);
   return hc<AppType>("http://localhost/api", {
-    fetch(input, init) {
+    fetch(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
       return app.fetch(new Request(String(input), init));
     },
   });

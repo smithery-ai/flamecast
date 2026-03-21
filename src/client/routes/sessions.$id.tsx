@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchSession, respondToPermission, sendPrompt } from "@/client/lib/api";
-import { connectionLogsToSegments } from "@/client/lib/logs-markdown";
+import { sessionLogsToSegments } from "@/client/lib/logs-markdown";
 import { Fragment, useMemo, useState } from "react";
 import { Streamdown } from "streamdown";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
@@ -69,7 +69,7 @@ function SessionDetailPage() {
   };
 
   const markdownSegments = useMemo(
-    () => connectionLogsToSegments(session?.logs ?? []),
+    () => sessionLogsToSegments(session?.logs ?? []),
     [session?.logs],
   );
 

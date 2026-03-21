@@ -14,7 +14,6 @@ import type {
   SessionLog,
 } from "../shared/session.js";
 import { createServerApp } from "../server/app.js";
-import { MemoryAgentTemplateCatalog } from "./agent-template-catalog.js";
 import { getBuiltinAgentTemplates, localRuntime } from "./agent-templates.js";
 import type { FlamecastStorage, StorageConfig } from "./storage.js";
 import { resolveStorage } from "./storage.js";
@@ -56,7 +55,7 @@ export type FlamecastOptions = {
 };
 
 export class Flamecast {
-  private readonly templateCatalog: MemoryAgentTemplateCatalog;
+  private readonly initialAgentTemplates: AgentTemplate[];
   private readonly runtimeProviders: RuntimeProviderRegistry;
   private readonly storageConfig?: StorageConfig;
   private readonly runtimes = new Map<string, ManagedSession>();
@@ -70,9 +69,7 @@ export class Flamecast {
   constructor(opts: FlamecastOptions = {}) {
     this.storageConfig = opts.storage;
     this.runtimeProviders = resolveRuntimeProviders(opts.runtimeProviders);
-    this.templateCatalog = new MemoryAgentTemplateCatalog(
-      opts.agentTemplates ?? getBuiltinAgentTemplates(),
-    );
+    this.initialAgentTemplates = opts.agentTemplates ?? getBuiltinAgentTemplates();
     this.fetch = async (request: Request) => this.app.fetch(request);
   }
 
@@ -90,18 +87,32 @@ export class Flamecast {
   }
 
   async listAgentTemplates(): Promise<AgentTemplate[]> {
-    return this.templateCatalog.list();
+    await this.ensureReady();
+    return this.requireStorage().listAgentTemplates();
   }
 
   async registerAgentTemplate(body: RegisterAgentTemplateBody): Promise<AgentTemplate> {
-    return this.templateCatalog.register(body);
+    await this.ensureReady();
+
+    const template: AgentTemplate = {
+      id: randomUUID(),
+      name: body.name,
+      spawn: {
+        command: body.spawn.command,
+        args: [...body.spawn.args],
+      },
+      runtime: body.runtime ? { ...body.runtime } : localRuntime(),
+    };
+
+    await this.requireStorage().saveAgentTemplate(template);
+    return template;
   }
 
   async createSession(opts: CreateSessionBody): Promise<Session> {
     await this.ensureReady();
 
     const cwd = opts.cwd ?? process.cwd();
-    const { agentName, spawn, runtime } = this.resolveSessionDefinition(opts);
+    const { agentName, spawn, runtime } = await this.resolveSessionDefinition(opts);
     const provider = this.runtimeProviders[runtime.provider];
 
     if (!provider) {
@@ -290,6 +301,7 @@ export class Flamecast {
     if (!this.readyPromise) {
       this.readyPromise = resolveStorage(this.storageConfig).then((storage) => {
         this.storage = storage;
+        return storage.seedAgentTemplates(this.initialAgentTemplates);
       });
     }
     await this.readyPromise;
@@ -302,13 +314,13 @@ export class Flamecast {
     return this.storage;
   }
 
-  private resolveSessionDefinition(opts: CreateSessionBody): {
+  private async resolveSessionDefinition(opts: CreateSessionBody): Promise<{
     agentName: string;
     spawn: AgentSpawn;
     runtime: AgentTemplateRuntime;
-  } {
+  }> {
     if (opts.agentTemplateId) {
-      const template = this.templateCatalog.get(opts.agentTemplateId);
+      const template = await this.requireStorage().getAgentTemplate(opts.agentTemplateId);
       if (!template) {
         throw new Error(`Unknown agent template "${opts.agentTemplateId}"`);
       }

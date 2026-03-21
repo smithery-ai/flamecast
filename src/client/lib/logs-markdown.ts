@@ -5,12 +5,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-export type ConnectionLogMarkdownSegment =
+export type SessionLogMarkdownSegment =
   | { kind: "assistant"; text: string }
   | { kind: "user"; text: string }
   | { kind: "tool"; toolCallId: string; title: string; status: string };
 
-function appendAssistant(segments: ConnectionLogMarkdownSegment[], chunk: string): void {
+function appendAssistant(segments: SessionLogMarkdownSegment[], chunk: string): void {
   const last = segments.at(-1);
   if (last?.kind === "assistant") {
     last.text += chunk;
@@ -19,7 +19,7 @@ function appendAssistant(segments: ConnectionLogMarkdownSegment[], chunk: string
   }
 }
 
-function appendUser(segments: ConnectionLogMarkdownSegment[], chunk: string): void {
+function appendUser(segments: SessionLogMarkdownSegment[], chunk: string): void {
   const last = segments.at(-1);
   if (last?.kind === "user") {
     last.text += chunk;
@@ -31,7 +31,7 @@ function appendUser(segments: ConnectionLogMarkdownSegment[], chunk: string): vo
 /** Session notification body (legacy flat logs or `payload.update` from RPC). */
 function applySessionUpdateRecord(
   d: Record<string, unknown>,
-  segments: ConnectionLogMarkdownSegment[],
+  segments: SessionLogMarkdownSegment[],
 ): void {
   const su = d.sessionUpdate;
   if (typeof su !== "string") return;
@@ -59,7 +59,7 @@ function applySessionUpdateRecord(
 }
 
 function applyToolSegmentStatus(
-  segments: ConnectionLogMarkdownSegment[],
+  segments: SessionLogMarkdownSegment[],
   toolCallId: string,
   status: string,
 ): void {
@@ -74,8 +74,8 @@ function applyToolSegmentStatus(
 }
 
 /** Ordered segments for the markdown tab (prompts + session stream updates). */
-export function connectionLogsToSegments(logs: SessionLog[]): ConnectionLogMarkdownSegment[] {
-  const segments: ConnectionLogMarkdownSegment[] = [];
+export function sessionLogsToSegments(logs: SessionLog[]): SessionLogMarkdownSegment[] {
+  const segments: SessionLogMarkdownSegment[] = [];
 
   for (const log of logs) {
     if (log.type === "prompt_sent") {
