@@ -31,27 +31,29 @@ Open **http://localhost:3000**. Click **Connect** on an agent to start a session
 
 ## Architecture
 
-Flamecast separates **control plane** (where the server and database run) from **data plane** (where agents run). Both are managed by [Alchemy](https://alchemy.run) — an infrastructure-as-code library that provisions resources declaratively.
-
 ```
 ┌─────────────────────────────────────────────────────┐
-│ Control plane (alchemy.run.ts — deploy time)        │
-│   Database + API server + Frontend                  │
-│   Provisioned by Alchemy. DB, server, and frontend  │
-│   are swappable resources — PGLite, Postgres,       │
-│   Docker, Cloudflare Worker, etc.                   │
+│ Server (src/server/index.ts)                        │
+│   Node + Hono on port 3001                          │
+│   PGLite or Postgres for state                      │
+│   Alchemy initialized at startup for scope mgmt    │
 └─────────────────────────────────────────────────────┘
-
+          │
+          ▼
 ┌─────────────────────────────────────────────────────┐
-│ Data plane (provisioner — request time)             │
-│   Per-connection agent sandboxes                    │
-│   Each agent preset has a runtime config that       │
-│   determines its sandbox: local process, Docker     │
-│   container, or any alchemy provider.               │
-│                                                     │
-│   Provisioner dynamically imports alchemy/{type}    │
-│   to create the sandbox. Flamecast just gets back   │
-│   an AcpTransport (streams) and speaks ACP over it. │
+│ Flamecast (src/flamecast/index.ts)                  │
+│   Pure orchestration — zero infra dependencies      │
+│   Calls provisioner(connectionId, spec, runtime)    │
+│   Gets back AcpTransport streams, speaks ACP        │
+└─────────────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────────────┐
+│ Provisioner (src/flamecast/config.ts)               │
+│   runtime.type === "local" → ChildProcess + stdio   │
+│   runtime.type === "docker" → alchemy/docker        │
+│     → docker.Image + docker.Container + TCP         │
+│   runtime.type === "{any}" → alchemy/{type}         │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -63,9 +65,9 @@ Flamecast separates **control plane** (where the server and database run) from *
 
 3. **Non-local runtimes use Alchemy providers.** The provisioner dynamically imports `alchemy/${runtime.type}` — e.g. `alchemy/docker` for Docker containers. Alchemy handles resource lifecycle (create, update, delete) and state tracking automatically.
 
-4. **Two entry points** share the same Flamecast class and API routes:
-   - `src/server/index.ts` — Node (local dev via `npm run dev`)
-   - `src/worker.ts` — Cloudflare Worker (deploy via `alchemy deploy`)
+4. **`alchemy.run.ts`** exists as an experimental control plane definition (DB + Worker + Vite via Alchemy resources) but is **unstable**. The working local dev path is `npm run dev` which uses `src/server/index.ts` directly.
+
+5. **`src/worker.ts`** is a Cloudflare Worker entry point for future deployment. Not production-ready yet.
 
 ---
 
