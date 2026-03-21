@@ -6,9 +6,7 @@ const npxCmd = () =>
  * "local" = ChildProcess (no alchemy).
  * Any other type = alchemy resource (e.g. "docker" → alchemy/docker).
  */
-export type AgentRuntime =
-  | { type: "local" }
-  | { type: string; [key: string]: unknown };
+export type AgentRuntime = { type: "local" } | { type: string; [key: string]: unknown };
 
 export type AgentPreset = {
   id: string;

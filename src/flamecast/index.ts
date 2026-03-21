@@ -22,7 +22,8 @@ export type { ConnectionMeta, FlamecastStateManager } from "./state-manager.js";
 export type { PsqlAppDb } from "./state-managers/psql/types.js";
 export type { FlamecastOptions, StateManagerConfig, Provisioner } from "./config.js";
 export type { AppType } from "./api.js";
-export type { AcpTransport, BuiltinAgentPreset } from "./transport.js";
+export type { AcpTransport } from "./transport.js";
+export type { AgentPreset, AgentRuntime } from "./presets.js";
 
 // ---------------------------------------------------------------------------
 // Internal types

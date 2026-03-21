@@ -31,14 +31,6 @@ export type AcpTransport = {
   dispose?: () => Promise<void>;
 };
 
-const npxCmd = () => (process.platform === "win32" ? "npx.cmd" : "npx");
-
-export type BuiltinAgentPreset = {
-  id: string;
-  label: string;
-  spawn: { command: string; args: string[] };
-};
-
 export function startAgentProcess(spec: { command: string; args?: string[] }): ChildProcess {
   const args = spec.args ?? [];
   return spawn(spec.command, args, {
@@ -87,7 +79,9 @@ export function openTcpTransport(host: string, port: number): Promise<AcpTranspo
             socket.write(chunk, (err) => (err ? rej(err) : res()));
           });
         },
-        close() { socket.end(); },
+        close() {
+          socket.end();
+        },
       });
       const output = new ReadableStream<Uint8Array>({
         start(controller) {
@@ -98,7 +92,9 @@ export function openTcpTransport(host: string, port: number): Promise<AcpTranspo
           socket.on("end", () => controller.close());
           socket.on("error", (err) => controller.error(err));
         },
-        cancel() { socket.destroy(); },
+        cancel() {
+          socket.destroy();
+        },
       });
       resolve({ input, output });
     });

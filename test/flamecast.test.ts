@@ -176,7 +176,7 @@ describe("flamecast", () => {
     }
   });
 
-  test("docker provisioner - container lifecycle via Flamecast", async (scope) => {
+  test("docker provisioner - container lifecycle via Flamecast", async (_scope) => {
     // Verify Flamecast creates an Alchemy scope per connection, calls the
     // provisioner (which creates a docker.Container), and alchemy.destroy
     // cleans it up on kill. Tests the full provisioner wiring without ACP.
