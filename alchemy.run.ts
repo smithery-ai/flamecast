@@ -41,7 +41,7 @@ export const server = await Worker("flamecast-api", {
   },
   bundle: {
     format: "esm",
-    target: "es2020",
+    target: "esnext",
   },
 });
 
