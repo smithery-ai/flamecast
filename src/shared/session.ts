@@ -52,6 +52,28 @@ export const PendingPermissionSchema = z.object({
 });
 export type PendingPermission = z.infer<typeof PendingPermissionSchema>;
 
+export const FileSystemEntrySchema = z.object({
+  path: z.string(),
+  type: z.enum(["file", "directory", "symlink", "other"]),
+});
+export type FileSystemEntry = z.infer<typeof FileSystemEntrySchema>;
+
+export const FileSystemSnapshotSchema = z.object({
+  root: z.string(),
+  entries: z.array(FileSystemEntrySchema),
+  truncated: z.boolean(),
+  maxEntries: z.number().int().nonnegative(),
+});
+export type FileSystemSnapshot = z.infer<typeof FileSystemSnapshotSchema>;
+
+export const FilePreviewSchema = z.object({
+  path: z.string(),
+  content: z.string(),
+  truncated: z.boolean(),
+  maxChars: z.number().int().positive(),
+});
+export type FilePreview = z.infer<typeof FilePreviewSchema>;
+
 export const SessionSchema = z.object({
   id: z.string(),
   agentName: z.string(),
@@ -60,6 +82,7 @@ export const SessionSchema = z.object({
   lastUpdatedAt: z.string(),
   logs: z.array(SessionLogSchema),
   pendingPermission: PendingPermissionSchema.nullable(),
+  fileSystem: FileSystemSnapshotSchema.nullable(),
 });
 export type Session = z.infer<typeof SessionSchema>;
 

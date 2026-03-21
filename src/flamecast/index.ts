@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { isAbsolute, relative, resolve } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import { serve } from "@hono/node-server";
 import type {
@@ -6,6 +8,9 @@ import type {
   AgentTemplate,
   AgentTemplateRuntime,
   CreateSessionBody,
+  FilePreview,
+  FileSystemEntry,
+  FileSystemSnapshot,
   PendingPermission,
   PendingPermissionOption,
   PermissionResponseBody,
@@ -40,6 +45,7 @@ interface SessionTextChunkLogBuffer {
 
 interface ManagedSession {
   id: string;
+  workspaceRoot: string;
   transport: AcpTransport;
   terminate: () => Promise<void>;
   runtime: {
@@ -48,13 +54,123 @@ interface ManagedSession {
   };
 }
 
+type GitIgnoreRule = {
+  negated: boolean;
+  regex: RegExp;
+};
+
 export type FlamecastOptions = {
   storage?: StorageConfig;
   runtimeProviders?: RuntimeProviderRegistry;
   agentTemplates?: AgentTemplate[];
 };
 
+async function loadGitIgnoreRules(workspaceRoot: string): Promise<GitIgnoreRule[]> {
+  const defaultRules = [parseGitIgnoreRule(".git/")].filter(
+    (rule): rule is GitIgnoreRule => rule !== null,
+  );
+
+  try {
+    const content = await readFile(resolve(workspaceRoot, ".gitignore"), "utf8");
+    return [
+      ...defaultRules,
+      ...content
+        .split(/\r?\n/u)
+        .map(parseGitIgnoreRule)
+        .filter((rule): rule is GitIgnoreRule => rule !== null),
+    ];
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) {
+      return defaultRules;
+    }
+    throw error;
+  }
+}
+
+function parseGitIgnoreRule(line: string): GitIgnoreRule | null {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.startsWith("#")) {
+    return null;
+  }
+
+  const literal = trimmed.startsWith("\\#") || trimmed.startsWith("\\!");
+  const negated = !literal && trimmed.startsWith("!");
+  const rawPattern = negated ? trimmed.slice(1) : literal ? trimmed.slice(1) : trimmed;
+
+  if (!rawPattern) {
+    return null;
+  }
+
+  const directoryOnly = rawPattern.endsWith("/");
+  const anchored = rawPattern.startsWith("/");
+  const normalized = rawPattern.slice(anchored ? 1 : 0, directoryOnly ? -1 : undefined);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const hasSlash = normalized.includes("/");
+  const source = globToRegexSource(normalized);
+  const regex = !hasSlash
+    ? new RegExp(directoryOnly ? `(^|/)${source}(/|$)` : `(^|/)${source}$`, "u")
+    : anchored
+      ? new RegExp(directoryOnly ? `^${source}(/|$)` : `^${source}$`, "u")
+      : new RegExp(directoryOnly ? `(^|.*/)${source}(/|$)` : `(^|.*/)${source}$`, "u");
+
+  return { negated, regex };
+}
+
+function globToRegexSource(pattern: string): string {
+  let source = "";
+
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+
+    if (char === "*") {
+      if (pattern[index + 1] === "*") {
+        source += ".*";
+        index += 1;
+      } else {
+        source += "[^/]*";
+      }
+      continue;
+    }
+
+    if (char === "?") {
+      source += "[^/]";
+      continue;
+    }
+
+    if ("\\^$+?.()|{}[]".includes(char)) {
+      source += `\\${char}`;
+      continue;
+    }
+
+    source += char;
+  }
+
+  return source;
+}
+
+function isGitIgnored(path: string, rules: GitIgnoreRule[]): boolean {
+  let ignored = false;
+
+  for (const rule of rules) {
+    if (rule.regex.test(path)) {
+      ignored = !rule.negated;
+    }
+  }
+
+  return ignored;
+}
+
 export class Flamecast {
+  private static readonly MAX_FILE_PREVIEW_CHARS = 20_000;
   private readonly initialAgentTemplates: AgentTemplate[];
   private readonly runtimeProviders: RuntimeProviderRegistry;
   private readonly storageConfig?: StorageConfig;
@@ -111,7 +227,7 @@ export class Flamecast {
   async createSession(opts: CreateSessionBody): Promise<Session> {
     await this.ensureReady();
 
-    const cwd = opts.cwd ?? process.cwd();
+    const cwd = await realpath(resolve(opts.cwd ?? process.cwd()));
     const { agentName, spawn, runtime } = await this.resolveSessionDefinition(opts);
     const provider = this.runtimeProviders[runtime.provider];
 
@@ -124,6 +240,7 @@ export class Flamecast {
     const startupLogs: SessionLog[] = [];
     const managed: ManagedSession = {
       id: "",
+      workspaceRoot: cwd,
       transport: startedRuntime.transport,
       terminate: startedRuntime.terminate,
       runtime: {
@@ -207,10 +324,28 @@ export class Flamecast {
     return Promise.all(ids.map((id) => this.snapshotSession(id)));
   }
 
-  async getSession(id: string): Promise<Session> {
+  async getSession(
+    id: string,
+    opts: { includeFileSystem?: boolean; showAllFiles?: boolean } = {},
+  ): Promise<Session> {
     await this.ensureReady();
     this.resolveRuntime(id);
-    return this.snapshotSession(id);
+    return this.snapshotSession(id, opts);
+  }
+
+  async getFilePreview(id: string, path: string): Promise<FilePreview> {
+    await this.ensureReady();
+
+    const managed = this.resolveRuntime(id);
+    const absolutePath = await this.resolvePreviewPath(managed.workspaceRoot, path);
+    const content = await readFile(absolutePath, "utf8");
+
+    return {
+      path,
+      content: content.slice(0, Flamecast.MAX_FILE_PREVIEW_CHARS),
+      truncated: content.length > Flamecast.MAX_FILE_PREVIEW_CHARS,
+      maxChars: Flamecast.MAX_FILE_PREVIEW_CHARS,
+    };
   }
 
   async promptSession(id: string, text: string): Promise<acp.PromptResponse> {
@@ -359,13 +494,17 @@ export class Flamecast {
     return managed;
   }
 
-  private async snapshotSession(id: string): Promise<Session> {
+  private async snapshotSession(
+    id: string,
+    opts: { includeFileSystem?: boolean; showAllFiles?: boolean } = {},
+  ): Promise<Session> {
     const storage = this.requireStorage();
     const meta = await storage.getSessionMeta(id);
     if (!meta) {
       throw new Error(`Session "${id}" not found`);
     }
     const logs = await storage.getLogs(id);
+    const managed = opts.includeFileSystem ? (this.runtimes.get(id) ?? null) : null;
     return {
       ...meta,
       logs: [...logs],
@@ -375,7 +514,101 @@ export class Flamecast {
             options: meta.pendingPermission.options.map((option) => ({ ...option })),
           }
         : null,
+      fileSystem: managed
+        ? await this.buildFileSystemSnapshot(managed.workspaceRoot, {
+            showAllFiles: opts.showAllFiles === true,
+          })
+        : null,
     };
+  }
+
+  private async buildFileSystemSnapshot(
+    workspaceRoot: string,
+    opts: { showAllFiles?: boolean } = {},
+  ): Promise<FileSystemSnapshot> {
+    const entries: FileSystemEntry[] = [];
+    const gitIgnoreRules = opts.showAllFiles ? [] : await loadGitIgnoreRules(workspaceRoot);
+    const queue = [workspaceRoot];
+
+    for (let index = 0; index < queue.length; index += 1) {
+      const dir = queue[index];
+      const children = await readdir(dir, { withFileTypes: true });
+      children.sort((a, b) => {
+        if (a.isDirectory() !== b.isDirectory()) {
+          return a.isDirectory() ? -1 : 1;
+        }
+        return a.name.localeCompare(b.name);
+      });
+
+      for (const child of children) {
+        const absolutePath = resolve(dir, child.name);
+        const path = relative(workspaceRoot, absolutePath);
+        if (isGitIgnored(path, gitIgnoreRules)) {
+          continue;
+        }
+
+        const type: FileSystemEntry["type"] = child.isDirectory()
+          ? "directory"
+          : child.isFile()
+            ? "file"
+            : child.isSymbolicLink()
+              ? "symlink"
+              : "other";
+
+        entries.push({ path, type });
+
+        if (type === "directory") {
+          queue.push(absolutePath);
+        }
+      }
+    }
+
+    return {
+      root: workspaceRoot,
+      entries,
+      truncated: false,
+      maxEntries: entries.length,
+    };
+  }
+
+  private async resolvePreviewPath(workspaceRoot: string, path: string): Promise<string> {
+    if (isAbsolute(path)) {
+      throw new Error(`File preview paths must be relative: "${path}"`);
+    }
+
+    const requestedPath = resolve(workspaceRoot, path);
+    const realPath = await realpath(requestedPath);
+    const rel = relative(workspaceRoot, realPath);
+    if (rel.startsWith("..") || isAbsolute(rel)) {
+      throw new Error(`Path "${path}" is outside workspace root`);
+    }
+    return realPath;
+  }
+
+  private async resolveSessionFilePath(workspaceRoot: string, path: string): Promise<string> {
+    if (!isAbsolute(path)) {
+      throw new Error(`File paths must be absolute: "${path}"`);
+    }
+
+    const realPath = await realpath(path);
+    const rel = relative(workspaceRoot, realPath);
+    if (rel.startsWith("..") || isAbsolute(rel)) {
+      throw new Error(`Path "${path}" is outside workspace root`);
+    }
+    return realPath;
+  }
+
+  private async resolveSessionWritePath(workspaceRoot: string, path: string): Promise<string> {
+    if (!isAbsolute(path)) {
+      throw new Error(`File paths must be absolute: "${path}"`);
+    }
+
+    const requestedPath = resolve(path);
+    const rel = relative(workspaceRoot, requestedPath);
+    if (rel.startsWith("..") || isAbsolute(rel)) {
+      throw new Error(`Path "${path}" is outside workspace root`);
+    }
+    return requestedPath;
   }
 
   private createLogEntry(type: string, data: Record<string, unknown>): SessionLog {
@@ -649,7 +882,15 @@ export class Flamecast {
           "request",
           params,
         );
-        const response: acp.ReadTextFileResponse = { content: "" };
+        const absolutePath = await this.resolveSessionFilePath(managed.workspaceRoot, params.path);
+        const content = await readFile(absolutePath, "utf8");
+        const lines = content.split("\n");
+        const startLine = Math.max(params.line ?? 0, 0);
+        const limitedLines =
+          params.limit != null
+            ? lines.slice(startLine, startLine + params.limit)
+            : lines.slice(startLine);
+        const response: acp.ReadTextFileResponse = { content: limitedLines.join("\n") };
         await this.pushRpcLog(
           managed,
           acp.CLIENT_METHODS.fs_read_text_file,
@@ -670,6 +911,8 @@ export class Flamecast {
           "request",
           params,
         );
+        const absolutePath = await this.resolveSessionWritePath(managed.workspaceRoot, params.path);
+        await writeFile(absolutePath, params.content, "utf8");
         const response: acp.WriteTextFileResponse = {};
         await this.pushRpcLog(
           managed,

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AgentTemplate,
   CreateSessionBody,
+  FilePreview,
   PermissionResponseBody,
   PromptBody,
   RegisterAgentTemplateBody,
@@ -25,13 +26,25 @@ const sampleSession: Session = {
   lastUpdatedAt: "2026-03-21T00:00:00.000Z",
   logs: [],
   pendingPermission: null,
+  fileSystem: null,
+};
+
+const sampleFilePreview: FilePreview = {
+  path: "src/app.tsx",
+  content: "console.log('preview');\n",
+  truncated: false,
+  maxChars: 20_000,
 };
 
 function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastApi {
   return {
     terminateSession: vi.fn(async () => undefined),
     createSession: vi.fn(async (_body: CreateSessionBody) => sampleSession),
-    getSession: vi.fn(async (_id: string) => sampleSession),
+    getSession: vi.fn(
+      async (_id: string, _opts?: { includeFileSystem?: boolean; showAllFiles?: boolean }) =>
+        sampleSession,
+    ),
+    getFilePreview: vi.fn(async (_id: string, _path: string) => sampleFilePreview),
     listSessions: vi.fn(async () => [sampleSession]),
     listAgentTemplates: vi.fn(async () => [sampleAgentTemplate]),
     promptSession: vi.fn(async (_id: string, _text: string) => ({
@@ -234,6 +247,74 @@ describe("API server surface", () => {
 
     expect(response.status).toBe(200);
     expect(await readJson(response)).toEqual(sampleSession);
+  });
+
+  it("passes includeFileSystem through the session poll route", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/sessions/${sampleSession.id}?includeFileSystem=true`);
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual(sampleSession);
+    expect(flamecast.getSession).toHaveBeenCalledWith(sampleSession.id, {
+      includeFileSystem: true,
+    });
+  });
+
+  it("passes showAllFiles through the session poll route", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(
+      `/api/sessions/${sampleSession.id}?includeFileSystem=true&showAllFiles=true`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual(sampleSession);
+    expect(flamecast.getSession).toHaveBeenCalledWith(sampleSession.id, {
+      includeFileSystem: true,
+      showAllFiles: true,
+    });
+  });
+
+  it("fetches a file preview", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(
+      `/api/sessions/${sampleSession.id}/file?path=${encodeURIComponent(sampleFilePreview.path)}`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual(sampleFilePreview);
+    expect(flamecast.getFilePreview).toHaveBeenCalledWith(sampleSession.id, sampleFilePreview.path);
+  });
+
+  it("returns 400 when file preview path is missing", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/sessions/${sampleSession.id}/file`);
+
+    expect(response.status).toBe(400);
+    expect(await readJson(response)).toEqual({ error: "Missing path" });
+  });
+
+  it("returns 400 for file preview errors", async () => {
+    const flamecast = createFlamecastStub({
+      getFilePreview: vi.fn(async () => {
+        throw new Error("preview failed");
+      }),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(
+      `/api/sessions/${sampleSession.id}/file?path=${encodeURIComponent(sampleFilePreview.path)}`,
+    );
+
+    expect(response.status).toBe(400);
+    expect(await readJson(response)).toEqual({ error: "preview failed" });
   });
 
   it("returns 404 for unknown sessions", async () => {

@@ -11,6 +11,7 @@ import {
 export type FlamecastApi = Pick<
   Flamecast,
   | "createSession"
+  | "getFilePreview"
   | "getSession"
   | "listAgentTemplates"
   | "listSessions"
@@ -61,10 +62,27 @@ export function createApi(flamecast: FlamecastApi) {
     })
     .get("/sessions/:id", async (c) => {
       try {
-        const session = await flamecast.getSession(c.req.param("id"));
+        const includeFileSystem = c.req.query("includeFileSystem") === "true";
+        const showAllFiles = c.req.query("showAllFiles") === "true";
+        const session = await flamecast.getSession(c.req.param("id"), {
+          ...(includeFileSystem ? { includeFileSystem: true } : {}),
+          ...(showAllFiles ? { showAllFiles: true } : {}),
+        });
         return c.json(session);
       } catch {
         return c.json({ error: "Session not found" }, 404);
+      }
+    })
+    .get("/sessions/:id/file", async (c) => {
+      const path = c.req.query("path");
+      if (!path) {
+        return c.json({ error: "Missing path" }, 400);
+      }
+      try {
+        const preview = await flamecast.getFilePreview(c.req.param("id"), path);
+        return c.json(preview);
+      } catch (error) {
+        return c.json({ error: toErrorMessage(error) }, 400);
       }
     })
     .post("/sessions/:id/prompt", zValidator("json", PromptBodySchema), async (c) => {
