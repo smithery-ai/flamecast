@@ -22,7 +22,7 @@ export function getBuiltinAgentPresets(): AgentPreset[] {
     {
       id: "example-docker",
       label: "Example agent (Docker)",
-      spawn: { command: "agent.ts", args: [] },
+      spawn: { command: "docker:agent.ts", args: [] },
     },
   ];
 }
