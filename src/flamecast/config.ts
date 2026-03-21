@@ -77,7 +77,7 @@ const defaultProvisioner: Provisioner = async (connectionId, spec, runtime) => {
 
   // Non-local runtimes use alchemy/{type} provider
   const provider = await import(`alchemy/${runtime.type}`);
-  const { findFreePort, waitForPort, openTcpTransport } = await import("./transport.js");
+  const { findFreePort, openTcpTransport } = await import("./transport.js");
   const port = await findFreePort();
 
   // Build image if dockerfile is provided
@@ -99,11 +99,46 @@ const defaultProvisioner: Provisioner = async (connectionId, spec, runtime) => {
     start: true,
   });
 
-  await waitForPort("localhost", port);
-  await new Promise((r) => setTimeout(r, 1000));
+  await waitForAcp("localhost", port);
 
   return openTcpTransport("localhost", port);
 };
+
+/** Wait until the agent actually responds to an ACP initialize, not just port open. */
+async function waitForAcp(host: string, port: number, timeoutMs = 30_000): Promise<void> {
+  const { createConnection } = await import("node:net");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const socket = createConnection({ host, port }, () => {
+          socket.setNoDelay(true);
+          const msg =
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 0,
+              method: "initialize",
+              params: { protocolVersion: 1, clientCapabilities: {} },
+            }) + "\n";
+          socket.once("data", () => {
+            socket.destroy();
+            resolve();
+          });
+          socket.write(msg);
+          setTimeout(() => {
+            socket.destroy();
+            reject(new Error("timeout"));
+          }, 2000);
+        });
+        socket.on("error", reject);
+      });
+      return;
+    } catch {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+  throw new Error(`ACP agent not ready on ${host}:${port} after ${timeoutMs}ms`);
+}
 
 // ---------------------------------------------------------------------------
 // Factory
