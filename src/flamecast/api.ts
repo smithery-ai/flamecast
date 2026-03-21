@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { Flamecast } from "../flamecast/index.js";
+import type { Flamecast } from "./index.js";
 import {
   CreateConnectionBodySchema,
   PermissionResponseBodySchema,
@@ -8,8 +8,21 @@ import {
   RegisterAgentProcessBodySchema,
 } from "../shared/connection.js";
 
+/**
+ * Build the Hono API routes for a Flamecast instance.
+ * This is infrastructure — decoupled from the orchestration core.
+ */
 export function createApi(flamecast: Flamecast) {
   return new Hono()
+    .get("/health", async (c) => {
+      try {
+        await flamecast.list();
+        return c.json({ status: "ok", connections: (await flamecast.list()).length });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Unknown error";
+        return c.json({ status: "degraded", error: message }, 503);
+      }
+    })
     .get("/agent-processes", (c) => {
       return c.json(flamecast.listAgentProcesses());
     })
@@ -27,7 +40,8 @@ export function createApi(flamecast: Flamecast) {
         const info = await flamecast.create(body);
         return c.json(info, 201);
       } catch (e) {
-        const message = e instanceof Error ? e.message : "Unknown error";
+        const message = e instanceof Error ? e.message : String(e);
+        console.error("Connection creation failed:", e);
         return c.json({ error: message }, 400);
       }
     })

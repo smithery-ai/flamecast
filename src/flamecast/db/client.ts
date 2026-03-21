@@ -6,9 +6,9 @@ import { migrate as migratePgLite } from "drizzle-orm/pglite/migrator";
 import { drizzle as drizzleNodePg } from "drizzle-orm/node-postgres";
 import { migrate as migrateNodePg } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
-import type { PsqlAppDb } from "../../flamecast/state-managers/psql/types.js";
-import { PSQL_MIGRATIONS_FOLDER } from "../../flamecast/state-managers/psql/migrations-path.js";
-import * as schema from "../../flamecast/state-managers/psql/schema.js";
+import type { PsqlAppDb } from "../state-managers/psql/types.js";
+import { PSQL_MIGRATIONS_FOLDER } from "../state-managers/psql/migrations-path.js";
+import * as schema from "../state-managers/psql/schema.js";
 
 export type AppDb = PsqlAppDb;
 

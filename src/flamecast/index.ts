@@ -1,4 +1,3 @@
-import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as acp from "@agentclientprotocol/sdk";
 import type {
@@ -13,17 +12,22 @@ import type {
   RegisterAgentProcessBody,
 } from "../shared/connection.js";
 import type { FlamecastStateManager } from "./state-manager.js";
-import {
-  getAgentTransport,
-  getBuiltinAgentProcessPresets,
-  startAgentProcess,
-} from "./transport.js";
+import type { AcpTransport } from "./transport.js";
+import type { AgentPreset, AgentRuntime } from "./presets.js";
+import type { Provisioner } from "./config.js";
 
+// Type re-exports (safe for Worker bundling — no runtime deps)
 export type { AgentProcessInfo, ConnectionInfo, PendingPermission } from "../shared/connection.js";
 export type { ConnectionMeta, FlamecastStateManager } from "./state-manager.js";
-export { MemoryFlamecastStateManager } from "./state-managers/memory/index.js";
-export { createPsqlStateManager } from "./state-managers/psql/index.js";
 export type { PsqlAppDb } from "./state-managers/psql/types.js";
+export type { FlamecastOptions, StateManagerConfig, Provisioner } from "./config.js";
+export type { AppType } from "./api.js";
+export type { AcpTransport } from "./transport.js";
+export type { AgentPreset, AgentRuntime } from "./presets.js";
+
+// ---------------------------------------------------------------------------
+// Internal types
+// ---------------------------------------------------------------------------
 
 type PermissionResolver = (response: acp.RequestPermissionResponse) => void | Promise<void>;
 
@@ -39,32 +43,48 @@ interface SessionTextChunkLogBuffer {
 interface ManagedConnection {
   id: string;
   sessionId: string;
+  transport: AcpTransport;
   runtime: {
     connection: acp.ClientSideConnection | null;
-    agentProcess: ChildProcess;
     sessionTextChunkLogBuffer: SessionTextChunkLogBuffer | null;
   };
 }
 
-export type FlamecastOptions = {
+export type FlamecastConstructorOptions = {
   stateManager: FlamecastStateManager;
+  provisioner: Provisioner;
+  presets?: AgentPreset[];
 };
+
+// ---------------------------------------------------------------------------
+// Flamecast — pure orchestration core
+// ---------------------------------------------------------------------------
 
 export class Flamecast {
   private runtimes = new Map<string, ManagedConnection>();
   private permissionResolvers = new Map<string, PermissionResolver>();
-  private agentProcesses = new Map<string, { label: string; spawn: AgentSpawn }>();
+  private agentProcesses = new Map<
+    string,
+    { label: string; spawn: AgentSpawn; runtime: AgentRuntime }
+  >();
   private readonly stateManager: FlamecastStateManager;
+  private readonly provisioner: Provisioner;
 
-  constructor(opts: FlamecastOptions) {
+  constructor(opts: FlamecastConstructorOptions) {
     this.stateManager = opts.stateManager;
-    for (const preset of getBuiltinAgentProcessPresets()) {
+    this.provisioner = opts.provisioner;
+    for (const preset of opts.presets ?? []) {
       this.agentProcesses.set(preset.id, {
         label: preset.label,
         spawn: { command: preset.spawn.command, args: preset.spawn.args },
+        runtime: preset.runtime,
       });
     }
   }
+
+  // -----------------------------------------------------------------------
+  // Public API
+  // -----------------------------------------------------------------------
 
   listAgentProcesses(): AgentProcessInfo[] {
     return [...this.agentProcesses.entries()].map(([id, row]) => ({
@@ -80,7 +100,7 @@ export class Flamecast {
       command: body.spawn.command,
       args: body.spawn.args,
     };
-    this.agentProcesses.set(id, { label: body.label, spawn });
+    this.agentProcesses.set(id, { label: body.label, spawn, runtime: { type: "local" } });
     return { id, label: body.label, spawn };
   }
 
@@ -91,6 +111,7 @@ export class Flamecast {
 
     let agentLabel: string;
     let spawn: AgentSpawn;
+    let runtime: AgentRuntime = { type: "local" };
 
     if (opts.agentProcessId) {
       const def = this.agentProcesses.get(opts.agentProcessId);
@@ -99,6 +120,7 @@ export class Flamecast {
       }
       agentLabel = def.label;
       spawn = def.spawn;
+      runtime = def.runtime;
     } else if (opts.spawn) {
       spawn = opts.spawn;
       agentLabel =
@@ -117,17 +139,15 @@ export class Flamecast {
       pendingPermission: null,
     });
 
-    const agentProcess = startAgentProcess(spawn);
-
-    const { input, output } = getAgentTransport(agentProcess);
-    const stream = acp.ndJsonStream(input, output);
+    const transport = await this.provisioner(id, spawn, runtime);
+    const stream = acp.ndJsonStream(transport.input, transport.output);
 
     const managed: ManagedConnection = {
       id,
       sessionId: "",
+      transport,
       runtime: {
         connection: null,
-        agentProcess,
         sessionTextChunkLogBuffer: null,
       },
     };
@@ -150,7 +170,9 @@ export class Flamecast {
       "request",
       initParams,
     );
+    console.log("[flamecast] calling connection.initialize...");
     const initResult = await connection.initialize(initParams);
+    console.log("[flamecast] initialize response received");
     await this.pushRpcLog(
       managed,
       acp.AGENT_METHODS.initialize,
@@ -177,10 +199,9 @@ export class Flamecast {
     );
 
     managed.sessionId = sessionResult.sessionId;
-    const updatedAt = new Date().toISOString();
     await this.stateManager.updateConnection(id, {
       sessionId: managed.sessionId,
-      lastUpdatedAt: updatedAt,
+      lastUpdatedAt: new Date().toISOString(),
     });
 
     this.runtimes.set(id, managed);
@@ -238,7 +259,7 @@ export class Flamecast {
       this.permissionResolvers.delete(meta.pendingPermission.requestId);
     }
     await this.flushSessionTextChunkLogBuffer(managed);
-    managed.runtime.agentProcess.kill();
+    await managed.transport.dispose?.();
     await this.pushLog(managed, "killed", {});
     await this.stateManager.finalizeConnection(id, "killed");
     this.runtimes.delete(id);
@@ -270,6 +291,10 @@ export class Flamecast {
       }),
     );
   }
+
+  // -----------------------------------------------------------------------
+  // Private helpers
+  // -----------------------------------------------------------------------
 
   private resolveRuntime(id: string): ManagedConnection {
     const managed = this.runtimes.get(id);
@@ -365,10 +390,7 @@ export class Flamecast {
       acp.CLIENT_METHODS.session_update,
       "agent_to_client",
       "notification",
-      {
-        sessionId: buf.sessionId,
-        update,
-      },
+      { sessionId: buf.sessionId, update },
     );
   }
 
@@ -408,7 +430,6 @@ export class Flamecast {
       }
       return;
     }
-
     await this.flushSessionTextChunkLogBuffer(managed);
     await this.pushRpcLog(
       managed,
@@ -438,7 +459,7 @@ export class Flamecast {
     pending: { permission: PendingPermission; resolve: PermissionResolver },
     optionId: string,
   ): PendingPermissionOption {
-    const option = pending.permission.options.find((candidate) => candidate.optionId === optionId);
+    const option = pending.permission.options.find((c) => c.optionId === optionId);
     if (!option) {
       throw new Error(`Unknown permission option "${optionId}"`);
     }
@@ -512,10 +533,9 @@ export class Flamecast {
         const pendingPermission = this.createPendingPermission(params);
         const now = new Date().toISOString();
         await this.stateManager.updateConnection(managed.id, {
-          pendingPermission: pendingPermission,
+          pendingPermission,
           lastUpdatedAt: now,
         });
-
         return new Promise<acp.RequestPermissionResponse>((resolve) => {
           const wrapped: PermissionResolver = async (response) => {
             await this.pushRpcLog(
