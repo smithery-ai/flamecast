@@ -14,9 +14,9 @@
     "fmt": "eslint . --fix && prettier --write .",
     "psql:generate": "drizzle-kit generate --config src/flamecast/state-managers/psql/drizzle.config.ts",
     "test": "npx vitest run --config vitest.integration.config.ts",
-    "deploy": "alchemy deploy",
-    "deploy:dev": "alchemy dev",
-    "deploy:destroy": "alchemy destroy"
+    "alchemy:deploy": "alchemy deploy",
+    "alchemy:dev": "alchemy dev",
+    "alchemy:destroy": "alchemy destroy"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.16.1",
