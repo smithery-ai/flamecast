@@ -8,6 +8,15 @@
   "files": {
     "ignoreUnknown": true
   },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": false,
+      "suspicious": {
+        "noExplicitAny": "error"
+      }
+    }
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",

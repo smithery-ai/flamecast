@@ -2,7 +2,6 @@ import eslint from "@eslint/js";
 import tseslint from "@typescript-eslint/eslint-plugin";
 import tsparser from "@typescript-eslint/parser";
 import noTypeAssertion from "eslint-plugin-no-type-assertion";
-import prettier from "eslint-plugin-prettier/recommended";
 import globals from "globals";
 
 export default [
@@ -35,5 +34,4 @@ export default [
       "no-type-assertion/no-type-assertion": "error",
     },
   },
-  prettier,
 ];
