@@ -1,4 +1,6 @@
 /* eslint-disable no-type-assertion/no-type-assertion */
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { getBuiltinAgentTemplates } from "../src/flamecast/agent-templates.js";
@@ -530,17 +532,25 @@ describe("flamecast orchestration internals", () => {
       flamecast.respondToPermission("session-1", "missing-request", { optionId: "allow" }),
     ).rejects.toThrow("Permission request not found or already resolved");
 
-    expect(
-      await client.readTextFile({ path: "/tmp/example.txt" } as Parameters<
-        acp.Client["readTextFile"]
-      >[0]),
-    ).toEqual({ content: "" });
-    expect(
-      await client.writeTextFile({
-        path: "/tmp/example.txt",
-        content: "hello",
-      } as Parameters<acp.Client["writeTextFile"]>[0]),
-    ).toEqual({});
+    const tempDir = await mkdtemp(path.join(process.cwd(), ".flamecast-core-"));
+    const exampleFilePath = path.join(tempDir, "example.txt");
+    await writeFile(exampleFilePath, "");
+
+    try {
+      expect(
+        await client.readTextFile({ path: exampleFilePath } as Parameters<
+          acp.Client["readTextFile"]
+        >[0]),
+      ).toEqual({ content: "" });
+      expect(
+        await client.writeTextFile({
+          path: exampleFilePath,
+          content: "hello",
+        } as Parameters<acp.Client["writeTextFile"]>[0]),
+      ).toEqual({});
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
     expect(
       await client.createTerminal({
         command: "echo",

@@ -80,6 +80,7 @@ describe("transport helpers", () => {
 
   test("opens tcp transports, waits for ports, and finds free ports", async () => {
     const server = createServer((socket) => {
+      socket.on("error", () => {});
       socket.on("data", (chunk) => {
         socket.write(Buffer.concat([Buffer.from("ack:"), chunk]));
         socket.end();
@@ -126,6 +127,7 @@ describe("transport helpers", () => {
     );
 
     const cancelServer = createServer((socket) => {
+      socket.on("error", () => {});
       socket.on("data", () => {
         socket.write(Buffer.from("cancel"));
       });
