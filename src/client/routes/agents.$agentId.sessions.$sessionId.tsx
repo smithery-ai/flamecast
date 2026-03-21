@@ -4,7 +4,7 @@ import { fetchFilePreview, fetchSession } from "@/client/lib/api";
 import { AgentAcpClient } from "@/client/lib/agent-acp";
 import { FileTree, FileTreeFile, FileTreeFolder } from "@/components/ai-elements/file-tree";
 import { sessionLogsToSegments } from "@/client/lib/logs-markdown";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/client/components/ui/button";
 import {
   Card,
@@ -41,10 +41,12 @@ function SessionDetailPage() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [showAllFiles, setShowAllFiles] = useState(false);
-  const [acpClient] = useState(() => new AgentAcpClient(agentId));
+  const acpClientRef = useRef<AgentAcpClient | null>(null);
   const queryClient = useQueryClient();
 
   useEffect(() => {
+    const acpClient = new AgentAcpClient(agentId);
+    acpClientRef.current = acpClient;
     let cancelled = false;
 
     void (async () => {
@@ -61,9 +63,12 @@ function SessionDetailPage() {
 
     return () => {
       cancelled = true;
+      if (acpClientRef.current === acpClient) {
+        acpClientRef.current = null;
+      }
       void acpClient.close();
     };
-  }, [acpClient, sessionId]);
+  }, [agentId, sessionId]);
 
   const { data: session, isLoading } = useQuery({
     queryKey: ["session", agentId, sessionId, showAllFiles],
@@ -72,7 +77,13 @@ function SessionDetailPage() {
   });
 
   const promptMutation = useMutation({
-    mutationFn: (text: string) => acpClient.prompt(sessionId, text),
+    mutationFn: async (text: string) => {
+      const acpClient = acpClientRef.current;
+      if (!acpClient) {
+        throw new Error("ACP client is not ready");
+      }
+      return acpClient.prompt(sessionId, text);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["session", agentId, sessionId] });
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
@@ -80,8 +91,13 @@ function SessionDetailPage() {
   });
 
   const permissionMutation = useMutation({
-    mutationFn: (body: { optionId: string } | { outcome: "cancelled" }) =>
-      acpClient.respondToPermission(sessionId, body),
+    mutationFn: async (body: { optionId: string } | { outcome: "cancelled" }) => {
+      const acpClient = acpClientRef.current;
+      if (!acpClient) {
+        throw new Error("ACP client is not ready");
+      }
+      return acpClient.respondToPermission(sessionId, body);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["session", agentId, sessionId] });
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
