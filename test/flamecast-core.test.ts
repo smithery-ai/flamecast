@@ -5,7 +5,7 @@ import * as acp from "@agentclientprotocol/sdk";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { getBuiltinAgentTemplates } from "../src/flamecast/agent-templates.js";
 import { Flamecast } from "../src/flamecast/index.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/state-managers/memory/index.js";
+import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 
 type ManagedAgentLike = {
   id: string;
@@ -338,7 +338,7 @@ describe("flamecast orchestration internals", () => {
     const agentMeta = createAgentMeta(agentId);
     const sessionMeta = createSessionMeta(sessionId, agentId, tempDir);
     const managed = createManagedAgent(agentId);
-    const client = createDownstreamClient(managed);
+    const client = createDownstreamClient(() => managed);
 
     await storage.createAgent(agentMeta);
     await storage.createSession(sessionMeta);

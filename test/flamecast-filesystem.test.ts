@@ -5,7 +5,7 @@ import path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import { afterEach, expect, test, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/state-managers/memory/index.js";
+import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 
 type ManagedAgentLike = {
   id: string;

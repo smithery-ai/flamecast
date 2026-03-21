@@ -1,7 +1,6 @@
 import * as acp from "@agentclientprotocol/sdk";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { PermissionResponseBody } from "@/shared/session";
-import { createAcpTransportStream } from "@/shared/acp-transport-stream";
+import { AcpStreamableHttpClientTransport } from "@/shared/acp-streamable-http-client";
 
 type PendingPermissionState = {
   request: acp.RequestPermissionRequest;
@@ -9,7 +8,7 @@ type PendingPermissionState = {
 };
 
 export class AgentAcpClient {
-  private readonly transport: StreamableHTTPClientTransport;
+  private readonly transport: AcpStreamableHttpClientTransport;
   private readonly connection: acp.ClientSideConnection;
   private readonly pendingPermissions = new Map<string, PendingPermissionState>();
   private readonly onSessionUpdate?: (params: acp.SessionNotification) => void | Promise<void>;
@@ -27,13 +26,13 @@ export class AgentAcpClient {
   ) {
     this.onSessionUpdate = opts.onSessionUpdate;
     this.onPermissionRequested = opts.onPermissionRequested;
-    this.transport = new StreamableHTTPClientTransport(
+    this.transport = new AcpStreamableHttpClientTransport(
       new URL(`/api/agents/${agentId}/acp`, window.location.origin),
     );
-    this.transport.setProtocolVersion?.("2025-11-25");
-
-    const stream = createAcpTransportStream(this.transport);
-    this.connection = new acp.ClientSideConnection(() => this.createClientHandler(), stream);
+    this.connection = new acp.ClientSideConnection(
+      () => this.createClientHandler(),
+      this.transport.stream,
+    );
   }
 
   async connect(): Promise<void> {

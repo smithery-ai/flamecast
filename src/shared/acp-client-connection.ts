@@ -1,15 +1,9 @@
 import * as acp from "@agentclientprotocol/sdk";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { createAcpTransportStream } from "./acp-transport-stream.js";
+import { AcpStreamableHttpClientTransport } from "./acp-streamable-http-client.js";
 
 export async function createAcpClientConnection(url: URL, opts: { fetch?: typeof fetch } = {}) {
-  const transport = new StreamableHTTPClientTransport(
-    url,
-    opts.fetch ? { fetch: opts.fetch } : undefined,
-  );
-  transport.setProtocolVersion?.("2025-11-25");
+  const transport = new AcpStreamableHttpClientTransport(url, opts);
   await transport.start();
-  const stream = createAcpTransportStream(transport);
   const pendingPermissions = new Map<
     string,
     {
@@ -36,7 +30,7 @@ export async function createAcpClientConnection(url: URL, opts: { fetch?: typeof
     extNotification: async () => undefined,
   } satisfies acp.Client;
 
-  const connection = new acp.ClientSideConnection(() => client, stream);
+  const connection = new acp.ClientSideConnection(() => client, transport.stream);
   return { connection, transport, pendingPermissions, client };
 }
 

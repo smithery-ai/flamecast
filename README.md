@@ -197,7 +197,7 @@ src/
     transport.ts            # AcpTransport, local/tcp helpers
     agent.ts                # Example ACP agent (stdio + TCP modes)
     db/client.ts            # PGLite / Postgres connection
-    state-managers/
+    storage/
       memory/               # In-memory storage implementation
       psql/                 # Postgres/PGLite storage implementation
   client/                   # React UI

@@ -1,59 +1,67 @@
-import * as acp from "@agentclientprotocol/sdk";
-import type {
-  HandleRequestOptions,
-  WebStandardStreamableHTTPServerTransportOptions,
-} from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import type {
-  Transport,
-  TransportSendOptions,
-} from "@modelcontextprotocol/sdk/shared/transport.js";
+import type * as acp from "@agentclientprotocol/sdk";
 import {
-  JSONRPCMessageSchema,
-  type JSONRPCMessage,
-  type JSONRPCRequest,
-  type RequestId,
-} from "@modelcontextprotocol/sdk/types.js";
+  isInitializeRequest,
+  isRequestMessage,
+  isResponseMessage,
+  parseAcpMessages,
+  type JsonRpcId,
+} from "./acp-streamable-http-messages.js";
 
 type StreamState = {
   controller: ReadableStreamDefaultController<Uint8Array>;
   encoder: TextEncoder;
-  requestIds: Set<RequestId>;
+  requestIds: Set<JsonRpcId>;
   closed: boolean;
 };
 
-function isJsonRpcRequest(message: JSONRPCMessage): message is JSONRPCRequest {
-  return "method" in message && "id" in message;
-}
+type AcpStreamableHttpServerOptions = {
+  sessionIdGenerator?: () => string;
+  onsessioninitialized?: (sessionId: string) => void | Promise<void>;
+  onsessionclosed?: (sessionId: string) => void | Promise<void>;
+};
 
-function isJsonRpcResponse(message: JSONRPCMessage): message is JSONRPCMessage & { id: RequestId } {
-  return "id" in message && !("method" in message);
-}
+type HandleRequestOptions = {
+  parsedBody?: unknown;
+};
 
-function isAcpInitializeRequest(message: JSONRPCMessage): message is JSONRPCRequest {
-  return isJsonRpcRequest(message) && message.method === acp.AGENT_METHODS.initialize;
-}
+export class AcpStreamableHttpServerTransport {
+  readonly stream: acp.Stream;
 
-export class AcpStreamableHTTPServerTransport implements Transport {
   sessionId?: string;
-  onclose?: () => void;
-  onerror?: (error: Error) => void;
-  onmessage?: (message: JSONRPCMessage) => void;
 
   private readonly sessionIdGenerator?: () => string;
   private readonly onsessioninitialized?: (sessionId: string) => void | Promise<void>;
   private readonly onsessionclosed?: (sessionId: string) => void | Promise<void>;
   private initialized = false;
   private readonly streams = new Map<string, StreamState>();
-  private readonly requestToStreamId = new Map<RequestId, string>();
-  private readonly responseCache = new Map<RequestId, JSONRPCMessage>();
+  private readonly requestToStreamId = new Map<JsonRpcId, string>();
+  private readonly responseCache = new Map<JsonRpcId, acp.AnyMessage>();
+  private controller: ReadableStreamDefaultController<acp.AnyMessage> | null = null;
 
-  constructor(options: WebStandardStreamableHTTPServerTransportOptions = {}) {
+  constructor(options: AcpStreamableHttpServerOptions = {}) {
     this.sessionIdGenerator = options.sessionIdGenerator;
     this.onsessioninitialized = options.onsessioninitialized;
     this.onsessionclosed = options.onsessionclosed;
+    this.stream = {
+      readable: new ReadableStream<acp.AnyMessage>({
+        start: (controller) => {
+          this.controller = controller;
+        },
+        cancel: async () => {
+          await this.close();
+        },
+      }),
+      writable: new WritableStream<acp.AnyMessage>({
+        write: (message) => this.send(message),
+        close: async () => {
+          await this.close();
+        },
+        abort: async () => {
+          await this.close();
+        },
+      }),
+    };
   }
-
-  async start(): Promise<void> {}
 
   async handleRequest(req: Request, options: HandleRequestOptions = {}): Promise<Response> {
     switch (req.method) {
@@ -74,16 +82,28 @@ export class AcpStreamableHTTPServerTransport implements Transport {
     }
   }
 
-  async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
-    const relatedRequestId = isJsonRpcResponse(message) ? message.id : options?.relatedRequestId;
+  async close(): Promise<void> {
+    for (const streamId of [...this.streams.keys()]) {
+      this.closeResponseStream(streamId);
+    }
+    this.responseCache.clear();
+    this.requestToStreamId.clear();
+    if (this.controller) {
+      this.controller.close();
+      this.controller = null;
+    }
+  }
+
+  private async send(message: acp.AnyMessage): Promise<void> {
+    const relatedRequestId = isResponseMessage(message) ? message.id : undefined;
     const streamId =
       relatedRequestId !== undefined
         ? this.requestToStreamId.get(relatedRequestId)
         : this.streams.size === 1
           ? this.streams.keys().next().value
           : undefined;
+
     if (!streamId) {
-      // No active request-scoped stream is available for this outbound message.
       return;
     }
 
@@ -94,23 +114,13 @@ export class AcpStreamableHTTPServerTransport implements Transport {
 
     this.writeSseEvent(stream, message);
 
-    if (isJsonRpcResponse(message)) {
-      const responseId = message.id;
-      this.responseCache.set(responseId, message);
+    if (isResponseMessage(message)) {
+      this.responseCache.set(message.id, message);
       const ready = [...stream.requestIds].every((requestId) => this.responseCache.has(requestId));
       if (ready) {
-        this.closeStream(streamId);
+        this.closeResponseStream(streamId);
       }
     }
-  }
-
-  async close(): Promise<void> {
-    for (const streamId of [...this.streams.keys()]) {
-      this.closeStream(streamId);
-    }
-    this.responseCache.clear();
-    this.requestToStreamId.clear();
-    this.onclose?.();
   }
 
   private async handlePostRequest(req: Request, parsedBody?: unknown): Promise<Response> {
@@ -123,21 +133,12 @@ export class AcpStreamableHTTPServerTransport implements Transport {
       }
     }
 
-    const messages = Array.isArray(rawMessage) ? rawMessage : [rawMessage];
-    if (messages.length === 0) {
-      return this.createJsonErrorResponse(400, -32600, "Invalid Request");
+    const messages = parseAcpMessages(rawMessage);
+    if (!messages) {
+      return this.createJsonErrorResponse(400, -32600, "Invalid JSON-RPC message");
     }
 
-    const jsonRpcMessages: JSONRPCMessage[] = [];
-    for (const message of messages) {
-      const parsed = JSONRPCMessageSchema.safeParse(message);
-      if (!parsed.success) {
-        return this.createJsonErrorResponse(400, -32700, "Parse error: Invalid JSON-RPC message");
-      }
-      jsonRpcMessages.push(parsed.data);
-    }
-    const isInitializationRequest = jsonRpcMessages.some(isAcpInitializeRequest);
-
+    const isInitializationRequest = messages.some(isInitializeRequest);
     if (isInitializationRequest) {
       if (this.initialized && this.sessionId !== undefined) {
         return this.createJsonErrorResponse(
@@ -146,7 +147,7 @@ export class AcpStreamableHTTPServerTransport implements Transport {
           "Invalid Request: Server already initialized",
         );
       }
-      if (jsonRpcMessages.length > 1) {
+      if (messages.length > 1) {
         return this.createJsonErrorResponse(
           400,
           -32600,
@@ -165,10 +166,10 @@ export class AcpStreamableHTTPServerTransport implements Transport {
       }
     }
 
-    const requestMessages = jsonRpcMessages.filter(isJsonRpcRequest);
+    const requestMessages = messages.filter(isRequestMessage);
     if (requestMessages.length === 0) {
-      for (const message of jsonRpcMessages) {
-        this.onmessage?.(message);
+      for (const message of messages) {
+        this.controller?.enqueue(message);
       }
       return new Response(null, { status: 202 });
     }
@@ -181,7 +182,7 @@ export class AcpStreamableHTTPServerTransport implements Transport {
         controller = nextController;
       },
       cancel: () => {
-        this.closeStream(streamId);
+        this.closeResponseStream(streamId);
       },
     });
 
@@ -209,8 +210,8 @@ export class AcpStreamableHTTPServerTransport implements Transport {
       headers.set("mcp-session-id", this.sessionId);
     }
 
-    for (const message of jsonRpcMessages) {
-      this.onmessage?.(message);
+    for (const message of messages) {
+      this.controller?.enqueue(message);
     }
 
     return new Response(readable, { status: 200, headers });
@@ -250,22 +251,24 @@ export class AcpStreamableHTTPServerTransport implements Transport {
     return undefined;
   }
 
-  private writeSseEvent(stream: StreamState, message: JSONRPCMessage): void {
+  private writeSseEvent(stream: StreamState, message: acp.AnyMessage): void {
     const payload = `data: ${JSON.stringify(message)}\n\n`;
     stream.controller.enqueue(stream.encoder.encode(payload));
   }
 
-  private closeStream(streamId: string): void {
+  private closeResponseStream(streamId: string): void {
     const stream = this.streams.get(streamId);
     if (!stream || stream.closed) {
       return;
     }
+
     stream.closed = true;
     try {
       stream.controller.close();
     } catch {
       // Ignore already-closed streams.
     }
+
     this.streams.delete(streamId);
     for (const requestId of stream.requestIds) {
       this.requestToStreamId.delete(requestId);
@@ -274,14 +277,16 @@ export class AcpStreamableHTTPServerTransport implements Transport {
   }
 
   private createJsonErrorResponse(status: number, code: number, message: string): Response {
-    const body = JSON.stringify({
-      jsonrpc: "2.0",
-      error: { code, message },
-      id: null,
-    });
-    return new Response(body, {
-      status,
-      headers: { "content-type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        error: { code, message },
+        id: null,
+      }),
+      {
+        status,
+        headers: { "content-type": "application/json" },
+      },
+    );
   }
 }

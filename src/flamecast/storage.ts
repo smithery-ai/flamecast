@@ -48,32 +48,32 @@ export async function resolveStorage(config?: StorageConfig): Promise<FlamecastS
   if (!config || config === "pglite") {
     const { createDatabase } = await import("./db/client.js");
     const { db } = await createDatabase();
-    const { createPsqlStorage } = await import("./state-managers/psql/index.js");
+    const { createPsqlStorage } = await import("./storage/psql/index.js");
     return createPsqlStorage(db);
   }
 
   if (config === "memory") {
-    const { MemoryFlamecastStorage } = await import("./state-managers/memory/index.js");
+    const { MemoryFlamecastStorage } = await import("./storage/memory/index.js");
     return new MemoryFlamecastStorage();
   }
 
   if (typeof config === "object" && "type" in config) {
     switch (config.type) {
       case "memory": {
-        const { MemoryFlamecastStorage } = await import("./state-managers/memory/index.js");
+        const { MemoryFlamecastStorage } = await import("./storage/memory/index.js");
         return new MemoryFlamecastStorage();
       }
       case "pglite": {
         const { createDatabase } = await import("./db/client.js");
         const { db } = await createDatabase({ pgliteDataDir: config.dataDir });
-        const { createPsqlStorage } = await import("./state-managers/psql/index.js");
+        const { createPsqlStorage } = await import("./storage/psql/index.js");
         return createPsqlStorage(db);
       }
       case "postgres": {
         const { createDatabase } = await import("./db/client.js");
         process.env.FLAMECAST_POSTGRES_URL = config.url;
         const { db } = await createDatabase();
-        const { createPsqlStorage } = await import("./state-managers/psql/index.js");
+        const { createPsqlStorage } = await import("./storage/psql/index.js");
         return createPsqlStorage(db);
       }
     }

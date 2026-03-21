@@ -116,11 +116,6 @@ export const CreateAgentBodySchema = z
   });
 export type CreateAgentBody = z.infer<typeof CreateAgentBodySchema>;
 
-export const PromptBodySchema = z.object({
-  text: z.string().min(1),
-});
-export type PromptBody = z.infer<typeof PromptBodySchema>;
-
 export const PermissionResponseBodySchema = z.union([
   z.object({ optionId: z.string() }),
   z.object({ outcome: z.literal("cancelled") }),

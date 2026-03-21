@@ -18,8 +18,7 @@ import type {
   SessionLog,
 } from "../shared/session.js";
 import { createServerApp } from "../server/app.js";
-import { AcpStreamableHTTPServerTransport } from "../shared/acp-streamable-http-server.js";
-import { createAcpTransportStream } from "../shared/acp-transport-stream.js";
+import { AcpStreamableHttpServerTransport } from "../shared/acp-streamable-http-server.js";
 import { getBuiltinAgentTemplates, localRuntime } from "./agent-templates.js";
 import type { FlamecastStorage, SessionMeta, StorageConfig } from "./storage.js";
 import { resolveStorage } from "./storage.js";
@@ -71,7 +70,7 @@ interface PendingPermissionState {
 interface UpstreamTransportContext {
   agentId: string;
   transportSessionId: string | null;
-  transport: AcpStreamableHTTPServerTransport;
+  transport: AcpStreamableHttpServerTransport;
   connection: acp.AgentSideConnection | null;
   attachedSessionIds: Set<string>;
 }
@@ -278,7 +277,7 @@ export class Flamecast {
     const agentId = randomUUID();
 
     const connection = new acp.ClientSideConnection(
-      () => this.createDownstreamClient(managed),
+      () => this.createDownstreamClient(() => managed),
       stream,
     );
     managed = {
@@ -463,7 +462,7 @@ export class Flamecast {
     const context: UpstreamTransportContext = {
       agentId,
       transportSessionId: null,
-      transport: new AcpStreamableHTTPServerTransport({
+      transport: new AcpStreamableHttpServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (sessionId) => {
           context.transportSessionId = sessionId;
@@ -479,12 +478,10 @@ export class Flamecast {
       attachedSessionIds: new Set(),
     };
 
-    const stream = createAcpTransportStream(context.transport);
     context.connection = new acp.AgentSideConnection(
       () => this.createNorthboundAgent(context),
-      stream,
+      context.transport.stream,
     );
-    void context.transport.start();
     void context.connection.closed.finally(() => {
       if (context.transportSessionId) {
         this.removeUpstreamContext(agentId, context.transportSessionId);
@@ -1255,10 +1252,10 @@ export class Flamecast {
     };
   }
 
-  private createDownstreamClient(managed: ManagedAgent): acp.Client {
+  private createDownstreamClient(getManaged: () => ManagedAgent): acp.Client {
     return {
       sessionUpdate: async (params: acp.SessionNotification) => {
-        await this.logSessionUpdateNotification(managed, params);
+        await this.logSessionUpdateNotification(getManaged(), params);
       },
 
       requestPermission: async (
