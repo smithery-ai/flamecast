@@ -24,6 +24,7 @@ export type StateManagerConfig =
 export type Provisioner = (
   connectionId: string,
   spec: import("../shared/connection.js").AgentSpawn,
+  runtime: import("./presets.js").AgentRuntime,
 ) => Promise<import("./transport.js").AcpTransport>;
 
 export type FlamecastOptions = {
@@ -65,50 +66,42 @@ async function resolveStateManager(config?: StateManagerConfig): Promise<Flameca
 }
 
 // ---------------------------------------------------------------------------
-// Default provisioner — routes Docker presets to containers, rest to local
+// Default provisioner — uses runtime from preset to decide local vs Docker
 // ---------------------------------------------------------------------------
 
-const DOCKER_AGENTS: Record<string, { image: string; dockerfile: string }> = {
-  "docker:agent.ts": {
-    image: "flamecast/example-agent",
-    dockerfile: "docker/example-agent.Dockerfile",
-  },
-};
-
-const defaultProvisioner: Provisioner = async (connectionId, spec) => {
-  const cmd = [spec.command, ...(spec.args ?? [])].join(" ");
-  const match = Object.entries(DOCKER_AGENTS).find(([key]) => cmd.includes(key));
-
-  if (match) {
-    const [, { image, dockerfile }] = match;
-    const docker = await import("alchemy/docker");
-    const { findFreePort, waitForPort, openTcpTransport } = await import("./transport.js");
-    const port = await findFreePort();
-
-    await docker.Image(`agent-image-${connectionId}`, {
-      name: image,
-      tag: "latest",
-      build: { context: ".", dockerfile },
-      skipPush: true,
-    });
-
-    await docker.Container(`sandbox-${connectionId}`, {
-      image: `${image}:latest`,
-      name: `flamecast-sandbox-${connectionId}`,
-      environment: { ACP_PORT: String(port) },
-      ports: [{ external: port, internal: port }],
-      start: true,
-    });
-
-    await waitForPort("localhost", port);
-    // Agent needs time to fully init after port opens
-    await new Promise((r) => setTimeout(r, 1000));
-
-    return openTcpTransport("localhost", port);
+const defaultProvisioner: Provisioner = async (connectionId, spec, runtime) => {
+  if (runtime.type === "local") {
+    const { openLocalTransport } = await import("./transport.js");
+    return openLocalTransport(spec);
   }
 
-  const { openLocalTransport } = await import("./transport.js");
-  return openLocalTransport(spec);
+  // Non-local runtimes use alchemy/{type} provider
+  const provider = await import(`alchemy/${runtime.type}`);
+  const { findFreePort, waitForPort, openTcpTransport } = await import("./transport.js");
+  const port = await findFreePort();
+
+  // Build image if dockerfile is provided
+  if (runtime.image && runtime.dockerfile) {
+    await provider.Image(`agent-image-${connectionId}`, {
+      name: runtime.image,
+      tag: "latest",
+      build: { context: ".", dockerfile: runtime.dockerfile },
+      skipPush: true,
+    });
+  }
+
+  await provider.Container(`sandbox-${connectionId}`, {
+    image: `${runtime.image}:latest`,
+    name: `flamecast-sandbox-${connectionId}`,
+    environment: { ACP_PORT: String(port) },
+    ports: [{ external: port, internal: port }],
+    start: true,
+  });
+
+  await waitForPort("localhost", port);
+  await new Promise((r) => setTimeout(r, 1000));
+
+  return openTcpTransport("localhost", port);
 };
 
 // ---------------------------------------------------------------------------

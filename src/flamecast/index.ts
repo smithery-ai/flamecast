@@ -12,7 +12,8 @@ import type {
   RegisterAgentProcessBody,
 } from "../shared/connection.js";
 import type { FlamecastStateManager } from "./state-manager.js";
-import type { AcpTransport, BuiltinAgentPreset } from "./transport.js";
+import type { AcpTransport } from "./transport.js";
+import type { AgentPreset, AgentRuntime } from "./presets.js";
 import type { Provisioner } from "./config.js";
 
 // Type re-exports (safe for Worker bundling — no runtime deps)
@@ -51,8 +52,7 @@ interface ManagedConnection {
 export type FlamecastConstructorOptions = {
   stateManager: FlamecastStateManager;
   provisioner: Provisioner;
-  /** Agent presets. Injected by createFlamecast(); empty in Workers. */
-  presets?: BuiltinAgentPreset[];
+  presets?: AgentPreset[];
 };
 
 // ---------------------------------------------------------------------------
@@ -62,7 +62,10 @@ export type FlamecastConstructorOptions = {
 export class Flamecast {
   private runtimes = new Map<string, ManagedConnection>();
   private permissionResolvers = new Map<string, PermissionResolver>();
-  private agentProcesses = new Map<string, { label: string; spawn: AgentSpawn }>();
+  private agentProcesses = new Map<
+    string,
+    { label: string; spawn: AgentSpawn; runtime: AgentRuntime }
+  >();
   private readonly stateManager: FlamecastStateManager;
   private readonly provisioner: Provisioner;
 
@@ -73,6 +76,7 @@ export class Flamecast {
       this.agentProcesses.set(preset.id, {
         label: preset.label,
         spawn: { command: preset.spawn.command, args: preset.spawn.args },
+        runtime: preset.runtime,
       });
     }
   }
@@ -106,6 +110,7 @@ export class Flamecast {
 
     let agentLabel: string;
     let spawn: AgentSpawn;
+    let runtime: AgentRuntime = { type: "local" };
 
     if (opts.agentProcessId) {
       const def = this.agentProcesses.get(opts.agentProcessId);
@@ -114,6 +119,7 @@ export class Flamecast {
       }
       agentLabel = def.label;
       spawn = def.spawn;
+      runtime = def.runtime;
     } else if (opts.spawn) {
       spawn = opts.spawn;
       agentLabel =
@@ -132,7 +138,7 @@ export class Flamecast {
       pendingPermission: null,
     });
 
-    const transport = await this.provisioner(id, spawn);
+    const transport = await this.provisioner(id, spawn, runtime);
     const stream = acp.ndJsonStream(transport.input, transport.output);
 
     const managed: ManagedConnection = {
