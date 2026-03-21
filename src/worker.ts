@@ -1,17 +1,23 @@
 import { Hono } from "hono";
-import { Flamecast } from "./flamecast/index.js";
+import { createFlamecast } from "./flamecast/config.js";
 import { createApi } from "./flamecast/api.js";
-import { MemoryFlamecastStateManager } from "./flamecast/state-managers/memory/index.js";
-import { getBuiltinAgentPresets } from "./flamecast/presets.js";
-import { openLocalTransport } from "./flamecast/transport.js";
 
-const flamecast = new Flamecast({
-  stateManager: new MemoryFlamecastStateManager(),
-  provisioner: async (_id, spec) => openLocalTransport(spec),
-  presets: getBuiltinAgentPresets(),
-});
+let app: Hono | null = null;
 
-const app = new Hono();
-app.route("/api", createApi(flamecast));
+async function getApp() {
+  if (!app) {
+    const flamecast = await createFlamecast({
+      stateManager: { type: "memory" },
+    });
+    app = new Hono();
+    app.route("/api", createApi(flamecast));
+  }
+  return app;
+}
 
-export default app;
+export default {
+  async fetch(request: Request) {
+    const handler = await getApp();
+    return handler.fetch(request);
+  },
+};
