@@ -1,8 +1,6 @@
 import alchemy from "alchemy";
-import { Worker, Vite, DurableObjectNamespace } from "alchemy/cloudflare";
-import { Container as CfContainer } from "alchemy/cloudflare";
+import { Worker, Vite } from "alchemy/cloudflare";
 import * as docker from "alchemy/docker";
-import type { AgentContainer } from "./src/agent-container";
 
 const app = await alchemy("flamecast-infra");
 
@@ -27,19 +25,6 @@ const db = await docker.Container("flamecast-db", {
 const DATABASE_URL = `postgres://flamecast:flamecast@localhost:5432/flamecast`;
 
 // ---------------------------------------------------------------------------
-// Agent container — Cloudflare Container (uses local Docker in dev)
-// ---------------------------------------------------------------------------
-
-const agentContainer = await CfContainer<AgentContainer>("agent-container", {
-  className: "AgentContainer",
-  name: "flamecast/example-agent",
-  build: {
-    context: ".",
-    dockerfile: "docker/example-agent.Dockerfile",
-  },
-});
-
-// ---------------------------------------------------------------------------
 // API server
 // ---------------------------------------------------------------------------
 
@@ -50,7 +35,6 @@ export const server = await Worker("flamecast-api", {
   compatibility: "node",
   bindings: {
     DATABASE_URL,
-    AGENT_CONTAINER: agentContainer,
   },
   url: true,
   dev: {
