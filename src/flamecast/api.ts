@@ -1,24 +1,21 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
+import { z } from "zod";
 import type { Flamecast } from "./index.js";
-import {
-  CreateSessionBodySchema,
-  PermissionResponseBodySchema,
-  PromptBodySchema,
-  RegisterAgentTemplateBodySchema,
-} from "../shared/session.js";
+import { isFlamecastNotFoundError } from "./errors.js";
+import { CreateAgentBodySchema } from "../shared/session.js";
 
 export type FlamecastApi = Pick<
   Flamecast,
-  | "createSession"
+  | "createAgent"
+  | "getAgent"
   | "getFilePreview"
+  | "getSessionFileSystem"
   | "getSession"
-  | "listAgentTemplates"
+  | "handleAcp"
+  | "listAgents"
   | "listSessions"
-  | "promptSession"
-  | "registerAgentTemplate"
-  | "respondToPermission"
-  | "terminateSession"
+  | "terminateAgent"
 >;
 
 function toErrorMessage(error: unknown, fallback = "Unknown error"): string {
@@ -29,90 +26,139 @@ function toStringMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isNotFound(error: unknown): boolean {
+  return isFlamecastNotFoundError(error);
+}
+
+const SessionQuerySchema = z.object({
+  includeFileSystem: z.literal("true").optional(),
+  showAllFiles: z.literal("true").optional(),
+});
+
+const FileSystemQuerySchema = z.object({
+  showAllFiles: z.literal("true").optional(),
+});
+
+const FilePreviewQuerySchema = z.object({
+  path: z.string().min(1),
+});
+
 export function createApi(flamecast: FlamecastApi) {
   return new Hono()
-    .get("/health", async (c) => {
-      try {
-        const sessions = await flamecast.listSessions();
-        return c.json({ status: "ok", sessions: sessions.length });
-      } catch (error) {
-        return c.json({ status: "degraded", error: toErrorMessage(error) }, 503);
-      }
-    })
-    .get("/agent-templates", async (c) => {
-      return c.json(await flamecast.listAgentTemplates());
-    })
-    .post("/agent-templates", zValidator("json", RegisterAgentTemplateBodySchema), async (c) => {
-      const body = c.req.valid("json");
-      const template = await flamecast.registerAgentTemplate(body);
-      return c.json(template, 201);
-    })
     .get("/sessions", async (c) => {
       return c.json(await flamecast.listSessions());
     })
-    .post("/sessions", zValidator("json", CreateSessionBodySchema), async (c) => {
+    .get("/agents", async (c) => {
+      return c.json(await flamecast.listAgents());
+    })
+    .post("/agents", zValidator("json", CreateAgentBodySchema), async (c) => {
       try {
         const body = c.req.valid("json");
-        const session = await flamecast.createSession(body);
-        return c.json(session, 201);
+        const agent = await flamecast.createAgent(body);
+        return c.json(agent, 201);
       } catch (error) {
-        console.error("Session creation failed:", error);
+        console.error("Agent creation failed:", error);
         return c.json({ error: toStringMessage(error) }, 400);
       }
     })
-    .get("/sessions/:id", async (c) => {
+    .get("/agents/:agentId", async (c) => {
       try {
-        const includeFileSystem = c.req.query("includeFileSystem") === "true";
-        const showAllFiles = c.req.query("showAllFiles") === "true";
-        const session = await flamecast.getSession(c.req.param("id"), {
-          ...(includeFileSystem ? { includeFileSystem: true } : {}),
-          ...(showAllFiles ? { showAllFiles: true } : {}),
-        });
-        return c.json(session);
-      } catch {
-        return c.json({ error: "Session not found" }, 404);
-      }
-    })
-    .get("/sessions/:id/file", async (c) => {
-      const path = c.req.query("path");
-      if (!path) {
-        return c.json({ error: "Missing path" }, 400);
-      }
-      try {
-        const preview = await flamecast.getFilePreview(c.req.param("id"), path);
-        return c.json(preview);
+        return c.json(await flamecast.getAgent(c.req.param("agentId")));
       } catch (error) {
-        return c.json({ error: toErrorMessage(error) }, 400);
+        if (isNotFound(error)) {
+          return c.json({ error: "Agent not found" }, 404);
+        }
+        return c.json({ error: toErrorMessage(error) }, 500);
       }
     })
-    .post("/sessions/:id/prompt", zValidator("json", PromptBodySchema), async (c) => {
-      const { text } = c.req.valid("json");
-      try {
-        const result = await flamecast.promptSession(c.req.param("id"), text);
-        return c.json(result);
-      } catch (error) {
-        return c.json({ error: toErrorMessage(error) }, 400);
-      }
-    })
-    .post(
-      "/sessions/:id/permissions/:requestId",
-      zValidator("json", PermissionResponseBodySchema),
+    .get(
+      "/agents/:agentId/sessions/:sessionId",
+      zValidator("query", SessionQuerySchema),
       async (c) => {
-        const body = c.req.valid("json");
         try {
-          await flamecast.respondToPermission(c.req.param("id"), c.req.param("requestId"), body);
-          return c.json({ ok: true });
+          const query = c.req.valid("query");
+          const includeFileSystem = query.includeFileSystem === "true";
+          const showAllFiles = query.showAllFiles === "true";
+          const session = await flamecast.getSession(
+            c.req.param("agentId"),
+            c.req.param("sessionId"),
+            {
+              ...(includeFileSystem ? { includeFileSystem: true } : {}),
+              ...(showAllFiles ? { showAllFiles: true } : {}),
+            },
+          );
+          return c.json(session);
+        } catch (error) {
+          if (isNotFound(error)) {
+            return c.json({ error: "Session not found" }, 404);
+          }
+          return c.json({ error: toErrorMessage(error) }, 500);
+        }
+      },
+    )
+    .get(
+      "/agents/:agentId/sessions/:sessionId/filesystem",
+      zValidator("query", FileSystemQuerySchema),
+      async (c) => {
+        try {
+          const query = c.req.valid("query");
+          const showAllFiles = query.showAllFiles === "true";
+          const fileSystem = await flamecast.getSessionFileSystem(
+            c.req.param("agentId"),
+            c.req.param("sessionId"),
+            {
+              ...(showAllFiles ? { showAllFiles: true } : {}),
+            },
+          );
+          return c.json(fileSystem);
+        } catch (error) {
+          if (isNotFound(error)) {
+            return c.json({ error: "Session not found" }, 404);
+          }
+          return c.json({ error: toErrorMessage(error) }, 500);
+        }
+      },
+    )
+    .get(
+      "/agents/:agentId/sessions/:sessionId/file",
+      zValidator("query", FilePreviewQuerySchema, (result, c) => {
+        if (!result.success) {
+          return c.json({ error: "Missing path" }, 400);
+        }
+      }),
+      async (c) => {
+        const { path } = c.req.valid("query");
+        try {
+          const preview = await flamecast.getFilePreview(
+            c.req.param("agentId"),
+            c.req.param("sessionId"),
+            path,
+          );
+          return c.json(preview);
         } catch (error) {
           return c.json({ error: toErrorMessage(error) }, 400);
         }
       },
     )
-    .delete("/sessions/:id", async (c) => {
+    .all("/agents/:agentId/acp", async (c) => {
       try {
-        await flamecast.terminateSession(c.req.param("id"));
+        return await flamecast.handleAcp(c.req.param("agentId"), c.req.raw);
+      } catch (error) {
+        if (isNotFound(error)) {
+          return c.json({ error: "Agent not found" }, 404);
+        }
+        return c.json({ error: toErrorMessage(error) }, 500);
+      }
+    })
+    .delete("/agents/:agentId", async (c) => {
+      try {
+        await flamecast.terminateAgent(c.req.param("agentId"));
         return c.json({ ok: true });
-      } catch {
-        return c.json({ error: "Session not found" }, 404);
+      } catch (error) {
+        if (isNotFound(error)) {
+          return c.json({ error: "Agent not found" }, 404);
+        }
+        return c.json({ error: toErrorMessage(error) }, 500);
       }
     });
 }

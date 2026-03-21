@@ -1,6 +1,7 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchSessions, terminateSession } from "@/client/lib/api";
+import { fetchSessions } from "@/client/lib/api";
+import { AgentAcpClient } from "@/client/lib/agent-acp";
 import { cn } from "@/client/lib/utils";
 import {
   Sidebar,
@@ -20,8 +21,9 @@ import { Trash2Icon } from "lucide-react";
 export function SessionsSidebar() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const activeSessionId = useRouterState({
-    select: (s) => s.matches.find((m) => m.routeId === "/sessions/$id")?.params.id,
+  const activeSessionParams = useRouterState({
+    select: (state) =>
+      state.matches.find((m) => m.routeId === "/agents/$agentId/sessions/$sessionId")?.params,
   });
 
   const { data: sessions, isLoading } = useQuery({
@@ -30,11 +32,23 @@ export function SessionsSidebar() {
     refetchInterval: 3000,
   });
 
-  const terminateMutation = useMutation({
-    mutationFn: terminateSession,
-    onSuccess: (_, id) => {
+  const closeSessionMutation = useMutation({
+    mutationFn: async (session: { agentId: string; sessionId: string }) => {
+      const acpClient = new AgentAcpClient(session.agentId);
+      try {
+        await acpClient.closeSession(session.sessionId);
+      } finally {
+        await acpClient.close().catch(() => undefined);
+      }
+    },
+    onSuccess: (_, session) => {
+      queryClient.invalidateQueries({ queryKey: ["agents"] });
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      if (id === activeSessionId) {
+      queryClient.invalidateQueries({ queryKey: ["session", session.agentId, session.sessionId] });
+      if (
+        session.agentId === activeSessionParams?.agentId &&
+        session.sessionId === activeSessionParams?.sessionId
+      ) {
         void navigate({ to: "/" });
       }
     },
@@ -78,23 +92,27 @@ export function SessionsSidebar() {
                   <SidebarMenuItem key={session.id}>
                     <SidebarMenuButton
                       asChild
-                      isActive={session.id === activeSessionId}
+                      isActive={session.id === activeSessionParams?.sessionId}
                       tooltip={`${session.agentName} · ${session.id.slice(0, 8)}…`}
                       className="!h-auto min-h-8 items-start py-2 pr-10"
                     >
-                      <Link to="/sessions/$id" params={{ id: session.id }}>
+                      <Link
+                        to="/agents/$agentId/sessions/$sessionId"
+                        params={{ agentId: session.agentId, sessionId: session.id }}
+                      >
                         <span className="grid min-w-0 flex-1 gap-1 leading-snug">
                           <span className="truncate font-medium">{session.agentName}</span>
                           <span className="truncate text-xs text-sidebar-foreground/65">
-                            {session.id.slice(0, 10)}… · {session.logs.length} entries
+                            {session.id.slice(0, 10)}…
+                            {session.pendingPermission ? " · Permission required" : ""}
                           </span>
                         </span>
                       </Link>
                     </SidebarMenuButton>
                     <SidebarMenuAction
                       showOnHover
-                      title="Terminate session"
-                      disabled={terminateMutation.isPending}
+                      title="Close session"
+                      disabled={closeSessionMutation.isPending}
                       className={cn(
                         "z-10 !top-1/2 right-1 !-translate-y-1/2 size-8 cursor-pointer rounded-md",
                         "text-destructive/90 transition-[opacity,transform,colors] duration-150",
@@ -106,11 +124,21 @@ export function SessionsSidebar() {
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        terminateMutation.mutate(session.id);
+                        if (
+                          !window.confirm(
+                            `Close session "${session.agentName}" (${session.id.slice(0, 8)}…)?`,
+                          )
+                        ) {
+                          return;
+                        }
+                        closeSessionMutation.mutate({
+                          agentId: session.agentId,
+                          sessionId: session.id,
+                        });
                       }}
                     >
                       <Trash2Icon className="size-4 shrink-0" />
-                      <span className="sr-only">Terminate session</span>
+                      <span className="sr-only">Close session</span>
                     </SidebarMenuAction>
                   </SidebarMenuItem>
                 ))

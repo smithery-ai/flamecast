@@ -2,50 +2,66 @@
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import * as acp from "@agentclientprotocol/sdk";
 import { afterEach, expect, test, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/state-managers/memory/index.js";
+import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 
-type ManagedSessionLike = {
+type ManagedAgentLike = {
   id: string;
-  workspaceRoot: string;
+  agentName: string;
+  spawn: { command: string; args: string[] };
+  runtime: { provider: string };
   transport: {
     input: WritableStream<Uint8Array>;
     output: ReadableStream<Uint8Array>;
     dispose?: () => Promise<void>;
   };
   terminate: () => Promise<void>;
-  runtime: {
-    connection: null;
-    sessionTextChunkLogBuffer: null;
-  };
+  connection: acp.ClientSideConnection;
+  sessionTextChunkLogBuffers: Map<string, unknown>;
 };
 
-function createMeta(id: string) {
+function createAgentMeta(id: string) {
   return {
     id,
     agentName: "Example agent",
     spawn: { command: "node", args: ["agent.js"] },
+    runtime: { provider: "local" as const },
+    startedAt: "2024-01-01T00:00:00.000Z",
+    lastUpdatedAt: "2024-01-01T00:00:00.000Z",
+    latestSessionId: null,
+    sessionCount: 0,
+  };
+}
+
+function createSessionMeta(id: string, agentId: string, cwd: string) {
+  return {
+    id,
+    agentId,
+    agentName: "Example agent",
+    spawn: { command: "node", args: ["agent.js"] },
+    cwd,
     startedAt: "2024-01-01T00:00:00.000Z",
     lastUpdatedAt: "2024-01-01T00:00:00.000Z",
     pendingPermission: null,
   };
 }
 
-function createManagedSession(id: string, workspaceRoot: string): ManagedSessionLike {
+function createManagedAgent(id: string): ManagedAgentLike {
   const passthrough = new TransformStream<Uint8Array, Uint8Array>();
   return {
     id,
-    workspaceRoot,
+    agentName: "Example agent",
+    spawn: { command: "node", args: ["agent.js"] },
+    runtime: { provider: "local" },
     transport: {
       input: passthrough.writable,
       output: passthrough.readable,
     },
     terminate: vi.fn(async () => {}),
-    runtime: {
-      connection: null,
-      sessionTextChunkLogBuffer: null,
-    },
+    connection: null as unknown as acp.ClientSideConnection,
+    sessionTextChunkLogBuffers: new Map(),
   };
 }
 
@@ -55,8 +71,14 @@ function attachStorage(flamecast: Flamecast, storage = new MemoryFlamecastStorag
   return storage;
 }
 
-function getRuntimeMap(flamecast: Flamecast) {
-  return Reflect.get(flamecast, "runtimes") as Map<string, ManagedSessionLike>;
+function attachAgent(flamecast: Flamecast, managed: ManagedAgentLike) {
+  const agents = Reflect.get(flamecast, "agents") as Map<string, ManagedAgentLike>;
+  agents.set(managed.id, managed);
+}
+
+function attachSession(flamecast: Flamecast, sessionId: string, agentId: string) {
+  const sessionToAgentId = Reflect.get(flamecast, "sessionToAgentId") as Map<string, string>;
+  sessionToAgentId.set(sessionId, agentId);
 }
 
 function getMethod<Args extends unknown[], Result>(
@@ -134,12 +156,16 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
 
     const flamecast = new Flamecast({ storage: "memory" });
     const storage = attachStorage(flamecast);
-    const managed = createManagedSession("session-1", workspaceRoot);
-    await storage.createSession(createMeta("session-1"));
-    await storage.createSession(createMeta("session-2"));
-    getRuntimeMap(flamecast).set("session-1", managed);
+    const agentId = "agent-1";
+    const sessionId = "session-1";
+    const managed = createManagedAgent(agentId);
 
-    const session = await flamecast.getSession("session-1", { includeFileSystem: true });
+    await storage.createAgent(createAgentMeta(agentId));
+    await storage.createSession(createSessionMeta(sessionId, agentId, workspaceRoot));
+    attachAgent(flamecast, managed);
+    attachSession(flamecast, sessionId, agentId);
+
+    const session = await flamecast.getSession(agentId, sessionId, { includeFileSystem: true });
     const fileSystemEntries = session.fileSystem?.entries.map((entry) => entry.path) ?? [];
 
     expect(fileSystemEntries).toContain("visible.txt");
@@ -161,7 +187,7 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
     expect(fileSystemEntries).not.toContain("nested/ignored-subdir");
     expect(fileSystemEntries).not.toContain("nested/secret.txt");
 
-    const allFilesSession = await flamecast.getSession("session-1", {
+    const allFilesSession = await flamecast.getSession(agentId, sessionId, {
       includeFileSystem: true,
       showAllFiles: true,
     });
@@ -178,16 +204,7 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
     expect(allEntries).toContain("nested/ignored-subdir");
     expect(allEntries).toContain("nested/secret.txt");
 
-    const snapshotSession = getMethod<
-      [string, { includeFileSystem?: boolean; showAllFiles?: boolean }?],
-      Promise<{ fileSystem: { entries: Array<{ path: string }> } | null }>
-    >(flamecast, "snapshotSession");
-    const missingRuntimeSession = await snapshotSession("session-2", {
-      includeFileSystem: true,
-    });
-    expect(missingRuntimeSession.fileSystem).toBeNull();
-
-    const preview = await flamecast.getFilePreview("session-1", "preview.txt");
+    const preview = await flamecast.getFilePreview(agentId, sessionId, "preview.txt");
     expect(preview.path).toBe("preview.txt");
     expect(preview.content).toHaveLength(20_000);
     expect(preview.truncated).toBe(true);
@@ -207,10 +224,10 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
       flamecast,
       "resolveSessionFilePath",
     );
-    await expect(resolveSessionFilePath(workspaceRoot, "visible.txt")).rejects.toThrow(
+    await expect(resolveSessionFilePath(sessionId, "visible.txt")).rejects.toThrow(
       'File paths must be absolute: "visible.txt"',
     );
-    await expect(resolveSessionFilePath(workspaceRoot, outsideFile)).rejects.toThrow(
+    await expect(resolveSessionFilePath(sessionId, outsideFile)).rejects.toThrow(
       `Path "${outsideFile}" is outside workspace root`,
     );
 
@@ -218,19 +235,20 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
       flamecast,
       "resolveSessionWritePath",
     );
-    await expect(resolveSessionWritePath(workspaceRoot, "visible.txt")).rejects.toThrow(
+    await expect(resolveSessionWritePath(sessionId, "visible.txt")).rejects.toThrow(
       'File paths must be absolute: "visible.txt"',
     );
-    await expect(resolveSessionWritePath(workspaceRoot, outsideFile)).rejects.toThrow(
+    await expect(resolveSessionWritePath(sessionId, outsideFile)).rejects.toThrow(
       `Path "${outsideFile}" is outside workspace root`,
     );
 
-    const createClient = getMethod<[ManagedSessionLike], ReturnType<typeof getMethod>>(
+    const createDownstreamClient = getMethod<[ManagedAgentLike], acp.Client>(
       flamecast,
-      "createClient",
+      "createDownstreamClient",
     );
-    const client = createClient(managed);
-    const readResponse = await client.readTextFile({
+    const client = createDownstreamClient(managed);
+    const readResponse = await client.readTextFile!({
+      sessionId,
       path: path.join(workspaceRoot, "preview.txt"),
       line: 0,
       limit: 1,
@@ -239,7 +257,8 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
 
     const writablePath = path.join(workspaceRoot, "written.txt");
     await expect(
-      client.writeTextFile({
+      client.writeTextFile!({
+        sessionId,
         path: writablePath,
         content: "written",
       }),
@@ -330,9 +349,8 @@ test("rethrows unexpected gitignore read errors", async () => {
     const flamecast = new MockedFlamecast({ storage: "memory" });
     const buildFileSystemSnapshot = getMethod<
       [string, { showAllFiles?: boolean }?],
-      Promise<unknown>
+      Promise<{ entries: Array<{ path: string }> }>
     >(flamecast, "buildFileSystemSnapshot");
-
     await expect(buildFileSystemSnapshot(workspaceRoot)).rejects.toThrow("boom");
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true });
