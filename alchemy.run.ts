@@ -32,8 +32,7 @@ export const server = await Worker("flamecast-api", {
   name: `flamecast-api-${app.stage}`,
   entrypoint: "./src/worker.ts",
   format: "esm",
-  compatibility: "node",
-  noBundle: true,
+  compatibilityFlags: ["nodejs_compat_v2"],
   bindings: {
     DATABASE_URL,
   },
