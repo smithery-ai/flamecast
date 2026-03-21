@@ -1,52 +1,42 @@
 import alchemy from "alchemy";
-import { Worker } from "alchemy/cloudflare";
-import { Database, Password } from "alchemy/planetscale";
+import * as docker from "alchemy/docker";
 import { Exec } from "alchemy/os";
 
 const app = await alchemy("flamecast-infra");
 
 // ---------------------------------------------------------------------------
-// Database — PlanetScale with Drizzle migrations
+// Database — Postgres in Docker with Drizzle migrations
 // ---------------------------------------------------------------------------
 
-const database = await Database("flamecast-db", {
-  adopt: true,
-  name: `flamecast-${app.stage}`,
-  region: { slug: "us-east" },
-  migrationFramework: "other",
-  migrationTableName: "__drizzle_migrations",
+const dbNetwork = await docker.Network("db-network", {
+  name: `flamecast-db-${app.stage}`,
+  driver: "bridge",
 });
 
-const password = await Password("flamecast-password", {
-  name: `flamecast-${app.stage}-password`,
-  database,
-  role: "admin",
+const db = await docker.Container("flamecast-db", {
+  image: "postgres:16-alpine",
+  name: `flamecast-db-${app.stage}`,
+  environment: {
+    POSTGRES_USER: "flamecast",
+    POSTGRES_PASSWORD: "flamecast",
+    POSTGRES_DB: "flamecast",
+  },
+  ports: [{ external: 5433, internal: 5432 }],
+  networks: [{ name: dbNetwork.name }],
+  restart: "unless-stopped",
+  start: true,
 });
+
+const DATABASE_URL = "postgres://flamecast:flamecast@localhost:5433/flamecast";
 
 // Run Drizzle migrations at deploy time
 await Exec("drizzle-migrate", {
-  command: "npx drizzle-kit migrate",
+  command: `npx drizzle-kit migrate --config src/flamecast/state-managers/psql/drizzle.config.ts`,
   env: {
-    DATABASE_NAME: database.name,
-    DATABASE_HOST: password.host,
-    DATABASE_USERNAME: password.username,
-    DATABASE_PASSWORD: password.password,
+    FLAMECAST_POSTGRES_URL: DATABASE_URL,
   },
 });
-
-// ---------------------------------------------------------------------------
-// Server — Flamecast API as a Cloudflare Worker
-// ---------------------------------------------------------------------------
-
-export const server = await Worker("flamecast-api", {
-  name: `flamecast-api-${app.stage}`,
-  entrypoint: "./src/worker.ts",
-  bindings: {
-    DATABASE_URL: `mysql://${password.username}:${password.password}@${password.host}/${database.name}?ssl={"rejectUnauthorized":true}`,
-  },
-  url: true,
-});
-
-console.log(`Flamecast API: ${server.url}`);
 
 await app.finalize();
+
+export { db, dbNetwork, DATABASE_URL };
