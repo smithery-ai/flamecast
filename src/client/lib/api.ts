@@ -1,12 +1,12 @@
 import { hc } from "hono/client";
 import type { AppType } from "@/flamecast/api";
 import type {
-  ConnectionInfo,
-  CreateConnectionBody,
-  AgentProcessInfo,
-  RegisterAgentProcessBody,
+  AgentTemplate,
+  CreateSessionBody,
   PermissionResponseBody,
-} from "../../shared/connection";
+  RegisterAgentTemplateBody,
+  Session,
+} from "../../shared/session";
 
 const client = hc<AppType>("/api");
 
@@ -14,40 +14,40 @@ export interface PromptResult {
   stopReason: string;
 }
 
-export async function fetchAgentProcesses(): Promise<AgentProcessInfo[]> {
-  const res = await client["agent-processes"].$get();
-  if (!res.ok) throw new Error("Failed to fetch agent processes");
+export async function fetchAgentTemplates(): Promise<AgentTemplate[]> {
+  const res = await client["agent-templates"].$get();
+  if (!res.ok) throw new Error("Failed to fetch agent templates");
   return res.json();
 }
 
-export async function registerAgentProcess(
-  body: RegisterAgentProcessBody,
-): Promise<AgentProcessInfo> {
-  const res = await client["agent-processes"].$post({ json: body });
-  if (!res.ok) throw new Error("Failed to register agent process");
+export async function registerAgentTemplate(
+  body: RegisterAgentTemplateBody,
+): Promise<AgentTemplate> {
+  const res = await client["agent-templates"].$post({ json: body });
+  if (!res.ok) throw new Error("Failed to register agent template");
   return res.json();
 }
 
-export async function fetchConnections(): Promise<ConnectionInfo[]> {
-  const res = await client.connections.$get();
-  if (!res.ok) throw new Error("Failed to fetch connections");
+export async function fetchSessions(): Promise<Session[]> {
+  const res = await client.sessions.$get();
+  if (!res.ok) throw new Error("Failed to fetch sessions");
   return res.json();
 }
 
-export async function fetchConnection(id: string): Promise<ConnectionInfo> {
-  const res = await client.connections[":id"].$get({ param: { id } });
-  if (!res.ok) throw new Error("Connection not found");
+export async function fetchSession(id: string): Promise<Session> {
+  const res = await client.sessions[":id"].$get({ param: { id } });
+  if (!res.ok) throw new Error("Session not found");
   return res.json();
 }
 
-export async function createConnection(body: CreateConnectionBody): Promise<ConnectionInfo> {
-  const res = await client.connections.$post({ json: body });
-  if (!res.ok) throw new Error("Failed to create connection");
+export async function createSession(body: CreateSessionBody): Promise<Session> {
+  const res = await client.sessions.$post({ json: body });
+  if (!res.ok) throw new Error("Failed to create session");
   return res.json();
 }
 
 export async function sendPrompt(id: string, text: string): Promise<PromptResult> {
-  const res = await client.connections[":id"].prompt.$post({
+  const res = await client.sessions[":id"].prompt.$post({
     param: { id },
     json: { text },
   });
@@ -55,18 +55,18 @@ export async function sendPrompt(id: string, text: string): Promise<PromptResult
   return res.json();
 }
 
-export async function killConnection(id: string): Promise<void> {
-  const res = await client.connections[":id"].$delete({ param: { id } });
-  if (!res.ok) throw new Error("Failed to kill connection");
+export async function terminateSession(id: string): Promise<void> {
+  const res = await client.sessions[":id"].$delete({ param: { id } });
+  if (!res.ok) throw new Error("Failed to terminate session");
 }
 
 export async function respondToPermission(
-  connectionId: string,
+  sessionId: string,
   requestId: string,
   body: PermissionResponseBody,
 ): Promise<void> {
-  const res = await client.connections[":id"].permissions[":requestId"].$post({
-    param: { id: connectionId, requestId },
+  const res = await client.sessions[":id"].permissions[":requestId"].$post({
+    param: { id: sessionId, requestId },
     json: body,
   });
   if (!res.ok) throw new Error("Failed to respond to permission");

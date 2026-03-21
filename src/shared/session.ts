@@ -7,25 +7,34 @@ export const AgentSpawnSchema = z.object({
 });
 export type AgentSpawn = z.infer<typeof AgentSpawnSchema>;
 
-export const AgentProcessInfoSchema = z.object({
+export const AgentTemplateRuntimeSchema = z.object({
+  provider: z.string().min(1),
+  image: z.string().optional(),
+  dockerfile: z.string().optional(),
+});
+export type AgentTemplateRuntime = z.infer<typeof AgentTemplateRuntimeSchema>;
+
+export const AgentTemplateSchema = z.object({
   id: z.string(),
-  label: z.string(),
+  name: z.string(),
   spawn: AgentSpawnSchema,
+  runtime: AgentTemplateRuntimeSchema,
 });
-export type AgentProcessInfo = z.infer<typeof AgentProcessInfoSchema>;
+export type AgentTemplate = z.infer<typeof AgentTemplateSchema>;
 
-export const RegisterAgentProcessBodySchema = z.object({
-  label: z.string().min(1),
+export const RegisterAgentTemplateBodySchema = z.object({
+  name: z.string().min(1),
   spawn: AgentSpawnSchema,
+  runtime: AgentTemplateRuntimeSchema.optional(),
 });
-export type RegisterAgentProcessBody = z.infer<typeof RegisterAgentProcessBodySchema>;
+export type RegisterAgentTemplateBody = z.infer<typeof RegisterAgentTemplateBodySchema>;
 
-export const ConnectionLogSchema = z.object({
+export const SessionLogSchema = z.object({
   timestamp: z.string(),
   type: z.string(),
   data: z.record(z.string(), z.unknown()),
 });
-export type ConnectionLog = z.infer<typeof ConnectionLogSchema>;
+export type SessionLog = z.infer<typeof SessionLogSchema>;
 
 export const PendingPermissionOptionSchema = z.object({
   optionId: z.string(),
@@ -43,32 +52,31 @@ export const PendingPermissionSchema = z.object({
 });
 export type PendingPermission = z.infer<typeof PendingPermissionSchema>;
 
-export const ConnectionInfoSchema = z.object({
+export const SessionSchema = z.object({
   id: z.string(),
-  agentLabel: z.string(),
+  agentName: z.string(),
   spawn: AgentSpawnSchema,
-  sessionId: z.string(),
   startedAt: z.string(),
   lastUpdatedAt: z.string(),
-  logs: z.array(ConnectionLogSchema),
+  logs: z.array(SessionLogSchema),
   pendingPermission: PendingPermissionSchema.nullable(),
 });
-export type ConnectionInfo = z.infer<typeof ConnectionInfoSchema>;
+export type Session = z.infer<typeof SessionSchema>;
 
-export const CreateConnectionBodySchema = z
+export const CreateSessionBodySchema = z
   .object({
     cwd: z.string().optional(),
-    /** Use a process definition from `GET /agent-processes`. */
-    agentProcessId: z.string().optional(),
+    /** Use a reusable template definition from `GET /agent-templates`. */
+    agentTemplateId: z.string().optional(),
     /** Spawn a one-off process without registering it. */
     spawn: AgentSpawnSchema.optional(),
-    /** Display label when using `spawn` (defaults to `command` + `args`). */
-    label: z.string().optional(),
+    /** Display name when using `spawn` (defaults to `command` + `args`). */
+    name: z.string().optional(),
   })
-  .refine((b) => Boolean(b.agentProcessId) !== Boolean(b.spawn), {
-    message: "Provide exactly one of agentProcessId or spawn",
+  .refine((b) => Boolean(b.agentTemplateId) !== Boolean(b.spawn), {
+    message: "Provide exactly one of agentTemplateId or spawn",
   });
-export type CreateConnectionBody = z.infer<typeof CreateConnectionBodySchema>;
+export type CreateSessionBody = z.infer<typeof CreateSessionBodySchema>;
 
 export const PromptBodySchema = z.object({
   text: z.string(),

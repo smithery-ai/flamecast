@@ -1,26 +1,26 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
-  AgentProcessInfo,
-  ConnectionInfo,
-  CreateConnectionBody,
+  AgentTemplate,
+  CreateSessionBody,
   PermissionResponseBody,
   PromptBody,
-  RegisterAgentProcessBody,
-} from "../../src/shared/connection.js";
+  RegisterAgentTemplateBody,
+  Session,
+} from "../../src/shared/session.js";
 import { createServerApp } from "../../src/server/app.js";
 import type { FlamecastApi } from "../../src/flamecast/api.js";
 
-const sampleAgentProcess: AgentProcessInfo = {
+const sampleAgentTemplate: AgentTemplate = {
   id: "codex",
-  label: "Codex ACP",
+  name: "Codex ACP",
   spawn: { command: "npx", args: ["@zed-industries/codex-acp"] },
+  runtime: { provider: "local" },
 };
 
-const sampleConnection: ConnectionInfo = {
-  id: "conn-1",
-  agentLabel: "Codex ACP",
-  spawn: sampleAgentProcess.spawn,
-  sessionId: "session-1",
+const sampleSession: Session = {
+  id: "session-1",
+  agentName: "Codex ACP",
+  spawn: sampleAgentTemplate.spawn,
   startedAt: "2026-03-21T00:00:00.000Z",
   lastUpdatedAt: "2026-03-21T00:00:00.000Z",
   logs: [],
@@ -29,16 +29,19 @@ const sampleConnection: ConnectionInfo = {
 
 function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastApi {
   return {
-    kill: vi.fn(async () => undefined),
-    create: vi.fn(async (_body: CreateConnectionBody) => sampleConnection),
-    get: vi.fn(async (_id: string) => sampleConnection),
-    list: vi.fn(async () => [sampleConnection]),
-    listAgentProcesses: vi.fn(() => [sampleAgentProcess]),
-    prompt: vi.fn(async (_id: string, _text: string) => ({ stopReason: "end_turn" })),
-    registerAgentProcess: vi.fn((body: RegisterAgentProcessBody) => ({
-      id: "registered-agent",
-      label: body.label,
+    terminateSession: vi.fn(async () => undefined),
+    createSession: vi.fn(async (_body: CreateSessionBody) => sampleSession),
+    getSession: vi.fn(async (_id: string) => sampleSession),
+    listSessions: vi.fn(async () => [sampleSession]),
+    listAgentTemplates: vi.fn(async () => [sampleAgentTemplate]),
+    promptSession: vi.fn(async (_id: string, _text: string) => ({
+      stopReason: "end_turn" as const,
+    })),
+    registerAgentTemplate: vi.fn(async (body: RegisterAgentTemplateBody) => ({
+      id: "registered-template",
+      name: body.name,
       spawn: body.spawn,
+      runtime: body.runtime ?? { provider: "local" },
     })),
     respondToPermission: vi.fn(
       async (_id: string, _requestId: string, _body: PermissionResponseBody) => undefined,
@@ -63,13 +66,13 @@ describe("API server surface", () => {
     const response = await app.request("/api/health");
 
     expect(response.status).toBe(200);
-    expect(await readJson(response)).toEqual({ status: "ok", connections: 1 });
-    expect(flamecast.list).toHaveBeenCalledTimes(1);
+    expect(await readJson(response)).toEqual({ status: "ok", sessions: 1 });
+    expect(flamecast.listSessions).toHaveBeenCalledTimes(1);
   });
 
   it("reports degraded status for Error failures", async () => {
     const flamecast = createFlamecastStub({
-      list: vi.fn(async () => {
+      listSessions: vi.fn(async () => {
         throw new Error("database offline");
       }),
     });
@@ -83,7 +86,7 @@ describe("API server surface", () => {
 
   it("reports degraded status for non-Error failures", async () => {
     const flamecast = createFlamecastStub({
-      list: vi.fn(async () => {
+      listSessions: vi.fn(async () => {
         throw "boom";
       }),
     });
@@ -95,42 +98,43 @@ describe("API server surface", () => {
     expect(await readJson(response)).toEqual({ status: "degraded", error: "Unknown error" });
   });
 
-  it("lists agent processes", async () => {
+  it("lists agent templates", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/agent-processes");
+    const response = await app.request("/api/agent-templates");
 
     expect(response.status).toBe(200);
-    expect(await readJson(response)).toEqual([sampleAgentProcess]);
+    expect(await readJson(response)).toEqual([sampleAgentTemplate]);
   });
 
-  it("registers agent processes", async () => {
+  it("registers agent templates", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/agent-processes", {
+    const response = await app.request("/api/agent-templates", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        label: "Custom agent",
+        name: "Custom agent",
         spawn: { command: "node", args: ["agent.js"] },
-      } satisfies RegisterAgentProcessBody),
+      } satisfies RegisterAgentTemplateBody),
     });
 
     expect(response.status).toBe(201);
     expect(await readJson(response)).toEqual({
-      id: "registered-agent",
-      label: "Custom agent",
+      id: "registered-template",
+      name: "Custom agent",
       spawn: { command: "node", args: ["agent.js"] },
+      runtime: { provider: "local" },
     });
   });
 
-  it("rejects invalid agent process payloads", async () => {
+  it("rejects invalid agent template payloads", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/agent-processes", {
+    const response = await app.request("/api/agent-templates", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ spawn: { command: "node", args: [] } }),
@@ -139,38 +143,38 @@ describe("API server surface", () => {
     expect(response.status).toBe(400);
   });
 
-  it("lists connections", async () => {
+  it("lists sessions", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/connections");
+    const response = await app.request("/api/sessions");
 
     expect(response.status).toBe(200);
-    expect(await readJson(response)).toEqual([sampleConnection]);
+    expect(await readJson(response)).toEqual([sampleSession]);
   });
 
-  it("creates connections", async () => {
+  it("creates sessions", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/connections", {
+    const response = await app.request("/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        agentProcessId: sampleAgentProcess.id,
+        agentTemplateId: sampleAgentTemplate.id,
         cwd: "/tmp/flamecast",
-      } satisfies CreateConnectionBody),
+      } satisfies CreateSessionBody),
     });
 
     expect(response.status).toBe(201);
-    expect(await readJson(response)).toEqual(sampleConnection);
+    expect(await readJson(response)).toEqual(sampleSession);
   });
 
-  it("rejects invalid connection payloads", async () => {
+  it("rejects invalid session payloads", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/connections", {
+    const response = await app.request("/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ cwd: "/tmp/flamecast" }),
@@ -179,78 +183,78 @@ describe("API server surface", () => {
     expect(response.status).toBe(400);
   });
 
-  it("returns connection creation errors from Error values", async () => {
+  it("returns session creation errors from Error values", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const flamecast = createFlamecastStub({
-      create: vi.fn(async () => {
-        throw new Error("failed to connect");
+      createSession: vi.fn(async () => {
+        throw new Error("failed to start session");
       }),
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/connections", {
+    const response = await app.request("/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        agentProcessId: sampleAgentProcess.id,
-      } satisfies CreateConnectionBody),
+        agentTemplateId: sampleAgentTemplate.id,
+      } satisfies CreateSessionBody),
     });
 
     expect(response.status).toBe(400);
-    expect(await readJson(response)).toEqual({ error: "failed to connect" });
+    expect(await readJson(response)).toEqual({ error: "failed to start session" });
     expect(consoleError).toHaveBeenCalledOnce();
   });
 
-  it("returns connection creation errors from non-Error values", async () => {
+  it("returns session creation errors from non-Error values", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const flamecast = createFlamecastStub({
-      create: vi.fn(async () => {
+      createSession: vi.fn(async () => {
         throw { message: "opaque failure" };
       }),
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/connections", {
+    const response = await app.request("/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        agentProcessId: sampleAgentProcess.id,
-      } satisfies CreateConnectionBody),
+        agentTemplateId: sampleAgentTemplate.id,
+      } satisfies CreateSessionBody),
     });
 
     expect(response.status).toBe(400);
     expect(await readJson(response)).toEqual({ error: "[object Object]" });
   });
 
-  it("fetches a connection", async () => {
+  it("fetches a session", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request(`/api/connections/${sampleConnection.id}`);
+    const response = await app.request(`/api/sessions/${sampleSession.id}`);
 
     expect(response.status).toBe(200);
-    expect(await readJson(response)).toEqual(sampleConnection);
+    expect(await readJson(response)).toEqual(sampleSession);
   });
 
-  it("returns 404 for unknown connections", async () => {
+  it("returns 404 for unknown sessions", async () => {
     const flamecast = createFlamecastStub({
-      get: vi.fn(async () => {
+      getSession: vi.fn(async () => {
         throw new Error("missing");
       }),
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/connections/missing");
+    const response = await app.request("/api/sessions/missing");
 
     expect(response.status).toBe(404);
-    expect(await readJson(response)).toEqual({ error: "Connection not found" });
+    expect(await readJson(response)).toEqual({ error: "Session not found" });
   });
 
   it("sends prompts", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request(`/api/connections/${sampleConnection.id}/prompt`, {
+    const response = await app.request(`/api/sessions/${sampleSession.id}/prompt`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: "hello" } satisfies PromptBody),
@@ -264,7 +268,7 @@ describe("API server surface", () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request(`/api/connections/${sampleConnection.id}/prompt`, {
+    const response = await app.request(`/api/sessions/${sampleSession.id}/prompt`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({}),
@@ -275,13 +279,13 @@ describe("API server surface", () => {
 
   it("returns prompt errors from Error values", async () => {
     const flamecast = createFlamecastStub({
-      prompt: vi.fn(async () => {
+      promptSession: vi.fn(async () => {
         throw new Error("prompt blocked");
       }),
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request(`/api/connections/${sampleConnection.id}/prompt`, {
+    const response = await app.request(`/api/sessions/${sampleSession.id}/prompt`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: "hello" } satisfies PromptBody),
@@ -293,13 +297,13 @@ describe("API server surface", () => {
 
   it("returns prompt errors from non-Error values", async () => {
     const flamecast = createFlamecastStub({
-      prompt: vi.fn(async () => {
+      promptSession: vi.fn(async () => {
         throw "prompt failed";
       }),
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request(`/api/connections/${sampleConnection.id}/prompt`, {
+    const response = await app.request(`/api/sessions/${sampleSession.id}/prompt`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: "hello" } satisfies PromptBody),
@@ -313,7 +317,7 @@ describe("API server surface", () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/connections/conn-1/permissions/request-1", {
+    const response = await app.request("/api/sessions/session-1/permissions/request-1", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ optionId: "allow" } satisfies PermissionResponseBody),
@@ -327,7 +331,7 @@ describe("API server surface", () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/connections/conn-1/permissions/request-1", {
+    const response = await app.request("/api/sessions/session-1/permissions/request-1", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ outcome: "cancelled" } satisfies PermissionResponseBody),
@@ -341,7 +345,7 @@ describe("API server surface", () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/connections/conn-1/permissions/request-1", {
+    const response = await app.request("/api/sessions/session-1/permissions/request-1", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ optionId: 123 }),
@@ -358,7 +362,7 @@ describe("API server surface", () => {
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/connections/conn-1/permissions/request-1", {
+    const response = await app.request("/api/sessions/session-1/permissions/request-1", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ optionId: "allow" } satisfies PermissionResponseBody),
@@ -376,7 +380,7 @@ describe("API server surface", () => {
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/connections/conn-1/permissions/request-1", {
+    const response = await app.request("/api/sessions/session-1/permissions/request-1", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ optionId: "allow" } satisfies PermissionResponseBody),
@@ -386,11 +390,11 @@ describe("API server surface", () => {
     expect(await readJson(response)).toEqual({ error: "Unknown error" });
   });
 
-  it("kills a connection", async () => {
+  it("terminates a session", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request(`/api/connections/${sampleConnection.id}`, {
+    const response = await app.request(`/api/sessions/${sampleSession.id}`, {
       method: "DELETE",
     });
 
@@ -398,19 +402,19 @@ describe("API server surface", () => {
     expect(await readJson(response)).toEqual({ ok: true });
   });
 
-  it("returns 404 when killing an unknown connection", async () => {
+  it("returns 404 when terminating an unknown session", async () => {
     const flamecast = createFlamecastStub({
-      kill: vi.fn(async () => {
+      terminateSession: vi.fn(async () => {
         throw new Error("missing");
       }),
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/connections/missing", {
+    const response = await app.request("/api/sessions/missing", {
       method: "DELETE",
     });
 
     expect(response.status).toBe(404);
-    expect(await readJson(response)).toEqual({ error: "Connection not found" });
+    expect(await readJson(response)).toEqual({ error: "Session not found" });
   });
 });

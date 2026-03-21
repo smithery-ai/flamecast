@@ -1,9 +1,9 @@
 import { index, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
-import type { AgentSpawn, PendingPermission } from "../../../shared/connection.js";
+import type { AgentSpawn, PendingPermission } from "../../../shared/session.js";
 
 export const connections = pgTable("connections", {
   id: text("id").primaryKey(),
-  agentLabel: text("agent_label").notNull(),
+  agentName: text("agent_label").notNull(),
   spawn: jsonb("spawn").$type<AgentSpawn>().notNull(),
   sessionId: text("session_id").notNull().default(""),
   startedAt: timestamp("started_at", { withTimezone: true, mode: "string" }).notNull(),

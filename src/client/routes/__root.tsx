@@ -1,6 +1,6 @@
 import { createRootRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { ChevronRightIcon } from "lucide-react";
-import { ConnectionsSidebar } from "@/client/components/connections-sidebar";
+import { SessionsSidebar } from "@/client/components/sessions-sidebar";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/client/components/ui/sidebar";
 
 export const Route = createRootRoute({
@@ -8,13 +8,13 @@ export const Route = createRootRoute({
 });
 
 function RootLayout() {
-  const connectionId = useRouterState({
-    select: (state) => state.matches.find((m) => m.routeId === "/connections/$id")?.params.id,
+  const sessionId = useRouterState({
+    select: (state) => state.matches.find((m) => m.routeId === "/sessions/$id")?.params.id,
   });
 
   return (
     <SidebarProvider className="h-svh !min-h-0">
-      <ConnectionsSidebar />
+      <SessionsSidebar />
       <SidebarInset className="min-h-0 overflow-hidden">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-4">
           <SidebarTrigger />
@@ -23,16 +23,16 @@ function RootLayout() {
               to="/"
               className="shrink-0 text-muted-foreground transition-colors hover:text-foreground [&.active]:text-foreground [&.active]:font-medium"
             >
-              Connections
+              Sessions
             </Link>
-            {connectionId ? (
+            {sessionId ? (
               <>
                 <ChevronRightIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
                 <span
                   className="min-w-0 truncate font-mono text-xs text-muted-foreground"
-                  title={connectionId}
+                  title={sessionId}
                 >
-                  {connectionId}
+                  {sessionId}
                 </span>
               </>
             ) : null}

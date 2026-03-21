@@ -7,7 +7,6 @@ export default defineConfig({
     include: ["test/api-server/**/*.test.ts"],
     testTimeout: 60_000,
     coverage: {
-      all: true,
       provider: "v8",
       reporter: ["text", "lcov"],
       reportsDirectory: "./coverage/api-server",

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchConnection, respondToPermission, sendPrompt } from "@/client/lib/api";
+import { fetchSession, respondToPermission, sendPrompt } from "@/client/lib/api";
 import { connectionLogsToSegments } from "@/client/lib/logs-markdown";
 import { Fragment, useMemo, useState } from "react";
 import { Streamdown } from "streamdown";
@@ -20,25 +20,25 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/client/components/ui
 import { Skeleton } from "@/client/components/ui/skeleton";
 import { ArrowLeftIcon, ChevronDownIcon, SendIcon } from "lucide-react";
 
-export const Route = createFileRoute("/connections/$id")({
-  component: ConnectionDetailPage,
+export const Route = createFileRoute("/sessions/$id")({
+  component: SessionDetailPage,
 });
 
-function ConnectionDetailPage() {
+function SessionDetailPage() {
   const { id } = Route.useParams();
   const [prompt, setPrompt] = useState("");
   const queryClient = useQueryClient();
 
-  const { data: conn, isLoading } = useQuery({
-    queryKey: ["connection", id],
-    queryFn: () => fetchConnection(id),
+  const { data: session, isLoading } = useQuery({
+    queryKey: ["session", id],
+    queryFn: () => fetchSession(id),
     refetchInterval: 1000,
   });
 
   const promptMutation = useMutation({
     mutationFn: (text: string) => sendPrompt(id, text),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["connection", id] });
+      queryClient.invalidateQueries({ queryKey: ["session", id] });
     },
   });
 
@@ -51,7 +51,7 @@ function ConnectionDetailPage() {
       body: { optionId: string } | { outcome: "cancelled" };
     }) => respondToPermission(id, requestId, body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["connection", id] });
+      queryClient.invalidateQueries({ queryKey: ["session", id] });
     },
   });
 
@@ -68,7 +68,10 @@ function ConnectionDetailPage() {
     setPrompt("");
   };
 
-  const markdownSegments = useMemo(() => connectionLogsToSegments(conn?.logs ?? []), [conn?.logs]);
+  const markdownSegments = useMemo(
+    () => connectionLogsToSegments(session?.logs ?? []),
+    [session?.logs],
+  );
 
   if (isLoading) {
     return (
@@ -79,14 +82,14 @@ function ConnectionDetailPage() {
     );
   }
 
-  if (!conn) {
+  if (!session) {
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center py-16">
-        <p className="text-muted-foreground">Connection not found.</p>
+        <p className="text-muted-foreground">Session not found.</p>
         <Button variant="outline" asChild>
           <Link to="/">
             <ArrowLeftIcon data-icon="inline-start" />
-            Back to connections
+            Back to sessions
           </Link>
         </Button>
       </div>
@@ -104,13 +107,13 @@ function ConnectionDetailPage() {
             </TabsList>
             <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 sm:gap-3">
               <Badge variant="secondary" className="shrink-0">
-                {conn.agentLabel}
+                {session.agentName}
               </Badge>
               <code
                 className="max-w-full truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
-                title={conn.sessionId}
+                title={session.id}
               >
-                {conn.sessionId}
+                {session.id}
               </code>
             </div>
           </div>
@@ -121,12 +124,12 @@ function ConnectionDetailPage() {
               initial="smooth"
             >
               <StickToBottom.Content className="flex flex-col gap-3">
-                {conn.logs.length === 0 ? (
+                {session.logs.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
                     No logs yet. Send a prompt to get started.
                   </p>
                 ) : (
-                  conn.logs.map((log, i) => (
+                  session.logs.map((log, i) => (
                     <Fragment key={i}>
                       {i > 0 ? <Separator /> : null}
                       <div className="flex items-start gap-3 text-sm">
@@ -204,9 +207,9 @@ function ConnectionDetailPage() {
                     return null;
                   })
                 )}
-                {conn.pendingPermission &&
+                {session.pendingPermission &&
                   (() => {
-                    const pending = conn.pendingPermission;
+                    const pending = session.pendingPermission;
                     return (
                       <Card className="max-w-2xl border-primary/50 bg-primary/5">
                         <CardHeader>
@@ -265,14 +268,14 @@ function ConnectionDetailPage() {
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
             placeholder="Send a prompt to the agent..."
-            disabled={promptMutation.isPending || !!conn.pendingPermission}
+            disabled={promptMutation.isPending || !!session.pendingPermission}
           />
           <Button
             onClick={handleSend}
-            disabled={promptMutation.isPending || !!conn.pendingPermission || !prompt.trim()}
+            disabled={promptMutation.isPending || !!session.pendingPermission || !prompt.trim()}
           >
             <SendIcon data-icon="inline-start" />
-            {conn.pendingPermission
+            {session.pendingPermission
               ? "Permission required"
               : promptMutation.isPending
                 ? "Sending…"
