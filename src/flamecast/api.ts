@@ -40,7 +40,8 @@ export function createApi(flamecast: Flamecast) {
         const info = await flamecast.create(body);
         return c.json(info, 201);
       } catch (e) {
-        const message = e instanceof Error ? e.message : "Unknown error";
+        const message = e instanceof Error ? e.message : String(e);
+        console.error("Connection creation failed:", e);
         return c.json({ error: message }, 400);
       }
     })

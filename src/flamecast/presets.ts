@@ -20,9 +20,9 @@ export function getBuiltinAgentPresets(): AgentPreset[] {
       spawn: { command: cmd, args: ["@zed-industries/codex-acp"] },
     },
     {
-      id: "codex-docker",
-      label: "Codex ACP (Docker)",
-      spawn: { command: "codex-acp", args: [] },
+      id: "example-docker",
+      label: "Example agent (Docker)",
+      spawn: { command: "agent.ts", args: [] },
     },
   ];
 }

@@ -69,9 +69,9 @@ async function resolveStateManager(config?: StateManagerConfig): Promise<Flameca
 // ---------------------------------------------------------------------------
 
 const DOCKER_AGENTS: Record<string, { image: string; dockerfile: string }> = {
-  "codex-acp": {
-    image: "flamecast/codex-agent",
-    dockerfile: "docker/codex-agent.Dockerfile",
+  "agent.ts": {
+    image: "flamecast/example-agent",
+    dockerfile: "docker/example-agent.Dockerfile",
   },
 };
 
