@@ -41,11 +41,7 @@ export const server = await Worker("flamecast-api", {
     port: 3001,
   },
   bundle: {
-    alias: {
-      // unicorn-magic's default.js export doesn't have toPath/traversePathUp
-      // but the node.js export does. Force esbuild to use the node entry.
-      "unicorn-magic": "unicorn-magic/node.js",
-    },
+    conditions: ["node"],
   },
 });
 
