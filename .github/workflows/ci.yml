@@ -7,7 +7,7 @@ on:
       - main
 
 jobs:
-  checks:
+  check:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -25,5 +25,5 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Run repo checks
+      - name: Run npm run check
         run: npm run check
