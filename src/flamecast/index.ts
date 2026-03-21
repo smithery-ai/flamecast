@@ -277,7 +277,9 @@ export class Flamecast {
     const option = this.getPermissionOption(pending, body.optionId);
     await this.logPermissionSelection(managed, pending, option);
     await Promise.resolve(
-      pending.resolve({ outcome: { outcome: "selected", optionId: option.optionId } }),
+      pending.resolve({
+        outcome: { outcome: "selected", optionId: option.optionId },
+      }),
     );
   }
 
@@ -287,13 +289,17 @@ export class Flamecast {
 
   private resolveRuntime(id: string): ManagedConnection {
     const managed = this.runtimes.get(id);
-    if (!managed) throw new Error(`Connection "${id}" not found`);
+    if (!managed) {
+      throw new Error(`Connection "${id}" not found`);
+    }
     return managed;
   }
 
   private async snapshotInfo(id: string): Promise<ConnectionInfo> {
     const meta = await this.stateManager.getConnectionMeta(id);
-    if (!meta) throw new Error(`Connection "${id}" not found`);
+    if (!meta) {
+      throw new Error(`Connection "${id}" not found`);
+    }
     const logs = await this.stateManager.getLogs(id);
     return {
       ...meta,
@@ -301,7 +307,7 @@ export class Flamecast {
       pendingPermission: meta.pendingPermission
         ? {
             ...meta.pendingPermission,
-            options: meta.pendingPermission.options.map((o) => ({ ...o })),
+            options: meta.pendingPermission.options.map((option) => ({ ...option })),
           }
         : null,
     };
@@ -445,7 +451,9 @@ export class Flamecast {
     optionId: string,
   ): PendingPermissionOption {
     const option = pending.permission.options.find((c) => c.optionId === optionId);
-    if (!option) throw new Error(`Unknown permission option "${optionId}"`);
+    if (!option) {
+      throw new Error(`Unknown permission option "${optionId}"`);
+    }
     return option;
   }
 
@@ -488,11 +496,11 @@ export class Flamecast {
       requestId: randomUUID(),
       toolCallId: params.toolCall.toolCallId,
       title: params.toolCall.title ?? "",
-      kind: params.toolCall.kind,
-      options: params.options.map((o) => ({
-        optionId: o.optionId,
-        name: o.name,
-        kind: String(o.kind),
+      kind: params.toolCall.kind ?? undefined,
+      options: params.options.map((option) => ({
+        optionId: option.optionId,
+        name: option.name,
+        kind: String(option.kind),
       })),
     };
   }
