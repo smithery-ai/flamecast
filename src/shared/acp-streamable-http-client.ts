@@ -1,5 +1,5 @@
 import type * as acp from "@agentclientprotocol/sdk";
-import { EventSourceParserStream } from "eventsource-parser/stream";
+import { createParser } from "eventsource-parser";
 import { parseClientInboundAcpMessage } from "./acp-streamable-http-messages.js";
 
 const ACP_HTTP_PROTOCOL_VERSION = "2025-11-25";
@@ -251,20 +251,27 @@ export class AcpStreamableHttpClientTransport {
   }
 
   private async consumeEventStream(body: ReadableStream<Uint8Array>): Promise<void> {
-    const reader = body
-      .pipeThrough(new TextDecoderStream())
-      .pipeThrough(new EventSourceParserStream())
-      .getReader();
+    const decoder = new TextDecoder();
+    const reader = body.getReader();
+    const parser = createParser({
+      onEvent: (event) => {
+        const parsed = parseClientInboundAcpMessage(JSON.parse(event.data));
+        if (!parsed) {
+          throw new Error("Invalid ACP JSON-RPC message in event stream");
+        }
+        this.controller?.enqueue(parsed);
+      },
+    });
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      parser.feed(decoder.decode(value, { stream: true }));
+    }
 
-      const parsed = parseClientInboundAcpMessage(JSON.parse(value.data));
-      if (!parsed) {
-        throw new Error("Invalid ACP JSON-RPC message in event stream");
-      }
-      this.controller?.enqueue(parsed);
+    const trailing = decoder.decode();
+    if (trailing) {
+      parser.feed(trailing);
     }
   }
 }
