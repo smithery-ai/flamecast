@@ -16,6 +16,9 @@ export const server = await Worker("flamecast-api", {
     DATABASE_URL: db.connectionString,
   },
   url: true,
+  dev: {
+    port: 3001,
+  },
 });
 
 console.log(`Flamecast API: ${server.url}`);
