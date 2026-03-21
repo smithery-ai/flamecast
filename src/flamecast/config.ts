@@ -97,6 +97,8 @@ const defaultProvisioner: Provisioner = async (connectionId, spec) => {
     });
     await container.start();
     await waitForPort("localhost", port);
+    // Agent needs time to fully init after port opens
+    await new Promise((r) => setTimeout(r, 1000));
 
     return {
       ...(await openTcpTransport("localhost", port)),

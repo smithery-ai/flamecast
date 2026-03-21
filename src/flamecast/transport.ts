@@ -39,28 +39,6 @@ export type BuiltinAgentPreset = {
   spawn: { command: string; args: string[] };
 };
 
-/** Built-in presets; IDs are stable so clients can reference them. */
-export function getBuiltinAgentProcessPresets(): BuiltinAgentPreset[] {
-  const cmd = npxCmd();
-  return [
-    {
-      id: "example",
-      label: "Example agent",
-      spawn: { command: cmd, args: ["tsx", "src/flamecast/agent.ts"] },
-    },
-    {
-      id: "codex",
-      label: "Codex ACP",
-      spawn: { command: cmd, args: ["@zed-industries/codex-acp"] },
-    },
-    {
-      id: "codex-docker",
-      label: "Codex ACP (Docker)",
-      spawn: { command: "codex-acp", args: [] },
-    },
-  ];
-}
-
 export function startAgentProcess(spec: { command: string; args?: string[] }): ChildProcess {
   const args = spec.args ?? [];
   return spawn(spec.command, args, {
@@ -68,11 +46,6 @@ export function startAgentProcess(spec: { command: string; args?: string[] }): C
   });
 }
 
-/**
- * This allows the client to communicate with the agent process.
- * @param agentProcess - The agent process to use. Defaults to a mock agent process, but can be replaced with Claude Agent SDK, Codex, etc.
- * @returns A transport object containing the agent process, input stream, and output stream.
- */
 export function openLocalTransport(spec: {
   command: string;
   args?: string[];
@@ -83,7 +56,6 @@ export function openLocalTransport(spec: {
 }
 
 export function getAgentTransport(agentProcess: ChildProcess) {
-  // Create streams to communicate with the agent
   const stdin = agentProcess.stdin;
   const stdout = agentProcess.stdout;
   if (!stdin || !stdout) {
@@ -100,25 +72,19 @@ export function getAgentTransport(agentProcess: ChildProcess) {
 }
 
 // ---------------------------------------------------------------------------
-// TCP transport — connect to an alchemy-managed container over the network
+// TCP transport
 // ---------------------------------------------------------------------------
 
 export function openTcpTransport(host: string, port: number): Promise<AcpTransport> {
-  console.log(`[tcp] createConnection to ${host}:${port}`);
   return new Promise((resolve, reject) => {
     const socket = createConnection({ host, port }, () => {
-      console.log(`[tcp] socket connected to ${host}:${port}`);
+      console.log(`[tcp] connected to ${host}:${port}`);
       socket.setNoDelay(true);
-      // Use the same Writable.toWeb / Readable.toWeb pattern as stdio — proven to work
       const input = new WritableStream<Uint8Array>({
         write(chunk) {
-          console.log(`[tcp-write] ${chunk.length} bytes, socket writable: ${socket.writable}, destroyed: ${socket.destroyed}`);
-          console.log(`[tcp-write] content: ${new TextDecoder().decode(chunk).substring(0, 200)}`);
+          console.log(`[tcp] write ${chunk.length} bytes`);
           return new Promise<void>((res, rej) => {
-            const flushed = socket.write(chunk, (err) => {
-              console.log(`[tcp-write] callback, err: ${err}, flushed: ${flushed}`);
-              err ? rej(err) : res();
-            });
+            socket.write(chunk, (err) => (err ? rej(err) : res()));
           });
         },
         close() { socket.end(); },
@@ -126,7 +92,7 @@ export function openTcpTransport(host: string, port: number): Promise<AcpTranspo
       const output = new ReadableStream<Uint8Array>({
         start(controller) {
           socket.on("data", (chunk: Buffer) => {
-            console.log(`[transport] received ${chunk.length} bytes`);
+            console.log(`[tcp] recv ${chunk.length} bytes`);
             controller.enqueue(new Uint8Array(chunk));
           });
           socket.on("end", () => controller.close());
@@ -157,7 +123,6 @@ export function findFreePort(): Promise<number> {
 }
 
 export function waitForPort(host: string, port: number, timeoutMs = 30_000): Promise<void> {
-  console.log(`[waitForPort] waiting for ${host}:${port}`);
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + timeoutMs;
     function attempt() {
