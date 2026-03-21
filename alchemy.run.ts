@@ -1,5 +1,5 @@
 import alchemy from "alchemy";
-import { Vite } from "alchemy/cloudflare";
+import { Worker, Vite } from "alchemy/cloudflare";
 import * as docker from "alchemy/docker";
 
 const app = await alchemy("flamecast-infra");
@@ -25,15 +25,39 @@ const db = await docker.Container("flamecast-db", {
 const DATABASE_URL = `postgres://flamecast:flamecast@localhost:5432/flamecast`;
 
 // ---------------------------------------------------------------------------
-// Flamecast — API + Frontend via Vite
+// API server
 // ---------------------------------------------------------------------------
 
-export const server = await Vite("flamecast", {
-  name: `flamecast-${app.stage}`,
+export const server = await Worker("flamecast-api", {
+  name: `flamecast-api-${app.stage}`,
+  entrypoint: "./src/worker.ts",
+  format: "esm",
+  compatibility: "node",
   bindings: {
     DATABASE_URL,
   },
+  url: true,
+  dev: {
+    port: 3001,
+  },
+  bundle: {
+    alias: {
+      // unicorn-magic's default.js export doesn't have toPath/traversePathUp
+      // but the node.js export does. Force esbuild to use the node entry.
+      "unicorn-magic": "unicorn-magic/node.js",
+    },
+  },
 });
+
+// ---------------------------------------------------------------------------
+// Frontend
+// ---------------------------------------------------------------------------
+
+export const client = await Vite("flamecast-client", {
+  name: `flamecast-client-${app.stage}`,
+});
+
+console.log(`API: ${server.url}`);
 
 await app.finalize();
 
