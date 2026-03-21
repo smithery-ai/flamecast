@@ -119,9 +119,15 @@ const defaultProvisioner: Provisioner = async (connectionId, spec) => {
 export async function createFlamecast(opts: FlamecastOptions = {}): Promise<Flamecast> {
   const stateManager = await resolveStateManager(opts.stateManager);
 
-  // No alchemy init here — provisioner handles its own lifecycle.
-  // Alchemy scoping (if needed) is the provisioner's responsibility.
-  const provisioner: Provisioner = opts.provisioner ?? defaultProvisioner;
+  let provisioner: Provisioner;
+  if (opts.provisioner) {
+    provisioner = opts.provisioner;
+  } else {
+    // Default provisioner uses alchemy/docker — init alchemy for scope management
+    const alchemy = (await import("alchemy")).default;
+    await alchemy("flamecast", { phase: "up", stage: opts.stage, quiet: true });
+    provisioner = defaultProvisioner;
+  }
 
   const { getBuiltinAgentPresets } = await import("./presets.js");
   const presets = getBuiltinAgentPresets();
