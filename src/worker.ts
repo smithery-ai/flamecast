@@ -1,8 +1,7 @@
-import { Hono } from "hono";
 import { Flamecast } from "./flamecast/index.js";
-import { createApi } from "./flamecast/api.js";
 import { MemoryFlamecastStateManager } from "./flamecast/state-managers/memory/index.js";
 import { getBuiltinAgentPresets } from "./flamecast/presets.js";
+import { createServerApp } from "./server/app.js";
 
 const flamecast = new Flamecast({
   stateManager: new MemoryFlamecastStateManager(),
@@ -12,7 +11,4 @@ const flamecast = new Flamecast({
   presets: getBuiltinAgentPresets(),
 });
 
-const app = new Hono();
-app.route("/api", createApi(flamecast));
-
-export default app;
+export default createServerApp(flamecast);

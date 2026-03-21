@@ -8,19 +8,38 @@ import {
   RegisterAgentProcessBodySchema,
 } from "../shared/connection.js";
 
+export type FlamecastApi = Pick<
+  Flamecast,
+  | "kill"
+  | "create"
+  | "get"
+  | "list"
+  | "listAgentProcesses"
+  | "prompt"
+  | "registerAgentProcess"
+  | "respondToPermission"
+>;
+
+function toErrorMessage(error: unknown, fallback = "Unknown error"): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function toStringMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * Build the Hono API routes for a Flamecast instance.
  * This is infrastructure — decoupled from the orchestration core.
  */
-export function createApi(flamecast: Flamecast) {
+export function createApi(flamecast: FlamecastApi) {
   return new Hono()
     .get("/health", async (c) => {
       try {
-        await flamecast.list();
-        return c.json({ status: "ok", connections: (await flamecast.list()).length });
+        const connections = await flamecast.list();
+        return c.json({ status: "ok", connections: connections.length });
       } catch (e) {
-        const message = e instanceof Error ? e.message : "Unknown error";
-        return c.json({ status: "degraded", error: message }, 503);
+        return c.json({ status: "degraded", error: toErrorMessage(e) }, 503);
       }
     })
     .get("/agent-processes", (c) => {
@@ -40,9 +59,8 @@ export function createApi(flamecast: Flamecast) {
         const info = await flamecast.create(body);
         return c.json(info, 201);
       } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
         console.error("Connection creation failed:", e);
-        return c.json({ error: message }, 400);
+        return c.json({ error: toStringMessage(e) }, 400);
       }
     })
     .get("/connections/:id", async (c) => {
@@ -59,8 +77,7 @@ export function createApi(flamecast: Flamecast) {
         const result = await flamecast.prompt(c.req.param("id"), text);
         return c.json(result);
       } catch (e) {
-        const message = e instanceof Error ? e.message : "Unknown error";
-        return c.json({ error: message }, 400);
+        return c.json({ error: toErrorMessage(e) }, 400);
       }
     })
     .post(
@@ -72,8 +89,7 @@ export function createApi(flamecast: Flamecast) {
           await flamecast.respondToPermission(c.req.param("id"), c.req.param("requestId"), body);
           return c.json({ ok: true });
         } catch (e) {
-          const message = e instanceof Error ? e.message : "Unknown error";
-          return c.json({ error: message }, 400);
+          return c.json({ error: toErrorMessage(e) }, 400);
         }
       },
     )

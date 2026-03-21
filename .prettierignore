@@ -1,3 +1,5 @@
 dist
 node_modules
 bun.lock
+README.md
+SPEC.md

@@ -28,6 +28,7 @@ lerna-debug.log*
 .DS_Store
 
 dist/
+coverage/
 
 # local PGlite data (Flamecast RPC log)
 .acp/
