@@ -27,7 +27,11 @@ function postgresConnectionString(): string | undefined {
 }
 
 export type CreateDatabaseOptions = {
-  /** PGLite data directory when no Postgres URL is set. Default: `FLAMECAST_PGLITE_DIR` or `<cwd>/.flamecast/pglite`. */
+  /**
+   * PGLite data directory when no Postgres URL is set.
+   * Default: `FLAMECAST_PGLITE_DIR` or `<cwd>/.flamecast/pglite`.
+   * Falls back to `ACP_PGLITE_DIR` for legacy installs.
+   */
   pgliteDataDir?: string;
 };
 

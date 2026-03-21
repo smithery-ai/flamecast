@@ -112,18 +112,21 @@ function createDockerRuntimeProvider(): RuntimeProvider {
       const provider = await import("alchemy/docker");
       const port = await findFreePort();
       const resourceId = randomUUID();
+      let imageRef: string | Awaited<ReturnType<typeof provider.Image>> = "node:20";
 
       if (runtime.image && runtime.dockerfile) {
-        await provider.Image(`agent-image-${resourceId}`, {
+        imageRef = await provider.Image(`agent-image-${resourceId}`, {
           name: runtime.image,
           tag: "latest",
           build: { context: ".", dockerfile: runtime.dockerfile },
           skipPush: true,
         });
+      } else if (runtime.image) {
+        imageRef = runtime.image;
       }
 
       await provider.Container(`sandbox-${resourceId}`, {
-        image: runtime.image ? `${runtime.image}:latest` : "node:20",
+        image: imageRef,
         name: `flamecast-sandbox-${resourceId}`,
         environment: { ACP_PORT: String(port) },
         ports: [{ external: port, internal: port }],
