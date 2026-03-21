@@ -106,28 +106,10 @@ export function getAgentTransport(agentProcess: ChildProcess) {
 export function openTcpTransport(host: string, port: number): Promise<AcpTransport> {
   return new Promise((resolve, reject) => {
     const socket = createConnection({ host, port }, () => {
-      socket.setNoDelay(true); // Disable Nagle — NDJSON needs immediate flush
-      const input = new WritableStream<Uint8Array>({
-        write(chunk) {
-          return new Promise((res, rej) => {
-            socket.write(chunk, (err) => (err ? rej(err) : res()));
-          });
-        },
-        close() {
-          socket.end();
-        },
-      });
-
-      const output = new ReadableStream<Uint8Array>({
-        start(controller) {
-          socket.on("data", (chunk: Buffer) => {
-            controller.enqueue(new Uint8Array(chunk));
-          });
-          socket.on("end", () => controller.close());
-          socket.on("error", (err) => controller.error(err));
-        },
-      });
-
+      socket.setNoDelay(true);
+      // Use the same Writable.toWeb / Readable.toWeb pattern as stdio — proven to work
+      const input = Writable.toWeb(socket);
+      const output = toUint8ReadableStream(Readable.toWeb(socket));
       resolve({ input, output });
     });
     socket.on("error", reject);
