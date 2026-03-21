@@ -1,7 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation } from "@tanstack/react-query";
-import { createAgent, terminateAgent } from "@/client/lib/api";
-import { AgentAcpClient } from "@/client/lib/agent-acp";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { createAgent } from "@/client/lib/api";
 import { Button } from "@/client/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/client/components/ui/card";
 import { PlayIcon, TerminalIcon } from "lucide-react";
@@ -45,6 +44,7 @@ const STATIC_AGENT_EXAMPLES: AgentExample[] = [
 
 function AgentsPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const createMutation = useMutation({
     mutationFn: async (example: AgentExample) => {
@@ -52,19 +52,15 @@ function AgentsPage() {
         name: example.name,
         spawn: example.spawn,
         runtime: example.runtime,
+        initialSessionCwd: ".",
       });
-      const acpClient = new AgentAcpClient(agent.id);
-      try {
-        const session = await acpClient.createSession(".");
-        return { agent, sessionId: session.sessionId };
-      } catch (error) {
-        await terminateAgent(agent.id).catch(() => undefined);
-        throw error;
-      } finally {
-        await acpClient.close();
+      if (!agent.latestSessionId) {
+        throw new Error("Agent started without an initial session");
       }
+      return { agent, sessionId: agent.latestSessionId };
     },
     onSuccess: ({ agent, sessionId }) => {
+      void queryClient.invalidateQueries({ queryKey: ["sessions"] });
       navigate({
         to: "/agents/$agentId/sessions/$sessionId",
         params: { agentId: agent.id, sessionId },

@@ -1,6 +1,7 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchSessions, terminateAgent } from "@/client/lib/api";
+import { fetchSessions } from "@/client/lib/api";
+import { AgentAcpClient } from "@/client/lib/agent-acp";
 import { cn } from "@/client/lib/utils";
 import {
   Sidebar,
@@ -31,12 +32,23 @@ export function SessionsSidebar() {
     refetchInterval: 3000,
   });
 
-  const terminateMutation = useMutation({
-    mutationFn: terminateAgent,
-    onSuccess: (_, agentId) => {
+  const closeSessionMutation = useMutation({
+    mutationFn: async (session: { agentId: string; sessionId: string }) => {
+      const acpClient = new AgentAcpClient(session.agentId);
+      try {
+        await acpClient.closeSession(session.sessionId);
+      } finally {
+        await acpClient.close().catch(() => undefined);
+      }
+    },
+    onSuccess: (_, session) => {
       queryClient.invalidateQueries({ queryKey: ["agents"] });
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      if (agentId === activeSessionParams?.agentId) {
+      queryClient.invalidateQueries({ queryKey: ["session", session.agentId, session.sessionId] });
+      if (
+        session.agentId === activeSessionParams?.agentId &&
+        session.sessionId === activeSessionParams?.sessionId
+      ) {
         void navigate({ to: "/" });
       }
     },
@@ -99,8 +111,8 @@ export function SessionsSidebar() {
                     </SidebarMenuButton>
                     <SidebarMenuAction
                       showOnHover
-                      title="Terminate agent"
-                      disabled={terminateMutation.isPending}
+                      title="Close session"
+                      disabled={closeSessionMutation.isPending}
                       className={cn(
                         "z-10 !top-1/2 right-1 !-translate-y-1/2 size-8 cursor-pointer rounded-md",
                         "text-destructive/90 transition-[opacity,transform,colors] duration-150",
@@ -114,16 +126,19 @@ export function SessionsSidebar() {
                         e.stopPropagation();
                         if (
                           !window.confirm(
-                            `Terminate agent "${session.agentName}" and close all of its sessions?`,
+                            `Close session "${session.agentName}" (${session.id.slice(0, 8)}…)?`,
                           )
                         ) {
                           return;
                         }
-                        terminateMutation.mutate(session.agentId);
+                        closeSessionMutation.mutate({
+                          agentId: session.agentId,
+                          sessionId: session.id,
+                        });
                       }}
                     >
                       <Trash2Icon className="size-4 shrink-0" />
-                      <span className="sr-only">Terminate agent and all sessions</span>
+                      <span className="sr-only">Close session</span>
                     </SidebarMenuAction>
                   </SidebarMenuItem>
                 ))

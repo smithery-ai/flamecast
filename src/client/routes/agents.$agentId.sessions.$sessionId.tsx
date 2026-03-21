@@ -1,3 +1,4 @@
+import * as acp from "@agentclientprotocol/sdk";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchFilePreview, fetchSession, fetchSessionFileSystem } from "@/client/lib/api";
@@ -22,7 +23,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/client/components/ui
 import { Streamdown } from "streamdown";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import { ArrowLeftIcon, FileCode2Icon, FolderTreeIcon, SendIcon } from "lucide-react";
-import type { FileSystemEntry } from "../../shared/session";
+import type {
+  FileSystemEntry,
+  PendingPermission,
+  Session,
+  SessionLog,
+  SessionSummary,
+} from "../../shared/session";
 
 export const Route = createFileRoute("/agents/$agentId/sessions/$sessionId")({
   component: SessionDetailPage,
@@ -35,6 +42,10 @@ type TreeNode = {
   children: TreeNode[];
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function SessionDetailPage() {
   const { agentId, sessionId } = Route.useParams();
   const [activeTab, setActiveTab] = useState("markdown");
@@ -44,19 +55,64 @@ function SessionDetailPage() {
   const [showAllFiles, setShowAllFiles] = useState(false);
   const acpClientRef = useRef<AgentAcpClient | null>(null);
   const queryClient = useQueryClient();
+  const sessionQueryKey = ["session", agentId, sessionId] as const;
+  const sessionsQueryKey = ["sessions"] as const;
 
   const { data: session, isLoading } = useQuery({
-    queryKey: ["session", agentId, sessionId],
+    queryKey: sessionQueryKey,
     queryFn: () => fetchSession(agentId, sessionId),
-    refetchInterval: 1000,
+    refetchInterval: 15_000,
   });
+
+  const updateSessionCache = (updater: (current: Session) => Session) => {
+    queryClient.setQueryData<Session>(sessionQueryKey, (current) =>
+      current ? updater(current) : current,
+    );
+  };
+
+  const updateSessionSummaries = (updater: (current: SessionSummary[]) => SessionSummary[]) => {
+    queryClient.setQueryData<SessionSummary[]>(sessionsQueryKey, (current) =>
+      current ? updater(current) : current,
+    );
+  };
 
   useEffect(() => {
     if (!session?.cwd) {
       return;
     }
 
-    const acpClient = new AgentAcpClient(agentId);
+    const acpClient = new AgentAcpClient(agentId, {
+      onSessionUpdate: async (params) => {
+        if (params.sessionId !== sessionId) {
+          return;
+        }
+        const log = createLiveSessionUpdateLog(params);
+        updateSessionCache((current) => appendSessionLog(current, log));
+        updateSessionSummaries((current) =>
+          updateSessionSummaryList(current, sessionId, {
+            lastUpdatedAt: log.timestamp,
+          }),
+        );
+      },
+      onPermissionRequested: async (params) => {
+        if (params.sessionId !== sessionId) {
+          return;
+        }
+        const timestamp = new Date().toISOString();
+        const pendingPermission = createPendingPermissionFromRequest(params);
+        updateSessionCache((current) => ({
+          ...current,
+          lastUpdatedAt: timestamp,
+          pendingPermission,
+        }));
+        updateSessionSummaries((current) =>
+          updateSessionSummaryList(current, sessionId, {
+            lastUpdatedAt: timestamp,
+            pendingPermission,
+          }),
+        );
+      },
+    });
     acpClientRef.current = acpClient;
     let cancelled = false;
 
@@ -96,10 +152,33 @@ function SessionDetailPage() {
       }
       return acpClient.prompt(sessionId, text);
     },
+    onMutate: async (text) => {
+      const previousSession = queryClient.getQueryData<Session>(sessionQueryKey);
+      const previousSessions = queryClient.getQueryData<SessionSummary[]>(sessionsQueryKey);
+      const log: SessionLog = {
+        timestamp: new Date().toISOString(),
+        type: "prompt_sent",
+        data: { text },
+      };
+      updateSessionCache((current) => appendSessionLog(current, log));
+      updateSessionSummaries((current) =>
+        updateSessionSummaryList(current, sessionId, {
+          lastUpdatedAt: log.timestamp,
+        }),
+      );
+      return { previousSession, previousSessions };
+    },
+    onError: (_error, _text, context) => {
+      if (context?.previousSession) {
+        queryClient.setQueryData(sessionQueryKey, context.previousSession);
+      }
+      if (context?.previousSessions) {
+        queryClient.setQueryData(sessionsQueryKey, context.previousSessions);
+      }
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["session", agentId, sessionId] });
       queryClient.invalidateQueries({ queryKey: ["session-file-system", agentId, sessionId] });
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({ queryKey: sessionsQueryKey });
     },
   });
 
@@ -111,10 +190,50 @@ function SessionDetailPage() {
       }
       return acpClient.respondToPermission(sessionId, body);
     },
+    onMutate: async (body) => {
+      const previousSession = queryClient.getQueryData<Session>(sessionQueryKey);
+      const previousSessions = queryClient.getQueryData<SessionSummary[]>(sessionsQueryKey);
+      const timestamp = new Date().toISOString();
+      const currentPendingPermission = previousSession?.pendingPermission ?? null;
+      updateSessionCache((current) => {
+        let next: Session = {
+          ...current,
+          lastUpdatedAt: timestamp,
+          pendingPermission: null,
+        };
+
+        if ("outcome" in body && body.outcome === "cancelled" && currentPendingPermission) {
+          next = appendSessionLog(next, {
+            timestamp,
+            type: "permission_cancelled",
+            data: {
+              requestId: currentPendingPermission.requestId,
+              toolCallId: currentPendingPermission.toolCallId,
+            },
+          });
+        }
+
+        return next;
+      });
+      updateSessionSummaries((current) =>
+        updateSessionSummaryList(current, sessionId, {
+          lastUpdatedAt: timestamp,
+          pendingPermission: null,
+        }),
+      );
+      return { previousSession, previousSessions };
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["session", agentId, sessionId] });
       queryClient.invalidateQueries({ queryKey: ["session-file-system", agentId, sessionId] });
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({ queryKey: sessionsQueryKey });
+    },
+    onError: (_error, _body, context) => {
+      if (context?.previousSession) {
+        queryClient.setQueryData(sessionQueryKey, context.previousSession);
+      }
+      if (context?.previousSessions) {
+        queryClient.setQueryData(sessionsQueryKey, context.previousSessions);
+      }
     },
   });
 
@@ -445,6 +564,52 @@ function SessionDetailPage() {
       </div>
     </div>
   );
+}
+
+function appendSessionLog(session: Session, log: SessionLog): Session {
+  return {
+    ...session,
+    lastUpdatedAt: log.timestamp,
+    logs: [...session.logs, log],
+  };
+}
+
+function createLiveSessionUpdateLog(params: acp.SessionNotification): SessionLog {
+  const data = structuredClone(params.update);
+  return {
+    timestamp: new Date().toISOString(),
+    type: "session_update",
+    data: isRecord(data) ? data : {},
+  };
+}
+
+function createPendingPermissionFromRequest(
+  params: acp.RequestPermissionRequest,
+): PendingPermission {
+  return {
+    requestId: `live:${params.toolCall.toolCallId}`,
+    toolCallId: params.toolCall.toolCallId,
+    title: params.toolCall.title ?? "",
+    kind: params.toolCall.kind ?? undefined,
+    options: params.options.map((option) => ({
+      optionId: option.optionId,
+      name: option.name,
+      kind: String(option.kind),
+    })),
+  };
+}
+
+function updateSessionSummaryList(
+  sessions: SessionSummary[],
+  sessionId: string,
+  patch: Partial<Pick<SessionSummary, "lastUpdatedAt" | "pendingPermission">>,
+): SessionSummary[] {
+  const next = sessions.map((session) =>
+    session.id === sessionId ? { ...session, ...patch } : session,
+  );
+
+  next.sort((a, b) => b.lastUpdatedAt.localeCompare(a.lastUpdatedAt) || a.id.localeCompare(b.id));
+  return next;
 }
 
 function FileTreeNode({ node, selectedPath }: { node: TreeNode; selectedPath: string | null }) {

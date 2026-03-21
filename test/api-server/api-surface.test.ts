@@ -207,6 +207,20 @@ describe("API server surface", () => {
     expect(await readJson(response)).toEqual({ error: "Agent not found" });
   });
 
+  it("returns 500 for unexpected agent lookup errors", async () => {
+    const app = createServerApp(
+      createFlamecastStub({
+        getAgent: vi.fn(async () => {
+          throw new Error("agent lookup failed");
+        }),
+      }),
+    );
+    const response = await app.request(`/api/agents/${sampleAgent.id}`);
+
+    expect(response.status).toBe(500);
+    expect(await readJson(response)).toEqual({ error: "agent lookup failed" });
+  });
+
   it("fetches nested session details and forwards filesystem query flags", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
@@ -231,11 +245,9 @@ describe("API server surface", () => {
 
     expect(response.status).toBe(200);
     expect(await readJson(response)).toEqual(sampleFileSystem);
-    expect(flamecast.getSessionFileSystem).toHaveBeenCalledWith(
-      sampleAgent.id,
-      sampleSession.id,
-      { showAllFiles: true },
-    );
+    expect(flamecast.getSessionFileSystem).toHaveBeenCalledWith(sampleAgent.id, sampleSession.id, {
+      showAllFiles: true,
+    });
   });
 
   it("returns 404 for unknown nested sessions", async () => {
@@ -250,6 +262,54 @@ describe("API server surface", () => {
 
     expect(response.status).toBe(404);
     expect(await readJson(response)).toEqual({ error: "Session not found" });
+  });
+
+  it("returns 500 for unexpected nested session lookup errors", async () => {
+    const app = createServerApp(
+      createFlamecastStub({
+        getSession: vi.fn(async () => {
+          throw new Error("session lookup failed");
+        }),
+      }),
+    );
+    const response = await app.request(
+      `/api/agents/${sampleAgent.id}/sessions/${sampleSession.id}`,
+    );
+
+    expect(response.status).toBe(500);
+    expect(await readJson(response)).toEqual({ error: "session lookup failed" });
+  });
+
+  it("returns 404 for unknown nested filesystem snapshots", async () => {
+    const app = createServerApp(
+      createFlamecastStub({
+        getSessionFileSystem: vi.fn(async () => {
+          throw new FlamecastNotFoundError('Session "missing" not found');
+        }),
+      }),
+    );
+    const response = await app.request(
+      `/api/agents/${sampleAgent.id}/sessions/${sampleSession.id}/filesystem`,
+    );
+
+    expect(response.status).toBe(404);
+    expect(await readJson(response)).toEqual({ error: "Session not found" });
+  });
+
+  it("returns 500 for unexpected nested filesystem snapshot errors", async () => {
+    const app = createServerApp(
+      createFlamecastStub({
+        getSessionFileSystem: vi.fn(async () => {
+          throw new Error("filesystem failed");
+        }),
+      }),
+    );
+    const response = await app.request(
+      `/api/agents/${sampleAgent.id}/sessions/${sampleSession.id}/filesystem`,
+    );
+
+    expect(response.status).toBe(500);
+    expect(await readJson(response)).toEqual({ error: "filesystem failed" });
   });
 
   it("fetches nested file previews", async () => {
@@ -382,6 +442,20 @@ describe("API server surface", () => {
 
     expect(response.status).toBe(404);
     expect(await readJson(response)).toEqual({ error: "Agent not found" });
+  });
+
+  it("returns 500 when termination fails unexpectedly", async () => {
+    const app = createServerApp(
+      createFlamecastStub({
+        terminateAgent: vi.fn(async () => {
+          throw new Error("terminate failed");
+        }),
+      }),
+    );
+    const response = await app.request(`/api/agents/${sampleAgent.id}`, { method: "DELETE" });
+
+    expect(response.status).toBe(500);
+    expect(await readJson(response)).toEqual({ error: "terminate failed" });
   });
 
   it("does not expose /api/health anymore", async () => {

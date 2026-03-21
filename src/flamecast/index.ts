@@ -285,6 +285,7 @@ export class Flamecast {
       () => this.createDownstreamClient(() => managed),
       stream,
     );
+    let runtimeInitialized = false;
     managed = {
       id: agentId,
       agentName,
@@ -318,8 +319,23 @@ export class Flamecast {
       });
 
       this.agents.set(agentId, managed);
+      runtimeInitialized = true;
+      if (opts.initialSessionCwd) {
+        try {
+          await this.createManagedSession(agentId, {
+            cwd: opts.initialSessionCwd,
+            mcpServers: [],
+          });
+        } catch (error) {
+          await this.terminateAgent(agentId).catch(() => undefined);
+          throw error;
+        }
+      }
       return this.getAgent(agentId);
     } catch (error) {
+      if (runtimeInitialized) {
+        throw error;
+      }
       const wrappedError = withTransportFailureContext(
         error,
         startedRuntime.transport,
@@ -567,6 +583,7 @@ export class Flamecast {
             sse: false,
           },
           sessionCapabilities: {
+            close: {},
             list: {},
           },
         },
@@ -585,14 +602,14 @@ export class Flamecast {
         this.promptAcpSession(agentId, requireTransportSessionId(), params),
 
       cancel: async (params: acp.CancelNotification) => this.cancelAcpSession(agentId, params),
+      unstable_closeSession: async (params: acp.CloseSessionRequest) =>
+        this.closeAcpSession(agentId, params),
 
       authenticate: async () => ({}),
       setSessionMode: async (_params: acp.SetSessionModeRequest) =>
         methodNotSupported("session/set_mode"),
       setSessionConfigOption: async (_params: acp.SetSessionConfigOptionRequest) =>
         methodNotSupported("session/set_config_option"),
-      unstable_closeSession: async (_params: acp.CloseSessionRequest) =>
-        methodNotSupported("session/close"),
       unstable_forkSession: async (_params: acp.ForkSessionRequest) =>
         methodNotSupported("session/fork"),
       unstable_resumeSession: async (_params: acp.ResumeSessionRequest) =>
@@ -678,6 +695,14 @@ export class Flamecast {
     params: acp.NewSessionRequest,
   ): Promise<acp.NewSessionResponse> {
     return this.createManagedSession(agentId, params, transportSessionId);
+  }
+
+  private async closeAcpSession(
+    agentId: string,
+    params: acp.CloseSessionRequest,
+  ): Promise<acp.CloseSessionResponse> {
+    await this.closeManagedSession(agentId, params.sessionId);
+    return {};
   }
 
   private async listAcpSessions(
@@ -774,6 +799,26 @@ export class Flamecast {
     }
 
     await managed.connection.cancel(params);
+  }
+
+  private async closeManagedSession(agentId: string, sessionId: string): Promise<void> {
+    const managed = this.resolveManagedAgent(agentId);
+    await this.getSessionMetaForAgent(agentId, sessionId);
+
+    const pending = await this.takePendingPermissionResolution(sessionId, undefined, true);
+    if (pending) {
+      await this.logPermissionCancelled(sessionId, pending);
+      await Promise.resolve(pending.resolve({ outcome: { outcome: "cancelled" } }));
+    }
+
+    await this.flushSessionTextChunkLogBuffer(managed, sessionId);
+    await managed.connection.unstable_closeSession({ sessionId });
+
+    this.detachSession(sessionId);
+    this.sessionToAgentId.delete(sessionId);
+    this.pendingSessionBootstraps.delete(sessionId);
+    await this.requireStorage().finalizeSession(sessionId, "terminated");
+    await this.syncAgentSessionState(agentId);
   }
 
   private async ensureReady(): Promise<void> {
@@ -1054,6 +1099,15 @@ export class Flamecast {
       latestSessionId,
       sessionCount,
       lastUpdatedAt: timestamp,
+    });
+  }
+
+  private async syncAgentSessionState(agentId: string): Promise<void> {
+    const sessions = await this.requireStorage().listSessionsByAgent(agentId);
+    await this.requireStorage().updateAgent(agentId, {
+      latestSessionId: sessions[0]?.id ?? null,
+      sessionCount: sessions.length,
+      lastUpdatedAt: new Date().toISOString(),
     });
   }
 

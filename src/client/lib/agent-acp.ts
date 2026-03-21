@@ -79,6 +79,11 @@ export class AgentAcpClient {
     return this.connection.loadSession({ sessionId, cwd, mcpServers: [] });
   }
 
+  async closeSession(sessionId: string): Promise<acp.CloseSessionResponse> {
+    await this.connect();
+    return this.connection.unstable_closeSession({ sessionId });
+  }
+
   async prompt(sessionId: string, text: string): Promise<acp.PromptResponse> {
     await this.connect();
     return this.connection.prompt({

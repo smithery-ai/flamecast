@@ -1,17 +1,5 @@
-import {
-  index,
-  integer,
-  jsonb,
-  pgTable,
-  serial,
-  text,
-  timestamp,
-} from "drizzle-orm/pg-core";
-import type {
-  AgentSpawn,
-  RuntimeConfig,
-  PendingPermission,
-} from "../../../shared/session.js";
+import { index, integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import type { AgentSpawn, RuntimeConfig, PendingPermission } from "../../../shared/session.js";
 
 export const agents = pgTable("agents", {
   id: text("id").primaryKey(),

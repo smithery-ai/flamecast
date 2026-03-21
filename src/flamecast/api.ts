@@ -75,49 +75,49 @@ export function createApi(flamecast: FlamecastApi) {
       "/agents/:agentId/sessions/:sessionId",
       zValidator("query", SessionQuerySchema),
       async (c) => {
-      try {
-        const query = c.req.valid("query");
-        const includeFileSystem = query.includeFileSystem === "true";
-        const showAllFiles = query.showAllFiles === "true";
-        const session = await flamecast.getSession(
-          c.req.param("agentId"),
-          c.req.param("sessionId"),
-          {
-            ...(includeFileSystem ? { includeFileSystem: true } : {}),
-            ...(showAllFiles ? { showAllFiles: true } : {}),
-          },
-        );
-        return c.json(session);
-      } catch (error) {
-        if (isNotFound(error)) {
-          return c.json({ error: "Session not found" }, 404);
+        try {
+          const query = c.req.valid("query");
+          const includeFileSystem = query.includeFileSystem === "true";
+          const showAllFiles = query.showAllFiles === "true";
+          const session = await flamecast.getSession(
+            c.req.param("agentId"),
+            c.req.param("sessionId"),
+            {
+              ...(includeFileSystem ? { includeFileSystem: true } : {}),
+              ...(showAllFiles ? { showAllFiles: true } : {}),
+            },
+          );
+          return c.json(session);
+        } catch (error) {
+          if (isNotFound(error)) {
+            return c.json({ error: "Session not found" }, 404);
+          }
+          return c.json({ error: toErrorMessage(error) }, 500);
         }
-        return c.json({ error: toErrorMessage(error) }, 500);
-      }
-    },
+      },
     )
     .get(
       "/agents/:agentId/sessions/:sessionId/filesystem",
       zValidator("query", FileSystemQuerySchema),
       async (c) => {
-      try {
-        const query = c.req.valid("query");
-        const showAllFiles = query.showAllFiles === "true";
-        const fileSystem = await flamecast.getSessionFileSystem(
-          c.req.param("agentId"),
-          c.req.param("sessionId"),
-          {
-            ...(showAllFiles ? { showAllFiles: true } : {}),
-          },
-        );
-        return c.json(fileSystem);
-      } catch (error) {
-        if (isNotFound(error)) {
-          return c.json({ error: "Session not found" }, 404);
+        try {
+          const query = c.req.valid("query");
+          const showAllFiles = query.showAllFiles === "true";
+          const fileSystem = await flamecast.getSessionFileSystem(
+            c.req.param("agentId"),
+            c.req.param("sessionId"),
+            {
+              ...(showAllFiles ? { showAllFiles: true } : {}),
+            },
+          );
+          return c.json(fileSystem);
+        } catch (error) {
+          if (isNotFound(error)) {
+            return c.json({ error: "Session not found" }, 404);
+          }
+          return c.json({ error: toErrorMessage(error) }, 500);
         }
-        return c.json({ error: toErrorMessage(error) }, 500);
-      }
-    },
+      },
     )
     .get(
       "/agents/:agentId/sessions/:sessionId/file",
@@ -127,18 +127,18 @@ export function createApi(flamecast: FlamecastApi) {
         }
       }),
       async (c) => {
-      const { path } = c.req.valid("query");
-      try {
-        const preview = await flamecast.getFilePreview(
-          c.req.param("agentId"),
-          c.req.param("sessionId"),
-          path,
-        );
-        return c.json(preview);
-      } catch (error) {
-        return c.json({ error: toErrorMessage(error) }, 400);
-      }
-    },
+        const { path } = c.req.valid("query");
+        try {
+          const preview = await flamecast.getFilePreview(
+            c.req.param("agentId"),
+            c.req.param("sessionId"),
+            path,
+          );
+          return c.json(preview);
+        } catch (error) {
+          return c.json({ error: toErrorMessage(error) }, 400);
+        }
+      },
     )
     .all("/agents/:agentId/acp", async (c) => {
       try {

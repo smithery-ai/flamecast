@@ -100,6 +100,7 @@ export const CreateAgentBodySchema = z.object({
   spawn: AgentSpawnSchema,
   runtime: RuntimeConfigSchema.optional(),
   name: z.string().optional(),
+  initialSessionCwd: z.string().optional(),
 });
 export type CreateAgentBody = z.infer<typeof CreateAgentBodySchema>;
 

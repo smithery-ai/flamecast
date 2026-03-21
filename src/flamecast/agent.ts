@@ -23,6 +23,9 @@ export class ExampleAgent implements acp.Agent {
       protocolVersion: acp.PROTOCOL_VERSION,
       agentCapabilities: {
         loadSession: false,
+        sessionCapabilities: {
+          close: {},
+        },
       },
     };
   }
@@ -295,6 +298,12 @@ export class ExampleAgent implements acp.Agent {
 
   async cancel(params: acp.CancelNotification): Promise<void> {
     this.sessions.get(params.sessionId)?.pendingPrompt?.abort();
+  }
+
+  async unstable_closeSession(params: acp.CloseSessionRequest): Promise<acp.CloseSessionResponse> {
+    this.sessions.get(params.sessionId)?.pendingPrompt?.abort();
+    this.sessions.delete(params.sessionId);
+    return {};
   }
 }
 

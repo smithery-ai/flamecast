@@ -137,10 +137,7 @@ export class AcpStreamableHttpClientTransport {
     }
   }
 
-  private createHeaders(opts?: {
-    accept?: string;
-    includeContentType?: boolean;
-  }): Headers {
+  private createHeaders(opts?: { accept?: string; includeContentType?: boolean }): Headers {
     const headers = new Headers({
       accept: opts?.accept ?? "text/event-stream, application/json",
       [ACP_PROTOCOL_VERSION_HEADER]: this.protocolVersion,
@@ -213,9 +210,7 @@ export class AcpStreamableHttpClientTransport {
 
       const contentType = response.headers.get("content-type") ?? "";
       if (!contentType.includes("text/event-stream")) {
-        throw new Error(
-          `Unexpected ACP event-stream content-type: ${contentType || "unknown"}`,
-        );
+        throw new Error(`Unexpected ACP event-stream content-type: ${contentType || "unknown"}`);
       }
       if (!response.body) {
         throw new Error("ACP event stream opened without a response body");

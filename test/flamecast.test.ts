@@ -126,6 +126,15 @@ async function runAgentLifecycle(
 
     const state = await flamecast.getSession(agent.id, session.sessionId);
     expect(state.logs.length).toBeGreaterThan(0);
+
+    await expect(
+      connection.unstable_closeSession({ sessionId: session.sessionId }),
+    ).resolves.toEqual({});
+    await expect(flamecast.getSession(agent.id, session.sessionId)).rejects.toThrow();
+    expect((await flamecast.listSessions()).some((entry) => entry.id === session.sessionId)).toBe(
+      false,
+    );
+    await expect(flamecast.getAgent(agent.id)).resolves.toBeTruthy();
   } finally {
     await transport.close().catch(() => undefined);
     await flamecast.terminateAgent(agent.id).catch(() => undefined);
