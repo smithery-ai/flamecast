@@ -123,7 +123,7 @@ export async function createFlamecast(opts: FlamecastOptions = {}): Promise<Flam
     const alchemy = (await import("alchemy")).default;
     await alchemy("flamecast", { phase: "up", stage: opts.stage, quiet: true });
     provisioner = async (connectionId, spec) => {
-      return alchemy.run(`connection-${connectionId}`, async () => {
+      return alchemy.run(`connection-${connectionId}`, { quiet: true }, async () => {
         return defaultProvisioner(connectionId, spec);
       });
     };
