@@ -245,6 +245,7 @@ describe("flamecast orchestration internals", () => {
       }),
     });
     await expect(closeServer()).rejects.toThrow("close threw");
+
   });
 
   test("preserves a newer shutdown promise when an older shutdown finishes", async () => {
