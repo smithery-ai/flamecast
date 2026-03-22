@@ -183,11 +183,17 @@ describe("example agent", () => {
       .mockResolvedValueOnce({
         outcome: { outcome: "selected", optionId: "unexpected" },
       });
+    const readTextFile = vi.fn(async () => {
+      throw new Error("missing");
+    });
+    const writeTextFile = vi.fn(async () => ({}));
     const connection = {
       sessionUpdate: vi.fn(async (params: acp.SessionNotification) => {
         sessionUpdates.push(params);
       }),
+      readTextFile,
       requestPermission,
+      writeTextFile,
     };
     const agent = new ExampleAgent(connection as unknown as acp.AgentSideConnection);
     const noDelay = vi.fn(async () => {});
@@ -232,7 +238,12 @@ describe("example agent", () => {
     Reflect.set(
       cancellingAgent,
       "simulateTurn",
-      (_sessionId: string, signal: AbortSignal) =>
+      (
+        _sessionId: string,
+        _promptText: string,
+        _session: unknown,
+        signal: AbortSignal,
+      ) =>
         new Promise<void>((_resolve, reject) => {
           signal.addEventListener(
             "abort",
@@ -264,6 +275,25 @@ describe("example agent", () => {
     expect(noDelay).toHaveBeenCalled();
     expect(noModelDelay).toHaveBeenCalled();
     expect(sessionUpdates.some((update) => update.update.sessionUpdate === "tool_call")).toBe(true);
+    expect(readTextFile).toHaveBeenCalled();
+    expect(writeTextFile).toHaveBeenCalledTimes(1);
+    expect(writeTextFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: expect.stringContaining(`.flamecast-agent-edit-${created.sessionId}.md`),
+      }),
+    );
+    expect(requestPermission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolCall: expect.objectContaining({
+          content: [
+            expect.objectContaining({
+              type: "diff",
+              path: expect.stringContaining(`.flamecast-agent-edit-${created.sessionId}.md`),
+            }),
+          ],
+        }),
+      }),
+    );
   });
 
   test("covers private chunking helpers and uint8 stream conversion", async () => {

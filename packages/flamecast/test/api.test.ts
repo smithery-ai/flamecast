@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import path from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { describe, expect } from "vitest";
 import alchemy from "alchemy";
@@ -100,10 +103,12 @@ describe("api contract", () => {
   test("full lifecycle through HTTP", async (scope: unknown) => {
     const flamecast = new Flamecast({ storage: "memory" });
     const client = createClient(flamecast);
+    const workspaceDir = await mkdtemp(path.join(tmpdir(), "flamecast-api-"));
 
     try {
       const createRes = await client.agents.$post({
         json: {
+          cwd: workspaceDir,
           spawn: { command: "pnpm", args: ["exec", "tsx", exampleAgentEntrypoint] },
         },
       });
@@ -124,6 +129,8 @@ describe("api contract", () => {
 
       const pending = await pollForPermission(client, agentId, 15_000);
       expect(pending).toBeDefined();
+      const proposedPath = pending.diffs?.[0]?.path;
+      expect(proposedPath).toBeTruthy();
 
       const allow = pending.options.find(
         (option: { optionId: string }) => option.optionId === "allow",
@@ -140,10 +147,15 @@ describe("api contract", () => {
       expect(promptRes.status).toBe(200);
       const result = PromptResultSchema.parse(await promptRes.json());
       expect(result.stopReason).toBe("end_turn");
+      if (!proposedPath) {
+        throw new Error("Expected a proposed edit path");
+      }
+      await expect(readFile(proposedPath, "utf8")).resolves.toContain("Hello from API contract test!");
 
       const killRes = await client.agents[":agentId"].$delete({ param: { agentId } });
       expect(killRes.status).toBe(200);
     } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
       await alchemy.destroy(scope);
     }
   });

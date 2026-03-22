@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchFilePreview, fetchSession, respondToPermission, sendPrompt } from "@/client/lib/api";
 import { FileTree, FileTreeFile, FileTreeFolder } from "@/components/ai-elements/file-tree";
 import { sessionLogsToSegments } from "@/client/lib/logs-markdown";
+import { buildDiffLines } from "@/client/lib/tool-call-diffs";
+import { cn } from "@/client/lib/utils";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Button } from "@/client/components/ui/button";
 import {
@@ -27,7 +29,7 @@ import {
   FolderTreeIcon,
   SendIcon,
 } from "lucide-react";
-import type { FileSystemEntry } from "../../shared/session";
+import type { FileSystemEntry, SessionDiff } from "../../shared/session";
 
 export const Route = createFileRoute("/sessions/$id")({
   component: SessionDetailPage,
@@ -228,13 +230,15 @@ function SessionDetailPage() {
                       );
                     }
                     if (seg.kind === "tool") {
-                      const toolMd = `**Tool:** ${seg.title}${seg.status ? ` — \`${seg.status}\`` : ""}`;
                       return (
                         <Fragment key={index}>
                           {index > 0 ? <Separator /> : null}
-                          <Streamdown className="max-w-none text-muted-foreground">
-                            {toolMd}
-                          </Streamdown>
+                          <ToolCallCard
+                            title={seg.title}
+                            status={seg.status}
+                            diffs={seg.diffs}
+                            workspaceRoot={session.fileSystem?.root}
+                          />
                         </Fragment>
                       );
                     }
@@ -254,41 +258,49 @@ function SessionDetailPage() {
                         ) : null}
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="flex flex-wrap gap-2">
-                      {(() => {
-                        const pending = session.pendingPermission;
-                        return (
-                          <>
-                            {pending.options.map((opt) => (
+                    <CardContent className="space-y-4">
+                      {(session.pendingPermission.diffs?.length ?? 0) > 0 ? (
+                        <ProposedDiffList
+                          diffs={session.pendingPermission.diffs ?? []}
+                          workspaceRoot={session.fileSystem?.root}
+                        />
+                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        {(() => {
+                          const pending = session.pendingPermission;
+                          return (
+                            <>
+                              {pending.options.map((opt) => (
+                                <Button
+                                  key={opt.optionId}
+                                  variant={opt.kind === "allow_once" ? "default" : "secondary"}
+                                  size="sm"
+                                  disabled={permissionMutation.isPending}
+                                  onClick={() =>
+                                    handlePermission(pending.requestId, {
+                                      optionId: opt.optionId,
+                                    })
+                                  }
+                                >
+                                  {opt.name}
+                                </Button>
+                              ))}
                               <Button
-                                key={opt.optionId}
-                                variant={opt.kind === "allow_once" ? "default" : "secondary"}
+                                variant="outline"
                                 size="sm"
                                 disabled={permissionMutation.isPending}
                                 onClick={() =>
                                   handlePermission(pending.requestId, {
-                                    optionId: opt.optionId,
+                                    outcome: "cancelled",
                                   })
                                 }
                               >
-                                {opt.name}
+                                Cancel
                               </Button>
-                            ))}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={permissionMutation.isPending}
-                              onClick={() =>
-                                handlePermission(pending.requestId, {
-                                  outcome: "cancelled",
-                                })
-                              }
-                            >
-                              Cancel
-                            </Button>
-                          </>
-                        );
-                      })()}
+                            </>
+                          );
+                        })()}
+                      </div>
                     </CardContent>
                   </Card>
                 ) : null}
@@ -455,6 +467,96 @@ function EmptyPreview({ message }: { message: string }) {
   );
 }
 
+function ToolCallCard({
+  title,
+  status,
+  diffs,
+  workspaceRoot,
+}: {
+  title: string;
+  status: string;
+  diffs: SessionDiff[];
+  workspaceRoot?: string;
+}) {
+  return (
+    <Card className="border-border/70 bg-muted/20">
+      <CardHeader className="gap-2 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-sm font-medium">{title}</CardTitle>
+          {status ? (
+            <Badge variant={status === "completed" ? "default" : "outline"}>
+              {status}
+            </Badge>
+          ) : null}
+        </div>
+      </CardHeader>
+      {diffs.length > 0 ? (
+        <CardContent className="space-y-3 pt-0">
+          <ProposedDiffList diffs={diffs} workspaceRoot={workspaceRoot} />
+        </CardContent>
+      ) : null}
+    </Card>
+  );
+}
+
+function ProposedDiffList({
+  diffs,
+  workspaceRoot,
+}: {
+  diffs: SessionDiff[];
+  workspaceRoot?: string;
+}) {
+  return (
+    <div className="space-y-3">
+      {diffs.map((diff) => (
+        <DiffPreview
+          key={`${diff.path}:${diff.newText.length}`}
+          diff={diff}
+          workspaceRoot={workspaceRoot}
+        />
+      ))}
+    </div>
+  );
+}
+
+function DiffPreview({ diff, workspaceRoot }: { diff: SessionDiff; workspaceRoot?: string }) {
+  const lines = buildDiffLines(diff.oldText ?? null, diff.newText);
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border/70">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2">
+        <code className="text-xs text-foreground">
+          {formatWorkspacePath(diff.path, workspaceRoot)}
+        </code>
+        <Badge variant="outline">{diff.oldText == null ? "new file" : "modified"}</Badge>
+      </div>
+      {lines.length === 0 ? (
+        <div className="px-4 py-3 text-xs text-muted-foreground">No textual changes.</div>
+      ) : (
+        <div className="overflow-auto">
+          <div className="min-w-full font-mono text-xs leading-6">
+            {lines.map((line, index) => (
+              <div
+                key={index}
+                className={cn(
+                  "grid grid-cols-[1.5rem_minmax(0,1fr)] gap-3 px-4",
+                  line.kind === "add" && "bg-emerald-500/10 text-emerald-950 dark:text-emerald-100",
+                  line.kind === "remove" && "bg-rose-500/10 text-rose-950 dark:text-rose-100",
+                )}
+              >
+                <span className="select-none text-muted-foreground">
+                  {line.kind === "add" ? "+" : line.kind === "remove" ? "-" : " "}
+                </span>
+                <span className="whitespace-pre-wrap break-all">{line.text || " "}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StickToBottomFab() {
   const { isAtBottom, scrollToBottom } = useStickToBottomContext();
   if (isAtBottom) return null;
@@ -549,6 +651,14 @@ function getParentPaths(path: string) {
   }
 
   return parents;
+}
+
+function formatWorkspacePath(path: string, workspaceRoot?: string) {
+  if (!workspaceRoot) {
+    return path;
+  }
+
+  return path.startsWith(`${workspaceRoot}/`) ? path.slice(workspaceRoot.length + 1) : path;
 }
 
 function getLogVariant(type: string): "default" | "secondary" | "destructive" | "outline" {

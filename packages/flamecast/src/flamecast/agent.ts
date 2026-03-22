@@ -2,11 +2,15 @@
 
 import * as acp from "@agentclientprotocol/sdk";
 import * as net from "node:net";
+import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { pathToFileURL } from "node:url";
 
 interface AgentSession {
+  appliedEditCount: number;
+  nextToolCallIndex: number;
   pendingPrompt: AbortController | null;
+  proposalPath: string;
 }
 
 export class ExampleAgent implements acp.Agent {
@@ -27,13 +31,16 @@ export class ExampleAgent implements acp.Agent {
     };
   }
 
-  async newSession(_params: acp.NewSessionRequest): Promise<acp.NewSessionResponse> {
+  async newSession(params: acp.NewSessionRequest): Promise<acp.NewSessionResponse> {
     const sessionId = Array.from(crypto.getRandomValues(new Uint8Array(16)))
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
 
     this.sessions.set(sessionId, {
+      appliedEditCount: 0,
+      nextToolCallIndex: 1,
       pendingPrompt: null,
+      proposalPath: join(params.cwd, `.flamecast-agent-edit-${sessionId}.md`),
     });
 
     return {
@@ -62,7 +69,12 @@ export class ExampleAgent implements acp.Agent {
     session.pendingPrompt = new AbortController();
 
     try {
-      await this.simulateTurn(params.sessionId, session.pendingPrompt.signal);
+      await this.simulateTurn(
+        params.sessionId,
+        this.getPromptText(params.prompt),
+        session,
+        session.pendingPrompt.signal,
+      );
     } catch (err) {
       if (session.pendingPrompt.signal.aborted) {
         return { stopReason: "cancelled" };
@@ -78,7 +90,12 @@ export class ExampleAgent implements acp.Agent {
     };
   }
 
-  private async simulateTurn(sessionId: string, abortSignal: AbortSignal): Promise<void> {
+  private async simulateTurn(
+    sessionId: string,
+    promptText: string,
+    session: AgentSession,
+    abortSignal: AbortSignal,
+  ): Promise<void> {
     await this.streamAgentMessageChunks(
       sessionId,
       "I'll help you with that. Let me start by reading some files to understand the current situation.",
@@ -87,39 +104,45 @@ export class ExampleAgent implements acp.Agent {
 
     await this.simulateModelInteraction(abortSignal);
 
-    // Send a tool call that doesn't need permission
+    const readToolCallId = this.nextToolCallId(session);
     await this.connection.sessionUpdate({
       sessionId,
       update: {
         sessionUpdate: "tool_call",
-        toolCallId: "call_1",
-        title: "Reading project files",
+        toolCallId: readToolCallId,
+        title: "Inspecting the current proposal file",
         kind: "read",
         status: "pending",
-        locations: [{ path: "/project/README.md" }],
-        rawInput: { path: "/project/README.md" },
+        locations: [{ path: session.proposalPath }],
+        rawInput: { path: session.proposalPath },
       },
     });
 
     await this.simulateModelInteraction(abortSignal);
 
-    // Update tool call to completed
+    const existingContent = await this.readExistingProposal(sessionId, session.proposalPath);
     await this.connection.sessionUpdate({
       sessionId,
       update: {
         sessionUpdate: "tool_call_update",
-        toolCallId: "call_1",
+        toolCallId: readToolCallId,
         status: "completed",
         content: [
           {
             type: "content",
             content: {
               type: "text",
-              text: "# My Project\n\nThis is a sample project...",
+              text:
+                existingContent ??
+                "No existing proposal file was found. The next approved edit will create it.",
             },
           },
         ],
-        rawOutput: { content: "# My Project\n\nThis is a sample project..." },
+        rawOutput: {
+          content: existingContent,
+          exists: existingContent !== null,
+          path: session.proposalPath,
+        },
       },
     });
 
@@ -133,35 +156,39 @@ export class ExampleAgent implements acp.Agent {
 
     await this.simulateModelInteraction(abortSignal);
 
-    // Send a tool call that DOES need permission
+    const proposedDiff = this.buildProposedDiff(session, promptText, existingContent);
+    const editToolCallId = this.nextToolCallId(session);
     await this.connection.sessionUpdate({
       sessionId,
       update: {
         sessionUpdate: "tool_call",
-        toolCallId: "call_2",
-        title: "Modifying critical configuration file",
+        toolCallId: editToolCallId,
+        title: "Preparing a real workspace edit",
         kind: "edit",
         status: "pending",
-        locations: [{ path: "/project/config.json" }],
+        locations: [{ path: proposedDiff.path }],
+        content: [{ type: "diff", ...proposedDiff }],
         rawInput: {
-          path: "/project/config.json",
-          content: '{"database": {"host": "new-host"}}',
+          path: proposedDiff.path,
+          oldText: proposedDiff.oldText ?? null,
+          newText: proposedDiff.newText,
         },
       },
     });
 
-    // Request permission for the sensitive operation
     const permissionResponse = await this.connection.requestPermission({
       sessionId,
       toolCall: {
-        toolCallId: "call_2",
-        title: "Modifying critical configuration file",
+        toolCallId: editToolCallId,
+        title: "Preparing a real workspace edit",
         kind: "edit",
         status: "pending",
-        locations: [{ path: "/home/user/project/config.json" }],
+        locations: [{ path: proposedDiff.path }],
+        content: [{ type: "diff", ...proposedDiff }],
         rawInput: {
-          path: "/home/user/project/config.json",
-          content: '{"database": {"host": "new-host"}}',
+          path: proposedDiff.path,
+          oldText: proposedDiff.oldText ?? null,
+          newText: proposedDiff.newText,
         },
       },
       options: [
@@ -188,9 +215,30 @@ export class ExampleAgent implements acp.Agent {
           sessionId,
           update: {
             sessionUpdate: "tool_call_update",
-            toolCallId: "call_2",
+            toolCallId: editToolCallId,
+            status: "in_progress",
+          },
+        });
+
+        await this.connection.writeTextFile({
+          sessionId,
+          path: proposedDiff.path,
+          content: proposedDiff.newText,
+        });
+        session.appliedEditCount += 1;
+
+        await this.connection.sessionUpdate({
+          sessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: editToolCallId,
             status: "completed",
-            rawOutput: { success: true, message: "Configuration updated" },
+            content: [{ type: "diff", ...proposedDiff }],
+            rawOutput: {
+              path: proposedDiff.path,
+              success: true,
+              bytesWritten: proposedDiff.newText.length,
+            },
           },
         });
 
@@ -198,7 +246,7 @@ export class ExampleAgent implements acp.Agent {
 
         await this.streamAgentMessageChunks(
           sessionId,
-          " Perfect! I've successfully updated the configuration. The changes have been applied.",
+          ` Perfect! I've written the approved edit to ${proposedDiff.path}.`,
           abortSignal,
         );
         break;
@@ -208,7 +256,7 @@ export class ExampleAgent implements acp.Agent {
 
         await this.streamAgentMessageChunks(
           sessionId,
-          " I understand you prefer not to make that change. I'll skip the configuration update.",
+          " I understand you prefer not to make that change. I'll skip the workspace edit.",
           abortSignal,
         );
         break;
@@ -278,6 +326,55 @@ export class ExampleAgent implements acp.Agent {
       }, ms);
       abortSignal.addEventListener("abort", onAbort, { once: true });
     });
+  }
+
+  private getPromptText(prompt: acp.PromptRequest["prompt"]): string {
+    const textParts = prompt.flatMap((item) =>
+      item.type === "text" && item.text.trim().length > 0 ? [item.text.trim()] : [],
+    );
+    return textParts.join("\n\n");
+  }
+
+  private nextToolCallId(session: AgentSession): string {
+    const toolCallId = `call_${session.nextToolCallIndex}`;
+    session.nextToolCallIndex += 1;
+    return toolCallId;
+  }
+
+  private async readExistingProposal(sessionId: string, path: string): Promise<string | null> {
+    try {
+      const response = await this.connection.readTextFile({ sessionId, path });
+      return response.content;
+    } catch {
+      return null;
+    }
+  }
+
+  private buildProposedDiff(
+    session: AgentSession,
+    promptText: string,
+    oldText: string | null,
+  ): acp.Diff {
+    const nextUpdateNumber = session.appliedEditCount + 1;
+    const normalizedPrompt = promptText.trim() || "No prompt text was provided.";
+    const newText = oldText
+      ? `${oldText.trimEnd()}\n\n## Update ${nextUpdateNumber}\n\n${normalizedPrompt}\n`
+      : [
+          "# Flamecast Approval Demo",
+          "",
+          "This file is created and updated only after you approve the proposed edit.",
+          "",
+          `## Update ${nextUpdateNumber}`,
+          "",
+          normalizedPrompt,
+          "",
+        ].join("\n");
+
+    return {
+      path: session.proposalPath,
+      oldText,
+      newText,
+    };
   }
 
   private simulateModelInteraction(abortSignal: AbortSignal): Promise<void> {

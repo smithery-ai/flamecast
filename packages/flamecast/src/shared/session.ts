@@ -36,6 +36,13 @@ export const SessionLogSchema = z.object({
 });
 export type SessionLog = z.infer<typeof SessionLogSchema>;
 
+export const SessionDiffSchema = z.object({
+  path: z.string(),
+  oldText: z.string().nullable().optional(),
+  newText: z.string(),
+});
+export type SessionDiff = z.infer<typeof SessionDiffSchema>;
+
 export const PendingPermissionOptionSchema = z.object({
   optionId: z.string(),
   name: z.string(),
@@ -48,6 +55,7 @@ export const PendingPermissionSchema = z.object({
   toolCallId: z.string(),
   title: z.string(),
   kind: z.string().optional(),
+  diffs: z.array(SessionDiffSchema).optional(),
   options: z.array(PendingPermissionOptionSchema),
 });
 export type PendingPermission = z.infer<typeof PendingPermissionSchema>;

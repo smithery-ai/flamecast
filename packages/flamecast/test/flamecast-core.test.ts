@@ -347,6 +347,7 @@ describe("flamecast orchestration internals", () => {
         toolCallId: string;
         title: string;
         kind?: string;
+        diffs?: Array<{ path: string; oldText?: string | null; newText: string }>;
         options: Array<{ optionId: string; name: string; kind: string }>;
       }
     >(flamecast, "createPendingPermission");
@@ -431,6 +432,7 @@ describe("flamecast orchestration internals", () => {
         toolCallId: "tool-1",
         title: "Approve",
         kind: "edit",
+        diffs: [{ path: "/tmp/demo.md", oldText: null, newText: "hello" }],
         options: [
           { optionId: "allow", name: "Allow", kind: "allow_once" },
           { optionId: "reject", name: "Reject", kind: "reject_once" },
@@ -460,10 +462,14 @@ describe("flamecast orchestration internals", () => {
       name: "Mutated",
       kind: "allow_once",
     });
+    if (snapshot.pendingPermission?.diffs?.[0]) {
+      snapshot.pendingPermission.diffs[0].newText = "mutated";
+    }
 
     const freshSnapshot = await snapshotSession("session-1");
     expect(freshSnapshot.logs).toHaveLength(1);
     expect(freshSnapshot.pendingPermission?.options).toHaveLength(2);
+    expect(freshSnapshot.pendingPermission?.diffs?.[0]?.newText).toBe("hello");
     await expect(snapshotSession("missing")).rejects.toThrow('Session "missing" not found');
     await storage.updateSession("session-1", { pendingPermission: null });
 
@@ -509,6 +515,14 @@ describe("flamecast orchestration internals", () => {
         title: undefined,
         kind: undefined,
         status: "pending",
+        content: [
+          {
+            type: "diff",
+            path: "/tmp/demo.md",
+            oldText: null,
+            newText: "hello",
+          },
+        ],
         rawInput: {},
       },
       options: [
@@ -521,6 +535,9 @@ describe("flamecast orchestration internals", () => {
     });
     expect(pendingPermission.title).toBe("");
     expect(pendingPermission.kind).toBeUndefined();
+    expect(pendingPermission.diffs).toEqual([
+      { path: "/tmp/demo.md", oldText: null, newText: "hello" },
+    ]);
     expect(
       getPermissionOption({ permission: pendingPermission, resolve: () => {} }, "allow"),
     ).toEqual({
