@@ -3,6 +3,7 @@ import { readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import { serve } from "@hono/node-server";
+import type { ServerType } from "@hono/node-server";
 import type {
   AgentSpawn,
   AgentTemplate,
@@ -59,10 +60,13 @@ type GitIgnoreRule = {
   regex: RegExp;
 };
 
+type ShutdownSignal = "SIGINT" | "SIGTERM";
+
 export type FlamecastOptions = {
   storage?: StorageConfig;
   runtimeProviders?: RuntimeProviderRegistry;
   agentTemplates?: AgentTemplate[];
+  handleSignals?: boolean;
 };
 
 async function loadGitIgnoreRules(workspaceRoot: string): Promise<GitIgnoreRule[]> {
@@ -174,31 +178,62 @@ export class Flamecast {
   private readonly initialAgentTemplates: AgentTemplate[];
   private readonly runtimeProviders: RuntimeProviderRegistry;
   private readonly storageConfig?: StorageConfig;
+  private readonly handleSignals: boolean;
   private readonly runtimes = new Map<string, ManagedSession>();
   private readonly permissionResolvers = new Map<string, PermissionResolver>();
+  private readonly signalHandlers = new Map<ShutdownSignal, () => void>();
   private readonly app = createServerApp(this);
   private storage: FlamecastStorage | null = null;
   private readyPromise: Promise<void> | null = null;
+  private server: ServerType | null = null;
+  private shutdownPromise: Promise<void> | null = null;
 
   readonly fetch: (request: Request) => Promise<Response>;
 
   constructor(opts: FlamecastOptions = {}) {
     this.storageConfig = opts.storage;
+    this.handleSignals = opts.handleSignals ?? true;
     this.runtimeProviders = resolveRuntimeProviders(opts.runtimeProviders);
     this.initialAgentTemplates = opts.agentTemplates ?? getBuiltinAgentTemplates();
     this.fetch = async (request: Request) => this.app.fetch(request);
   }
 
   async listen(port = 3001) {
+    if (this.server) {
+      throw new Error("Flamecast is already listening");
+    }
+
     await this.ensureReady();
-    return serve({ fetch: this.fetch, port }, (info) => {
+    const server = serve({ fetch: this.fetch, port }, (info) => {
       console.log(`Flamecast running on http://localhost:${info.port}`);
     });
+    this.server = server;
+    this.registerSignalHandlers();
+    return server;
   }
 
   async shutdown(): Promise<void> {
-    for (const session of await this.listSessions()) {
-      await this.terminateSession(session.id).catch(() => {});
+    if (this.shutdownPromise) {
+      return this.shutdownPromise;
+    }
+
+    const shutdownPromise = (async () => {
+      this.unregisterSignalHandlers();
+
+      for (const session of await this.listSessions()) {
+        await this.terminateSession(session.id).catch(() => {});
+      }
+
+      await this.closeServer();
+    })();
+    this.shutdownPromise = shutdownPromise;
+
+    try {
+      await shutdownPromise;
+    } finally {
+      if (this.shutdownPromise === shutdownPromise) {
+        this.shutdownPromise = null;
+      }
     }
   }
 
@@ -429,6 +464,72 @@ export class Flamecast {
         outcome: { outcome: "selected", optionId: option.optionId },
       }),
     );
+  }
+
+  private registerSignalHandlers(): void {
+    if (!this.handleSignals || this.signalHandlers.size > 0) {
+      return;
+    }
+
+    for (const signal of ["SIGTERM", "SIGINT"] satisfies ShutdownSignal[]) {
+      const handler = () => {
+        void this.shutdownFromSignal(signal);
+      };
+      this.signalHandlers.set(signal, handler);
+      process.on(signal, handler);
+    }
+  }
+
+  private unregisterSignalHandlers(): void {
+    for (const [signal, handler] of this.signalHandlers) {
+      process.off(signal, handler);
+    }
+    this.signalHandlers.clear();
+  }
+
+  private async shutdownFromSignal(signal: ShutdownSignal): Promise<void> {
+    if (this.shutdownPromise) {
+      return;
+    }
+
+    console.log("\nShutting down...");
+
+    try {
+      await this.shutdown();
+      process.exit(0);
+    } catch (error) {
+      console.error(`Failed to shut down Flamecast cleanly after ${signal}.`, error);
+      process.exit(1);
+    }
+  }
+
+  private async closeServer(): Promise<void> {
+    const server = this.server;
+    this.server = null;
+
+    if (!server) {
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      try {
+        if (server.close.length === 0) {
+          server.close();
+          resolve();
+          return;
+        }
+
+        server.close((error?: Error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
   }
 
   private async ensureReady(): Promise<void> {

@@ -532,7 +532,6 @@ describe("bootstrap entrypoints", () => {
 
     class FlamecastMock {
       readonly listen = vi.fn(async () => ({ close: vi.fn() }));
-      readonly shutdown = vi.fn(async () => {});
     }
 
     vi.doMock("@agentclientprotocol/sdk", async () => {
@@ -562,20 +561,13 @@ describe("bootstrap entrypoints", () => {
     expect(processOn).not.toHaveBeenCalledWith("SIGTERM", expect.any(Function));
   });
 
-  test("starts the server module and handles shutdown cleanly", async () => {
+  test("starts the server module through Flamecast.listen", async () => {
     const listen = vi.fn(async () => ({
       close: vi.fn(),
     }));
-    const shutdown = vi.fn(async () => {});
-    const processOn = vi.spyOn(process, "on").mockImplementation(() => process);
-    const processExit = vi
-      .spyOn(process, "exit")
-      .mockImplementation(((code?: string | number | null) => code ?? 0) as typeof process.exit);
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     class FlamecastMock {
       readonly listen = listen;
-      readonly shutdown = shutdown;
     }
 
     vi.doMock("@acp/flamecast", () => ({
@@ -586,37 +578,19 @@ describe("bootstrap entrypoints", () => {
     const started = await serverModule.startServer();
     const mainStarted = await serverModule.main();
 
-    expect(started.flamecast).toBeInstanceOf(FlamecastMock);
-    expect(mainStarted.server).toMatchObject({
-      close: expect.any(Function),
-    });
-
-    const close = vi.fn();
-    const stop = serverModule.createShutdownHandler(
-      {
-        shutdown,
-      } as unknown as InstanceType<typeof FlamecastMock>,
-      { close },
-    );
-    await stop();
-
+    expect(started).toBeInstanceOf(FlamecastMock);
+    expect(mainStarted).toBeInstanceOf(FlamecastMock);
+    expect(listen).toHaveBeenCalledTimes(2);
     expect(listen).toHaveBeenCalledWith(3001);
-    expect(processOn).toHaveBeenCalledWith("SIGTERM", expect.any(Function));
-    expect(processOn).toHaveBeenCalledWith("SIGINT", expect.any(Function));
-    expect(close).toHaveBeenCalledTimes(1);
-    expect(log).toHaveBeenCalledWith("\nShutting down...");
-    expect(processExit).toHaveBeenCalledWith(0);
   });
 
   test("runs server main automatically when imported as the entry module", async () => {
     const serverPath = new URL("../../../apps/server/src/index.ts", import.meta.url);
     const listen = vi.fn(async () => ({ close: vi.fn() }));
-    const processOn = vi.spyOn(process, "on").mockImplementation(() => process);
     const originalArgv1 = process.argv[1];
 
     class FlamecastMock {
       readonly listen = listen;
-      readonly shutdown = vi.fn(async () => {});
     }
 
     vi.doMock("@acp/flamecast", () => ({
@@ -633,6 +607,5 @@ describe("bootstrap entrypoints", () => {
     }
 
     expect(listen).toHaveBeenCalledWith(3001);
-    expect(processOn).toHaveBeenCalledWith("SIGTERM", expect.any(Function));
   });
 });

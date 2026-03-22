@@ -124,21 +124,162 @@ describe("flamecast orchestration internals", () => {
       (await flamecast.listAgentTemplates()).some((template) => template.id === "example"),
     ).toBe(true);
 
-    const server = await flamecast.listen(0);
+    await flamecast.listen(0);
     await new Promise((resolve) => setTimeout(resolve, 50));
-    await new Promise<void>((resolve, reject) => {
-      server.close((error?: Error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
-      });
-    });
+    await flamecast.shutdown();
 
     expect(log).toHaveBeenCalledWith(
       expect.stringContaining("Flamecast running on http://localhost:"),
     );
+  });
+
+  test("registers shutdown handlers while listening and exits cleanly on SIGTERM", async () => {
+    const flamecast = new Flamecast({ storage: "memory" });
+    const processOn = vi.spyOn(process, "on").mockImplementation(() => process);
+    const processOff = vi.spyOn(process, "off").mockImplementation(() => process);
+    const processExit = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((code?: string | number | null) => code ?? 0) as typeof process.exit);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const server = await flamecast.listen(0);
+    const close = vi.spyOn(server, "close");
+    const sigterm = processOn.mock.calls.find(([signal]) => signal === "SIGTERM")?.[1];
+    const sigint = processOn.mock.calls.find(([signal]) => signal === "SIGINT")?.[1];
+
+    expect(sigterm).toEqual(expect.any(Function));
+    expect(sigint).toEqual(expect.any(Function));
+
+    (sigterm as () => void)();
+
+    const shutdownPromise = Reflect.get(flamecast, "shutdownPromise") as Promise<void> | null;
+    await shutdownPromise;
+    await Promise.resolve();
+
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(processOff).toHaveBeenCalledWith("SIGTERM", sigterm);
+    expect(processOff).toHaveBeenCalledWith("SIGINT", sigint);
+    expect(log).toHaveBeenCalledWith("\nShutting down...");
+    expect(processExit).toHaveBeenCalledWith(0);
+  });
+
+  test("avoids duplicate signal registration and rejects listening twice", async () => {
+    const flamecast = new Flamecast({ storage: "memory" });
+    const processOn = vi.spyOn(process, "on").mockImplementation(() => process);
+    const processOff = vi.spyOn(process, "off").mockImplementation(() => process);
+    const registerSignalHandlers = getMethod<[], void>(flamecast, "registerSignalHandlers");
+    const unregisterSignalHandlers = getMethod<[], void>(flamecast, "unregisterSignalHandlers");
+
+    registerSignalHandlers();
+    registerSignalHandlers();
+
+    expect(processOn).toHaveBeenCalledTimes(2);
+
+    unregisterSignalHandlers();
+
+    expect(processOff).toHaveBeenCalledTimes(2);
+
+    await flamecast.listen(0);
+    await expect(flamecast.listen(0)).rejects.toThrow("Flamecast is already listening");
+    await flamecast.shutdown();
+  });
+
+  test("skips signal registration when disabled", () => {
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
+    const processOn = vi.spyOn(process, "on").mockImplementation(() => process);
+    const registerSignalHandlers = getMethod<[], void>(flamecast, "registerSignalHandlers");
+
+    registerSignalHandlers();
+
+    expect(processOn).not.toHaveBeenCalled();
+  });
+
+  test("covers signal shutdown guards and closeServer error paths", async () => {
+    const flamecast = new Flamecast({ storage: "memory" });
+    const shutdownFromSignal = getMethod<["SIGINT" | "SIGTERM"], Promise<void>>(
+      flamecast,
+      "shutdownFromSignal",
+    );
+    const closeServer = getMethod<[], Promise<void>>(flamecast, "closeServer");
+    const processExit = vi
+      .spyOn(process, "exit")
+      .mockImplementation(((code?: string | number | null) => code ?? 0) as typeof process.exit);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    Reflect.set(flamecast, "shutdownPromise", Promise.resolve());
+    await shutdownFromSignal("SIGTERM");
+    await flamecast.shutdown();
+
+    expect(processExit).not.toHaveBeenCalled();
+
+    Reflect.set(flamecast, "shutdownPromise", null);
+    vi.spyOn(flamecast, "shutdown").mockRejectedValueOnce(new Error("shutdown failed"));
+
+    await shutdownFromSignal("SIGINT");
+
+    expect(error).toHaveBeenCalledWith(
+      "Failed to shut down Flamecast cleanly after SIGINT.",
+      expect.any(Error),
+    );
+    expect(processExit).toHaveBeenCalledWith(1);
+
+    const directClose = vi.fn();
+    Reflect.set(flamecast, "server", { close: directClose });
+    await closeServer();
+    expect(directClose).toHaveBeenCalledTimes(1);
+    expect(Reflect.get(flamecast, "server")).toBeNull();
+
+    const callbackClose = vi.fn((callback: (error?: Error) => void) => callback());
+    Reflect.set(flamecast, "server", { close: callbackClose });
+    await closeServer();
+    expect(callbackClose).toHaveBeenCalledTimes(1);
+
+    Reflect.set(flamecast, "server", {
+      close: vi.fn((callback: (error?: Error) => void) => callback(new Error("close failed"))),
+    });
+    await expect(closeServer()).rejects.toThrow("close failed");
+
+    Reflect.set(flamecast, "server", {
+      close: vi.fn(() => {
+        throw new Error("close threw");
+      }),
+    });
+    await expect(closeServer()).rejects.toThrow("close threw");
+  });
+
+  test("preserves a newer shutdown promise when an older shutdown finishes", async () => {
+    const flamecast = new Flamecast({ storage: "memory" });
+    const storage = attachStorage(flamecast);
+    let releaseTerminate: (() => void) | null = null;
+
+    await storage.createSession(createMeta("session-keep-promise"));
+    getRuntimeMap(flamecast).set("session-keep-promise", {
+      ...createManagedSession("session-keep-promise"),
+      terminate: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseTerminate = resolve;
+          }),
+      ),
+    });
+
+    const shutdownPromise = flamecast.shutdown();
+    const replacement = Promise.resolve();
+    const deadline = Date.now() + 1_000;
+
+    while (!releaseTerminate && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    if (!releaseTerminate) {
+      throw new Error("Expected terminate to be pending");
+    }
+
+    Reflect.set(flamecast, "shutdownPromise", replacement);
+    releaseTerminate();
+    await shutdownPromise;
+
+    expect(Reflect.get(flamecast, "shutdownPromise")).toBe(replacement);
   });
 
   test("covers private helpers, client wiring, permission handling, prompt errors, and shutdown", async () => {
