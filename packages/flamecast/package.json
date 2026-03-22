@@ -12,7 +12,6 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "knip": "knip --config knip.json --no-config-hints",
     "psql:generate": "drizzle-kit generate --config src/flamecast/state-managers/psql/drizzle.config.ts",
     "test": "vitest run --config vitest.integration.config.ts",
     "test:api:coverage": "vitest run --coverage --config vitest.integration.config.ts",
