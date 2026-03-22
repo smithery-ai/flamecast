@@ -14,7 +14,6 @@ export type StartedRuntime = {
 export type RuntimeProviderStartRequest = {
   runtime: AgentTemplateRuntime;
   spawn: AgentSpawn;
-  /** Unique ID for the session, used to namespace provisioned resources. */
   sessionId: string;
 };
 
@@ -37,7 +36,7 @@ type BuiltinRuntimeProviderOptions = {
   acpRetryDelayMs?: number;
 };
 
-const resourceScope = alchemy("flame-resources", { quiet: true });
+let resourceScope: Promise<import("alchemy").Scope> | undefined;
 
 function resolveDockerBuildContext(dockerfile: string): string {
   const dockerfileDir = dirname(dockerfile);
@@ -167,6 +166,7 @@ function createLocalRuntimeProvider(): RuntimeProvider {
 function createDockerRuntimeProvider(options: BuiltinRuntimeProviderOptions = {}): RuntimeProvider {
   return {
     async start({ runtime, sessionId }) {
+      resourceScope ??= alchemy("flame-resources", { quiet: true });
       await resourceScope;
 
       return alchemy.run(`session-${sessionId}`, async (scope) => {

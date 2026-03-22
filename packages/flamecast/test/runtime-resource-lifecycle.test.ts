@@ -47,14 +47,12 @@ const TestRuntimeResource = Resource(
 // alchemy.run() + alchemy.destroy(scope) pattern using TestRuntimeResource.
 // ---------------------------------------------------------------------------
 
-const resourceScope = alchemy("flame-resources-test", {
-  quiet: true,
-  noTrack: true,
-});
+let resourceScope: Promise<import("alchemy").Scope> | undefined;
 
 function createTestRuntimeProvider(): RuntimeProvider {
   return {
     async start({ sessionId }) {
+      resourceScope ??= alchemy("flame-resources-test", { quiet: true, noTrack: true });
       const root = await resourceScope;
 
       return alchemy.run(`session-${sessionId}`, { parent: root }, async (scope) => {

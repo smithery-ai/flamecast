@@ -160,7 +160,13 @@ describe("runtime providers", () => {
       dispose: vi.fn(async () => {}),
     }));
     const findFreePort = vi.fn(async () => 4321);
-    const alchemy = vi.fn(async () => {});
+    const alchemy = Object.assign(
+      vi.fn(async () => {}),
+      {
+        run: vi.fn(async (_id: string, fn: (scope: unknown) => Promise<unknown>) => fn({})),
+        destroy: vi.fn(async () => {}),
+      },
+    );
     const Image = vi.fn(async () => {});
     const Container = vi.fn(async () => ({ id: "container-1" }));
     const createConnection = vi.fn((_opts: unknown, onConnect: () => void) => {
@@ -263,7 +269,13 @@ describe("runtime providers", () => {
   test("times out while waiting for ACP when the socket never becomes ready", async () => {
     const openTcpTransport = vi.fn();
     const findFreePort = vi.fn(async () => 4545);
-    const alchemy = vi.fn(async () => {});
+    const alchemy = Object.assign(
+      vi.fn(async () => {}),
+      {
+        run: vi.fn(async (_id: string, fn: (scope: unknown) => Promise<unknown>) => fn({})),
+        destroy: vi.fn(async () => {}),
+      },
+    );
     const Container = vi.fn(async () => ({ id: "container-1" }));
     let attempts = 0;
     const emitRefused = (socket: FakeSocket) => {
@@ -332,7 +344,13 @@ describe("runtime providers", () => {
   });
 
   test('requires docker runtimes to provide an "image"', async () => {
-    const alchemy = vi.fn(async () => {});
+    const alchemy = Object.assign(
+      vi.fn(async () => {}),
+      {
+        run: vi.fn(async (_id: string, fn: (scope: unknown) => Promise<unknown>) => fn({})),
+        destroy: vi.fn(async () => {}),
+      },
+    );
     const findFreePort = vi.fn(async () => 4321);
 
     vi.doMock("alchemy", () => ({
