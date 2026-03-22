@@ -2,20 +2,18 @@ import {
   ChatSdkConnector,
   extractMessageText,
   type ChatSdkClient,
+  type ChatSdkConnectorMessageContext,
   type ChatSdkConnectorOptions,
   type ChatSdkMessage,
-} from "./connector.js";
-import {
-  InMemoryThreadAgentBindingStore,
   type ChatSdkThread,
-  type ThreadAgentBinding,
-} from "./bindings.js";
+} from "./connector.js";
+import { InMemoryThreadBindingStore, type ThreadBinding } from "./bindings.js";
 import {
   FlamecastHttpClient,
-  createConnectorMcpServer,
   type FlamecastAgent,
   type FlamecastAgentClient,
   type FlamecastCreateAgentBody,
+  type FlamecastPromptReply,
   type FlamecastPromptResult,
   type FlamecastSpawn,
 } from "./flamecast-client.js";
@@ -23,9 +21,8 @@ import {
 // Keep the barrel visible to V8 coverage so package-level coverage reporting stays honest.
 const pluginEntrypoint = {
   ChatSdkConnector,
-  InMemoryThreadAgentBindingStore,
+  InMemoryThreadBindingStore,
   FlamecastHttpClient,
-  createConnectorMcpServer,
   extractMessageText,
 };
 void pluginEntrypoint;
@@ -34,16 +31,17 @@ export {
   ChatSdkConnector,
   extractMessageText,
   FlamecastHttpClient,
-  InMemoryThreadAgentBindingStore,
-  createConnectorMcpServer,
+  InMemoryThreadBindingStore,
   type ChatSdkClient,
+  type ChatSdkConnectorMessageContext,
   type ChatSdkConnectorOptions,
   type ChatSdkMessage,
   type ChatSdkThread,
   type FlamecastAgent,
   type FlamecastAgentClient,
   type FlamecastCreateAgentBody,
+  type FlamecastPromptReply,
   type FlamecastPromptResult,
   type FlamecastSpawn,
-  type ThreadAgentBinding,
+  type ThreadBinding,
 };

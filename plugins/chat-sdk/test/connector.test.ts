@@ -1,38 +1,146 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Message, type Chat, type Thread } from "chat";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ChatSdkConnector,
   type ChatSdkClient,
-  type ChatSdkMessage,
-  type ChatSdkThread,
-  type FlamecastAgentClient,
   type FlamecastCreateAgentBody,
   FlamecastHttpClient,
-  InMemoryThreadAgentBindingStore,
-  createConnectorMcpServer,
+  InMemoryThreadBindingStore,
   extractMessageText,
 } from "../src/index.js";
 import * as pluginEntry from "../src/index.js";
 
-type MentionHandler = (thread: ChatSdkThread, message: ChatSdkMessage) => Promise<void> | void;
+type MentionHandler = (thread: Thread, message: Message) => Promise<void> | void;
+
+class TestSentMessage extends Message {
+  constructor(threadId: string) {
+    super({
+      id: `sent-${threadId}`,
+      threadId,
+      text: "sent",
+      formatted: { type: "root", children: [] },
+      raw: {},
+      author: {
+        userId: "bot",
+        userName: "bot",
+        fullName: "Bot",
+        isBot: true,
+        isMe: true,
+      },
+      metadata: {
+        dateSent: new Date(0),
+        edited: false,
+      },
+      attachments: [],
+      links: [],
+    });
+  }
+
+  async addReaction(_emoji: string): Promise<void> {}
+
+  async delete(): Promise<void> {}
+
+  async edit(_newContent: string): Promise<TestSentMessage> {
+    return this;
+  }
+
+  async removeReaction(_emoji: string): Promise<void> {}
+}
+
+class TestThread implements Thread {
+  readonly id: string;
+  readonly channelId: string;
+  readonly isDM = false;
+  readonly recentMessages: Message[] = [];
+  readonly messages = (async function* () {})();
+  readonly allMessages = (async function* () {})();
+  readonly state = Promise.resolve(null);
+  readonly post: Thread["post"];
+  readonly subscribe: Thread["subscribe"];
+  readonly unsubscribe: Thread["unsubscribe"];
+  readonly startTyping: Thread["startTyping"];
+
+  constructor(
+    id: string,
+    overrides: Partial<{
+      post: Thread["post"];
+      subscribe: Thread["subscribe"];
+      unsubscribe: Thread["unsubscribe"];
+    }> = {},
+  ) {
+    this.id = id;
+    this.channelId = `channel-${id}`;
+    this.post = overrides.post ?? vi.fn(async () => new TestSentMessage(id));
+    this.subscribe = overrides.subscribe ?? vi.fn(async () => undefined);
+    this.unsubscribe = overrides.unsubscribe ?? vi.fn(async () => undefined);
+    this.startTyping = vi.fn(async () => undefined);
+  }
+
+  get adapter(): Thread["adapter"] {
+    throw new Error("Not used in tests");
+  }
+
+  get channel(): Thread["channel"] {
+    throw new Error("Not used in tests");
+  }
+
+  createSentMessageFromMessage(message: Message): TestSentMessage {
+    return new TestSentMessage(message.threadId);
+  }
+
+  async isSubscribed(): Promise<boolean> {
+    return true;
+  }
+
+  mentionUser(userId: string): string {
+    return `@${userId}`;
+  }
+
+  async postEphemeral(): Promise<null> {
+    return null;
+  }
+
+  async refresh(): Promise<void> {}
+
+  async schedule(): Promise<never> {
+    throw new Error("Not used in tests");
+  }
+
+  async setState(): Promise<void> {}
+}
 
 function createThread(
   id: string,
   overrides: Partial<{
-    post: ChatSdkThread["post"];
-    startTyping: NonNullable<ChatSdkThread["startTyping"]>;
-    subscribe: NonNullable<ChatSdkThread["subscribe"]>;
-    unsubscribe: NonNullable<ChatSdkThread["unsubscribe"]>;
+    post: Thread["post"];
+    subscribe: Thread["subscribe"];
+    unsubscribe: Thread["unsubscribe"];
   }> = {},
-): ChatSdkThread {
-  return {
-    id,
-    post: overrides.post ?? vi.fn(async () => ({ id: `sent-${id}` })),
-    startTyping: overrides.startTyping ?? vi.fn(async () => undefined),
-    subscribe: overrides.subscribe ?? vi.fn(async () => undefined),
-    unsubscribe: overrides.unsubscribe ?? vi.fn(async () => undefined),
-  };
+): Thread {
+  return new TestThread(id, overrides);
+}
+
+function createMessage(text: string): Message {
+  return new Message({
+    id: `message-${text || "empty"}`,
+    threadId: "thread-1",
+    text,
+    formatted: { type: "root", children: [] },
+    raw: {},
+    author: {
+      userId: "user-1",
+      userName: "user",
+      fullName: "User",
+      isBot: false,
+      isMe: false,
+    },
+    metadata: {
+      dateSent: new Date(0),
+      edited: false,
+    },
+    attachments: [],
+    links: [],
+  });
 }
 
 function createChatStub() {
@@ -61,41 +169,17 @@ function createChatStub() {
     webhooks: {
       slack: slackWebhook,
     },
-  };
+  } satisfies Pick<Chat, "onNewMention" | "onSubscribedMessage" | "webhooks">;
 
   return {
-    chat: {
-      ...chat,
-    },
-    async emitMention(thread: ChatSdkThread, message: ChatSdkMessage) {
+    chat,
+    async emitMention(thread: Thread, message: Message) {
       await mentionHandler?.(thread, message);
     },
-    async emitSubscribed(thread: ChatSdkThread, message: ChatSdkMessage) {
+    async emitSubscribed(thread: Thread, message: Message) {
       await subscribedHandler?.(thread, message);
     },
     slackWebhook,
-  };
-}
-
-function createFlamecastStub(): FlamecastAgentClient & {
-  createAgent: ReturnType<typeof vi.fn>;
-  promptAgent: ReturnType<typeof vi.fn>;
-  terminateAgent: ReturnType<typeof vi.fn>;
-} {
-  let counter = 0;
-  return {
-    createAgent: vi.fn(async (_body: FlamecastCreateAgentBody) => ({
-      id: `agent-${++counter}`,
-    })),
-    promptAgent: vi.fn(async () => ({ stopReason: "end_turn" })),
-    terminateAgent: vi.fn(async () => undefined),
-  };
-}
-
-function createAppFetch(handler: (request: Request) => Promise<Response>): typeof fetch {
-  return async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-    const request = input instanceof Request ? input : new Request(String(input), init);
-    return handler(request);
   };
 }
 
@@ -104,59 +188,51 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("InMemoryThreadAgentBindingStore", () => {
+describe("InMemoryThreadBindingStore", () => {
   it("stores, updates, deletes, and clears bindings", () => {
-    const store = new InMemoryThreadAgentBindingStore();
+    const store = new InMemoryThreadBindingStore();
     const firstThread = createThread("thread-1");
 
     expect(store.getByThreadId("missing")).toBeNull();
-    expect(store.getByAgentId("missing")).toBeNull();
-    expect(store.getByAuthToken("missing")).toBeNull();
+    expect(store.getByBindingId("missing")).toBeNull();
     expect(store.deleteByThreadId("missing")).toBeNull();
 
     store.set({
       threadId: "thread-1",
-      agentId: "agent-1",
-      authToken: "token-1",
+      bindingId: "binding-1",
       thread: firstThread,
     });
 
     expect(store.list()).toHaveLength(1);
     expect(store.getByThreadId("thread-1")?.thread).toBe(firstThread);
-    expect(store.getByAgentId("agent-1")?.threadId).toBe("thread-1");
-    expect(store.getByAuthToken("token-1")?.agentId).toBe("agent-1");
+    expect(store.getByBindingId("binding-1")?.threadId).toBe("thread-1");
 
     const nextThread = createThread("thread-1");
     store.set({
       threadId: "thread-1",
-      agentId: "agent-2",
-      authToken: "token-2",
+      bindingId: "binding-2",
       thread: nextThread,
     });
 
-    expect(store.getByAgentId("agent-1")).toBeNull();
-    expect(store.getByAuthToken("token-1")).toBeNull();
+    expect(store.getByBindingId("binding-1")).toBeNull();
     expect(store.getByThreadId("thread-1")?.thread).toBe(nextThread);
-
-    expect(store.deleteByThreadId("thread-1")?.agentId).toBe("agent-2");
+    expect(store.deleteByThreadId("thread-1")?.bindingId).toBe("binding-2");
     expect(store.list()).toEqual([]);
 
     store.set({
       threadId: "thread-2",
-      agentId: "agent-3",
-      authToken: "token-3",
+      bindingId: "binding-3",
       thread: createThread("thread-2"),
     });
     store.clear();
     expect(store.list()).toEqual([]);
   });
 
-  it("returns null when secondary indexes point at a missing thread record", () => {
-    const store = new InMemoryThreadAgentBindingStore();
+  it("returns null when the secondary index points at a missing thread record", () => {
+    const store = new InMemoryThreadBindingStore();
     store.set({
       threadId: "thread-1",
-      agentId: "agent-1",
-      authToken: "token-1",
+      bindingId: "binding-1",
       thread: createThread("thread-1"),
     });
 
@@ -166,30 +242,14 @@ describe("InMemoryThreadAgentBindingStore", () => {
     }
     byThreadId.delete("thread-1");
 
-    expect(store.getByAgentId("agent-1")).toBeNull();
-    expect(store.getByAuthToken("token-1")).toBeNull();
+    expect(store.getByBindingId("binding-1")).toBeNull();
   });
 });
 
 describe("extractMessageText", () => {
-  it("extracts text from direct text, content, and parts", () => {
-    expect(extractMessageText({ text: " hello " })).toBe("hello");
-    expect(extractMessageText({ content: " world " })).toBe("world");
-    expect(
-      extractMessageText({
-        parts: [
-          { type: "text", text: "first" },
-          { type: "image", text: "ignored" },
-          { type: "text", text: "second" },
-        ],
-      }),
-    ).toBe("first\nsecond");
-    expect(extractMessageText({ content: { type: "json" } })).toBeNull();
-    expect(
-      extractMessageText({
-        parts: [{ type: "text", text: "   " }, { type: "text" }],
-      }),
-    ).toBeNull();
+  it("returns trimmed Chat SDK message text when present", () => {
+    expect(extractMessageText(createMessage(" hello "))).toBe("hello");
+    expect(extractMessageText(createMessage("   "))).toBeNull();
   });
 });
 
@@ -203,7 +263,7 @@ describe("FlamecastHttpClient", () => {
   it("creates agents, prompts agents, and terminates agents", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     fetchImpl.mockResolvedValueOnce(
-      new Response(JSON.stringify({ id: "agent-1" }), {
+      new Response(JSON.stringify({ id: "agent-1", logs: [] }), {
         headers: { "content-type": "application/json" },
       }),
     );
@@ -225,6 +285,7 @@ describe("FlamecastHttpClient", () => {
       }),
     ).toEqual({
       id: "agent-1",
+      logs: [],
     });
     expect(await client.promptAgent("agent-1", "hello")).toEqual({
       stopReason: "end_turn",
@@ -234,22 +295,179 @@ describe("FlamecastHttpClient", () => {
     expect(fetchImpl).toHaveBeenNthCalledWith(
       1,
       new URL("/api/agents", "http://flamecast.test"),
-      expect.objectContaining({
-        method: "POST",
-      }),
+      expect.objectContaining({ method: "POST" }),
     );
     expect(fetchImpl).toHaveBeenNthCalledWith(
       2,
       new URL("/api/agents/agent-1/prompt", "http://flamecast.test"),
-      expect.objectContaining({
-        method: "POST",
-      }),
+      expect.objectContaining({ method: "POST" }),
     );
     expect(fetchImpl).toHaveBeenNthCalledWith(
       3,
       new URL("/api/agents/agent-1", "http://flamecast.test"),
       { method: "DELETE" },
     );
+  });
+
+  it("handles agent snapshots without logs when deriving a reply", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    fetchImpl.mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: "agent-1" }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    fetchImpl.mockResolvedValueOnce(
+      new Response(JSON.stringify({ stopReason: "end_turn" }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    fetchImpl.mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: "agent-1" }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const client = new FlamecastHttpClient({ baseUrl: "http://flamecast.test", fetch: fetchImpl });
+
+    expect(await client.promptAgentForReply("agent-1", "hello")).toEqual({
+      stopReason: "end_turn",
+      replyText: null,
+    });
+  });
+
+  it("returns null when appended logs do not contain a text assistant reply", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    fetchImpl.mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: "agent-1", logs: [] }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    fetchImpl.mockResolvedValueOnce(
+      new Response(JSON.stringify({ stopReason: "end_turn" }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    fetchImpl.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: "agent-1",
+          logs: [
+            { timestamp: "1", type: "session_update", data: {} },
+            {
+              timestamp: "2",
+              type: "rpc",
+              data: {
+                method: "session/prompt",
+                direction: "agent_to_client",
+                phase: "notification",
+                payload: {},
+              },
+            },
+            {
+              timestamp: "3",
+              type: "rpc",
+              data: {
+                method: "session/update",
+                direction: "agent_to_client",
+                phase: "notification",
+                payload: {
+                  update: {
+                    sessionUpdate: "tool_call",
+                    content: { type: "text", text: "ignored" },
+                  },
+                },
+              },
+            },
+            {
+              timestamp: "4",
+              type: "rpc",
+              data: {
+                method: "session/update",
+                direction: "agent_to_client",
+                phase: "notification",
+                payload: {
+                  update: {
+                    sessionUpdate: "agent_message_chunk",
+                    content: { type: "image", text: "ignored" },
+                  },
+                },
+              },
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
+    const client = new FlamecastHttpClient({ baseUrl: "http://flamecast.test", fetch: fetchImpl });
+
+    expect(await client.promptAgentForReply("agent-1", "hello")).toEqual({
+      stopReason: "end_turn",
+      replyText: null,
+    });
+  });
+
+  it("derives the latest assistant reply from newly appended logs", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    fetchImpl.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: "agent-1",
+          logs: [{ timestamp: "1", type: "rpc", data: { method: "session/prompt" } }],
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
+    fetchImpl.mockResolvedValueOnce(
+      new Response(JSON.stringify({ stopReason: "end_turn" }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    fetchImpl.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: "agent-1",
+          logs: [
+            { timestamp: "1", type: "rpc", data: { method: "session/prompt" } },
+            {
+              timestamp: "2",
+              type: "rpc",
+              data: {
+                method: "session/update",
+                direction: "agent_to_client",
+                phase: "notification",
+                payload: {
+                  update: {
+                    sessionUpdate: "agent_message_chunk",
+                    content: { type: "text", text: "Hello" },
+                  },
+                },
+              },
+            },
+            {
+              timestamp: "3",
+              type: "rpc",
+              data: {
+                method: "session/update",
+                direction: "agent_to_client",
+                phase: "notification",
+                payload: {
+                  update: {
+                    sessionUpdate: "agent_message_chunk",
+                    content: { type: "text", text: " world" },
+                  },
+                },
+              },
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    );
+    const client = new FlamecastHttpClient({ baseUrl: "http://flamecast.test", fetch: fetchImpl });
+
+    expect(await client.promptAgentForReply("agent-1", "hello")).toEqual({
+      stopReason: "end_turn",
+      replyText: "Hello world",
+    });
   });
 
   it("surfaces JSON and non-JSON error responses", async () => {
@@ -277,7 +495,7 @@ describe("FlamecastHttpClient", () => {
     await expect(client.terminateAgent("agent-1")).rejects.toThrow("Bad Gateway");
   });
 
-  it("uses the global fetch fallback and default MCP header metadata", async () => {
+  it("uses the global fetch fallback", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     fetchImpl.mockResolvedValueOnce(
       new Response(JSON.stringify({ stopReason: "end_turn" }), {
@@ -297,26 +515,6 @@ describe("FlamecastHttpClient", () => {
       new URL("/api/agents/agent%201/prompt", "http://flamecast.test"),
       expect.objectContaining({ method: "POST" }),
     );
-    expect(createConnectorMcpServer("https://connector.test/mcp", "secret")).toEqual({
-      type: "http",
-      name: "chat-sdk",
-      url: "https://connector.test/mcp",
-      headers: [{ name: "x-flamecast-chat-token", value: "secret" }],
-    });
-  });
-
-  it("builds connector MCP server configs", () => {
-    expect(
-      createConnectorMcpServer("https://connector.test/mcp", "secret", {
-        headerName: "x-custom-token",
-        serverName: "chat-tools",
-      }),
-    ).toEqual({
-      type: "http",
-      name: "chat-tools",
-      url: "https://connector.test/mcp",
-      headers: [{ name: "x-custom-token", value: "secret" }],
-    });
   });
 
   it("falls back to a synthesized status message for non-json errors without status text", async () => {
@@ -334,103 +532,162 @@ describe("FlamecastHttpClient", () => {
 });
 
 describe("ChatSdkConnector", () => {
-  it("creates agents on first mention, reuses them for follow-ups, and ignores empty messages", async () => {
-    const bindings = new InMemoryThreadAgentBindingStore();
+  function createCallbacks() {
+    let counter = 0;
+    return {
+      createBinding: vi.fn(async (thread: Thread) => ({
+        threadId: thread.id,
+        bindingId: `binding-${++counter}`,
+        thread,
+      })),
+      onMessage: vi.fn<
+        ({
+          binding,
+          text,
+        }: {
+          binding: { bindingId: string };
+          text: string;
+        }) => Promise<string | undefined>
+      >(
+        async ({ binding, text }: { binding: { bindingId: string }; text: string }) =>
+          `${binding.bindingId}:${text}`,
+      ),
+      onBindingRemoved: vi.fn(async () => undefined),
+    };
+  }
+
+  it("creates bindings on first mention, reuses them for follow-ups, and ignores empty messages", async () => {
+    const bindings = new InMemoryThreadBindingStore();
     const chat = createChatStub();
-    const flamecast = createFlamecastStub();
+    const callbacks = createCallbacks();
     const connector = new ChatSdkConnector({
       chat: chat.chat,
-      flamecast,
       bindings,
-      agent: {
-        spawn: { command: "node", args: ["agent.js"] },
-        cwd: "/workspace",
-      },
-      mcpEndpoint: "http://connector.test/mcp",
+      createBinding: callbacks.createBinding,
+      onMessage: callbacks.onMessage,
+      onBindingRemoved: callbacks.onBindingRemoved,
     });
 
     connector.start();
     connector.start();
 
     const firstThread = createThread("thread-1");
-    await chat.emitMention(firstThread, { text: "hello" });
+    await chat.emitMention(firstThread, createMessage("hello"));
 
     expect(firstThread.subscribe).toHaveBeenCalledTimes(1);
-    expect(flamecast.createAgent).toHaveBeenCalledTimes(1);
-    expect(flamecast.createAgent).toHaveBeenCalledWith({
-      spawn: { command: "node", args: ["agent.js"] },
-      cwd: "/workspace",
-      mcpServers: [
-        expect.objectContaining({
-          type: "http",
-          name: "chat-sdk",
-          url: "http://connector.test/mcp",
-          headers: [expect.objectContaining({ name: "x-flamecast-chat-token" })],
-        }),
-      ],
-    });
-    expect(flamecast.promptAgent).toHaveBeenCalledWith("agent-1", "hello");
-    expect(bindings.getByThreadId("thread-1")?.agentId).toBe("agent-1");
+    expect(callbacks.createBinding).toHaveBeenCalledTimes(1);
+    expect(callbacks.onMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "hello",
+        binding: expect.objectContaining({ bindingId: "binding-1" }),
+      }),
+    );
+    expect(firstThread.post).toHaveBeenCalledWith("binding-1:hello");
+    expect(bindings.getByThreadId("thread-1")?.bindingId).toBe("binding-1");
 
-    await chat.emitSubscribed(firstThread, { text: "same-thread" });
+    await chat.emitSubscribed(firstThread, createMessage("same-thread"));
 
     const refreshedThread = createThread("thread-1");
-    await chat.emitSubscribed(refreshedThread, { content: "follow-up" });
-    await chat.emitSubscribed(refreshedThread, { content: { type: "json" } });
+    await chat.emitSubscribed(refreshedThread, createMessage("follow-up"));
+    await chat.emitSubscribed(refreshedThread, createMessage("   "));
 
-    expect(flamecast.createAgent).toHaveBeenCalledTimes(1);
-    expect(flamecast.promptAgent).toHaveBeenNthCalledWith(2, "agent-1", "same-thread");
-    expect(flamecast.promptAgent).toHaveBeenNthCalledWith(3, "agent-1", "follow-up");
+    expect(callbacks.createBinding).toHaveBeenCalledTimes(1);
+    expect(callbacks.onMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        text: "same-thread",
+        binding: expect.objectContaining({ bindingId: "binding-1" }),
+      }),
+    );
+    expect(callbacks.onMessage).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        text: "follow-up",
+        binding: expect.objectContaining({ bindingId: "binding-1" }),
+      }),
+    );
     expect(bindings.getByThreadId("thread-1")?.thread).toBe(refreshedThread);
   });
 
-  it("stops cleanly and continues cleanup when one agent termination fails", async () => {
-    const bindings = new InMemoryThreadAgentBindingStore();
+  it("skips posting when the message handler returns nothing", async () => {
+    const bindings = new InMemoryThreadBindingStore();
     const chat = createChatStub();
-    const flamecast = createFlamecastStub();
-    flamecast.terminateAgent.mockRejectedValueOnce(new Error("boom"));
+    const callbacks = createCallbacks();
+    callbacks.onMessage.mockImplementationOnce(async () => undefined);
     const connector = new ChatSdkConnector({
       chat: chat.chat,
-      flamecast,
       bindings,
-      agent: {
-        spawn: { command: "node" },
-        cwd: "/workspace",
-      },
-      mcpEndpoint: "http://connector.test/mcp",
+      createBinding: callbacks.createBinding,
+      onMessage: callbacks.onMessage,
     });
 
     connector.start();
-    await chat.emitMention(createThread("thread-1"), { text: "one" });
-    await chat.emitMention(createThread("thread-2"), { text: "two" });
+    const thread = createThread("thread-1");
+    await chat.emitMention(thread, createMessage("hello"));
 
-    await connector.stop();
-    await chat.emitMention(createThread("thread-3"), { text: "ignored" });
+    expect(thread.post).not.toHaveBeenCalled();
+  });
 
-    expect(flamecast.terminateAgent).toHaveBeenCalledWith("agent-1");
-    expect(flamecast.terminateAgent).toHaveBeenCalledWith("agent-2");
+  it("posts only non-empty replies", async () => {
+    const bindings = new InMemoryThreadBindingStore();
+    const chat = createChatStub();
+    const callbacks = createCallbacks();
+    callbacks.onMessage.mockResolvedValueOnce("   ");
+    const connector = new ChatSdkConnector({
+      chat: chat.chat,
+      bindings,
+      createBinding: callbacks.createBinding,
+      onMessage: callbacks.onMessage,
+    });
+
+    connector.start();
+    const thread = createThread("thread-1");
+    await chat.emitMention(thread, createMessage("hello"));
+
+    expect(thread.post).not.toHaveBeenCalled();
+  });
+
+  it("stops cleanly and continues cleanup when one binding removal fails", async () => {
+    const bindings = new InMemoryThreadBindingStore();
+    const chat = createChatStub();
+    const callbacks = createCallbacks();
+    callbacks.onBindingRemoved
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValueOnce(undefined);
+    const connector = new ChatSdkConnector({
+      chat: chat.chat,
+      bindings,
+      createBinding: callbacks.createBinding,
+      onMessage: callbacks.onMessage,
+      onBindingRemoved: callbacks.onBindingRemoved,
+    });
+
+    connector.start();
+    await chat.emitMention(createThread("thread-1"), createMessage("one"));
+    await chat.emitMention(createThread("thread-2"), createMessage("two"));
+
+    await expect(connector.stop()).resolves.toBeUndefined();
+    await chat.emitMention(createThread("thread-3"), createMessage("ignored"));
+
+    expect(callbacks.onBindingRemoved).toHaveBeenCalledTimes(2);
     expect(bindings.list()).toEqual([]);
-    expect(flamecast.createAgent).toHaveBeenCalledTimes(2);
+    expect(callbacks.createBinding).toHaveBeenCalledTimes(2);
   });
 
   it("serves health and webhook routes", async () => {
-    const bindings = new InMemoryThreadAgentBindingStore();
+    const bindings = new InMemoryThreadBindingStore();
     bindings.set({
       threadId: "thread-1",
-      agentId: "agent-1",
-      authToken: "token-1",
+      bindingId: "binding-1",
       thread: createThread("thread-1"),
     });
     const chat = createChatStub();
+    const callbacks = createCallbacks();
     const connector = new ChatSdkConnector({
       chat: chat.chat,
-      flamecast: createFlamecastStub(),
       bindings,
-      agent: {
-        spawn: { command: "node" },
-        cwd: "/workspace",
-      },
-      mcpEndpoint: "http://connector.test/mcp",
+      createBinding: callbacks.createBinding,
+      onMessage: callbacks.onMessage,
     });
 
     const health = await connector.fetch(new Request("http://connector.test/health"));
@@ -454,143 +711,40 @@ describe("ChatSdkConnector", () => {
     expect(await missing.json()).toEqual({ error: "Unknown webhook platform" });
   });
 
-  it("rejects MCP requests without a valid auth token", async () => {
+  it("allows Flamecast integrations to stay outside the connector", async () => {
+    const chat = createChatStub();
+    const flamecast = {
+      createAgent: vi.fn(async (_body: FlamecastCreateAgentBody) => ({ id: "agent-1", logs: [] })),
+      promptAgentForReply: vi.fn(async (_agentId: string, _text: string) => ({
+        stopReason: "end_turn",
+        replyText: "assistant reply",
+      })),
+      terminateAgent: vi.fn(async (_agentId: string) => undefined),
+    };
     const connector = new ChatSdkConnector({
-      chat: createChatStub().chat,
-      flamecast: createFlamecastStub(),
-      bindings: new InMemoryThreadAgentBindingStore(),
-      agent: {
-        spawn: { command: "node" },
-        cwd: "/workspace",
+      chat: chat.chat,
+      bindings: new InMemoryThreadBindingStore(),
+      createBinding: async (thread) => {
+        const agent = await flamecast.createAgent({ agentTemplateId: "codex" });
+        return { threadId: thread.id, bindingId: agent.id, thread };
       },
-      mcpEndpoint: "http://connector.test/mcp",
-    });
-
-    const missing = await connector.fetch(
-      new Request("http://connector.test/mcp", {
-        method: "POST",
-      }),
-    );
-    expect(missing.status).toBe(401);
-    expect(await missing.json()).toEqual({ error: "Missing MCP auth token" });
-
-    const unknown = await connector.fetch(
-      new Request("http://connector.test/mcp", {
-        method: "POST",
-        headers: { "x-flamecast-chat-token": "missing" },
-      }),
-    );
-    expect(unknown.status).toBe(401);
-    expect(await unknown.json()).toEqual({ error: "Unknown MCP auth token" });
-  });
-
-  it("routes MCP reply, typing, subscribe, and unsubscribe tools to the bound thread", async () => {
-    const bindings = new InMemoryThreadAgentBindingStore();
-    const flamecast = createFlamecastStub();
-    const subscribedThread = createThread("thread-1");
-    bindings.set({
-      threadId: "thread-1",
-      agentId: "agent-1",
-      authToken: "token-1",
-      thread: subscribedThread,
-    });
-
-    const connector = new ChatSdkConnector({
-      chat: createChatStub().chat,
-      flamecast,
-      bindings,
-      agent: {
-        spawn: { command: "node" },
-        cwd: "/workspace",
+      onMessage: async ({ binding, text }) => {
+        const result = await flamecast.promptAgentForReply(binding.bindingId, text);
+        return result.replyText;
       },
-      mcpEndpoint: "http://connector.test/mcp",
-    });
-
-    const client = new Client({ name: "connector-test", version: "1.0.0" }, { capabilities: {} });
-    const transport = new StreamableHTTPClientTransport(new URL("http://connector.test/mcp"), {
-      fetch: createAppFetch(connector.fetch),
-      requestInit: {
-        headers: {
-          "x-flamecast-chat-token": "token-1",
-        },
+      onBindingRemoved: async ({ bindingId }) => {
+        await flamecast.terminateAgent(bindingId);
       },
     });
 
-    await client.connect(transport);
-    const tools = await client.listTools();
+    connector.start();
+    const thread = createThread("thread-1");
+    await chat.emitMention(thread, createMessage("hello"));
+    await connector.stop();
 
-    expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
-      "chat.reply",
-      "chat.subscribe",
-      "chat.typing.start",
-      "chat.unsubscribe",
-    ]);
-
-    await client.callTool({
-      name: "chat.reply",
-      arguments: { text: "hello from MCP" },
-    });
-    await client.callTool({
-      name: "chat.typing.start",
-      arguments: {},
-    });
-    await client.callTool({
-      name: "chat.subscribe",
-      arguments: {},
-    });
-    await client.callTool({
-      name: "chat.unsubscribe",
-      arguments: {},
-    });
-
-    expect(subscribedThread.post).toHaveBeenCalledWith("hello from MCP");
-    expect(subscribedThread.startTyping).toHaveBeenCalledTimes(1);
-    expect(subscribedThread.subscribe).toHaveBeenCalledTimes(1);
-    expect(subscribedThread.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(flamecast.createAgent).toHaveBeenCalledWith({ agentTemplateId: "codex" });
+    expect(flamecast.promptAgentForReply).toHaveBeenCalledWith("agent-1", "hello");
+    expect(thread.post).toHaveBeenCalledWith("assistant reply");
     expect(flamecast.terminateAgent).toHaveBeenCalledWith("agent-1");
-    expect(bindings.getByThreadId("thread-1")).toBeNull();
-
-    await transport.close();
-  });
-
-  it("treats missing typing support as a no-op", async () => {
-    const bindings = new InMemoryThreadAgentBindingStore();
-    bindings.set({
-      threadId: "thread-1",
-      agentId: "agent-1",
-      authToken: "token-1",
-      thread: createThread("thread-1", {
-        startTyping: undefined,
-      }),
-    });
-    const connector = new ChatSdkConnector({
-      chat: createChatStub().chat,
-      flamecast: createFlamecastStub(),
-      bindings,
-      agent: {
-        spawn: { command: "node" },
-        cwd: "/workspace",
-      },
-      mcpEndpoint: "http://connector.test/mcp",
-    });
-
-    const client = new Client({ name: "connector-test", version: "1.0.0" }, { capabilities: {} });
-    const transport = new StreamableHTTPClientTransport(new URL("http://connector.test/mcp"), {
-      fetch: createAppFetch(connector.fetch),
-      requestInit: {
-        headers: {
-          "x-flamecast-chat-token": "token-1",
-        },
-      },
-    });
-
-    await client.connect(transport);
-    await expect(
-      client.callTool({
-        name: "chat.typing.start",
-        arguments: {},
-      }),
-    ).resolves.toBeTruthy();
-    await transport.close();
   });
 });

@@ -1,56 +1,34 @@
-import { randomUUID } from "node:crypto";
+import type { Chat, Message, Thread } from "chat";
 import { Hono } from "hono";
-import type {
-  ChatSdkThread,
-  InMemoryThreadAgentBindingStore,
-  ThreadAgentBinding,
-} from "./bindings.js";
-import {
-  createConnectorMcpServer,
-  type FlamecastAgentClient,
-  type FlamecastCreateAgentBody,
-} from "./flamecast-client.js";
-import { handleChatMcpRequest } from "./mcp.js";
+import type { InMemoryThreadBindingStore, ThreadBinding } from "./bindings.js";
 
-export type ChatSdkMessage = {
-  content?: unknown;
-  parts?: Array<{ text?: string; type?: string }> | null;
-  text?: string | null;
-};
+export type ChatSdkClient = Pick<Chat, "onNewMention" | "onSubscribedMessage" | "webhooks">;
 
-type MentionHandler = (thread: ChatSdkThread, message: ChatSdkMessage) => void | Promise<void>;
-
-type WebhookHandler = (
-  request: Request,
-  context: { waitUntil(task: Promise<unknown>): void },
-) => Promise<Response>;
-
-export type ChatSdkClient = {
-  onNewMention(handler: MentionHandler): void;
-  onSubscribedMessage(handler: MentionHandler): void;
-  webhooks: Record<string, WebhookHandler>;
+export type ChatSdkConnectorMessageContext = {
+  binding: ThreadBinding;
+  message: Message;
+  text: string;
+  thread: Thread;
 };
 
 export type ChatSdkConnectorOptions = {
   chat: ChatSdkClient;
-  flamecast: FlamecastAgentClient;
-  bindings: InMemoryThreadAgentBindingStore;
-  agent: Omit<FlamecastCreateAgentBody, "mcpServers">;
-  mcpEndpoint: string | URL;
-  mcpHeaderName?: string;
-  mcpServerName?: string;
+  bindings: InMemoryThreadBindingStore;
+  createBinding(thread: Thread): Promise<ThreadBinding>;
+  onBindingRemoved?(binding: ThreadBinding): void | Promise<void>;
+  onMessage(
+    context: ChatSdkConnectorMessageContext,
+  ): Promise<string | null | void> | string | null | void;
 };
 
-export type { ChatSdkThread } from "./bindings.js";
+export type { Message as ChatSdkMessage, Thread as ChatSdkThread, ThreadBinding };
 
 export class ChatSdkConnector {
   private readonly chat: ChatSdkClient;
-  private readonly flamecast: FlamecastAgentClient;
-  private readonly bindings: InMemoryThreadAgentBindingStore;
-  private readonly agent: Omit<FlamecastCreateAgentBody, "mcpServers">;
-  private readonly mcpEndpoint: URL;
-  private readonly mcpHeaderName: string;
-  private readonly mcpServerName?: string;
+  private readonly bindings: InMemoryThreadBindingStore;
+  private readonly createBindingCallback: (thread: Thread) => Promise<ThreadBinding>;
+  private readonly onBindingRemoved?: (binding: ThreadBinding) => void | Promise<void>;
+  private readonly onMessageCallback: ChatSdkConnectorOptions["onMessage"];
   private readonly app = new Hono();
   private handlersInstalled = false;
   private active = false;
@@ -59,12 +37,10 @@ export class ChatSdkConnector {
 
   constructor(options: ChatSdkConnectorOptions) {
     this.chat = options.chat;
-    this.flamecast = options.flamecast;
     this.bindings = options.bindings;
-    this.agent = options.agent;
-    this.mcpEndpoint = new URL(options.mcpEndpoint);
-    this.mcpHeaderName = options.mcpHeaderName ?? "x-flamecast-chat-token";
-    this.mcpServerName = options.mcpServerName;
+    this.createBindingCallback = options.createBinding;
+    this.onBindingRemoved = options.onBindingRemoved;
+    this.onMessageCallback = options.onMessage;
     this.fetch = async (request: Request) => this.app.fetch(request);
 
     this.app.get("/health", (c) =>
@@ -76,7 +52,6 @@ export class ChatSdkConnector {
     this.app.post("/webhooks/:platform", async (c) =>
       this.handleWebhookRequest(c.req.param("platform"), c.req.raw),
     );
-    this.app.all("/mcp", async (c) => this.handleMcpRequest(c.req.raw));
   }
 
   start(): void {
@@ -97,17 +72,17 @@ export class ChatSdkConnector {
     const bindings = this.bindings.list();
     await Promise.all(
       bindings.map(async (binding) => {
-        await this.flamecast.terminateAgent(binding.agentId).catch(() => undefined);
+        await Promise.resolve(this.onBindingRemoved?.(binding)).catch(() => undefined);
       }),
     );
     this.bindings.clear();
   }
 
-  async handleNewMention(thread: ChatSdkThread, message: ChatSdkMessage): Promise<void> {
+  async handleNewMention(thread: Thread, message: Message): Promise<void> {
     await this.handleInboundMessage(thread, message);
   }
 
-  async handleSubscribedMessage(thread: ChatSdkThread, message: ChatSdkMessage): Promise<void> {
+  async handleSubscribedMessage(thread: Thread, message: Message): Promise<void> {
     await this.handleInboundMessage(thread, message);
   }
 
@@ -127,28 +102,7 @@ export class ChatSdkConnector {
     });
   }
 
-  async handleMcpRequest(request: Request): Promise<Response> {
-    const token = request.headers.get(this.mcpHeaderName);
-    if (!token) {
-      return this.jsonError("Missing MCP auth token", 401);
-    }
-
-    const binding = this.bindings.getByAuthToken(token);
-    if (!binding) {
-      return this.jsonError("Unknown MCP auth token", 401);
-    }
-
-    return handleChatMcpRequest(request, {
-      binding,
-      bindings: this.bindings,
-      flamecast: this.flamecast,
-    });
-  }
-
-  private async handleInboundMessage(
-    thread: ChatSdkThread,
-    message: ChatSdkMessage,
-  ): Promise<void> {
+  private async handleInboundMessage(thread: Thread, message: Message): Promise<void> {
     if (!this.active) {
       return;
     }
@@ -160,7 +114,7 @@ export class ChatSdkConnector {
 
     let binding = this.bindings.getByThreadId(thread.id);
     if (!binding) {
-      await thread.subscribe?.();
+      await thread.subscribe();
       binding = await this.createBinding(thread);
     } else if (binding.thread !== thread) {
       binding = {
@@ -170,66 +124,32 @@ export class ChatSdkConnector {
       this.bindings.set(binding);
     }
 
-    await this.flamecast.promptAgent(binding.agentId, text);
-  }
-
-  private async createBinding(thread: ChatSdkThread): Promise<ThreadAgentBinding> {
-    const authToken = randomUUID();
-    const agent = await this.flamecast.createAgent({
-      ...this.agent,
-      mcpServers: [
-        createConnectorMcpServer(this.mcpEndpoint, authToken, {
-          headerName: this.mcpHeaderName,
-          serverName: this.mcpServerName,
-        }),
-      ],
-    });
-    const binding: ThreadAgentBinding = {
-      threadId: thread.id,
-      agentId: agent.id,
-      authToken,
+    const reply = await this.onMessageCallback({
+      binding,
+      message,
+      text,
       thread,
-    };
-    this.bindings.set(binding);
-    return binding;
-  }
-
-  private jsonError(message: string, status: number): Response {
-    return new Response(JSON.stringify({ error: message }), {
-      status,
-      headers: { "content-type": "application/json" },
     });
-  }
-}
+    const replyText = typeof reply === "string" ? reply.trim() : "";
 
-export function extractMessageText(message: ChatSdkMessage): string | null {
-  if (typeof message.text === "string" && message.text.trim()) {
-    return message.text.trim();
-  }
-
-  if (typeof message.content === "string" && message.content.trim()) {
-    return message.content.trim();
-  }
-
-  if (Array.isArray(message.parts)) {
-    const text = message.parts
-      .filter(
-        (
-          part,
-        ): part is {
-          type: string;
-          text: string;
-        } => part.type === "text" && typeof part.text === "string",
-      )
-      .map((part) => part.text.trim())
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-
-    if (text) {
-      return text;
+    if (replyText) {
+      await thread.post(replyText);
     }
   }
 
-  return null;
+  private async createBinding(thread: Thread): Promise<ThreadBinding> {
+    const binding = await this.createBindingCallback(thread);
+    const normalizedBinding: ThreadBinding = {
+      ...binding,
+      threadId: thread.id,
+      thread,
+    };
+    this.bindings.set(normalizedBinding);
+    return normalizedBinding;
+  }
+}
+
+export function extractMessageText(message: Message): string | null {
+  const text = message.text.trim();
+  return text || null;
 }

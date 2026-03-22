@@ -1,68 +1,51 @@
-export type ChatSdkThread = {
-  id: string;
-  post(message: string): Promise<unknown>;
-  startTyping?(): Promise<unknown>;
-  subscribe?(): Promise<unknown>;
-  unsubscribe?(): Promise<unknown>;
-};
+import type { Thread } from "chat";
 
-export type ThreadAgentBinding = {
+export type ThreadBinding = {
   threadId: string;
-  agentId: string;
-  authToken: string;
-  thread: ChatSdkThread;
+  bindingId: string;
+  thread: Thread;
 };
 
-export class InMemoryThreadAgentBindingStore {
-  private readonly byThreadId = new Map<string, ThreadAgentBinding>();
-  private readonly threadIdByAgentId = new Map<string, string>();
-  private readonly threadIdByAuthToken = new Map<string, string>();
+export class InMemoryThreadBindingStore {
+  private readonly byThreadId = new Map<string, ThreadBinding>();
+  private readonly threadIdByBindingId = new Map<string, string>();
 
-  getByThreadId(threadId: string): ThreadAgentBinding | null {
+  getByThreadId(threadId: string): ThreadBinding | null {
     return this.byThreadId.get(threadId) ?? null;
   }
 
-  getByAgentId(agentId: string): ThreadAgentBinding | null {
-    const threadId = this.threadIdByAgentId.get(agentId);
+  getByBindingId(bindingId: string): ThreadBinding | null {
+    const threadId = this.threadIdByBindingId.get(bindingId);
     return threadId ? (this.byThreadId.get(threadId) ?? null) : null;
   }
 
-  getByAuthToken(authToken: string): ThreadAgentBinding | null {
-    const threadId = this.threadIdByAuthToken.get(authToken);
-    return threadId ? (this.byThreadId.get(threadId) ?? null) : null;
-  }
-
-  set(binding: ThreadAgentBinding): void {
+  set(binding: ThreadBinding): void {
     const existing = this.byThreadId.get(binding.threadId);
     if (existing) {
-      this.threadIdByAgentId.delete(existing.agentId);
-      this.threadIdByAuthToken.delete(existing.authToken);
+      this.threadIdByBindingId.delete(existing.bindingId);
     }
 
     this.byThreadId.set(binding.threadId, binding);
-    this.threadIdByAgentId.set(binding.agentId, binding.threadId);
-    this.threadIdByAuthToken.set(binding.authToken, binding.threadId);
+    this.threadIdByBindingId.set(binding.bindingId, binding.threadId);
   }
 
-  deleteByThreadId(threadId: string): ThreadAgentBinding | null {
+  deleteByThreadId(threadId: string): ThreadBinding | null {
     const binding = this.byThreadId.get(threadId) ?? null;
     if (!binding) {
       return null;
     }
 
     this.byThreadId.delete(threadId);
-    this.threadIdByAgentId.delete(binding.agentId);
-    this.threadIdByAuthToken.delete(binding.authToken);
+    this.threadIdByBindingId.delete(binding.bindingId);
     return binding;
   }
 
-  list(): ThreadAgentBinding[] {
+  list(): ThreadBinding[] {
     return [...this.byThreadId.values()];
   }
 
   clear(): void {
     this.byThreadId.clear();
-    this.threadIdByAgentId.clear();
-    this.threadIdByAuthToken.clear();
+    this.threadIdByBindingId.clear();
   }
 }

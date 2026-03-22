@@ -1,4 +1,3 @@
-import type { McpServerHttp as AcpMcpServerHttp } from "@agentclientprotocol/sdk";
 import { z } from "zod";
 
 /** How the server spawns an ACP agent child process (maps to `child_process.spawn`). */
@@ -87,22 +86,6 @@ export const SessionSchema = z.object({
 });
 export type Session = z.infer<typeof SessionSchema>;
 
-const HttpHeaderSchema = z.object({
-  name: z.string().min(1),
-  value: z.string(),
-});
-
-const McpServerHttpSchema = z.object({
-  type: z.literal("http"),
-  name: z.string().min(1),
-  url: z.string().min(1),
-  headers: z.array(HttpHeaderSchema),
-  _meta: z.record(z.string(), z.unknown()).nullable().optional(),
-}) satisfies z.ZodType<AcpMcpServerHttp & { type: "http" }>;
-
-export const McpServerSchema = McpServerHttpSchema;
-export type McpServer = z.infer<typeof McpServerSchema>;
-
 export const CreateSessionBodySchema = z
   .object({
     cwd: z.string().optional(),
@@ -112,8 +95,6 @@ export const CreateSessionBodySchema = z
     spawn: AgentSpawnSchema.optional(),
     /** Display name when using `spawn` (defaults to `command` + `args`). */
     name: z.string().optional(),
-    /** Optional MCP servers to attach to the initial ACP session. */
-    mcpServers: z.array(McpServerSchema).optional(),
   })
   .refine((b) => Boolean(b.agentTemplateId) !== Boolean(b.spawn), {
     message: "Provide exactly one of agentTemplateId or spawn",

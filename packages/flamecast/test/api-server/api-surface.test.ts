@@ -3,7 +3,6 @@ import type {
   AgentTemplate,
   CreateSessionBody,
   FilePreview,
-  McpServer,
   PermissionResponseBody,
   PromptBody,
   RegisterAgentTemplateBody,
@@ -37,13 +36,6 @@ const sampleFilePreview: FilePreview = {
   content: "console.log('preview');\n",
   truncated: false,
   maxChars: 20_000,
-};
-
-const sampleMcpServer: McpServer = {
-  type: "http",
-  name: "chat-sdk",
-  url: "https://connector.test/mcp",
-  headers: [{ name: "x-flamecast-chat-token", value: "secret" }],
 };
 
 function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastApi {
@@ -182,7 +174,6 @@ describe("API server surface", () => {
     const body = {
       agentTemplateId: sampleAgentTemplate.id,
       cwd: "/tmp/flamecast",
-      mcpServers: [sampleMcpServer],
     } satisfies CreateSessionBody;
 
     const response = await app.request("/api/agents", {
@@ -204,29 +195,6 @@ describe("API server surface", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ cwd: "/tmp/flamecast" }),
-    });
-
-    expect(response.status).toBe(400);
-  });
-
-  it("rejects non-http MCP server payloads", async () => {
-    const flamecast = createFlamecastStub();
-    const app = createServerApp(flamecast);
-
-    const response = await app.request("/api/agents", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        agentTemplateId: sampleAgentTemplate.id,
-        mcpServers: [
-          {
-            type: "sse",
-            name: "chat-sdk",
-            url: "https://connector.test/sse",
-            headers: [],
-          },
-        ],
-      }),
     });
 
     expect(response.status).toBe(400);

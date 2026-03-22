@@ -280,7 +280,7 @@ export class Flamecast {
 
       const newSessionParams: acp.NewSessionRequest = {
         cwd,
-        mcpServers: opts.mcpServers ?? [],
+        mcpServers: [],
       };
       managed.pendingLogs.push(
         this.createRpcLog(

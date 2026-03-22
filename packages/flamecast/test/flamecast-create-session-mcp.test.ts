@@ -7,7 +7,7 @@ afterEach(() => {
 });
 
 describe("flamecast createSession MCP configuration", () => {
-  test("passes configured MCP servers into the initial ACP session", async () => {
+  test("starts ACP sessions with an empty MCP server list", async () => {
     let capturedParams: { cwd: string; mcpServers: unknown[] } | null = null;
 
     vi.doMock("@agentclientprotocol/sdk", async () => {
@@ -50,25 +50,16 @@ describe("flamecast createSession MCP configuration", () => {
         },
       },
     });
-    const mcpServers = [
-      {
-        type: "http" as const,
-        name: "chat-sdk",
-        url: "https://connector.test/mcp",
-        headers: [{ name: "x-flamecast-chat-token", value: "secret" }],
-      },
-    ];
 
     const session = await flamecast.createSession({
       cwd: process.cwd(),
       spawn: { command: "node", args: ["agent.js"] },
-      mcpServers,
     });
 
     expect(session.id).toBe("session-1");
     expect(capturedParams).toEqual({
       cwd: await realpath(process.cwd()),
-      mcpServers,
+      mcpServers: [],
     });
   });
 });
