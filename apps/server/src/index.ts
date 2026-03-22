@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import { Flamecast } from "@acp/flamecast";
+import { Flamecast } from "../../../packages/flamecast/src/index.js";
 
 export function createShutdownHandler(flamecast: Flamecast, server: { close: () => void }) {
   return async function shutdown() {

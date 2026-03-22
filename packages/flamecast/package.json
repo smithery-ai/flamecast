@@ -1,19 +1,46 @@
 {
   "name": "@acp/flamecast",
   "version": "0.0.0",
+  "bin": {
+    "flamecast": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/flamecast/index.ts",
-    "./api": "./src/flamecast/api.ts",
-    "./server/app": "./src/server/app.ts",
-    "./shared/session": "./src/shared/session.ts",
-    "./worker": "./src/worker.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./api": {
+      "types": "./dist/flamecast/api.d.ts",
+      "import": "./dist/flamecast/api.js"
+    },
+    "./server/app": {
+      "types": "./dist/server/app.d.ts",
+      "import": "./dist/server/app.js"
+    },
+    "./shared/session": {
+      "types": "./dist/shared/session.d.ts",
+      "import": "./dist/shared/session.js"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "import": "./dist/worker.js"
+    },
+    "./package.json": "./package.json"
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "pnpm run build:client && pnpm run build:package",
+    "build:client": "vite build",
+    "build:package": "tsc -p tsconfig.package.json",
     "generate:routes": "tsx scripts/generate-route-tree.ts",
     "psql:generate": "drizzle-kit generate --config src/flamecast/storage/psql/drizzle.config.ts",
+    "start": "node dist/cli.js",
     "test": "vitest run --config vitest.integration.config.ts",
     "test:api:coverage": "vitest run --coverage --config vitest.integration.config.ts",
     "alchemy:deploy": "alchemy deploy",
