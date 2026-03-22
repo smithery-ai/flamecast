@@ -30,7 +30,7 @@ export async function registerAgentTemplate(
 }
 
 export async function fetchSessions(): Promise<Session[]> {
-  const res = await client.sessions.$get();
+  const res = await client.agents.$get();
   if (!res.ok) throw new Error("Failed to fetch sessions");
   return res.json();
 }
@@ -39,8 +39,10 @@ export async function fetchSession(
   id: string,
   opts: { includeFileSystem?: boolean; showAllFiles?: boolean } = {},
 ): Promise<Session> {
-  const res = await client.sessions[":id"].$get({
-    param: { id },
+  // Managed agents currently map 1:1 to a single session, so the UI still consumes a session
+  // snapshot while the public route shape moves to /agents.
+  const res = await client.agents[":agentId"].$get({
+    param: { agentId: id },
     query: {
       ...(opts.includeFileSystem ? { includeFileSystem: "true" } : {}),
       ...(opts.showAllFiles ? { showAllFiles: "true" } : {}),
@@ -51,8 +53,8 @@ export async function fetchSession(
 }
 
 export async function fetchFilePreview(id: string, path: string): Promise<FilePreview> {
-  const res = await client.sessions[":id"].file.$get({
-    param: { id },
+  const res = await client.agents[":agentId"].file.$get({
+    param: { agentId: id },
     query: { path },
   });
   if (!res.ok) throw new Error("Failed to fetch file preview");
@@ -60,14 +62,14 @@ export async function fetchFilePreview(id: string, path: string): Promise<FilePr
 }
 
 export async function createSession(body: CreateSessionBody): Promise<Session> {
-  const res = await client.sessions.$post({ json: body });
+  const res = await client.agents.$post({ json: body });
   if (!res.ok) throw new Error("Failed to create session");
   return res.json();
 }
 
 export async function sendPrompt(id: string, text: string): Promise<PromptResult> {
-  const res = await client.sessions[":id"].prompt.$post({
-    param: { id },
+  const res = await client.agents[":agentId"].prompt.$post({
+    param: { agentId: id },
     json: { text },
   });
   if (!res.ok) throw new Error("Failed to send prompt");
@@ -75,7 +77,7 @@ export async function sendPrompt(id: string, text: string): Promise<PromptResult
 }
 
 export async function terminateSession(id: string): Promise<void> {
-  const res = await client.sessions[":id"].$delete({ param: { id } });
+  const res = await client.agents[":agentId"].$delete({ param: { agentId: id } });
   if (!res.ok) throw new Error("Failed to terminate session");
 }
 
@@ -84,8 +86,8 @@ export async function respondToPermission(
   requestId: string,
   body: PermissionResponseBody,
 ): Promise<void> {
-  const res = await client.sessions[":id"].permissions[":requestId"].$post({
-    param: { id: sessionId, requestId },
+  const res = await client.agents[":agentId"].permissions[":requestId"].$post({
+    param: { agentId: sessionId, requestId },
     json: body,
   });
   if (!res.ok) throw new Error("Failed to respond to permission");

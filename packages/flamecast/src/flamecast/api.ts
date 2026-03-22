@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import type { Flamecast } from "./index.js";
 import {
@@ -30,6 +30,22 @@ function toStringMessage(error: unknown): string {
 }
 
 export function createApi(flamecast: FlamecastApi) {
+  // Route renames land before the data model split: each managed agent currently maps 1:1 to a
+  // single session, so the agent endpoints still return the existing session snapshot payload.
+  const getAgentSnapshot = async (c: Context, agentId: string) => {
+    try {
+      const includeFileSystem = c.req.query("includeFileSystem") === "true";
+      const showAllFiles = c.req.query("showAllFiles") === "true";
+      const session = await flamecast.getSession(agentId, {
+        ...(includeFileSystem ? { includeFileSystem: true } : {}),
+        ...(showAllFiles ? { showAllFiles: true } : {}),
+      });
+      return c.json(session);
+    } catch {
+      return c.json({ error: "Agent not found" }, 404);
+    }
+  };
+
   return new Hono()
     .get("/health", async (c) => {
       try {
@@ -47,72 +63,65 @@ export function createApi(flamecast: FlamecastApi) {
       const template = await flamecast.registerAgentTemplate(body);
       return c.json(template, 201);
     })
-    .get("/sessions", async (c) => {
+    .get("/agents", async (c) => {
       return c.json(await flamecast.listSessions());
     })
-    .post("/sessions", zValidator("json", CreateSessionBodySchema), async (c) => {
+    .post("/agents", zValidator("json", CreateSessionBodySchema), async (c) => {
       try {
         const body = c.req.valid("json");
         const session = await flamecast.createSession(body);
         return c.json(session, 201);
       } catch (error) {
-        console.error("Session creation failed:", error);
+        console.error("Agent creation failed:", error);
         return c.json({ error: toStringMessage(error) }, 400);
       }
     })
-    .get("/sessions/:id", async (c) => {
-      try {
-        const includeFileSystem = c.req.query("includeFileSystem") === "true";
-        const showAllFiles = c.req.query("showAllFiles") === "true";
-        const session = await flamecast.getSession(c.req.param("id"), {
-          ...(includeFileSystem ? { includeFileSystem: true } : {}),
-          ...(showAllFiles ? { showAllFiles: true } : {}),
-        });
-        return c.json(session);
-      } catch {
-        return c.json({ error: "Session not found" }, 404);
-      }
-    })
-    .get("/sessions/:id/file", async (c) => {
+    .get("/agents/:agentId", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
+    .get("/agents/:agentId/", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
+    .get("/agents/:agentId/file", async (c) => {
       const path = c.req.query("path");
       if (!path) {
         return c.json({ error: "Missing path" }, 400);
       }
       try {
-        const preview = await flamecast.getFilePreview(c.req.param("id"), path);
+        const preview = await flamecast.getFilePreview(c.req.param("agentId"), path);
         return c.json(preview);
       } catch (error) {
         return c.json({ error: toErrorMessage(error) }, 400);
       }
     })
-    .post("/sessions/:id/prompt", zValidator("json", PromptBodySchema), async (c) => {
+    .post("/agents/:agentId/prompt", zValidator("json", PromptBodySchema), async (c) => {
       const { text } = c.req.valid("json");
       try {
-        const result = await flamecast.promptSession(c.req.param("id"), text);
+        const result = await flamecast.promptSession(c.req.param("agentId"), text);
         return c.json(result);
       } catch (error) {
         return c.json({ error: toErrorMessage(error) }, 400);
       }
     })
     .post(
-      "/sessions/:id/permissions/:requestId",
+      "/agents/:agentId/permissions/:requestId",
       zValidator("json", PermissionResponseBodySchema),
       async (c) => {
         const body = c.req.valid("json");
         try {
-          await flamecast.respondToPermission(c.req.param("id"), c.req.param("requestId"), body);
+          await flamecast.respondToPermission(
+            c.req.param("agentId"),
+            c.req.param("requestId"),
+            body,
+          );
           return c.json({ ok: true });
         } catch (error) {
           return c.json({ error: toErrorMessage(error) }, 400);
         }
       },
     )
-    .delete("/sessions/:id", async (c) => {
+    .delete("/agents/:agentId", async (c) => {
       try {
-        await flamecast.terminateSession(c.req.param("id"));
+        await flamecast.terminateSession(c.req.param("agentId"));
         return c.json({ ok: true });
       } catch {
-        return c.json({ error: "Session not found" }, 404);
+        return c.json({ error: "Agent not found" }, 404);
       }
     });
 }

@@ -40,12 +40,12 @@ function createClient(flamecast: Flamecast) {
 
 async function pollForPermission(
   client: ReturnType<typeof createClient>,
-  sessionId: string,
+  agentId: string,
   timeoutMs: number,
 ) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const res = await client.sessions[":id"].$get({ param: { id: sessionId } });
+    const res = await client.agents[":agentId"].$get({ param: { agentId } });
     const payload = await res.json();
     const parsed = SessionSchema.safeParse(payload);
     if (parsed.success && parsed.data.pendingPermission) {
@@ -72,12 +72,12 @@ describe("api contract", () => {
     }
   });
 
-  test("list sessions (empty)", async (scope: unknown) => {
+  test("list agents (empty)", async (scope: unknown) => {
     const flamecast = new Flamecast({ storage: "memory" });
     const client = createClient(flamecast);
 
     try {
-      const res = await client.sessions.$get();
+      const res = await client.agents.$get();
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual([]);
     } finally {
@@ -85,12 +85,12 @@ describe("api contract", () => {
     }
   });
 
-  test("404 for unknown session", async (scope: unknown) => {
+  test("404 for unknown agent", async (scope: unknown) => {
     const flamecast = new Flamecast({ storage: "memory" });
     const client = createClient(flamecast);
 
     try {
-      const res = await client.sessions[":id"].$get({ param: { id: "nonexistent" } });
+      const res = await client.agents[":agentId"].$get({ param: { agentId: "nonexistent" } });
       expect(res.status).toBe(404);
     } finally {
       await alchemy.destroy(scope);
@@ -102,7 +102,7 @@ describe("api contract", () => {
     const client = createClient(flamecast);
 
     try {
-      const createRes = await client.sessions.$post({
+      const createRes = await client.agents.$post({
         json: {
           spawn: { command: "pnpm", args: ["exec", "tsx", exampleAgentEntrypoint] },
         },
@@ -111,17 +111,18 @@ describe("api contract", () => {
       const session = SessionSchema.parse(await createRes.json());
       expect(session.id).toBeTruthy();
 
-      const sessionId = session.id;
+      // Route renames land before the data model split, so the agent ID is still the ACP session ID.
+      const agentId = session.id;
 
-      const getRes = await client.sessions[":id"].$get({ param: { id: sessionId } });
+      const getRes = await client.agents[":agentId"].$get({ param: { agentId } });
       expect(getRes.status).toBe(200);
 
-      const promptPromise = client.sessions[":id"].prompt.$post({
-        param: { id: sessionId },
+      const promptPromise = client.agents[":agentId"].prompt.$post({
+        param: { agentId },
         json: { text: "Hello from API contract test!" },
       });
 
-      const pending = await pollForPermission(client, sessionId, 15_000);
+      const pending = await pollForPermission(client, agentId, 15_000);
       expect(pending).toBeDefined();
 
       const allow = pending.options.find(
@@ -129,8 +130,8 @@ describe("api contract", () => {
       );
       if (!allow) throw new Error("No allow option");
 
-      const permRes = await client.sessions[":id"].permissions[":requestId"].$post({
-        param: { id: sessionId, requestId: pending.requestId },
+      const permRes = await client.agents[":agentId"].permissions[":requestId"].$post({
+        param: { agentId, requestId: pending.requestId },
         json: { optionId: allow.optionId },
       });
       expect(permRes.status).toBe(200);
@@ -140,7 +141,7 @@ describe("api contract", () => {
       const result = PromptResultSchema.parse(await promptRes.json());
       expect(result.stopReason).toBe("end_turn");
 
-      const killRes = await client.sessions[":id"].$delete({ param: { id: sessionId } });
+      const killRes = await client.agents[":agentId"].$delete({ param: { agentId } });
       expect(killRes.status).toBe(200);
     } finally {
       await alchemy.destroy(scope);
