@@ -7,7 +7,7 @@ import { dirname, resolve } from "node:path";
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
-const child = spawn(pnpmCommand, ["run", "dev", ...process.argv.slice(2)], {
+const child = spawn(pnpmCommand, ["run", "dev:server", ...process.argv.slice(2)], {
   cwd: rootDir,
   stdio: "inherit",
 });

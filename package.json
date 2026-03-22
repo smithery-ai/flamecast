@@ -7,7 +7,7 @@
     "acp": "./bin/acp.mjs"
   },
   "scripts": {
-    "dev": "turbo run dev --filter=@acp/server",
+    "dev": "turbo run dev",
     "dev:client": "turbo run dev --filter=@acp/flamecast",
     "dev:server": "turbo run dev --filter=@acp/server",
     "build": "turbo run build",

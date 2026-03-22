@@ -298,7 +298,7 @@ pnpm dev:client
 
 `packages/flamecast/alchemy.run.ts` and `packages/flamecast/src/worker.ts` are still experimental. The Worker entry point can serve the API, but the built-in `local` and `docker` providers are intentionally stubbed there and will throw unless you configure a provider that works in that environment.
 
-`npx .` and `pnpm dev` both start only `apps/server`.
+`npx .` starts only `apps/server`. `pnpm dev` starts both `apps/server` and the frontend in `packages/flamecast`.
 
 ---
 
@@ -318,7 +318,7 @@ Tests create isolated Flamecast instances and exercise the API surface end-to-en
 | Script | Description |
 |---|---|
 | `npx .` | Start `apps/server` in dev mode |
-| `pnpm dev` | Start `apps/server` in dev mode |
+| `pnpm dev` | Start `apps/server` and the frontend dev server |
 | `pnpm dev:server` | API only |
 | `pnpm dev:client` | Vite only |
 | `pnpm test` | Integration tests |
