@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { Resource } from "alchemy";
 import type { Context } from "alchemy";
+import { createServer } from "node:net";
 import {
   createRuntimeProvider,
+  createDockerProvisioner,
   resolveRuntimeProviders,
   resolveDockerBuildContext,
+  waitForAcp,
 } from "../src/flamecast/runtime-provider.js";
 import type { RuntimeProvisioner } from "../src/flamecast/runtime-provider.js";
 
@@ -209,7 +212,6 @@ describe("runtime provider registry", () => {
 
 describe("resolveDockerBuildContext", () => {
   it("resolves parent directory when dockerfile is in a docker/ directory", () => {
-    expect(resolveDockerBuildContext("docker/Dockerfile")).toMatch(/^[^/]|^\//);
     const result = resolveDockerBuildContext("docker/Dockerfile");
     expect(result).not.toContain("docker");
   });
@@ -217,5 +219,90 @@ describe("resolveDockerBuildContext", () => {
   it("resolves the dockerfile directory for non-docker paths", () => {
     const result = resolveDockerBuildContext("build/Dockerfile");
     expect(result).toContain("build");
+  });
+});
+
+describe("waitForAcp", () => {
+  it("resolves when the server responds to the ACP handshake", async () => {
+    const server = createServer((socket) => {
+      socket.on("data", () => {
+        socket.write(JSON.stringify({ jsonrpc: "2.0", id: 0, result: {} }) + "\n");
+        socket.end();
+      });
+    });
+
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected address");
+
+    try {
+      await waitForAcp("127.0.0.1", address.port, { timeoutMs: 5_000 });
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((err) => (err ? reject(err) : resolve())),
+      );
+    }
+  });
+
+  it("retries on connection refused then succeeds", async () => {
+    const server = createServer((socket) => {
+      socket.on("data", () => {
+        socket.write(JSON.stringify({ jsonrpc: "2.0", id: 0, result: {} }) + "\n");
+        socket.end();
+      });
+    });
+
+    // Start server after a delay to simulate initial connection refused
+    const port = await new Promise<number>((resolve) => {
+      const s = createServer();
+      s.listen(0, "127.0.0.1", () => {
+        const addr = s.address();
+        const p = typeof addr === "object" && addr ? addr.port : 0;
+        s.close(() => resolve(p));
+      });
+    });
+
+    setTimeout(() => {
+      server.listen(port, "127.0.0.1");
+    }, 100);
+
+    try {
+      await waitForAcp("127.0.0.1", port, {
+        timeoutMs: 5_000,
+        retryDelayMs: 50,
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((err) => (err ? reject(err) : resolve())),
+      );
+    }
+  });
+
+  it("times out when the server never responds", async () => {
+    const port = await new Promise<number>((resolve) => {
+      const s = createServer();
+      s.listen(0, "127.0.0.1", () => {
+        const addr = s.address();
+        const p = typeof addr === "object" && addr ? addr.port : 0;
+        s.close(() => resolve(p));
+      });
+    });
+
+    await expect(
+      waitForAcp("127.0.0.1", port, { timeoutMs: 100, retryDelayMs: 20 }),
+    ).rejects.toThrow(`ACP agent not ready on 127.0.0.1:${port} after 100ms`);
+  });
+});
+
+describe("createDockerProvisioner", () => {
+  it("throws when no image is provided", async () => {
+    const provisioner = createDockerProvisioner();
+    await expect(
+      provisioner({
+        runtime: { provider: "docker" },
+        spawn: { command: "echo", args: [] },
+        sessionId: "test-no-image",
+      }),
+    ).rejects.toThrow('Docker runtime requires an "image" value');
   });
 });

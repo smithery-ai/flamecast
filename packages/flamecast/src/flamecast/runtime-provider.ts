@@ -49,7 +49,7 @@ export function resolveDockerBuildContext(dockerfile: string): string {
   return basename(dockerfileDir) === "docker" ? resolve(dockerfileDir, "..") : dockerfileDir;
 }
 
-async function waitForAcp(
+export async function waitForAcp(
   host: string,
   port: number,
   { timeoutMs = 30_000, probeTimeoutMs = 2_000, retryDelayMs = 200 }: WaitForAcpOptions = {},
@@ -159,7 +159,10 @@ const localProvisioner: RuntimeProvisioner = async ({ spawn }) => ({
   transport: openLocalTransport(spawn),
 });
 
-function createDockerProvisioner(options: BuiltinRuntimeProviderOptions = {}): RuntimeProvisioner {
+/* v8 ignore start -- docker provisioning requires a running Docker daemon */
+export function createDockerProvisioner(
+  options: BuiltinRuntimeProviderOptions = {},
+): RuntimeProvisioner {
   return async ({ runtime, sessionId }) => {
     const provider = await import("alchemy/docker");
     const port = await findFreePort();
@@ -168,7 +171,6 @@ function createDockerProvisioner(options: BuiltinRuntimeProviderOptions = {}): R
     if (!image) {
       throw new Error('Docker runtime requires an "image" value');
     }
-
     if (runtime.dockerfile) {
       const dockerfile = runtime.dockerfile;
       await provider.Image("image", {
@@ -199,6 +201,7 @@ function createDockerProvisioner(options: BuiltinRuntimeProviderOptions = {}): R
     return { transport: await openTcpTransport("localhost", port) };
   };
 }
+/* v8 ignore stop */
 
 export function createRuntimeProvider(provisioner: RuntimeProvisioner): RuntimeProvider {
   return {
