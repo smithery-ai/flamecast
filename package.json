@@ -9,7 +9,7 @@
     "dev:server": "turbo run dev --filter=@acp/server",
     "build": "turbo run build",
     "start": "pnpm dev",
-    "knip": "knip --config knip.json --workspace packages/flamecast --no-config-hints",
+    "knip": "pnpm --filter @acp/flamecast run generate:routes && knip --config knip.json --workspace packages/flamecast --no-config-hints",
     "ci:lint": "pnpm lint && pnpm format:check && pnpm biome:lint",
     "biome:lint": "biome lint .",
     "lint": "eslint . --max-warnings 0",

@@ -201,6 +201,9 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@tanstack/router-generator':
+        specifier: 1.166.15
+        version: 1.166.15
       '@tanstack/router-plugin':
         specifier: ^1.166.14
         version: 1.167.2(@tanstack/react-router@1.168.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(vite@8.0.1(@types/node@20.19.37)(esbuild@0.27.4)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))
