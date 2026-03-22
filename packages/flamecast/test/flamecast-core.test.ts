@@ -38,6 +38,7 @@ function createMeta(id: string) {
     spawn: { command: "node", args: ["agent.js"] },
     startedAt: "2024-01-01T00:00:00.000Z",
     lastUpdatedAt: "2024-01-01T00:00:00.000Z",
+    status: "active" as const,
     pendingPermission: null,
   };
 }
@@ -788,7 +789,7 @@ describe("flamecast orchestration internals", () => {
     getPermissionResolvers(flamecast).set("request-terminate", async () => {});
 
     await flamecast.terminateSession("session-3");
-    expect(await storage.getSessionMeta("session-3")).toBeNull();
+    expect((await storage.getSessionMeta("session-3"))?.status).toBe("killed");
 
     await flamecast.shutdown();
     expect(getRuntimeMap(flamecast).has("session-4")).toBe(true);
@@ -802,6 +803,143 @@ describe("flamecast orchestration internals", () => {
     const pendingReadyFlamecast = new Flamecast({ storage: "memory" });
     Reflect.set(pendingReadyFlamecast, "readyPromise", Promise.resolve());
     await getMethod<[], Promise<void>>(pendingReadyFlamecast, "ensureReady")();
+  });
+
+  test("killed sessions remain in listSessions with killed status", async () => {
+    const flamecast = new Flamecast({ storage: "memory" });
+    const storage = attachStorage(flamecast);
+
+    const managed = createManagedSession("session-kill-list");
+    await storage.createSession(createMeta("session-kill-list"));
+    getRuntimeMap(flamecast).set("session-kill-list", managed);
+
+    const beforeList = await flamecast.listSessions();
+    expect(beforeList).toHaveLength(1);
+    expect(beforeList[0].status).toBe("active");
+
+    await flamecast.terminateSession("session-kill-list");
+
+    const afterList = await flamecast.listSessions();
+    expect(afterList).toHaveLength(1);
+    expect(afterList[0].status).toBe("killed");
+    expect(afterList[0].id).toBe("session-kill-list");
+  });
+
+  test("getSession returns killed sessions", async () => {
+    const flamecast = new Flamecast({ storage: "memory" });
+    const storage = attachStorage(flamecast);
+
+    const managed = createManagedSession("session-kill-get");
+    await storage.createSession(createMeta("session-kill-get"));
+    getRuntimeMap(flamecast).set("session-kill-get", managed);
+
+    await flamecast.terminateSession("session-kill-get");
+
+    const session = await flamecast.getSession("session-kill-get");
+    expect(session.status).toBe("killed");
+    expect(session.id).toBe("session-kill-get");
+  });
+
+  test("promptSession on a killed session throws", async () => {
+    const flamecast = new Flamecast({ storage: "memory" });
+    const storage = attachStorage(flamecast);
+
+    const managed = createManagedSession("session-kill-prompt");
+    await storage.createSession(createMeta("session-kill-prompt"));
+    getRuntimeMap(flamecast).set("session-kill-prompt", managed);
+
+    await flamecast.terminateSession("session-kill-prompt");
+
+    await expect(flamecast.promptSession("session-kill-prompt", "hello")).rejects.toThrow(
+      "Cannot prompt a terminated session",
+    );
+  });
+
+  test("terminateSession on an already-killed session throws", async () => {
+    const flamecast = new Flamecast({ storage: "memory" });
+    const storage = attachStorage(flamecast);
+
+    const managed = createManagedSession("session-kill-twice");
+    await storage.createSession(createMeta("session-kill-twice"));
+    getRuntimeMap(flamecast).set("session-kill-twice", managed);
+
+    await flamecast.terminateSession("session-kill-twice");
+
+    await expect(flamecast.terminateSession("session-kill-twice")).rejects.toThrow(
+      "Cannot terminate an already-killed session",
+    );
+  });
+
+  test("memory backend preserves logs after finalization", async () => {
+    const storage = new MemoryFlamecastStorage();
+
+    await storage.createSession(createMeta("session-logs"));
+    await storage.appendLog("session-logs", {
+      timestamp: "2024-01-01T00:00:00.000Z",
+      type: "rpc",
+      data: { ok: true },
+    });
+
+    await storage.finalizeSession("session-logs", "terminated");
+
+    const logs = await storage.getLogs("session-logs");
+    expect(logs).toHaveLength(1);
+    expect(logs[0].type).toBe("rpc");
+
+    const meta = await storage.getSessionMeta("session-logs");
+    expect(meta?.status).toBe("killed");
+  });
+
+  test("memory backend listAllSessions returns active and killed sessions", async () => {
+    const storage = new MemoryFlamecastStorage();
+
+    await storage.createSession({
+      ...createMeta("session-a"),
+      lastUpdatedAt: "2024-01-01T00:00:01.000Z",
+    });
+    await storage.createSession({
+      ...createMeta("session-b"),
+      lastUpdatedAt: "2024-01-01T00:00:02.000Z",
+    });
+    await storage.finalizeSession("session-a", "terminated");
+
+    const all = await storage.listAllSessions();
+    expect(all).toHaveLength(2);
+    expect(all[0].id).toBe("session-b");
+    expect(all[0].status).toBe("active");
+    expect(all[1].id).toBe("session-a");
+    expect(all[1].status).toBe("killed");
+  });
+
+  test("memory backend finalizeSession is a no-op for nonexistent sessions", async () => {
+    const storage = new MemoryFlamecastStorage();
+    await storage.finalizeSession("nonexistent", "terminated");
+    expect(await storage.getSessionMeta("nonexistent")).toBeNull();
+  });
+
+  test("memory backend getLogs returns empty array for unknown session", async () => {
+    const storage = new MemoryFlamecastStorage();
+    expect(await storage.getLogs("nonexistent")).toEqual([]);
+  });
+
+  test("promptSession falls through to resolveRuntime when session is active but not in runtimes", async () => {
+    const flamecast = new Flamecast({ storage: "memory" });
+    const storage = attachStorage(flamecast);
+    await storage.createSession(createMeta("orphaned-active"));
+
+    await expect(flamecast.promptSession("orphaned-active", "hello")).rejects.toThrow(
+      'Session "orphaned-active" not found',
+    );
+  });
+
+  test("terminateSession falls through to resolveRuntime when session is active but not in runtimes", async () => {
+    const flamecast = new Flamecast({ storage: "memory" });
+    const storage = attachStorage(flamecast);
+    await storage.createSession(createMeta("orphaned-active-term"));
+
+    await expect(flamecast.terminateSession("orphaned-active-term")).rejects.toThrow(
+      'Session "orphaned-active-term" not found',
+    );
   });
 
   test("handles unknown providers and initialization failures while creating sessions", async () => {

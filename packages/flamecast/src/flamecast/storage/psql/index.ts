@@ -7,13 +7,15 @@ import type { PsqlAppDb } from "./types.js";
 export type { PsqlAppDb } from "./types.js";
 
 function rowToMeta(row: typeof sessions.$inferSelect | undefined): SessionMeta | null {
-  if (!row || row.status !== "active") return null;
+  if (!row) return null;
+  const status = row.status === "killed" ? "killed" : "active";
   return {
     id: row.id,
     agentName: row.agentName,
     spawn: row.spawn,
     startedAt: row.startedAt,
     lastUpdatedAt: row.lastUpdatedAt,
+    status,
     pendingPermission: row.pendingPermission,
   };
 }
@@ -143,11 +145,7 @@ export function createPsqlStorage(db: PsqlAppDb): FlamecastStorage {
     },
 
     async getSessionMeta(id: string) {
-      const rows = await db
-        .select()
-        .from(sessions)
-        .where(and(eq(sessions.id, id), eq(sessions.status, "active")))
-        .limit(1);
+      const rows = await db.select().from(sessions).where(eq(sessions.id, id)).limit(1);
       return rowToMeta(rows[0]);
     },
 
@@ -162,6 +160,11 @@ export function createPsqlStorage(db: PsqlAppDb): FlamecastStorage {
         type: r.type,
         data: r.data,
       }));
+    },
+
+    async listAllSessions() {
+      const rows = await db.select().from(sessions).orderBy(desc(sessions.lastUpdatedAt));
+      return rows.map(rowToMeta).filter((meta): meta is SessionMeta => meta !== null);
     },
 
     async finalizeSession(id: string, _reason: "terminated") {

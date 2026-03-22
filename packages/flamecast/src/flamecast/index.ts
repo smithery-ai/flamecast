@@ -342,6 +342,7 @@ export class Flamecast {
         spawn,
         startedAt,
         lastUpdatedAt: now,
+        status: "active",
         pendingPermission: null,
       });
 
@@ -361,8 +362,8 @@ export class Flamecast {
 
   async listSessions(): Promise<Session[]> {
     await this.ensureReady();
-    const ids = [...this.runtimes.keys()];
-    return Promise.all(ids.map((id) => this.snapshotSession(id)));
+    const allMetas = await this.requireStorage().listAllSessions();
+    return Promise.all(allMetas.map((meta) => this.snapshotSession(meta.id)));
   }
 
   async getSession(
@@ -370,7 +371,10 @@ export class Flamecast {
     opts: { includeFileSystem?: boolean; showAllFiles?: boolean } = {},
   ): Promise<Session> {
     await this.ensureReady();
-    this.resolveRuntime(id);
+    if (!this.runtimes.has(id)) {
+      const meta = await this.requireStorage().getSessionMeta(id);
+      if (!meta) throw new Error(`Session "${id}" not found`);
+    }
     return this.snapshotSession(id, opts);
   }
 
@@ -391,6 +395,13 @@ export class Flamecast {
 
   async promptSession(id: string, text: string): Promise<acp.PromptResponse> {
     await this.ensureReady();
+
+    if (!this.runtimes.has(id)) {
+      const meta = await this.requireStorage().getSessionMeta(id);
+      if (meta?.status === "killed") {
+        throw new Error("Cannot prompt a terminated session");
+      }
+    }
 
     const managed = this.resolveRuntime(id);
     if (!managed.runtime.connection) {
@@ -429,6 +440,13 @@ export class Flamecast {
 
   async terminateSession(id: string): Promise<void> {
     await this.ensureReady();
+
+    if (!this.runtimes.has(id)) {
+      const meta = await this.requireStorage().getSessionMeta(id);
+      if (meta?.status === "killed") {
+        throw new Error("Cannot terminate an already-killed session");
+      }
+    }
 
     const managed = this.resolveRuntime(id);
     const meta = await this.requireStorage().getSessionMeta(id);

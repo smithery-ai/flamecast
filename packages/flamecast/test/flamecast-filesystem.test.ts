@@ -27,6 +27,7 @@ function createMeta(id: string) {
     spawn: { command: "node", args: ["agent.js"] },
     startedAt: "2024-01-01T00:00:00.000Z",
     lastUpdatedAt: "2024-01-01T00:00:00.000Z",
+    status: "active" as const,
     pendingPermission: null,
   };
 }
