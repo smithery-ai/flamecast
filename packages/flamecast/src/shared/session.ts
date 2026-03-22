@@ -74,10 +74,24 @@ export const FilePreviewSchema = z.object({
 });
 export type FilePreview = z.infer<typeof FilePreviewSchema>;
 
-export const SessionSchema = z.object({
+export const AgentSchema = z.object({
   id: z.string(),
   agentName: z.string(),
   spawn: AgentSpawnSchema,
+  runtime: AgentTemplateRuntimeSchema,
+  startedAt: z.string(),
+  lastUpdatedAt: z.string(),
+  latestSessionId: z.string().nullable(),
+  sessionCount: z.number().int().nonnegative(),
+});
+export type Agent = z.infer<typeof AgentSchema>;
+
+export const SessionSchema = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  agentName: z.string(),
+  spawn: AgentSpawnSchema,
+  cwd: z.string(),
   startedAt: z.string(),
   lastUpdatedAt: z.string(),
   logs: z.array(SessionLogSchema),
@@ -85,6 +99,25 @@ export const SessionSchema = z.object({
   fileSystem: FileSystemSnapshotSchema.nullable(),
 });
 export type Session = z.infer<typeof SessionSchema>;
+
+export const SessionSummarySchema = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  agentName: z.string(),
+  cwd: z.string(),
+  startedAt: z.string(),
+  lastUpdatedAt: z.string(),
+  pendingPermission: PendingPermissionSchema.nullable(),
+});
+export type SessionSummary = z.infer<typeof SessionSummarySchema>;
+
+export const CreateAgentBodySchema = z.object({
+  spawn: AgentSpawnSchema,
+  runtime: AgentTemplateRuntimeSchema.optional(),
+  name: z.string().optional(),
+  initialSessionCwd: z.string().optional(),
+});
+export type CreateAgentBody = z.infer<typeof CreateAgentBodySchema>;
 
 export const CreateSessionBodySchema = z
   .object({

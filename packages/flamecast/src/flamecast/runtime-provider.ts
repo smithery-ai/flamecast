@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createConnection } from "node:net";
 import { basename, dirname, resolve } from "node:path";
 import alchemy from "alchemy";
 import type { AgentSpawn } from "../shared/session.js";
@@ -39,46 +40,60 @@ async function ensureAlchemy(): Promise<void> {
 }
 
 async function waitForAcp(host: string, port: number, timeoutMs = 30_000): Promise<void> {
-  const { createConnection } = await import("node:net");
   const deadline = Date.now() + timeoutMs;
+  const initializeMessage =
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: 0,
+      method: "initialize",
+      params: { protocolVersion: 1, clientCapabilities: {} },
+    }) + "\n";
 
   while (Date.now() < deadline) {
+    const remaining = Math.max(deadline - Date.now(), 0);
     try {
       await new Promise<void>((resolve, reject) => {
-        let timeout: ReturnType<typeof setTimeout> | undefined;
-        const onError = (error: Error) => {
+        const timeout = setTimeout(
+          () => {
+            cleanup();
+            socket.destroy();
+            reject(new Error("timeout"));
+          },
+          Math.min(2_000, remaining),
+        );
+
+        const cleanup = () => {
           clearTimeout(timeout);
+          socket.off("data", onData);
+          socket.off("error", onError);
+        };
+
+        const onData = () => {
+          cleanup();
+          socket.destroy();
+          resolve();
+        };
+
+        const onError = (error: Error) => {
+          cleanup();
           socket.destroy();
           reject(error);
         };
+
         const socket = createConnection({ host, port }, () => {
-          timeout = setTimeout(() => {
-            socket.destroy();
-            reject(new Error("timeout"));
-          }, 2000);
           socket.setNoDelay(true);
-          const msg =
-            JSON.stringify({
-              jsonrpc: "2.0",
-              id: 0,
-              method: "initialize",
-              params: { protocolVersion: 1, clientCapabilities: {} },
-            }) + "\n";
-
-          socket.once("data", () => {
-            clearTimeout(timeout);
-            socket.off("error", onError);
-            socket.destroy();
-            resolve();
-          });
-
-          socket.write(msg);
+          socket.write(initializeMessage);
         });
+
+        socket.once("data", onData);
         socket.once("error", onError);
       });
       return;
     } catch {
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      const sleepMs = Math.min(200, Math.max(deadline - Date.now(), 0));
+      if (sleepMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, sleepMs));
+      }
     }
   }
 

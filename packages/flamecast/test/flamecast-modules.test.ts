@@ -29,8 +29,10 @@ function createTemplate(id: string, name: string) {
 function createSessionMeta(id: string) {
   return {
     id,
+    agentId: "agent-1",
     agentName: "Example agent",
     spawn: { command: "node", args: ["agent.js"] },
+    cwd: process.cwd(),
     startedAt: "2024-01-01T00:00:00.000Z",
     lastUpdatedAt: "2024-01-01T00:00:00.000Z",
     pendingPermission: null,

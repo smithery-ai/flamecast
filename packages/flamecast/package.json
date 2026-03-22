@@ -6,6 +6,9 @@
     ".": "./src/flamecast/index.ts",
     "./api": "./src/flamecast/api.ts",
     "./server/app": "./src/server/app.ts",
+    "./shared/acp-streamable-http-client": "./src/shared/acp-streamable-http-client.ts",
+    "./shared/acp-streamable-http-messages": "./src/shared/acp-streamable-http-messages.ts",
+    "./shared/acp-streamable-http-server": "./src/shared/acp-streamable-http-server.ts",
     "./shared/session": "./src/shared/session.ts",
     "./worker": "./src/worker.ts"
   },

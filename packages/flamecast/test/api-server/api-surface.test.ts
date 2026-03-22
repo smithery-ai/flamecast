@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
+  Agent,
   AgentTemplate,
+  CreateAgentBody,
   CreateSessionBody,
   FilePreview,
   PermissionResponseBody,
@@ -20,13 +22,26 @@ const sampleAgentTemplate: AgentTemplate = {
 
 const sampleSession: Session = {
   id: "session-1",
+  agentId: "agent-1",
   agentName: "Codex ACP",
   spawn: sampleAgentTemplate.spawn,
+  cwd: "/tmp/flamecast",
   startedAt: "2026-03-21T00:00:00.000Z",
   lastUpdatedAt: "2026-03-21T00:00:00.000Z",
   logs: [],
   pendingPermission: null,
   fileSystem: null,
+};
+
+const sampleAgent: Agent = {
+  id: "agent-1",
+  agentName: "Codex ACP",
+  spawn: sampleAgentTemplate.spawn,
+  runtime: { provider: "local" },
+  startedAt: "2026-03-21T00:00:00.000Z",
+  lastUpdatedAt: "2026-03-21T00:00:00.000Z",
+  latestSessionId: sampleSession.id,
+  sessionCount: 1,
 };
 
 const sampleFilePreview: FilePreview = {
@@ -39,12 +54,26 @@ const sampleFilePreview: FilePreview = {
 function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastApi {
   return {
     terminateSession: vi.fn(async () => undefined),
+    terminateAgent: vi.fn(async () => undefined),
+    createAgent: vi.fn(async (_body: CreateAgentBody) => sampleAgent),
     createSession: vi.fn(async (_body: CreateSessionBody) => sampleSession),
-    getSession: vi.fn(
-      async (_id: string, _opts?: { includeFileSystem?: boolean; showAllFiles?: boolean }) =>
-        sampleSession,
-    ),
+    getAgent: vi.fn(async (_id: string) => sampleAgent),
+    getSession: vi.fn(async () => sampleSession),
+    getSessionFileSystem: vi.fn(async () => ({
+      root: sampleSession.cwd,
+      entries: [],
+      truncated: false,
+      maxEntries: 0,
+    })),
     getFilePreview: vi.fn(async (_id: string, _path: string) => sampleFilePreview),
+    handleAcp: vi.fn(
+      async (_agentId: string, _request: Request) =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 202,
+          headers: { "content-type": "application/json" },
+        }),
+    ),
+    listAgents: vi.fn(async () => [sampleAgent]),
     listSessions: vi.fn(async () => [sampleSession]),
     listAgentTemplates: vi.fn(async () => [sampleAgentTemplate]),
     promptSession: vi.fn(async (_id: string, _text: string) => ({
@@ -164,6 +193,54 @@ describe("API server surface", () => {
 
     expect(response.status).toBe(200);
     expect(await readJson(response)).toEqual([sampleSession]);
+  });
+
+  it("lists agents", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/agents");
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual([sampleAgent]);
+  });
+
+  it("creates agents", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/agents", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Codex ACP",
+        spawn: sampleAgentTemplate.spawn,
+        initialSessionCwd: sampleSession.cwd,
+      } satisfies CreateAgentBody),
+    });
+
+    expect(response.status).toBe(201);
+    expect(await readJson(response)).toEqual(sampleAgent);
+  });
+
+  it("proxies ACP requests through the agent route", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/${sampleAgent.id}/acp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: 1, clientCapabilities: {} },
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    expect(await readJson(response)).toEqual({ ok: true });
+    expect(flamecast.handleAcp).toHaveBeenCalledTimes(1);
   });
 
   it("creates sessions", async () => {
