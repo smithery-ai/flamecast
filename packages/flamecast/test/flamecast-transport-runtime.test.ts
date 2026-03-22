@@ -93,9 +93,8 @@ describe("transport helpers", () => {
       throw new Error("Expected TCP server address");
     }
 
-    const { findFreePort, openTcpTransport, waitForPort } = await import(
-      "../src/flamecast/transport.js"
-    );
+    const { findFreePort, openTcpTransport, waitForPort } =
+      await import("../src/flamecast/transport.js");
 
     await waitForPort("127.0.0.1", address.port, 1_200);
     const tcp = await openTcpTransport("127.0.0.1", address.port);
@@ -262,31 +261,36 @@ describe("runtime providers", () => {
   });
 
   test("times out while waiting for ACP when the socket never becomes ready", async () => {
-    vi.useFakeTimers();
-
     const openTcpTransport = vi.fn();
     const findFreePort = vi.fn(async () => 4545);
     const alchemy = vi.fn(async () => {});
     const Container = vi.fn(async () => ({ id: "container-1" }));
     let attempts = 0;
+    const emitRefused = (socket: FakeSocket) => {
+      if (socket.listenerCount("error") === 0) {
+        return;
+      }
+
+      socket.emit("error", new Error("refused"));
+    };
     const createConnection = vi.fn((_options: unknown, onConnect?: () => void) => {
       attempts += 1;
       const socket = new FakeSocket();
       if (attempts === 1) {
-        setTimeout(() => {
+        queueMicrotask(() => {
           onConnect?.();
-        }, 0);
+        });
       } else if (attempts === 2) {
-        setTimeout(() => {
+        queueMicrotask(() => {
           onConnect?.();
           setTimeout(() => {
-            socket.emit("error", new Error("refused"));
-          }, 100);
-        }, 0);
+            emitRefused(socket);
+          }, 5);
+        });
       } else {
         setTimeout(() => {
-          socket.emit("error", new Error("refused"));
-        }, 0);
+          emitRefused(socket);
+        }, 5);
       }
       return socket;
     });
@@ -311,18 +315,17 @@ describe("runtime providers", () => {
     });
 
     const { createBuiltinRuntimeProviders } = await import("../src/flamecast/runtime-provider.js");
-    const startPromise = createBuiltinRuntimeProviders().docker.start({
-      runtime: { provider: "docker", image: "flamecast/example-agent" },
-      spawn: { command: "node", args: ["agent.js"] },
-    });
-    const startExpectation = expect(startPromise).rejects.toThrow(
-      "ACP agent not ready on localhost:4545 after 30000ms",
-    );
+    await expect(
+      createBuiltinRuntimeProviders({
+        acpReadyTimeoutMs: 40,
+        acpProbeTimeoutMs: 10,
+        acpRetryDelayMs: 5,
+      }).docker.start({
+        runtime: { provider: "docker", image: "flamecast/example-agent" },
+        spawn: { command: "node", args: ["agent.js"] },
+      }),
+    ).rejects.toThrow("ACP agent not ready on localhost:4545 after 40ms");
 
-    await vi.advanceTimersByTimeAsync(30_500);
-    await vi.runAllTimersAsync();
-
-    await startExpectation;
     expect(Container).toHaveBeenCalledTimes(1);
     expect(openTcpTransport).not.toHaveBeenCalled();
     expect(attempts).toBeGreaterThanOrEqual(2);

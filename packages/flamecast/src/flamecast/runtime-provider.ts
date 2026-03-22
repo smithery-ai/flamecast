@@ -24,6 +24,18 @@ export type RuntimeProvider = {
 
 export type RuntimeProviderRegistry = Record<string, RuntimeProvider>;
 
+type WaitForAcpOptions = {
+  timeoutMs?: number;
+  probeTimeoutMs?: number;
+  retryDelayMs?: number;
+};
+
+type BuiltinRuntimeProviderOptions = {
+  acpReadyTimeoutMs?: number;
+  acpProbeTimeoutMs?: number;
+  acpRetryDelayMs?: number;
+};
+
 let alchemyReady: Promise<void> | null = null;
 
 function resolveDockerBuildContext(dockerfile: string): string {
@@ -38,51 +50,110 @@ async function ensureAlchemy(): Promise<void> {
   await alchemyReady;
 }
 
-async function waitForAcp(host: string, port: number, timeoutMs = 30_000): Promise<void> {
+async function waitForAcp(
+  host: string,
+  port: number,
+  { timeoutMs = 30_000, probeTimeoutMs = 2_000, retryDelayMs = 200 }: WaitForAcpOptions = {},
+): Promise<void> {
   const { createConnection } = await import("node:net");
-  const deadline = Date.now() + timeoutMs;
+  const effectiveProbeTimeoutMs = Math.min(probeTimeoutMs, timeoutMs);
+  const effectiveRetryDelayMs = Math.min(retryDelayMs, timeoutMs);
 
-  while (Date.now() < deadline) {
-    try {
-      await new Promise<void>((resolve, reject) => {
-        let timeout: ReturnType<typeof setTimeout> | undefined;
-        const onError = (error: Error) => {
-          clearTimeout(timeout);
-          socket.destroy();
-          reject(error);
-        };
-        const socket = createConnection({ host, port }, () => {
-          timeout = setTimeout(() => {
-            socket.destroy();
-            reject(new Error("timeout"));
-          }, 2000);
-          socket.setNoDelay(true);
-          const msg =
-            JSON.stringify({
-              jsonrpc: "2.0",
-              id: 0,
-              method: "initialize",
-              params: { protocolVersion: 1, clientCapabilities: {} },
-            }) + "\n";
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let handshakeTimer: ReturnType<typeof setTimeout> | undefined;
+    let socket: ReturnType<typeof createConnection> | undefined;
 
-          socket.once("data", () => {
-            clearTimeout(timeout);
-            socket.off("error", onError);
-            socket.destroy();
-            resolve();
-          });
+    const cleanupSocket = () => {
+      if (handshakeTimer) {
+        clearTimeout(handshakeTimer);
+        handshakeTimer = undefined;
+      }
 
-          socket.write(msg);
-        });
-        socket.once("error", onError);
+      /* v8 ignore next -- defensive when cleanup runs before a socket exists */
+      if (!socket) {
+        return;
+      }
+
+      socket.removeAllListeners("data");
+      socket.removeAllListeners("error");
+      socket.destroy();
+      socket = undefined;
+    };
+
+    const finish = (callback: () => void) => {
+      /* v8 ignore next -- defensive against duplicate completion */
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = undefined;
+      }
+
+      clearTimeout(deadlineTimer);
+      cleanupSocket();
+      callback();
+    };
+
+    const scheduleRetry = () => {
+      /* v8 ignore next -- defensive against late timer callbacks after settle */
+      if (settled) {
+        return;
+      }
+
+      cleanupSocket();
+      retryTimer = setTimeout(connect, effectiveRetryDelayMs);
+    };
+
+    const connect = () => {
+      /* v8 ignore next -- defensive against late retry timers after settle */
+      if (settled) {
+        return;
+      }
+
+      const attemptSocket = createConnection({ host, port }, () => {
+        /* v8 ignore next -- defensive against late socket callbacks after cleanup */
+        if (settled || socket !== attemptSocket) {
+          return;
+        }
+
+        handshakeTimer = setTimeout(scheduleRetry, effectiveProbeTimeoutMs);
+        attemptSocket.setNoDelay(true);
+        attemptSocket.once("data", () => finish(resolve));
+        attemptSocket.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 0,
+            method: "initialize",
+            params: { protocolVersion: 1, clientCapabilities: {} },
+          }) + "\n",
+        );
       });
-      return;
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
-  }
 
-  throw new Error(`ACP agent not ready on ${host}:${port} after ${timeoutMs}ms`);
+      socket = attemptSocket;
+      attemptSocket.once("error", () => {
+        /* v8 ignore next -- defensive against late socket errors after cleanup */
+        if (settled || socket !== attemptSocket) {
+          return;
+        }
+
+        scheduleRetry();
+      });
+    };
+
+    const deadlineTimer = setTimeout(() => {
+      finish(() =>
+        reject(new Error(`ACP agent not ready on ${host}:${port} after ${timeoutMs}ms`)),
+      );
+    }, timeoutMs);
+
+    connect();
+  });
 }
 
 function createLocalRuntimeProvider(): RuntimeProvider {
@@ -99,7 +170,7 @@ function createLocalRuntimeProvider(): RuntimeProvider {
   };
 }
 
-function createDockerRuntimeProvider(): RuntimeProvider {
+function createDockerRuntimeProvider(options: BuiltinRuntimeProviderOptions = {}): RuntimeProvider {
   return {
     async start({ runtime }) {
       await ensureAlchemy();
@@ -134,7 +205,11 @@ function createDockerRuntimeProvider(): RuntimeProvider {
         start: true,
       });
 
-      await waitForAcp("localhost", port);
+      await waitForAcp("localhost", port, {
+        timeoutMs: options.acpReadyTimeoutMs,
+        probeTimeoutMs: options.acpProbeTimeoutMs,
+        retryDelayMs: options.acpRetryDelayMs,
+      });
 
       const transport = await openTcpTransport("localhost", port);
 
@@ -148,10 +223,12 @@ function createDockerRuntimeProvider(): RuntimeProvider {
   };
 }
 
-export function createBuiltinRuntimeProviders(): RuntimeProviderRegistry {
+export function createBuiltinRuntimeProviders(
+  options: BuiltinRuntimeProviderOptions = {},
+): RuntimeProviderRegistry {
   return {
     local: createLocalRuntimeProvider(),
-    docker: createDockerRuntimeProvider(),
+    docker: createDockerRuntimeProvider(options),
   };
 }
 
