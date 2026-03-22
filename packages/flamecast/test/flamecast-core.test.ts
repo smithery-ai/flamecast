@@ -1,11 +1,11 @@
-/* eslint-disable no-type-assertion/no-type-assertion */
+/* oxlint-disable no-type-assertion/no-type-assertion */
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { getBuiltinAgentTemplates } from "../src/flamecast/agent-templates.js";
 import { Flamecast } from "../src/flamecast/index.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/state-managers/memory/index.js";
+import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 
 type PromptHandler = (params: acp.PromptRequest) => Promise<acp.PromptResponse>;
 
@@ -489,6 +489,17 @@ describe("flamecast orchestration internals", () => {
       payload: true,
     });
     expect((await storage.getLogs("session-1")).length).toBeGreaterThan(2);
+
+    Reflect.set(managed, "pendingLogs", []);
+    Reflect.set(managed, "bufferPendingLogs", true);
+    const buffered = await pushLog(managed, "buffered_startup_log", { queued: true });
+    expect(buffered).toMatchObject({
+      type: "buffered_startup_log",
+      data: { queued: true },
+    });
+    expect(Reflect.get(managed, "pendingLogs")).toEqual([buffered]);
+    Reflect.set(managed, "pendingLogs", []);
+    Reflect.set(managed, "bufferPendingLogs", false);
 
     const pendingPermission = createPendingPermission({
       sessionId: "session-1",

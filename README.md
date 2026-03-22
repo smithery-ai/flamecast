@@ -65,10 +65,12 @@ Open **http://localhost:3000**. The home page lists the registered agent templat
 ### How it works
 
 1. `Flamecast` lazily resolves storage and its runtime provider registry when the first API call or `listen()` happens.
-2. `POST /api/sessions` resolves either an `agentTemplateId` or an ad-hoc `spawn` definition.
+2. `POST /api/agents` resolves either an `agentTemplateId` or an ad-hoc `spawn` definition.
 3. The selected runtime provider starts the agent and returns an ACP transport plus a termination handle.
 4. Flamecast performs ACP `initialize` and `session/new`, then persists the session under the ACP `sessionId`.
 5. All subsequent prompts, permission responses, and log retrieval use that ACP `sessionId` as the session ID everywhere.
+
+At the moment, each managed agent corresponds to exactly one ACP session. The `/api/agents` routes therefore return the existing session-shaped payloads until a later PR splits agent metadata from session snapshots.
 
 ---
 
@@ -108,7 +110,7 @@ Built-in templates live in `packages/flamecast/src/flamecast/agent-templates.ts`
 ### Template-driven session creation
 
 ```text
-POST /api/sessions { agentTemplateId: "example-docker" }
+POST /api/agents { agentTemplateId: "example-docker" }
   ↓
 Flamecast loads the template
   ↓
@@ -200,7 +202,7 @@ packages/
         transport.ts        # AcpTransport, local/tcp helpers
         agent.ts            # Example ACP agent (stdio + TCP modes)
         db/client.ts        # PGLite / Postgres connection
-        state-managers/
+        storage/
           memory/
           psql/
       client/               # React UI
@@ -261,7 +263,7 @@ export default flamecast.fetch;
 | Variable | Purpose |
 |---|---|
 | `FLAMECAST_POSTGRES_URL` | External Postgres connection string |
-| `ACP_PGLITE_DIR` | Override the default PGLite data directory |
+| `FLAMECAST_PGLITE_DIR` | Override the default PGLite data directory (`<cwd>/.flamecast/pglite`) |
 
 ---
 
@@ -274,12 +276,14 @@ Base URL: `http://localhost:3001/api`
 | `GET` | `/health` | Health check. Returns `{ status, sessions }` |
 | `GET` | `/agent-templates` | List available agent templates |
 | `POST` | `/agent-templates` | Register a custom agent template |
-| `GET` | `/sessions` | List active sessions |
-| `POST` | `/sessions` | Create a session |
-| `GET` | `/sessions/:id` | Get session details + logs |
-| `POST` | `/sessions/:id/prompt` | Send a prompt to the agent |
-| `POST` | `/sessions/:id/permissions/:requestId` | Resolve a permission request |
-| `DELETE` | `/sessions/:id` | Terminate a session |
+| `GET` | `/agents` | List active managed agents. Today each entry is the current session snapshot for that agent |
+| `POST` | `/agents` | Create a managed agent runtime. Today this also creates its single backing session |
+| `GET` | `/agents/:agentId` | Get the current agent snapshot |
+| `GET` | `/agents/:agentId/` | Same snapshot payload as `/agents/:agentId` for now |
+| `GET` | `/agents/:agentId/file` | Preview a file in the agent workspace |
+| `POST` | `/agents/:agentId/prompt` | Send a prompt to the agent's current session |
+| `POST` | `/agents/:agentId/permissions/:requestId` | Resolve a permission request for the current session |
+| `DELETE` | `/agents/:agentId` | Terminate a managed agent runtime |
 
 ---
 

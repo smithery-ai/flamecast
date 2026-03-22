@@ -81,7 +81,7 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
 ${prefix} [data-chart=${id}] {
 ${colorConfig
   .map(([key, itemConfig]) => {
-    // eslint-disable-next-line no-type-assertion/no-type-assertion
+    // oxlint-disable-next-line no-type-assertion/no-type-assertion
     const color = itemConfig.theme?.[theme as keyof typeof itemConfig.theme] || itemConfig.color;
     return color ? `  --color-${key}: ${color};` : null;
   })
@@ -131,7 +131,7 @@ function ChartTooltipContent({
     const itemConfig = getPayloadConfigFromPayload(config, item, key);
     const value =
       !labelKey && typeof label === "string"
-        ? // eslint-disable-next-line no-type-assertion/no-type-assertion
+        ? // oxlint-disable-next-line no-type-assertion/no-type-assertion
           config[label as keyof typeof config]?.label || label
         : itemConfig?.label;
 
@@ -302,12 +302,12 @@ function getPayloadConfigFromPayload(config: ChartConfig, payload: unknown, key:
 
   let configLabelKey: string = key;
 
-  // eslint-disable-next-line no-type-assertion/no-type-assertion
+  // oxlint-disable-next-line no-type-assertion/no-type-assertion
   const payloadRecord = payload as Record<string, unknown>;
   if (key in payloadRecord && typeof payloadRecord[key] === "string") {
     configLabelKey = payloadRecord[key];
   } else if (payloadPayload) {
-    // eslint-disable-next-line no-type-assertion/no-type-assertion
+    // oxlint-disable-next-line no-type-assertion/no-type-assertion
     const payloadPayloadRecord = payloadPayload as Record<string, unknown>;
     if (key in payloadPayloadRecord && typeof payloadPayloadRecord[key] === "string") {
       configLabelKey = payloadPayloadRecord[key];

@@ -1,10 +1,9 @@
-/* eslint-disable no-type-assertion/no-type-assertion */
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/state-managers/memory/index.js";
+import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 
 type ManagedSessionLike = {
   id: string;
@@ -56,6 +55,7 @@ function attachStorage(flamecast: Flamecast, storage = new MemoryFlamecastStorag
 }
 
 function getRuntimeMap(flamecast: Flamecast) {
+  // oxlint-disable-next-line no-type-assertion/no-type-assertion
   return Reflect.get(flamecast, "runtimes") as Map<string, ManagedSessionLike>;
 }
 
@@ -67,6 +67,7 @@ function getMethod<Args extends unknown[], Result>(
   if (typeof method !== "function") {
     throw new Error(`Expected ${name} to be a function`);
   }
+  // oxlint-disable-next-line no-type-assertion/no-type-assertion
   return method.bind(flamecast) as (...args: Args) => Result;
 }
 
@@ -277,13 +278,13 @@ test("treats ENOTDIR gitignore read errors like a missing .gitignore", async () 
   const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
   vi.doMock("node:fs/promises", () => ({
     ...actualFs,
-    readFile: vi.fn(async (filePath: string, ...args: unknown[]) => {
+    readFile: vi.fn(async (...args: Parameters<typeof actualFs.readFile>) => {
+      const [filePath, ...rest] = args;
       if (filePath.endsWith(".gitignore")) {
-        const error = new Error("not a directory") as Error & { code?: string };
-        error.code = "ENOTDIR";
+        const error = Object.assign(new Error("not a directory"), { code: "ENOTDIR" });
         throw error;
       }
-      return actualFs.readFile(filePath, ...(args as Parameters<typeof actualFs.readFile>[1][]));
+      return actualFs.readFile(filePath, ...rest);
     }),
   }));
 
@@ -314,11 +315,12 @@ test("rethrows unexpected gitignore read errors", async () => {
   const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
   vi.doMock("node:fs/promises", () => ({
     ...actualFs,
-    readFile: vi.fn(async (filePath: string, ...args: unknown[]) => {
+    readFile: vi.fn(async (...args: Parameters<typeof actualFs.readFile>) => {
+      const [filePath, ...rest] = args;
       if (filePath.endsWith(".gitignore")) {
         throw new Error("boom");
       }
-      return actualFs.readFile(filePath, ...(args as Parameters<typeof actualFs.readFile>[1][]));
+      return actualFs.readFile(filePath, ...rest);
     }),
   }));
 

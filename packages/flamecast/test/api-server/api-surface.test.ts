@@ -29,6 +29,8 @@ const sampleSession: Session = {
   fileSystem: null,
 };
 
+const sampleAgentId = sampleSession.id;
+
 const sampleFilePreview: FilePreview = {
   path: "src/app.tsx",
   content: "console.log('preview');\n",
@@ -156,21 +158,21 @@ describe("API server surface", () => {
     expect(response.status).toBe(400);
   });
 
-  it("lists sessions", async () => {
+  it("lists agents via the current session snapshots", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/sessions");
+    const response = await app.request("/api/agents");
 
     expect(response.status).toBe(200);
     expect(await readJson(response)).toEqual([sampleSession]);
   });
 
-  it("creates sessions", async () => {
+  it("creates agents via the current session runtime flow", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/sessions", {
+    const response = await app.request("/api/agents", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -183,11 +185,11 @@ describe("API server surface", () => {
     expect(await readJson(response)).toEqual(sampleSession);
   });
 
-  it("rejects invalid session payloads", async () => {
+  it("rejects invalid agent payloads", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/sessions", {
+    const response = await app.request("/api/agents", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ cwd: "/tmp/flamecast" }),
@@ -196,7 +198,7 @@ describe("API server surface", () => {
     expect(response.status).toBe(400);
   });
 
-  it("returns session creation errors from Error values", async () => {
+  it("returns agent creation errors from Error values", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const flamecast = createFlamecastStub({
       createSession: vi.fn(async () => {
@@ -205,7 +207,7 @@ describe("API server surface", () => {
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/sessions", {
+    const response = await app.request("/api/agents", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -218,7 +220,7 @@ describe("API server surface", () => {
     expect(consoleError).toHaveBeenCalledOnce();
   });
 
-  it("returns session creation errors from non-Error values", async () => {
+  it("returns agent creation errors from non-Error values", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const flamecast = createFlamecastStub({
       createSession: vi.fn(async () => {
@@ -227,7 +229,7 @@ describe("API server surface", () => {
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/sessions", {
+    const response = await app.request("/api/agents", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -239,40 +241,50 @@ describe("API server surface", () => {
     expect(await readJson(response)).toEqual({ error: "[object Object]" });
   });
 
-  it("fetches a session", async () => {
+  it("fetches an agent snapshot", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request(`/api/sessions/${sampleSession.id}`);
+    const response = await app.request(`/api/agents/${sampleAgentId}`);
 
     expect(response.status).toBe(200);
     expect(await readJson(response)).toEqual(sampleSession);
   });
 
-  it("passes includeFileSystem through the session poll route", async () => {
+  it("treats the trailing slash agent route as the same snapshot", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request(`/api/sessions/${sampleSession.id}?includeFileSystem=true`);
+    const response = await app.request(`/api/agents/${sampleAgentId}/`);
 
     expect(response.status).toBe(200);
     expect(await readJson(response)).toEqual(sampleSession);
-    expect(flamecast.getSession).toHaveBeenCalledWith(sampleSession.id, {
+  });
+
+  it("passes includeFileSystem through the agent snapshot route", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/${sampleAgentId}?includeFileSystem=true`);
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual(sampleSession);
+    expect(flamecast.getSession).toHaveBeenCalledWith(sampleAgentId, {
       includeFileSystem: true,
     });
   });
 
-  it("passes showAllFiles through the session poll route", async () => {
+  it("passes showAllFiles through the agent snapshot route", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
     const response = await app.request(
-      `/api/sessions/${sampleSession.id}?includeFileSystem=true&showAllFiles=true`,
+      `/api/agents/${sampleAgentId}?includeFileSystem=true&showAllFiles=true`,
     );
 
     expect(response.status).toBe(200);
     expect(await readJson(response)).toEqual(sampleSession);
-    expect(flamecast.getSession).toHaveBeenCalledWith(sampleSession.id, {
+    expect(flamecast.getSession).toHaveBeenCalledWith(sampleAgentId, {
       includeFileSystem: true,
       showAllFiles: true,
     });
@@ -283,19 +295,19 @@ describe("API server surface", () => {
     const app = createServerApp(flamecast);
 
     const response = await app.request(
-      `/api/sessions/${sampleSession.id}/file?path=${encodeURIComponent(sampleFilePreview.path)}`,
+      `/api/agents/${sampleAgentId}/file?path=${encodeURIComponent(sampleFilePreview.path)}`,
     );
 
     expect(response.status).toBe(200);
     expect(await readJson(response)).toEqual(sampleFilePreview);
-    expect(flamecast.getFilePreview).toHaveBeenCalledWith(sampleSession.id, sampleFilePreview.path);
+    expect(flamecast.getFilePreview).toHaveBeenCalledWith(sampleAgentId, sampleFilePreview.path);
   });
 
   it("returns 400 when file preview path is missing", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request(`/api/sessions/${sampleSession.id}/file`);
+    const response = await app.request(`/api/agents/${sampleAgentId}/file`);
 
     expect(response.status).toBe(400);
     expect(await readJson(response)).toEqual({ error: "Missing path" });
@@ -310,14 +322,14 @@ describe("API server surface", () => {
     const app = createServerApp(flamecast);
 
     const response = await app.request(
-      `/api/sessions/${sampleSession.id}/file?path=${encodeURIComponent(sampleFilePreview.path)}`,
+      `/api/agents/${sampleAgentId}/file?path=${encodeURIComponent(sampleFilePreview.path)}`,
     );
 
     expect(response.status).toBe(400);
     expect(await readJson(response)).toEqual({ error: "preview failed" });
   });
 
-  it("returns 404 for unknown sessions", async () => {
+  it("returns 404 for unknown agents", async () => {
     const flamecast = createFlamecastStub({
       getSession: vi.fn(async () => {
         throw new Error("missing");
@@ -325,17 +337,17 @@ describe("API server surface", () => {
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/sessions/missing");
+    const response = await app.request("/api/agents/missing");
 
     expect(response.status).toBe(404);
-    expect(await readJson(response)).toEqual({ error: "Session not found" });
+    expect(await readJson(response)).toEqual({ error: "Agent not found" });
   });
 
   it("sends prompts", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request(`/api/sessions/${sampleSession.id}/prompt`, {
+    const response = await app.request(`/api/agents/${sampleAgentId}/prompt`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: "hello" } satisfies PromptBody),
@@ -349,7 +361,7 @@ describe("API server surface", () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request(`/api/sessions/${sampleSession.id}/prompt`, {
+    const response = await app.request(`/api/agents/${sampleAgentId}/prompt`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({}),
@@ -366,7 +378,7 @@ describe("API server surface", () => {
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request(`/api/sessions/${sampleSession.id}/prompt`, {
+    const response = await app.request(`/api/agents/${sampleAgentId}/prompt`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: "hello" } satisfies PromptBody),
@@ -384,7 +396,7 @@ describe("API server surface", () => {
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request(`/api/sessions/${sampleSession.id}/prompt`, {
+    const response = await app.request(`/api/agents/${sampleAgentId}/prompt`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: "hello" } satisfies PromptBody),
@@ -398,7 +410,7 @@ describe("API server surface", () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/sessions/session-1/permissions/request-1", {
+    const response = await app.request("/api/agents/session-1/permissions/request-1", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ optionId: "allow" } satisfies PermissionResponseBody),
@@ -412,7 +424,7 @@ describe("API server surface", () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/sessions/session-1/permissions/request-1", {
+    const response = await app.request("/api/agents/session-1/permissions/request-1", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ outcome: "cancelled" } satisfies PermissionResponseBody),
@@ -426,7 +438,7 @@ describe("API server surface", () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/sessions/session-1/permissions/request-1", {
+    const response = await app.request("/api/agents/session-1/permissions/request-1", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ optionId: 123 }),
@@ -443,7 +455,7 @@ describe("API server surface", () => {
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/sessions/session-1/permissions/request-1", {
+    const response = await app.request("/api/agents/session-1/permissions/request-1", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ optionId: "allow" } satisfies PermissionResponseBody),
@@ -461,7 +473,7 @@ describe("API server surface", () => {
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/sessions/session-1/permissions/request-1", {
+    const response = await app.request("/api/agents/session-1/permissions/request-1", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ optionId: "allow" } satisfies PermissionResponseBody),
@@ -471,11 +483,11 @@ describe("API server surface", () => {
     expect(await readJson(response)).toEqual({ error: "Unknown error" });
   });
 
-  it("terminates a session", async () => {
+  it("terminates an agent", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request(`/api/sessions/${sampleSession.id}`, {
+    const response = await app.request(`/api/agents/${sampleAgentId}`, {
       method: "DELETE",
     });
 
@@ -483,7 +495,7 @@ describe("API server surface", () => {
     expect(await readJson(response)).toEqual({ ok: true });
   });
 
-  it("returns 404 when terminating an unknown session", async () => {
+  it("returns 404 when terminating an unknown agent", async () => {
     const flamecast = createFlamecastStub({
       terminateSession: vi.fn(async () => {
         throw new Error("missing");
@@ -491,11 +503,31 @@ describe("API server surface", () => {
     });
     const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/sessions/missing", {
+    const response = await app.request("/api/agents/missing", {
       method: "DELETE",
     });
 
     expect(response.status).toBe(404);
-    expect(await readJson(response)).toEqual({ error: "Session not found" });
+    expect(await readJson(response)).toEqual({ error: "Agent not found" });
+  });
+
+  it("does not expose the old session collection route", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/sessions");
+
+    expect(response.status).toBe(404);
+    expect(flamecast.listSessions).not.toHaveBeenCalled();
+  });
+
+  it("does not expose the old session detail route", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/sessions/${sampleSession.id}`);
+
+    expect(response.status).toBe(404);
+    expect(flamecast.getSession).not.toHaveBeenCalled();
   });
 });

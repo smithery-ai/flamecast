@@ -1,4 +1,4 @@
-/* eslint-disable no-type-assertion/no-type-assertion */
+/* oxlint-disable no-type-assertion/no-type-assertion */
 import { EventEmitter } from "node:events";
 import readline from "node:readline/promises";
 import { Readable } from "node:stream";

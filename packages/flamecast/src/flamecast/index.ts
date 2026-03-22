@@ -47,6 +47,8 @@ interface SessionTextChunkLogBuffer {
 interface ManagedSession {
   id: string;
   workspaceRoot: string;
+  pendingLogs: SessionLog[];
+  bufferPendingLogs: boolean;
   transport: AcpTransport;
   terminate: () => Promise<void>;
   runtime: {
@@ -272,10 +274,11 @@ export class Flamecast {
 
     const startedAt = new Date().toISOString();
     const startedRuntime = await provider.start({ runtime, spawn });
-    const startupLogs: SessionLog[] = [];
     const managed: ManagedSession = {
       id: "",
       workspaceRoot: cwd,
+      pendingLogs: [],
+      bufferPendingLogs: true,
       transport: startedRuntime.transport,
       terminate: startedRuntime.terminate,
       runtime: {
@@ -301,16 +304,16 @@ export class Flamecast {
         },
       };
 
-      startupLogs.push(
+      managed.pendingLogs.push(
         this.createRpcLog(acp.AGENT_METHODS.initialize, "client_to_agent", "request", initParams),
       );
       const initResult = await connection.initialize(initParams);
-      startupLogs.push(
+      managed.pendingLogs.push(
         this.createRpcLog(acp.AGENT_METHODS.initialize, "agent_to_client", "response", initResult),
       );
 
       const newSessionParams: acp.NewSessionRequest = { cwd, mcpServers: [] };
-      startupLogs.push(
+      managed.pendingLogs.push(
         this.createRpcLog(
           acp.AGENT_METHODS.session_new,
           "client_to_agent",
@@ -319,7 +322,7 @@ export class Flamecast {
         ),
       );
       const sessionResult = await connection.newSession(newSessionParams);
-      startupLogs.push(
+      managed.pendingLogs.push(
         this.createRpcLog(
           acp.AGENT_METHODS.session_new,
           "agent_to_client",
@@ -341,9 +344,11 @@ export class Flamecast {
         pendingPermission: null,
       });
 
-      for (const log of startupLogs) {
+      for (const log of managed.pendingLogs) {
         await storage.appendLog(managed.id, log);
       }
+      managed.pendingLogs = [];
+      managed.bufferPendingLogs = false;
 
       this.runtimes.set(managed.id, managed);
       return this.snapshotSession(managed.id);
@@ -737,6 +742,10 @@ export class Flamecast {
     data: Record<string, unknown>,
   ): Promise<SessionLog> {
     const entry = this.createLogEntry(type, data);
+    if (managed.bufferPendingLogs) {
+      managed.pendingLogs.push(entry);
+      return entry;
+    }
     const storage = this.requireStorage();
     await storage.appendLog(managed.id, entry);
     await storage.updateSession(managed.id, { lastUpdatedAt: entry.timestamp });
@@ -751,6 +760,10 @@ export class Flamecast {
     payload?: unknown,
   ): Promise<void> {
     const entry = this.createRpcLog(method, direction, phase, payload);
+    if (managed.bufferPendingLogs) {
+      managed.pendingLogs.push(entry);
+      return;
+    }
     const storage = this.requireStorage();
     await storage.appendLog(managed.id, entry);
     await storage.updateSession(managed.id, { lastUpdatedAt: entry.timestamp });

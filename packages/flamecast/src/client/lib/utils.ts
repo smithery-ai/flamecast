@@ -11,6 +11,6 @@ export function cn(...inputs: ClassValue[]) {
  * React.CSSProperties doesn't include CSS custom properties (--*) by default.
  */
 export function cssVars(vars: Record<string, string | number | undefined>): CSSProperties {
-  // eslint-disable-next-line no-type-assertion/no-type-assertion
+  // oxlint-disable-next-line no-type-assertion/no-type-assertion
   return vars as CSSProperties;
 }

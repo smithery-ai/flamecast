@@ -18,8 +18,8 @@ export default defineConfig({
       reportsDirectory: "./coverage/api-server",
       include: ["src/flamecast/**/*.ts", "src/server/**/*.ts"],
       exclude: [
-        "src/flamecast/state-managers/psql/drizzle.config.ts",
-        "src/flamecast/state-managers/psql/types.ts",
+        "src/flamecast/storage/psql/drizzle.config.ts",
+        "src/flamecast/storage/psql/types.ts",
       ],
       thresholds: {
         branches: 100,
