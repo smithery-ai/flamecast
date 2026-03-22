@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { basename, dirname, resolve } from "node:path";
 import alchemy from "alchemy";
 import type { AgentSpawn } from "../shared/session.js";
 import type { AgentTemplateRuntime } from "../shared/session.js";
@@ -24,6 +25,11 @@ export type RuntimeProvider = {
 export type RuntimeProviderRegistry = Record<string, RuntimeProvider>;
 
 let alchemyReady: Promise<void> | null = null;
+
+function resolveDockerBuildContext(dockerfile: string): string {
+  const dockerfileDir = dirname(dockerfile);
+  return basename(dockerfileDir) === "docker" ? resolve(dockerfileDir, "..") : dockerfileDir;
+}
 
 async function ensureAlchemy(): Promise<void> {
   if (!alchemyReady) {
@@ -101,19 +107,27 @@ function createDockerRuntimeProvider(): RuntimeProvider {
       const provider = await import("alchemy/docker");
       const port = await findFreePort();
       const resourceId = randomUUID();
+      const image = runtime.image;
 
-      if (runtime.image && runtime.dockerfile) {
+      if (!image) {
+        throw new Error('Docker runtime requires an "image" value');
+      }
+
+      if (runtime.dockerfile) {
+        const dockerfile = runtime.dockerfile;
         await provider.Image(`agent-image-${resourceId}`, {
-          adopt: true,
-          name: runtime.image,
+          name: image,
           tag: "latest",
-          build: { context: ".", dockerfile: runtime.dockerfile },
+          build: {
+            context: resolveDockerBuildContext(dockerfile),
+            dockerfile,
+          },
           skipPush: true,
         });
       }
 
       await provider.Container(`sandbox-${resourceId}`, {
-        image: runtime.image ? `${runtime.image}:latest` : undefined,
+        image: `${image}:latest`,
         name: `flamecast-sandbox-${resourceId}`,
         environment: { ACP_PORT: String(port) },
         ports: [{ external: port, internal: port }],

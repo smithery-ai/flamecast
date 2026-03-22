@@ -2,6 +2,7 @@
 import { EventEmitter } from "node:events";
 import readline from "node:readline/promises";
 import { Readable } from "node:stream";
+import { fileURLToPath } from "node:url";
 import * as acp from "@agentclientprotocol/sdk";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ExampleClient } from "../src/flamecast/client.js";
@@ -544,7 +545,7 @@ describe("bootstrap entrypoints", () => {
         AgentSideConnection,
       };
     });
-    vi.doMock("../src/flamecast/index.js", () => ({
+    vi.doMock("@acp/flamecast", () => ({
       Flamecast: FlamecastMock,
     }));
 
@@ -552,7 +553,7 @@ describe("bootstrap entrypoints", () => {
       vi.resetModules();
       process.argv[1] = undefined as unknown as string;
       await import("../src/flamecast/agent.ts?guard-false");
-      await import("../src/server/index.ts?guard-false");
+      await import("../../../apps/server/src/index.ts?guard-false");
     } finally {
       process.argv[1] = originalArgv1;
     }
@@ -577,11 +578,11 @@ describe("bootstrap entrypoints", () => {
       readonly shutdown = shutdown;
     }
 
-    vi.doMock("../src/flamecast/index.js", () => ({
+    vi.doMock("@acp/flamecast", () => ({
       Flamecast: FlamecastMock,
     }));
 
-    const serverModule = await import("../src/server/index.ts?server");
+    const serverModule = await import("../../../apps/server/src/index.ts?server");
     const started = await serverModule.startServer();
     const mainStarted = await serverModule.main();
 
@@ -608,7 +609,7 @@ describe("bootstrap entrypoints", () => {
   });
 
   test("runs server main automatically when imported as the entry module", async () => {
-    const serverPath = new URL("../src/server/index.ts", import.meta.url);
+    const serverPath = new URL("../../../apps/server/src/index.ts", import.meta.url);
     const listen = vi.fn(async () => ({ close: vi.fn() }));
     const processOn = vi.spyOn(process, "on").mockImplementation(() => process);
     const originalArgv1 = process.argv[1];
@@ -618,14 +619,14 @@ describe("bootstrap entrypoints", () => {
       readonly shutdown = vi.fn(async () => {});
     }
 
-    vi.doMock("../src/flamecast/index.js", () => ({
+    vi.doMock("@acp/flamecast", () => ({
       Flamecast: FlamecastMock,
     }));
 
     try {
       vi.resetModules();
-      process.argv[1] = serverPath.pathname;
-      await import("../src/server/index.ts");
+      process.argv[1] = fileURLToPath(serverPath);
+      await import("../../../apps/server/src/index.ts");
       await Promise.resolve();
     } finally {
       process.argv[1] = originalArgv1;

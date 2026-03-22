@@ -1,7 +1,12 @@
+import { fileURLToPath } from "node:url";
 import type { AgentTemplate, AgentTemplateRuntime } from "../shared/session.js";
 
 const pnpmCmd = () =>
   typeof process !== "undefined" && process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const exampleAgentEntrypoint = fileURLToPath(new URL("./agent.ts", import.meta.url));
+const exampleAgentDockerfile = fileURLToPath(
+  new URL("../../docker/example-agent.Dockerfile", import.meta.url),
+);
 
 export function localRuntime(): AgentTemplateRuntime {
   return { provider: "local" };
@@ -13,7 +18,7 @@ export function getBuiltinAgentTemplates(): AgentTemplate[] {
     {
       id: "example",
       name: "Example agent",
-      spawn: { command: cmd, args: ["exec", "tsx", "src/flamecast/agent.ts"] },
+      spawn: { command: cmd, args: ["exec", "tsx", exampleAgentEntrypoint] },
       runtime: localRuntime(),
     },
     {
@@ -29,7 +34,7 @@ export function getBuiltinAgentTemplates(): AgentTemplate[] {
       runtime: {
         provider: "docker", // https://alchemy.run/providers/docker/container/
         image: "flamecast/example-agent",
-        dockerfile: "docker/example-agent.Dockerfile",
+        dockerfile: exampleAgentDockerfile,
       },
     },
     {
@@ -39,7 +44,7 @@ export function getBuiltinAgentTemplates(): AgentTemplate[] {
       runtime: {
         provider: "docker",
         image: "flamecast/example-agent",
-        dockerfile: "docker/example-agent.Dockerfile",
+        dockerfile: exampleAgentDockerfile,
       },
     },
   ];

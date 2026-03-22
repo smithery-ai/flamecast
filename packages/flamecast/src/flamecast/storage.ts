@@ -1,7 +1,7 @@
 import type { AgentTemplate, Session, SessionLog } from "../shared/session.js";
 
 /** Durable slice of {@link Session} (everything except `logs`). */
-export type SessionMeta = Omit<Session, "logs">;
+export type SessionMeta = Omit<Session, "fileSystem" | "logs">;
 
 /**
  * Durable backing store for orchestrator state. Runtime (child process, ACP stream)

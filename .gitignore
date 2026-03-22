@@ -32,12 +32,15 @@ lerna-debug.log*
 # misc
 .DS_Store
 
+.turbo/
 dist/
 coverage/
+packages/flamecast/dist/
+packages/flamecast/coverage/
 
 # local PGlite data (Flamecast RPC log)
 .acp/
 .alchemy/
-src/client/routeTree.gen.ts
+packages/flamecast/src/client/routeTree.gen.ts
 
 .flamecast/

@@ -7,6 +7,7 @@ import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { Flamecast } from "../src/flamecast/index.js";
 import type { RuntimeProvider } from "../src/flamecast/runtime-provider.js";
 
@@ -23,6 +24,7 @@ if (!isAlchemyTestFactory(maybeAlchemyTest)) {
 }
 
 const test = maybeAlchemyTest(import.meta, { prefix: "test" });
+const exampleAgentEntrypoint = fileURLToPath(new URL("../src/flamecast/agent.ts", import.meta.url));
 
 async function pollForPermission(flamecast: Flamecast, sessionId: string, timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
@@ -89,7 +91,7 @@ describe("flamecast", () => {
 
     try {
       await runSessionLifecycle(flamecast, {
-        spawn: { command: "pnpm", args: ["exec", "tsx", "src/flamecast/agent.ts"] },
+        spawn: { command: "pnpm", args: ["exec", "tsx", exampleAgentEntrypoint] },
       });
     } finally {
       await alchemy.destroy(scope);

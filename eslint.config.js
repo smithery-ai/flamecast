@@ -6,11 +6,18 @@ import globals from "globals";
 
 export default [
   {
-    ignores: ["dist/", "node_modules/"],
+    ignores: [
+      "dist/",
+      "**/dist/",
+      "coverage/",
+      "**/coverage/",
+      "node_modules/",
+      "packages/flamecast/src/client/routeTree.gen.ts",
+    ],
   },
   eslint.configs.recommended,
   {
-    files: ["**/*.ts", "**/*.tsx"],
+    files: ["**/*.js", "**/*.mjs", "**/*.cjs", "**/*.ts", "**/*.tsx"],
     languageOptions: {
       parser: tsparser,
       parserOptions: {

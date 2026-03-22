@@ -40,7 +40,7 @@
   },
   "overrides": [
     {
-      "includes": ["src/client/routeTree.gen.ts"],
+      "includes": ["packages/flamecast/src/client/routeTree.gen.ts"],
       "formatter": {
         "enabled": false
       },

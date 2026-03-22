@@ -1,0 +1,37 @@
+{
+  "$schema": "https://unpkg.com/knip@6.0.1/schema-jsonc.json",
+  "entry": [
+    "alchemy.run.ts",
+    "src/client/main.tsx",
+    "src/client/routeTree.gen.ts",
+    "src/flamecast/agent.ts",
+    "src/flamecast/client.ts",
+    "src/flamecast/index.ts",
+    "src/worker.ts",
+    "src/flamecast/state-managers/psql/drizzle.config.ts",
+    "test/**/*.test.ts"
+  ],
+  "ignoreFiles": [
+    "src/client/components/ui/{accordion,alert-dialog,alert,aspect-ratio,avatar,breadcrumb,button-group,calendar,carousel,chart,checkbox,combobox,command,context-menu,direction,drawer,dropdown-menu,empty,field,hover-card,input-group,input-otp,item,kbd,menubar,native-select,navigation-menu,pagination,popover,progress,radio-group,resizable,scroll-area,select,slider,sonner,spinner,table,textarea,toggle-group,toggle}.tsx"
+  ],
+  "ignoreBinaries": ["drizzle-kit", "knip", "vitest"],
+  "ignoreDependencies": [
+    "@base-ui/react",
+    "cmdk",
+    "date-fns",
+    "embla-carousel-react",
+    "input-otp",
+    "next-themes",
+    "react-day-picker",
+    "react-resizable-panels",
+    "recharts",
+    "sonner",
+    "vaul"
+  ],
+  "ignoreIssues": {
+    "src/client/components/ui/**/*.tsx": ["exports"],
+    "src/client/routes/**/*.tsx": ["exports"],
+    "src/components/ai-elements/file-tree.tsx": ["exports", "types"],
+    "src/flamecast/db/client.ts": ["exports"]
+  }
+}

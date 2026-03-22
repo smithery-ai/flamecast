@@ -1,5 +1,9 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import path from "path";
+
+const alchemyEntryUrl = new URL(import.meta.resolve("alchemy"));
+const alchemyTestVitestPath = fileURLToPath(new URL("./test/vitest.js", alchemyEntryUrl));
 
 export default defineConfig({
   test: {
@@ -28,7 +32,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      "alchemy/test/vitest": path.resolve(__dirname, "./node_modules/alchemy/lib/test/vitest.js"),
+      "alchemy/test/vitest": alchemyTestVitestPath,
     },
   },
 });

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import { afterEach, describe, expect, test } from "vitest";
 import { getBuiltinAgentTemplates, localRuntime } from "../src/flamecast/agent-templates.js";
@@ -37,6 +38,7 @@ function createSessionMeta(id: string) {
 }
 
 const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+const exampleAgentEntrypoint = fileURLToPath(new URL("../src/flamecast/agent.ts", import.meta.url));
 
 afterEach(() => {
   if (originalPlatform) {
@@ -55,7 +57,7 @@ describe("agent templates", () => {
       "example-docker-2",
     ]);
     expect(unixTemplates[0]?.spawn.command).toBe("pnpm");
-    expect(unixTemplates[0]?.spawn.args).toEqual(["exec", "tsx", "src/flamecast/agent.ts"]);
+    expect(unixTemplates[0]?.spawn.args).toEqual(["exec", "tsx", exampleAgentEntrypoint]);
     expect(localRuntime()).toEqual({ provider: "local" });
 
     Object.defineProperty(process, "platform", {

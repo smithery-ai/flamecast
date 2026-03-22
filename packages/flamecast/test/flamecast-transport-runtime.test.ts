@@ -219,21 +219,40 @@ describe("runtime providers", () => {
       },
       spawn: { command: "node", args: ["agent.js"] },
     });
+    const withDockerDirBuild = await docker.start({
+      runtime: {
+        provider: "docker",
+        image: "flamecast/example-agent",
+        dockerfile: "docker/Dockerfile",
+      },
+      spawn: { command: "node", args: ["agent.js"] },
+    });
     const withoutBuild = await docker.start({
       runtime: {
         provider: "docker",
+        image: "flamecast/example-agent",
       },
       spawn: { command: "node", args: ["agent.js"] },
     });
 
     await withBuild.terminate();
+    await withDockerDirBuild.terminate();
     await withoutBuild.terminate();
 
     expect(alchemy).toHaveBeenCalledTimes(1);
-    expect(findFreePort).toHaveBeenCalledTimes(2);
+    expect(findFreePort).toHaveBeenCalledTimes(3);
     expect(openLocalTransport).toHaveBeenCalledWith({ command: "node", args: ["agent.js"] });
-    expect(Image).toHaveBeenCalledTimes(1);
-    expect(Container).toHaveBeenCalledTimes(2);
+    expect(Image).toHaveBeenCalledTimes(2);
+    expect(Image).toHaveBeenNthCalledWith(
+      2,
+      expect.any(String),
+      expect.objectContaining({
+        build: expect.objectContaining({
+          dockerfile: "docker/Dockerfile",
+        }),
+      }),
+    );
+    expect(Container).toHaveBeenCalledTimes(3);
     expect(openTcpTransport).toHaveBeenCalledWith("localhost", 4321);
     expect(runtimeProvider.resolveRuntimeProviders({ custom: providers.local })).toMatchObject({
       local: expect.any(Object),
@@ -293,7 +312,7 @@ describe("runtime providers", () => {
 
     const { createBuiltinRuntimeProviders } = await import("../src/flamecast/runtime-provider.js");
     const startPromise = createBuiltinRuntimeProviders().docker.start({
-      runtime: { provider: "docker" },
+      runtime: { provider: "docker", image: "flamecast/example-agent" },
       spawn: { command: "node", args: ["agent.js"] },
     });
     const startExpectation = expect(startPromise).rejects.toThrow(
@@ -307,5 +326,32 @@ describe("runtime providers", () => {
     expect(Container).toHaveBeenCalledTimes(1);
     expect(openTcpTransport).not.toHaveBeenCalled();
     expect(attempts).toBeGreaterThanOrEqual(2);
+  });
+
+  test('requires docker runtimes to provide an "image"', async () => {
+    const alchemy = vi.fn(async () => {});
+    const findFreePort = vi.fn(async () => 4321);
+
+    vi.doMock("alchemy", () => ({
+      default: alchemy,
+    }));
+    vi.doMock("alchemy/docker", () => ({
+      Container: vi.fn(async () => ({ id: "container-1" })),
+      Image: vi.fn(async () => {}),
+    }));
+    vi.doMock("../src/flamecast/transport.js", () => ({
+      findFreePort,
+      openLocalTransport: vi.fn(),
+      openTcpTransport: vi.fn(),
+    }));
+
+    const { createBuiltinRuntimeProviders } = await import("../src/flamecast/runtime-provider.js");
+
+    await expect(
+      createBuiltinRuntimeProviders().docker.start({
+        runtime: { provider: "docker" },
+        spawn: { command: "node", args: ["agent.js"] },
+      }),
+    ).rejects.toThrow('Docker runtime requires an "image" value');
   });
 });

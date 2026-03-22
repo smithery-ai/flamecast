@@ -1,0 +1,35 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "test": {
+      "outputs": []
+    },
+    "test:api:coverage": {
+      "outputs": ["coverage/**"]
+    },
+    "knip": {
+      "outputs": []
+    },
+    "psql:generate": {
+      "cache": false
+    },
+    "alchemy:deploy": {
+      "cache": false
+    },
+    "alchemy:dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "alchemy:destroy": {
+      "cache": false
+    }
+  }
+}

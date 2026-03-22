@@ -34,14 +34,14 @@ Open **http://localhost:3000**. The home page lists the registered agent templat
 
 ```text
 ┌─────────────────────────────────────────────────────┐
-│ Server (src/server/index.ts)                        │
+│ Server (apps/server/src/index.ts)                   │
 │   Creates new Flamecast()                           │
 │   Exposes the Hono app on port 3001                 │
 └─────────────────────────────────────────────────────┘
           │
           ▼
 ┌─────────────────────────────────────────────────────┐
-│ Flamecast (src/flamecast/index.ts)                  │
+│ Flamecast (packages/flamecast/src/flamecast/index.ts)│
 │   Owns session lifecycle, ACP client wiring,        │
 │   storage initialization, and runtime provider      │
 │   dispatch                                           │
@@ -81,13 +81,13 @@ Each agent template defines the reusable information needed to launch an agent:
 - `spawn`
 - `runtime`
 
-Built-in templates live in `src/flamecast/agent-templates.ts`:
+Built-in templates live in `packages/flamecast/src/flamecast/agent-templates.ts`:
 
 ```ts
 {
   id: "example",
   name: "Example agent",
-  spawn: { command: "pnpm", args: ["exec", "tsx", "src/flamecast/agent.ts"] },
+  spawn: { command: "pnpm", args: ["exec", "tsx", "<resolved package path>/src/flamecast/agent.ts"] },
   runtime: { provider: "local" },
 }
 
@@ -98,7 +98,7 @@ Built-in templates live in `src/flamecast/agent-templates.ts`:
   runtime: {
     provider: "docker",
     image: "flamecast/example-agent",
-    dockerfile: "docker/example-agent.Dockerfile",
+    dockerfile: "<resolved package path>/docker/example-agent.Dockerfile",
   },
 }
 ```
@@ -125,7 +125,7 @@ You can also create a one-off session without registering a template first:
 {
   "spawn": {
     "command": "pnpm",
-    "args": ["exec", "tsx", "src/flamecast/agent.ts"]
+    "args": ["exec", "tsx", "./agent.ts"]
   },
   "name": "Scratch agent"
 }
@@ -145,7 +145,7 @@ Runtime providers are responsible for starting the actual agent runtime and retu
 Custom providers can be added through the `runtimeProviders` option:
 
 ```ts
-import { Flamecast } from "./src/flamecast/index.js";
+import { Flamecast } from "@acp/flamecast";
 
 const flamecast = new Flamecast({
   runtimeProviders: {
@@ -179,33 +179,35 @@ If you pass `agentTemplates`, they replace the bundled defaults.
 ## Repository layout
 
 ```text
-alchemy.run.ts              # Experimental control plane: Postgres + Worker + Vite
-docker/
-  example-agent.Dockerfile  # Example ACP agent container
-  codex-agent.Dockerfile    # Codex ACP container
-src/
+apps/
   server/
-    app.ts                  # Root Hono app
-    index.ts                # Node entry point
-  worker.ts                 # Cloudflare Worker entry point
+    src/index.ts            # Node entry point; constructs Flamecast and listens
+packages/
   flamecast/
-    index.ts                # Flamecast class
-    api.ts                  # REST API routes
-    storage.ts              # FlamecastStorage + config resolution
-    runtime-provider.ts     # Built-in runtime providers
-    agent-templates.ts      # Built-in agent templates
-    transport.ts            # AcpTransport, local/tcp helpers
-    agent.ts                # Example ACP agent (stdio + TCP modes)
-    db/client.ts            # PGLite / Postgres connection
-    state-managers/
-      memory/               # In-memory storage implementation
-      psql/                 # Postgres/PGLite storage implementation
-  client/                   # React UI
-  shared/
-    session.ts              # Zod schemas + shared API types
-test/
-  flamecast.test.ts         # Orchestration tests
-  api.test.ts               # HTTP API contract tests
+    alchemy.run.ts          # Experimental control plane: Postgres + Worker + Vite
+    docker/
+      example-agent.Dockerfile
+      codex-agent.Dockerfile
+    src/
+      server/app.ts         # Root Hono app
+      worker.ts             # Cloudflare Worker entry point
+      flamecast/
+        index.ts            # Flamecast class
+        api.ts              # REST API routes
+        storage.ts          # FlamecastStorage + config resolution
+        runtime-provider.ts # Built-in runtime providers
+        agent-templates.ts  # Built-in agent templates
+        transport.ts        # AcpTransport, local/tcp helpers
+        agent.ts            # Example ACP agent (stdio + TCP modes)
+        db/client.ts        # PGLite / Postgres connection
+        state-managers/
+          memory/
+          psql/
+      client/               # React UI
+      shared/session.ts     # Zod schemas + shared API types
+    test/
+      flamecast.test.ts     # Orchestration tests
+      api.test.ts           # HTTP API contract tests
 ```
 
 ---
@@ -215,7 +217,7 @@ test/
 Configuration is TypeScript via the `Flamecast` constructor:
 
 ```ts
-import { Flamecast } from "./src/flamecast/index.js";
+import { Flamecast } from "@acp/flamecast";
 
 const flamecast = new Flamecast({
   storage: "pglite",
@@ -227,7 +229,7 @@ await flamecast.listen(3001);
 The same instance also exposes a standard `fetch` handler:
 
 ```ts
-import { Flamecast } from "./src/flamecast/index.js";
+import { Flamecast } from "@acp/flamecast";
 
 const flamecast = new Flamecast({
   storage: { type: "postgres", url: process.env.DATABASE_URL! },
@@ -286,6 +288,7 @@ Base URL: `http://localhost:3001/api`
 ### Local dev (Node)
 
 ```bash
+npx .
 pnpm dev
 pnpm dev:server
 pnpm dev:client
@@ -293,9 +296,9 @@ pnpm dev:client
 
 ### Alchemy / Worker path
 
-`alchemy.run.ts` and `src/worker.ts` are still experimental. The Worker entry point can serve the API, but the built-in `local` and `docker` providers are intentionally stubbed there and will throw unless you configure a provider that works in that environment.
+`packages/flamecast/alchemy.run.ts` and `packages/flamecast/src/worker.ts` are still experimental. The Worker entry point can serve the API, but the built-in `local` and `docker` providers are intentionally stubbed there and will throw unless you configure a provider that works in that environment.
 
-Use `pnpm dev` for the stable local development flow.
+`npx .` and `pnpm dev` both start only `apps/server`.
 
 ---
 
@@ -314,7 +317,8 @@ Tests create isolated Flamecast instances and exercise the API surface end-to-en
 
 | Script | Description |
 |---|---|
-| `pnpm dev` | API + Vite in parallel |
+| `npx .` | Start `apps/server` in dev mode |
+| `pnpm dev` | Start `apps/server` in dev mode |
 | `pnpm dev:server` | API only |
 | `pnpm dev:client` | Vite only |
 | `pnpm test` | Integration tests |

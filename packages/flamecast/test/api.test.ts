@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { describe, expect } from "vitest";
 import alchemy from "alchemy";
 import "alchemy/test/vitest";
@@ -21,6 +22,7 @@ if (!isAlchemyTestFactory(maybeAlchemyTest)) {
 }
 
 const test = maybeAlchemyTest(import.meta, { prefix: "test" });
+const exampleAgentEntrypoint = fileURLToPath(new URL("../src/flamecast/agent.ts", import.meta.url));
 
 const PromptResultSchema = z.object({
   stopReason: z.string(),
@@ -101,7 +103,9 @@ describe("api contract", () => {
 
     try {
       const createRes = await client.sessions.$post({
-        json: { spawn: { command: "pnpm", args: ["exec", "tsx", "src/flamecast/agent.ts"] } },
+        json: {
+          spawn: { command: "pnpm", args: ["exec", "tsx", exampleAgentEntrypoint] },
+        },
       });
       expect(createRes.status).toBe(201);
       const session = SessionSchema.parse(await createRes.json());
