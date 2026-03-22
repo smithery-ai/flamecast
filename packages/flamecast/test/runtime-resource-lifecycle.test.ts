@@ -64,7 +64,7 @@ function createTestRuntimeProvider(): RuntimeProvider {
         });
 
         return {
-          transport: undefined as never,
+          transport: { input: new WritableStream(), output: new ReadableStream() },
           terminate: async () => {
             await alchemy.destroy(scope).catch(() => undefined);
           },
