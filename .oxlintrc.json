@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // Keep Oxlint narrowly scoped so it adds one clear policy without overlapping ESLint.
+  "plugins": ["typescript"],
+  "categories": {
+    "correctness": "off"
+  },
+  "rules": {
+    "typescript/no-explicit-any": "error"
+  },
+  "ignorePatterns": [
+    "dist/",
+    "**/dist/",
+    "coverage/",
+    "**/coverage/",
+    "node_modules/",
+    "packages/flamecast/src/client/routeTree.gen.ts"
+  ]
+}
