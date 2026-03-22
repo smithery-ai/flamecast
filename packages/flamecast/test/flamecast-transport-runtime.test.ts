@@ -1,4 +1,3 @@
-/* oxlint-disable no-type-assertion/no-type-assertion */
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { createServer } from "node:net";
@@ -71,6 +70,7 @@ describe("transport helpers", () => {
     expect(kill).toHaveBeenCalledTimes(2);
 
     expect(() =>
+      // oxlint-disable-next-line no-type-assertion/no-type-assertion
       transport.getAgentTransport({
         stdin: null,
         stdout: null,
