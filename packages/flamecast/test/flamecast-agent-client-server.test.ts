@@ -575,11 +575,11 @@ describe("bootstrap entrypoints", () => {
     }));
 
     const serverModule = await import("../../../apps/server/src/index.ts?server");
-    const started = await serverModule.startServer();
-    const mainStarted = await serverModule.main();
+    const firstStart = await serverModule.main();
+    const secondStart = await serverModule.main();
 
-    expect(started).toBeInstanceOf(FlamecastMock);
-    expect(mainStarted).toBeInstanceOf(FlamecastMock);
+    expect(firstStart).toBeInstanceOf(FlamecastMock);
+    expect(secondStart).toBeInstanceOf(FlamecastMock);
     expect(listen).toHaveBeenCalledTimes(2);
     expect(listen).toHaveBeenCalledWith(3001);
   });
