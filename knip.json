@@ -16,7 +16,7 @@
         "src/flamecast/client.ts",
         "src/flamecast/index.ts",
         "src/worker.ts",
-        "src/flamecast/state-managers/psql/drizzle.config.ts",
+        "src/flamecast/storage/psql/drizzle.config.ts",
         "test/**/*.test.ts"
       ],
       "ignoreFiles": [

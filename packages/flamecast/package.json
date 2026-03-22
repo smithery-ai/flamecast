@@ -13,7 +13,7 @@
     "dev": "vite",
     "build": "vite build",
     "generate:routes": "tsx scripts/generate-route-tree.ts",
-    "psql:generate": "drizzle-kit generate --config src/flamecast/state-managers/psql/drizzle.config.ts",
+    "psql:generate": "drizzle-kit generate --config src/flamecast/storage/psql/drizzle.config.ts",
     "test": "vitest run --config vitest.integration.config.ts",
     "test:api:coverage": "vitest run --coverage --config vitest.integration.config.ts",
     "alchemy:deploy": "alchemy deploy",

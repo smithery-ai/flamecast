@@ -202,7 +202,7 @@ packages/
         transport.ts        # AcpTransport, local/tcp helpers
         agent.ts            # Example ACP agent (stdio + TCP modes)
         db/client.ts        # PGLite / Postgres connection
-        state-managers/
+        storage/
           memory/
           psql/
       client/               # React UI
@@ -263,7 +263,9 @@ export default flamecast.fetch;
 | Variable | Purpose |
 |---|---|
 | `FLAMECAST_POSTGRES_URL` | External Postgres connection string |
-| `ACP_PGLITE_DIR` | Override the default PGLite data directory |
+| `FLAMECAST_PGLITE_DIR` | Override the default PGLite data directory (`<cwd>/.flamecast/pglite`) |
+
+`ACP_PGLITE_DIR` is still supported as a legacy fallback for existing local installs.
 
 ---
 

@@ -4,8 +4,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { Flamecast } from "../../src/flamecast/index.js";
 import { createDatabase } from "../../src/flamecast/db/client.js";
-import { MemoryFlamecastStorage } from "../../src/flamecast/state-managers/memory/index.js";
-import { createPsqlStorage } from "../../src/flamecast/state-managers/psql/index.js";
+import { MemoryFlamecastStorage } from "../../src/flamecast/storage/memory/index.js";
+import { createPsqlStorage } from "../../src/flamecast/storage/psql/index.js";
 
 describe("storage alignment", () => {
   it("persists registered agent templates through Flamecast storage", async () => {
