@@ -159,7 +159,7 @@ const localProvisioner: RuntimeProvisioner = async ({ spawn }) => ({
   transport: openLocalTransport(spawn),
 });
 
-export function createDockerProvisioner(
+function createDockerProvisioner(
   options: BuiltinRuntimeProviderOptions = {},
 ): RuntimeProvisioner {
   return async ({ runtime, sessionId }) => {
