@@ -30,7 +30,6 @@ export type CreateDatabaseOptions = {
   /**
    * PGLite data directory when no Postgres URL is set.
    * Default: `FLAMECAST_PGLITE_DIR` or `<cwd>/.flamecast/pglite`.
-   * Falls back to `ACP_PGLITE_DIR` for legacy installs.
    */
   pgliteDataDir?: string;
 };
@@ -75,7 +74,6 @@ export async function createDatabase(options: CreateDatabaseOptions = {}): Promi
   const dataDir = path.resolve(
     options.pgliteDataDir ??
       process.env.FLAMECAST_PGLITE_DIR ??
-      process.env.ACP_PGLITE_DIR ??
       path.join(process.cwd(), ".flamecast", "pglite"),
   );
   await mkdir(dataDir, { recursive: true });

@@ -39,23 +39,20 @@ resetPgliteMocks();
 afterEach(() => {
   delete process.env.FLAMECAST_POSTGRES_URL;
   delete process.env.FLAMECAST_PGLITE_DIR;
-  delete process.env.ACP_PGLITE_DIR;
   resetPgliteMocks();
   vi.restoreAllMocks();
 });
 
 describe("database client pglite branch", () => {
-  test("falls back to pglite with explicit data dir, FLAMECAST_PGLITE_DIR, ACP_PGLITE_DIR, and the default cwd path", async () => {
+  test("falls back to pglite with explicit data dir, FLAMECAST_PGLITE_DIR, and the default cwd path", async () => {
     process.env.FLAMECAST_POSTGRES_URL = "   ";
     process.env.FLAMECAST_PGLITE_DIR = "/tmp/flamecast-env-pglite";
-    process.env.ACP_PGLITE_DIR = "/tmp/acp-env-pglite";
+    process.env.ACP_PGLITE_DIR = "/tmp/ignored-acp-env-pglite";
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const explicit = await createDatabase({ pgliteDataDir: "/tmp/explicit-pglite" });
     const flamecastEnvBundle = await createDatabase();
     delete process.env.FLAMECAST_PGLITE_DIR;
-    const legacyEnvBundle = await createDatabase();
-    delete process.env.ACP_PGLITE_DIR;
     const defaultBundle = await createDatabase();
 
     expect(mocks.createPGlite).toHaveBeenNthCalledWith(1, path.resolve("/tmp/explicit-pglite"));
@@ -63,30 +60,27 @@ describe("database client pglite branch", () => {
       2,
       path.resolve("/tmp/flamecast-env-pglite"),
     );
-    expect(mocks.createPGlite).toHaveBeenNthCalledWith(3, path.resolve("/tmp/acp-env-pglite"));
     expect(mocks.createPGlite).toHaveBeenNthCalledWith(
-      4,
+      3,
       path.resolve(path.join(process.cwd(), ".flamecast", "pglite")),
     );
-    expect(mocks.mkdir).toHaveBeenCalledTimes(4);
-    expect(mocks.migratePgLite).toHaveBeenCalledTimes(4);
+    expect(mocks.mkdir).toHaveBeenCalledTimes(3);
+    expect(mocks.migratePgLite).toHaveBeenCalledTimes(3);
     expect(mocks.drizzlePgLite).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         client: expect.any(Object),
       }),
     );
-    expect(warn).toHaveBeenCalledTimes(4);
+    expect(warn).toHaveBeenCalledTimes(3);
     expect(explicit.db).toEqual({ kind: "pglite" });
     expect(flamecastEnvBundle.db).toEqual({ kind: "pglite" });
-    expect(legacyEnvBundle.db).toEqual({ kind: "pglite" });
     expect(defaultBundle.db).toEqual({ kind: "pglite" });
 
     await explicit.close();
     await flamecastEnvBundle.close();
-    await legacyEnvBundle.close();
     await defaultBundle.close();
-    expect(mocks.close).toHaveBeenCalledTimes(4);
+    expect(mocks.close).toHaveBeenCalledTimes(3);
   });
 
   test("rewrites locked-directory startup failures to a friendlier message", async () => {

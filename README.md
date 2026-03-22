@@ -265,8 +265,6 @@ export default flamecast.fetch;
 | `FLAMECAST_POSTGRES_URL` | External Postgres connection string |
 | `FLAMECAST_PGLITE_DIR` | Override the default PGLite data directory (`<cwd>/.flamecast/pglite`) |
 
-`ACP_PGLITE_DIR` is still supported as a legacy fallback for existing local installs.
-
 ---
 
 ## HTTP API

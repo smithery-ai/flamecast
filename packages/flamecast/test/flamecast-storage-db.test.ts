@@ -19,7 +19,6 @@ function createStorageStub(label: string) {
 afterEach(() => {
   delete process.env.FLAMECAST_POSTGRES_URL;
   delete process.env.FLAMECAST_PGLITE_DIR;
-  delete process.env.ACP_PGLITE_DIR;
   vi.restoreAllMocks();
   vi.doUnmock("../src/flamecast/db/client.js");
   vi.doUnmock("../src/flamecast/storage/psql/index.js");
