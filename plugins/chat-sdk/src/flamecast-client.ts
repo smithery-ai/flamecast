@@ -1,4 +1,4 @@
-import type { McpServer } from "@agentclientprotocol/sdk";
+import type { McpServerHttp } from "@agentclientprotocol/sdk";
 import { z } from "zod";
 
 const FlamecastAgentSchema = z.object({
@@ -23,7 +23,7 @@ export type FlamecastCreateAgentBody = {
   agentTemplateId?: string;
   spawn?: FlamecastSpawn;
   name?: string;
-  mcpServers?: McpServer[];
+  mcpServers?: Array<McpServerHttp & { type: "http" }>;
 };
 
 export type FlamecastAgent = z.infer<typeof FlamecastAgentSchema>;
@@ -108,7 +108,7 @@ export function createConnectorMcpServer(
   endpoint: string | URL,
   authToken: string,
   options: { headerName?: string; serverName?: string } = {},
-): McpServer {
+): McpServerHttp & { type: "http" } {
   return {
     type: "http",
     name: options.serverName ?? "chat-sdk",

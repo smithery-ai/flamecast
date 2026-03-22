@@ -209,6 +209,29 @@ describe("API server surface", () => {
     expect(response.status).toBe(400);
   });
 
+  it("rejects non-http MCP server payloads", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/agents", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        agentTemplateId: sampleAgentTemplate.id,
+        mcpServers: [
+          {
+            type: "sse",
+            name: "chat-sdk",
+            url: "https://connector.test/sse",
+            headers: [],
+          },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(400);
+  });
+
   it("returns agent creation errors from Error values", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const flamecast = createFlamecastStub({

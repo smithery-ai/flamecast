@@ -1,4 +1,4 @@
-import type { McpServer as AcpMcpServer } from "@agentclientprotocol/sdk";
+import type { McpServerHttp as AcpMcpServerHttp } from "@agentclientprotocol/sdk";
 import { z } from "zod";
 
 /** How the server spawns an ACP agent child process (maps to `child_process.spawn`). */
@@ -92,40 +92,15 @@ const HttpHeaderSchema = z.object({
   value: z.string(),
 });
 
-const EnvVariableSchema = z.object({
-  name: z.string().min(1),
-  value: z.string(),
-});
-
 const McpServerHttpSchema = z.object({
   type: z.literal("http"),
   name: z.string().min(1),
   url: z.string().min(1),
   headers: z.array(HttpHeaderSchema),
   _meta: z.record(z.string(), z.unknown()).nullable().optional(),
-}) satisfies z.ZodType<AcpMcpServer>;
+}) satisfies z.ZodType<AcpMcpServerHttp & { type: "http" }>;
 
-const McpServerSseSchema = z.object({
-  type: z.literal("sse"),
-  name: z.string().min(1),
-  url: z.string().min(1),
-  headers: z.array(HttpHeaderSchema),
-  _meta: z.record(z.string(), z.unknown()).nullable().optional(),
-}) satisfies z.ZodType<AcpMcpServer>;
-
-const McpServerStdioSchema = z.object({
-  name: z.string().min(1),
-  command: z.string().min(1),
-  args: z.array(z.string()),
-  env: z.array(EnvVariableSchema),
-  _meta: z.record(z.string(), z.unknown()).nullable().optional(),
-}) satisfies z.ZodType<AcpMcpServer>;
-
-export const McpServerSchema = z.union([
-  McpServerHttpSchema,
-  McpServerSseSchema,
-  McpServerStdioSchema,
-]);
+export const McpServerSchema = McpServerHttpSchema;
 export type McpServer = z.infer<typeof McpServerSchema>;
 
 export const CreateSessionBodySchema = z
