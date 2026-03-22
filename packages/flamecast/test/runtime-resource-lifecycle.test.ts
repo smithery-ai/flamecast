@@ -5,6 +5,7 @@ import alchemy from "alchemy";
 import { Resource } from "alchemy";
 import type { Context } from "alchemy";
 import type { RuntimeProvider } from "../src/flamecast/runtime-provider.js";
+import { resolveRuntimeProviders } from "../src/flamecast/runtime-provider.js";
 
 // ---------------------------------------------------------------------------
 // Test resource — a lightweight alchemy resource that records lifecycle events
@@ -17,7 +18,6 @@ interface RuntimeResource extends RuntimeResourceProps {
   status: "running" | "destroyed";
 }
 
-/** Tracks every create/destroy across all test runs for assertions. */
 const lifecycleLog: { event: "create" | "destroy"; id: string; sessionId: string }[] = [];
 
 const TestRuntimeResource = Resource(
@@ -43,28 +43,26 @@ const TestRuntimeResource = Resource(
 );
 
 // ---------------------------------------------------------------------------
-// Test runtime provider — mirrors the real docker provider's ensureApp() +
+// Test runtime provider — mirrors the real docker provider's
 // alchemy.run() + alchemy.destroy(scope) pattern using TestRuntimeResource.
+// Conditionally creates an "image" resource based on runtime.dockerfile,
+// matching docker provider behavior.
 // ---------------------------------------------------------------------------
 
 let resourceScope: Promise<import("alchemy").Scope> | undefined;
 
 function createTestRuntimeProvider(): RuntimeProvider {
   return {
-    async start({ sessionId }) {
+    async start({ sessionId, runtime }) {
       resourceScope ??= alchemy("flame-resources-test", { quiet: true, noTrack: true });
       const root = await resourceScope;
 
       return alchemy.run(`session-${sessionId}`, { parent: root }, async (scope) => {
-        await TestRuntimeResource("image", {
-          sessionId,
-          kind: "image",
-        });
+        if (runtime.dockerfile) {
+          await TestRuntimeResource("image", { sessionId, kind: "image" });
+        }
 
-        await TestRuntimeResource("sandbox", {
-          sessionId,
-          kind: "sandbox",
-        });
+        await TestRuntimeResource("sandbox", { sessionId, kind: "sandbox" });
 
         return {
           transport: { input: new WritableStream(), output: new ReadableStream() },
@@ -86,29 +84,45 @@ function eventsForSession(sessionId: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Tests — exercise the provider start/terminate directly to verify that
-// alchemy resources are created within the scope and properly destroyed.
+// Tests
 // ---------------------------------------------------------------------------
 
 describe("runtime resource lifecycle", () => {
   const provider = createTestRuntimeProvider();
 
-  it("creates alchemy resources when a provider starts", async () => {
+  it("creates image and sandbox resources when dockerfile is provided", async () => {
     const before = lifecycleLog.length;
-    const sessionId = "test-create";
+    const sessionId = "test-with-dockerfile";
 
     const started = await provider.start({
       sessionId,
       spawn: { command: "echo", args: [] },
-      runtime: { provider: "test" },
+      runtime: { provider: "test", dockerfile: "Dockerfile" },
     });
 
     try {
       const creates = lifecycleLog.slice(before).filter((e) => e.event === "create");
       expect(creates).toHaveLength(2);
       expect(creates.map((e) => e.id)).toEqual(expect.arrayContaining(["image", "sandbox"]));
-      // Resources are namespaced by session via the scope, not the resource ID
-      expect(creates.every((e) => e.sessionId === sessionId)).toBe(true);
+    } finally {
+      await started.terminate();
+    }
+  });
+
+  it("creates only sandbox when no dockerfile is provided", async () => {
+    const before = lifecycleLog.length;
+    const sessionId = "test-no-dockerfile";
+
+    const started = await provider.start({
+      sessionId,
+      spawn: { command: "echo", args: [] },
+      runtime: { provider: "test", image: "some-image" },
+    });
+
+    try {
+      const creates = lifecycleLog.slice(before).filter((e) => e.event === "create");
+      expect(creates).toHaveLength(1);
+      expect(creates[0].id).toBe("sandbox");
     } finally {
       await started.terminate();
     }
@@ -120,7 +134,7 @@ describe("runtime resource lifecycle", () => {
     const started = await provider.start({
       sessionId,
       spawn: { command: "echo", args: [] },
-      runtime: { provider: "test" },
+      runtime: { provider: "test", dockerfile: "Dockerfile" },
     });
 
     const before = lifecycleLog.length;
@@ -138,25 +152,22 @@ describe("runtime resource lifecycle", () => {
     const startedA = await provider.start({
       sessionId: sessionA,
       spawn: { command: "echo", args: [] },
-      runtime: { provider: "test" },
+      runtime: { provider: "test", dockerfile: "Dockerfile" },
     });
 
     const startedB = await provider.start({
       sessionId: sessionB,
       spawn: { command: "echo", args: [] },
-      runtime: { provider: "test" },
+      runtime: { provider: "test", dockerfile: "Dockerfile" },
     });
 
     const before = lifecycleLog.length;
     await startedB.terminate();
 
     const destroys = lifecycleLog.slice(before).filter((e) => e.event === "destroy");
-
-    // Only B's resources were destroyed
     expect(destroys.every((e) => e.sessionId === sessionB)).toBe(true);
     expect(destroys.some((e) => e.sessionId === sessionA)).toBe(false);
 
-    // A can still be terminated independently
     const beforeA = lifecycleLog.length;
     await startedA.terminate();
     const aDestroys = lifecycleLog.slice(beforeA).filter((e) => e.event === "destroy");
@@ -171,21 +182,19 @@ describe("runtime resource lifecycle", () => {
     const startedA = await provider.start({
       sessionId: sessionA,
       spawn: { command: "echo", args: [] },
-      runtime: { provider: "test" },
+      runtime: { provider: "test", dockerfile: "Dockerfile" },
     });
 
     const startedB = await provider.start({
       sessionId: sessionB,
       spawn: { command: "echo", args: [] },
-      runtime: { provider: "test" },
+      runtime: { provider: "test", dockerfile: "Dockerfile" },
     });
 
     try {
       const aCreates = eventsForSession(sessionA).filter((e) => e.event === "create");
       const bCreates = eventsForSession(sessionB).filter((e) => e.event === "create");
 
-      // Both sessions created the same resource IDs ("image", "sandbox")
-      // but they're in different scopes so there's no collision
       expect(aCreates.map((e) => e.id)).toEqual(bCreates.map((e) => e.id));
       expect(aCreates.every((e) => e.sessionId === sessionA)).toBe(true);
       expect(bCreates.every((e) => e.sessionId === sessionB)).toBe(true);
@@ -193,5 +202,39 @@ describe("runtime resource lifecycle", () => {
       await startedA.terminate();
       await startedB.terminate();
     }
+  });
+});
+
+describe("runtime provider registry", () => {
+  it("resolveRuntimeProviders merges custom providers with builtins", () => {
+    const custom: RuntimeProvider = {
+      async start() {
+        return {
+          transport: { input: new WritableStream(), output: new ReadableStream() },
+          terminate: async () => {},
+        };
+      },
+    };
+
+    const providers = resolveRuntimeProviders({ custom });
+    expect(providers).toMatchObject({
+      local: expect.any(Object),
+      docker: expect.any(Object),
+      custom: expect.any(Object),
+    });
+  });
+
+  it("custom providers override builtins with the same key", () => {
+    const custom: RuntimeProvider = {
+      async start() {
+        return {
+          transport: { input: new WritableStream(), output: new ReadableStream() },
+          terminate: async () => {},
+        };
+      },
+    };
+
+    const providers = resolveRuntimeProviders({ local: custom });
+    expect(providers.local).toBe(custom);
   });
 });
