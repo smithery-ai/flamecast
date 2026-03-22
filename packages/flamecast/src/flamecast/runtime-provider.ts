@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { basename, dirname, resolve } from "node:path";
 import alchemy from "alchemy";
 import type { AgentSpawn } from "../shared/session.js";
@@ -15,6 +14,8 @@ export type StartedRuntime = {
 export type RuntimeProviderStartRequest = {
   runtime: AgentTemplateRuntime;
   spawn: AgentSpawn;
+  /** Unique ID for the session, used to namespace provisioned resources. */
+  sessionId: string;
 };
 
 export type RuntimeProvider = {
@@ -36,18 +37,11 @@ type BuiltinRuntimeProviderOptions = {
   acpRetryDelayMs?: number;
 };
 
-let alchemyReady: Promise<void> | null = null;
+const resourceScope = alchemy("flame-resources", { quiet: true });
 
 function resolveDockerBuildContext(dockerfile: string): string {
   const dockerfileDir = dirname(dockerfile);
   return basename(dockerfileDir) === "docker" ? resolve(dockerfileDir, "..") : dockerfileDir;
-}
-
-async function ensureAlchemy(): Promise<void> {
-  if (!alchemyReady) {
-    alchemyReady = alchemy("flamecast", { phase: "up", quiet: true }).then(() => undefined);
-  }
-  await alchemyReady;
 }
 
 async function waitForAcp(
@@ -172,53 +166,55 @@ function createLocalRuntimeProvider(): RuntimeProvider {
 
 function createDockerRuntimeProvider(options: BuiltinRuntimeProviderOptions = {}): RuntimeProvider {
   return {
-    async start({ runtime }) {
-      await ensureAlchemy();
+    async start({ runtime, sessionId }) {
+      await resourceScope;
 
-      const provider = await import("alchemy/docker");
-      const port = await findFreePort();
-      const resourceId = randomUUID();
-      const image = runtime.image;
+      return alchemy.run(`session-${sessionId}`, async (scope) => {
+        const provider = await import("alchemy/docker");
+        const port = await findFreePort();
+        const image = runtime.image;
 
-      if (!image) {
-        throw new Error('Docker runtime requires an "image" value');
-      }
+        if (!image) {
+          throw new Error('Docker runtime requires an "image" value');
+        }
 
-      if (runtime.dockerfile) {
-        const dockerfile = runtime.dockerfile;
-        await provider.Image(`agent-image-${resourceId}`, {
-          name: image,
-          tag: "latest",
-          build: {
-            context: resolveDockerBuildContext(dockerfile),
-            dockerfile,
-          },
-          skipPush: true,
+        if (runtime.dockerfile) {
+          const dockerfile = runtime.dockerfile;
+          await provider.Image("image", {
+            name: image,
+            tag: "latest",
+            build: {
+              context: resolveDockerBuildContext(dockerfile),
+              dockerfile,
+            },
+            skipPush: true,
+          });
+        }
+
+        await provider.Container("sandbox", {
+          image: `${image}:latest`,
+          name: `flamecast-sandbox-${sessionId}`,
+          environment: { ACP_PORT: String(port) },
+          ports: [{ external: port, internal: port }],
+          start: true,
         });
-      }
 
-      await provider.Container(`sandbox-${resourceId}`, {
-        image: `${image}:latest`,
-        name: `flamecast-sandbox-${resourceId}`,
-        environment: { ACP_PORT: String(port) },
-        ports: [{ external: port, internal: port }],
-        start: true,
+        await waitForAcp("localhost", port, {
+          timeoutMs: options.acpReadyTimeoutMs,
+          probeTimeoutMs: options.acpProbeTimeoutMs,
+          retryDelayMs: options.acpRetryDelayMs,
+        });
+
+        const transport = await openTcpTransport("localhost", port);
+
+        return {
+          transport,
+          terminate: async () => {
+            await transport.dispose?.();
+            await alchemy.destroy(scope).catch(() => undefined);
+          },
+        };
       });
-
-      await waitForAcp("localhost", port, {
-        timeoutMs: options.acpReadyTimeoutMs,
-        probeTimeoutMs: options.acpProbeTimeoutMs,
-        retryDelayMs: options.acpRetryDelayMs,
-      });
-
-      const transport = await openTcpTransport("localhost", port);
-
-      return {
-        transport,
-        terminate: async () => {
-          await transport.dispose?.();
-        },
-      };
     },
   };
 }

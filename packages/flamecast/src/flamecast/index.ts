@@ -273,7 +273,8 @@ export class Flamecast {
     }
 
     const startedAt = new Date().toISOString();
-    const startedRuntime = await provider.start({ runtime, spawn });
+    const sessionId = randomUUID();
+    const startedRuntime = await provider.start({ runtime, spawn, sessionId });
     const managed: ManagedSession = {
       id: "",
       workspaceRoot: cwd,
