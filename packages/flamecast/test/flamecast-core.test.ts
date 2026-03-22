@@ -349,6 +349,17 @@ describe("flamecast orchestration internals", () => {
     });
     expect((await storage.getLogs("session-1")).length).toBeGreaterThan(2);
 
+    Reflect.set(managed, "pendingLogs", []);
+    Reflect.set(managed, "bufferPendingLogs", true);
+    const buffered = await pushLog(managed, "buffered_startup_log", { queued: true });
+    expect(buffered).toMatchObject({
+      type: "buffered_startup_log",
+      data: { queued: true },
+    });
+    expect(Reflect.get(managed, "pendingLogs")).toEqual([buffered]);
+    Reflect.set(managed, "pendingLogs", []);
+    Reflect.set(managed, "bufferPendingLogs", false);
+
     const pendingPermission = createPendingPermission({
       sessionId: "session-1",
       toolCall: {
