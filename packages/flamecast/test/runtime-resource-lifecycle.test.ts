@@ -1,3 +1,5 @@
+process.env.ALCHEMY_CI_STATE_STORE_CHECK = "false";
+
 import { describe, expect, it } from "vitest";
 import alchemy from "alchemy";
 import { Resource } from "alchemy";
@@ -45,7 +47,10 @@ const TestRuntimeResource = Resource(
 // alchemy.run() + alchemy.destroy(scope) pattern using TestRuntimeResource.
 // ---------------------------------------------------------------------------
 
-const resourceScope = alchemy("flame-resources-test", { quiet: true });
+const resourceScope = alchemy("flame-resources-test", {
+  quiet: true,
+  noTrack: true,
+});
 
 function createTestRuntimeProvider(): RuntimeProvider {
   return {
@@ -103,9 +108,7 @@ describe("runtime resource lifecycle", () => {
     try {
       const creates = lifecycleLog.slice(before).filter((e) => e.event === "create");
       expect(creates).toHaveLength(2);
-      expect(creates.map((e) => e.id)).toEqual(
-        expect.arrayContaining(["image", "sandbox"]),
-      );
+      expect(creates.map((e) => e.id)).toEqual(expect.arrayContaining(["image", "sandbox"]));
       // Resources are namespaced by session via the scope, not the resource ID
       expect(creates.every((e) => e.sessionId === sessionId)).toBe(true);
     } finally {
