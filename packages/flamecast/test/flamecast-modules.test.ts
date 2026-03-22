@@ -29,6 +29,7 @@ function createSessionMeta(id: string) {
     spawn: { command: "node", args: ["agent.js"] },
     startedAt: "2024-01-01T00:00:00.000Z",
     lastUpdatedAt: "2024-01-01T00:00:00.000Z",
+    status: "active" as const,
     pendingPermission: null,
   };
 }
@@ -137,8 +138,14 @@ describe("memory storage", () => {
     ]);
 
     await storage.finalizeSession(meta.id, "terminated");
-    expect(await storage.getSessionMeta(meta.id)).toBeNull();
-    expect(await storage.getLogs(meta.id)).toEqual([]);
+    expect((await storage.getSessionMeta(meta.id))?.status).toBe("killed");
+    expect(await storage.getLogs(meta.id)).toEqual([
+      {
+        timestamp: "2024-01-02T00:00:00.000Z",
+        type: "rpc",
+        data: { ok: true },
+      },
+    ]);
   });
 });
 

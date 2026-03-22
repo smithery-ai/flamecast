@@ -100,6 +100,7 @@ describe("storage alignment", () => {
         spawn: { command: "node", args: ["agent.js"] },
         startedAt: "2026-03-21T00:00:00.000Z",
         lastUpdatedAt: "2026-03-21T00:00:00.000Z",
+        status: "active",
         pendingPermission: null,
       });
 
@@ -130,8 +131,19 @@ describe("storage alignment", () => {
       expect(logs[0]?.data).toEqual({ method: "session/new" });
       expect(logs[0]?.timestamp).toBeTruthy();
 
+      expect(await storage.getSessionMeta("nonexistent")).toBeNull();
+
+      const allBeforeKill = await storage.listAllSessions();
+      expect(allBeforeKill).toHaveLength(1);
+      expect(allBeforeKill[0]?.status).toBe("active");
+
       await storage.finalizeSession("session-1", "terminated");
-      await expect(storage.getSessionMeta("session-1")).resolves.toBeNull();
+      const finalized = await storage.getSessionMeta("session-1");
+      expect(finalized?.status).toBe("killed");
+
+      const allAfterKill = await storage.listAllSessions();
+      expect(allAfterKill).toHaveLength(1);
+      expect(allAfterKill[0]?.status).toBe("killed");
     } finally {
       await close();
       await rm(dataDir, { recursive: true, force: true });

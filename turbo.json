@@ -13,7 +13,8 @@
       "outputs": []
     },
     "test:api:coverage": {
-      "outputs": ["coverage/**"]
+      "outputs": ["coverage/**"],
+      "passThroughEnv": ["ALCHEMY_CI_STATE_STORE_CHECK"]
     },
     "knip": {
       "outputs": []

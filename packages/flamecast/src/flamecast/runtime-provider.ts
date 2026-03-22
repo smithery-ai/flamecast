@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { basename, dirname, resolve } from "node:path";
 import alchemy from "alchemy";
 import type { AgentSpawn } from "../shared/session.js";
@@ -15,6 +14,7 @@ export type StartedRuntime = {
 export type RuntimeProviderStartRequest = {
   runtime: AgentTemplateRuntime;
   spawn: AgentSpawn;
+  sessionId: string;
 };
 
 export type RuntimeProvider = {
@@ -23,6 +23,12 @@ export type RuntimeProvider = {
 };
 
 export type RuntimeProviderRegistry = Record<string, RuntimeProvider>;
+
+export type RuntimeProvisioner = (opts: {
+  runtime: AgentTemplateRuntime;
+  spawn: AgentSpawn;
+  sessionId: string;
+}) => Promise<{ transport: AcpTransport }>;
 
 type WaitForAcpOptions = {
   timeoutMs?: number;
@@ -36,21 +42,14 @@ type BuiltinRuntimeProviderOptions = {
   acpRetryDelayMs?: number;
 };
 
-let alchemyReady: Promise<void> | null = null;
+let resourceScope: Promise<import("alchemy").Scope> | undefined;
 
-function resolveDockerBuildContext(dockerfile: string): string {
+export function resolveDockerBuildContext(dockerfile: string): string {
   const dockerfileDir = dirname(dockerfile);
   return basename(dockerfileDir) === "docker" ? resolve(dockerfileDir, "..") : dockerfileDir;
 }
 
-async function ensureAlchemy(): Promise<void> {
-  if (!alchemyReady) {
-    alchemyReady = alchemy("flamecast", { phase: "up", quiet: true }).then(() => undefined);
-  }
-  await alchemyReady;
-}
-
-async function waitForAcp(
+export async function waitForAcp(
   host: string,
   port: number,
   { timeoutMs = 30_000, probeTimeoutMs = 2_000, retryDelayMs = 200 }: WaitForAcpOptions = {},
@@ -156,79 +155,81 @@ async function waitForAcp(
   });
 }
 
-function createLocalRuntimeProvider(): RuntimeProvider {
-  return {
-    async start({ spawn }) {
-      const transport = openLocalTransport(spawn);
-      return {
-        transport,
-        terminate: async () => {
-          await transport.dispose?.();
+const localProvisioner: RuntimeProvisioner = async ({ spawn }) => ({
+  transport: openLocalTransport(spawn),
+});
+
+/* v8 ignore start -- docker provisioning requires a running Docker daemon */
+export function createDockerProvisioner(
+  options: BuiltinRuntimeProviderOptions = {},
+): RuntimeProvisioner {
+  return async ({ runtime, sessionId }) => {
+    const provider = await import("alchemy/docker");
+    const port = await findFreePort();
+    const image = runtime.image;
+
+    if (!image) {
+      throw new Error('Docker runtime requires an "image" value');
+    }
+    if (runtime.dockerfile) {
+      const dockerfile = runtime.dockerfile;
+      await provider.Image("image", {
+        name: image,
+        tag: "latest",
+        build: {
+          context: resolveDockerBuildContext(dockerfile),
+          dockerfile,
         },
-      };
-    },
+        skipPush: true,
+      });
+    }
+
+    await provider.Container("sandbox", {
+      image: `${image}:latest`,
+      name: `flamecast-sandbox-${sessionId}`,
+      environment: { ACP_PORT: String(port) },
+      ports: [{ external: port, internal: port }],
+      start: true,
+    });
+
+    await waitForAcp("localhost", port, {
+      timeoutMs: options.acpReadyTimeoutMs,
+      probeTimeoutMs: options.acpProbeTimeoutMs,
+      retryDelayMs: options.acpRetryDelayMs,
+    });
+
+    return { transport: await openTcpTransport("localhost", port) };
   };
 }
+/* v8 ignore stop */
 
-function createDockerRuntimeProvider(options: BuiltinRuntimeProviderOptions = {}): RuntimeProvider {
+export function createRuntimeProvider(provisioner: RuntimeProvisioner): RuntimeProvider {
   return {
-    async start({ runtime }) {
-      await ensureAlchemy();
+    async start({ runtime, spawn, sessionId }) {
+      resourceScope ??= alchemy("flame-resources", { quiet: true });
+      const root = await resourceScope;
 
-      const provider = await import("alchemy/docker");
-      const port = await findFreePort();
-      const resourceId = randomUUID();
-      const image = runtime.image;
+      return alchemy.run(`session-${sessionId}`, { parent: root }, async (scope) => {
+        const { transport } = await provisioner({ runtime, spawn, sessionId });
 
-      if (!image) {
-        throw new Error('Docker runtime requires an "image" value');
-      }
-
-      if (runtime.dockerfile) {
-        const dockerfile = runtime.dockerfile;
-        await provider.Image(`agent-image-${resourceId}`, {
-          name: image,
-          tag: "latest",
-          build: {
-            context: resolveDockerBuildContext(dockerfile),
-            dockerfile,
+        return {
+          transport,
+          terminate: async () => {
+            await transport.dispose?.();
+            await alchemy.destroy(scope).catch(() => undefined);
           },
-          skipPush: true,
-        });
-      }
-
-      await provider.Container(`sandbox-${resourceId}`, {
-        image: `${image}:latest`,
-        name: `flamecast-sandbox-${resourceId}`,
-        environment: { ACP_PORT: String(port) },
-        ports: [{ external: port, internal: port }],
-        start: true,
+        };
       });
-
-      await waitForAcp("localhost", port, {
-        timeoutMs: options.acpReadyTimeoutMs,
-        probeTimeoutMs: options.acpProbeTimeoutMs,
-        retryDelayMs: options.acpRetryDelayMs,
-      });
-
-      const transport = await openTcpTransport("localhost", port);
-
-      return {
-        transport,
-        terminate: async () => {
-          await transport.dispose?.();
-        },
-      };
     },
   };
 }
 
-export function createBuiltinRuntimeProviders(
+function createBuiltinRuntimeProviders(
   options: BuiltinRuntimeProviderOptions = {},
 ): RuntimeProviderRegistry {
   return {
-    local: createLocalRuntimeProvider(),
-    docker: createDockerRuntimeProvider(options),
+    local: createRuntimeProvider(localProvisioner),
+    docker: createRuntimeProvider(createDockerProvisioner(options)),
   };
 }
 

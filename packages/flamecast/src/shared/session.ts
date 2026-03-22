@@ -80,6 +80,7 @@ export const SessionSchema = z.object({
   spawn: AgentSpawnSchema,
   startedAt: z.string(),
   lastUpdatedAt: z.string(),
+  status: z.enum(["active", "killed"]),
   logs: z.array(SessionLogSchema),
   pendingPermission: PendingPermissionSchema.nullable(),
   fileSystem: FileSystemSnapshotSchema.nullable(),

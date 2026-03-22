@@ -28,6 +28,8 @@ export type FlamecastStorage = {
   appendLog(sessionId: string, log: SessionLog): Promise<void>;
   getSessionMeta(id: string): Promise<SessionMeta | null>;
   getLogs(sessionId: string): Promise<SessionLog[]>;
+  /** Return all sessions (active + killed), ordered by lastUpdatedAt desc. */
+  listAllSessions(): Promise<SessionMeta[]>;
   /** Called after the last termination log is appended — e.g. mark row dead (SQL) or evict (memory). */
   finalizeSession(id: string, reason: "terminated"): Promise<void>;
 };
