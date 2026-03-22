@@ -1,7 +1,6 @@
 import { Hono, type Context } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import type { Flamecast } from "./index.js";
-import { isFlamecastNotFoundError } from "./errors.js";
 import {
   CreateSessionBodySchema,
   PermissionResponseBodySchema,
@@ -30,10 +29,6 @@ function toStringMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isNotFound(error: unknown): boolean {
-  return isFlamecastNotFoundError(error);
-}
-
 export function createApi(flamecast: FlamecastApi) {
   // The agent routes are public API sugar over the current single-session runtime model.
   const getAgentSnapshot = async (c: Context, agentId: string) => {
@@ -45,11 +40,8 @@ export function createApi(flamecast: FlamecastApi) {
         ...(showAllFiles ? { showAllFiles: true } : {}),
       });
       return c.json(session);
-    } catch (error) {
-      if (isNotFound(error)) {
-        return c.json({ error: "Agent not found" }, 404);
-      }
-      return c.json({ error: toErrorMessage(error) }, 500);
+    } catch {
+      return c.json({ error: "Agent not found" }, 404);
     }
   };
 
@@ -94,9 +86,6 @@ export function createApi(flamecast: FlamecastApi) {
         const preview = await flamecast.getFilePreview(c.req.param("agentId"), path);
         return c.json(preview);
       } catch (error) {
-        if (isNotFound(error)) {
-          return c.json({ error: "Agent not found" }, 404);
-        }
         return c.json({ error: toErrorMessage(error) }, 400);
       }
     })
@@ -106,9 +95,6 @@ export function createApi(flamecast: FlamecastApi) {
         const result = await flamecast.promptSession(c.req.param("agentId"), text);
         return c.json(result);
       } catch (error) {
-        if (isNotFound(error)) {
-          return c.json({ error: "Agent not found" }, 404);
-        }
         return c.json({ error: toErrorMessage(error) }, 400);
       }
     })
@@ -125,9 +111,6 @@ export function createApi(flamecast: FlamecastApi) {
           );
           return c.json({ ok: true });
         } catch (error) {
-          if (isNotFound(error)) {
-            return c.json({ error: "Agent not found" }, 404);
-          }
           return c.json({ error: toErrorMessage(error) }, 400);
         }
       },
@@ -136,11 +119,8 @@ export function createApi(flamecast: FlamecastApi) {
       try {
         await flamecast.terminateSession(c.req.param("agentId"));
         return c.json({ ok: true });
-      } catch (error) {
-        if (isNotFound(error)) {
-          return c.json({ error: "Agent not found" }, 404);
-        }
-        return c.json({ error: toErrorMessage(error) }, 500);
+      } catch {
+        return c.json({ error: "Agent not found" }, 404);
       }
     });
 }

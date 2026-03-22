@@ -20,7 +20,6 @@ import type {
 } from "../shared/session.js";
 import { createServerApp } from "../server/app.js";
 import { getBuiltinAgentTemplates, localRuntime } from "./agent-templates.js";
-import { FlamecastNotFoundError } from "./errors.js";
 import type { FlamecastStorage, StorageConfig } from "./storage.js";
 import { resolveStorage } from "./storage.js";
 import type { RuntimeProviderRegistry, StartedRuntime } from "./runtime-provider.js";
@@ -490,7 +489,7 @@ export class Flamecast {
   private resolveRuntime(id: string): ManagedSession {
     const managed = this.runtimes.get(id);
     if (!managed) {
-      throw new FlamecastNotFoundError(`Session "${id}" not found`);
+      throw new Error(`Session "${id}" not found`);
     }
     return managed;
   }
@@ -502,7 +501,7 @@ export class Flamecast {
     const storage = this.requireStorage();
     const meta = await storage.getSessionMeta(id);
     if (!meta) {
-      throw new FlamecastNotFoundError(`Session "${id}" not found`);
+      throw new Error(`Session "${id}" not found`);
     }
     const logs = await storage.getLogs(id);
     const managed = opts.includeFileSystem ? (this.runtimes.get(id) ?? null) : null;
