@@ -2,10 +2,10 @@ import * as acp from "@agentclientprotocol/sdk";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchFilePreview, fetchSession, fetchSessionFileSystem } from "@/client/lib/api";
-import { AgentAcpClient } from "@/client/lib/agent-acp";
+import { useAgent } from "@/client/hooks/use-agent";
 import { FileTree, FileTreeFile, FileTreeFolder } from "@/components/ai-elements/file-tree";
 import { sessionLogsToSegments } from "@/client/lib/logs-markdown";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Button } from "@/client/components/ui/button";
 import {
   Card,
@@ -53,7 +53,6 @@ function SessionDetailPage() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [showAllFiles, setShowAllFiles] = useState(false);
-  const acpClientRef = useRef<AgentAcpClient | null>(null);
   const queryClient = useQueryClient();
   const sessionQueryKey = ["session", agentId, sessionId] as const;
   const sessionsQueryKey = ["sessions"] as const;
@@ -76,66 +75,41 @@ function SessionDetailPage() {
     );
   };
 
-  useEffect(() => {
-    if (!session?.cwd) {
-      return;
-    }
-
-    const acpClient = new AgentAcpClient(agentId, {
-      onSessionUpdate: async (params) => {
-        if (params.sessionId !== sessionId) {
-          return;
-        }
-        const log = createLiveSessionUpdateLog(params);
-        updateSessionCache((current) => appendSessionLog(current, log));
-        updateSessionSummaries((current) =>
-          updateSessionSummaryList(current, sessionId, {
-            lastUpdatedAt: log.timestamp,
-          }),
-        );
-      },
-      onPermissionRequested: async (params) => {
-        if (params.sessionId !== sessionId) {
-          return;
-        }
-        const timestamp = new Date().toISOString();
-        const pendingPermission = createPendingPermissionFromRequest(params);
-        updateSessionCache((current) => ({
-          ...current,
+  const agent = useAgent({
+    agentId,
+    sessionId,
+    cwd: session?.cwd,
+    onSessionUpdate: async (params) => {
+      if (params.sessionId !== sessionId) {
+        return;
+      }
+      const log = createLiveSessionUpdateLog(params);
+      updateSessionCache((current) => appendSessionLog(current, log));
+      updateSessionSummaries((current) =>
+        updateSessionSummaryList(current, sessionId, {
+          lastUpdatedAt: log.timestamp,
+        }),
+      );
+    },
+    onPermissionRequested: async (params) => {
+      if (params.sessionId !== sessionId) {
+        return;
+      }
+      const timestamp = new Date().toISOString();
+      const pendingPermission = createPendingPermissionFromRequest(params);
+      updateSessionCache((current) => ({
+        ...current,
+        lastUpdatedAt: timestamp,
+        pendingPermission,
+      }));
+      updateSessionSummaries((current) =>
+        updateSessionSummaryList(current, sessionId, {
           lastUpdatedAt: timestamp,
           pendingPermission,
-        }));
-        updateSessionSummaries((current) =>
-          updateSessionSummaryList(current, sessionId, {
-            lastUpdatedAt: timestamp,
-            pendingPermission,
-          }),
-        );
-      },
-    });
-    acpClientRef.current = acpClient;
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        await acpClient.connect();
-        if (cancelled) return;
-        await acpClient.loadSession(sessionId, session.cwd);
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Failed to attach ACP session", error);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      if (acpClientRef.current === acpClient) {
-        acpClientRef.current = null;
-      }
-      void acpClient.close();
-    };
-  }, [agentId, session?.cwd, sessionId]);
+        }),
+      );
+    },
+  });
 
   const fileSystemQuery = useQuery({
     queryKey: ["session-file-system", agentId, sessionId, showAllFiles],
@@ -145,13 +119,7 @@ function SessionDetailPage() {
   });
 
   const promptMutation = useMutation({
-    mutationFn: async (text: string) => {
-      const acpClient = acpClientRef.current;
-      if (!acpClient) {
-        throw new Error("ACP client is not ready");
-      }
-      return acpClient.prompt(sessionId, text);
-    },
+    mutationFn: async (text: string) => agent.prompt(text),
     onMutate: async (text) => {
       const previousSession = queryClient.getQueryData<Session>(sessionQueryKey);
       const previousSessions = queryClient.getQueryData<SessionSummary[]>(sessionsQueryKey);
@@ -183,13 +151,8 @@ function SessionDetailPage() {
   });
 
   const permissionMutation = useMutation({
-    mutationFn: async (body: { optionId: string } | { outcome: "cancelled" }) => {
-      const acpClient = acpClientRef.current;
-      if (!acpClient) {
-        throw new Error("ACP client is not ready");
-      }
-      return acpClient.respondToPermission(sessionId, body);
-    },
+    mutationFn: async (body: { optionId: string } | { outcome: "cancelled" }) =>
+      agent.respondToPermission(body),
     onMutate: async (body) => {
       const previousSession = queryClient.getQueryData<Session>(sessionQueryKey);
       const previousSessions = queryClient.getQueryData<SessionSummary[]>(sessionsQueryKey);
