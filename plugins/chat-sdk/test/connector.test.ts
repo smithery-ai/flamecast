@@ -1,13 +1,8 @@
+import type { AppType } from "@acp/flamecast/api";
 import { Message, type Chat, type Thread } from "chat";
+import { hc } from "hono/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  ChatSdkConnector,
-  type ChatSdkClient,
-  type FlamecastCreateAgentBody,
-  FlamecastHttpClient,
-  InMemoryThreadBindingStore,
-  extractMessageText,
-} from "../src/index.js";
+import { ChatSdkConnector, extractMessageText } from "../src/index.js";
 import * as pluginEntry from "../src/index.js";
 
 type MentionHandler = (thread: Thread, message: Message) => Promise<void> | void;
@@ -56,9 +51,9 @@ class TestThread implements Thread {
   readonly allMessages = (async function* () {})();
   readonly state = Promise.resolve(null);
   readonly post: Thread["post"];
+  readonly startTyping: Thread["startTyping"];
   readonly subscribe: Thread["subscribe"];
   readonly unsubscribe: Thread["unsubscribe"];
-  readonly startTyping: Thread["startTyping"];
 
   constructor(
     id: string,
@@ -71,9 +66,9 @@ class TestThread implements Thread {
     this.id = id;
     this.channelId = `channel-${id}`;
     this.post = overrides.post ?? vi.fn(async () => new TestSentMessage(id));
+    this.startTyping = vi.fn(async () => undefined);
     this.subscribe = overrides.subscribe ?? vi.fn(async () => undefined);
     this.unsubscribe = overrides.unsubscribe ?? vi.fn(async () => undefined);
-    this.startTyping = vi.fn(async () => undefined);
   }
 
   get adapter(): Thread["adapter"] {
@@ -120,10 +115,10 @@ function createThread(
   return new TestThread(id, overrides);
 }
 
-function createMessage(text: string): Message {
+function createMessage(text: string, threadId = "thread-1"): Message {
   return new Message({
-    id: `message-${text || "empty"}`,
-    threadId: "thread-1",
+    id: `message-${threadId}-${text || "empty"}`,
+    threadId,
     text,
     formatted: { type: "root", children: [] },
     raw: {},
@@ -159,7 +154,7 @@ function createChatStub() {
     },
   );
 
-  const chat: ChatSdkClient = {
+  const chat = {
     onNewMention(handler: MentionHandler) {
       mentionHandler = handler;
     },
@@ -169,7 +164,7 @@ function createChatStub() {
     webhooks: {
       slack: slackWebhook,
     },
-  } satisfies Pick<Chat, "onNewMention" | "onSubscribedMessage" | "webhooks">;
+  } as unknown as Chat;
 
   return {
     chat,
@@ -183,66 +178,37 @@ function createChatStub() {
   };
 }
 
+function createFlamecast(fetchImpl: typeof fetch) {
+  return hc<AppType>("http://flamecast.test/api", { fetch: fetchImpl });
+}
+
+function rpcLog(text: string, timestamp: string) {
+  return {
+    timestamp,
+    type: "rpc",
+    data: {
+      method: "session/update",
+      direction: "agent_to_client",
+      phase: "notification",
+      payload: {
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text },
+        },
+      },
+    },
+  };
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
-describe("InMemoryThreadBindingStore", () => {
-  it("stores, updates, deletes, and clears bindings", () => {
-    const store = new InMemoryThreadBindingStore();
-    const firstThread = createThread("thread-1");
-
-    expect(store.getByThreadId("missing")).toBeNull();
-    expect(store.getByBindingId("missing")).toBeNull();
-    expect(store.deleteByThreadId("missing")).toBeNull();
-
-    store.set({
-      threadId: "thread-1",
-      bindingId: "binding-1",
-      thread: firstThread,
-    });
-
-    expect(store.list()).toHaveLength(1);
-    expect(store.getByThreadId("thread-1")?.thread).toBe(firstThread);
-    expect(store.getByBindingId("binding-1")?.threadId).toBe("thread-1");
-
-    const nextThread = createThread("thread-1");
-    store.set({
-      threadId: "thread-1",
-      bindingId: "binding-2",
-      thread: nextThread,
-    });
-
-    expect(store.getByBindingId("binding-1")).toBeNull();
-    expect(store.getByThreadId("thread-1")?.thread).toBe(nextThread);
-    expect(store.deleteByThreadId("thread-1")?.bindingId).toBe("binding-2");
-    expect(store.list()).toEqual([]);
-
-    store.set({
-      threadId: "thread-2",
-      bindingId: "binding-3",
-      thread: createThread("thread-2"),
-    });
-    store.clear();
-    expect(store.list()).toEqual([]);
-  });
-
-  it("returns null when the secondary index points at a missing thread record", () => {
-    const store = new InMemoryThreadBindingStore();
-    store.set({
-      threadId: "thread-1",
-      bindingId: "binding-1",
-      thread: createThread("thread-1"),
-    });
-
-    const byThreadId = Reflect.get(store, "byThreadId");
-    if (!(byThreadId instanceof Map)) {
-      throw new Error("Expected byThreadId to be a Map");
-    }
-    byThreadId.delete("thread-1");
-
-    expect(store.getByBindingId("binding-1")).toBeNull();
+describe("entrypoint", () => {
+  it("re-exports the minimal plugin surface", () => {
+    expect(pluginEntry.ChatSdkConnector).toBe(ChatSdkConnector);
+    expect(pluginEntry.extractMessageText).toBe(extractMessageText);
   });
 });
 
@@ -253,224 +219,192 @@ describe("extractMessageText", () => {
   });
 });
 
-describe("FlamecastHttpClient", () => {
-  it("re-exports the plugin entrypoint surface", () => {
-    expect(pluginEntry.ChatSdkConnector).toBe(ChatSdkConnector);
-    expect(pluginEntry.FlamecastHttpClient).toBe(FlamecastHttpClient);
-    expect(pluginEntry.extractMessageText).toBe(extractMessageText);
-  });
-
-  it("creates agents, prompts agents, and terminates agents", async () => {
+describe("ChatSdkConnector", () => {
+  it("creates agents on first mention, reuses them for follow-ups, updates thread references, and ignores empty messages", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
-    fetchImpl.mockResolvedValueOnce(
-      new Response(JSON.stringify({ id: "agent-1", logs: [] }), {
-        headers: { "content-type": "application/json" },
-      }),
-    );
-    fetchImpl.mockResolvedValueOnce(
-      new Response(JSON.stringify({ stopReason: "end_turn" }), {
-        headers: { "content-type": "application/json" },
-      }),
-    );
-    fetchImpl.mockResolvedValueOnce(new Response(null, { status: 200 }));
-    const client = new FlamecastHttpClient({
-      baseUrl: "http://flamecast.test",
-      fetch: fetchImpl,
-    });
-
-    expect(
-      await client.createAgent({
-        spawn: { command: "node", args: ["agent.js"] },
-        cwd: "/workspace",
-      }),
-    ).toEqual({
-      id: "agent-1",
-      logs: [],
-    });
-    expect(await client.promptAgent("agent-1", "hello")).toEqual({
-      stopReason: "end_turn",
-    });
-    await client.terminateAgent("agent-1");
-
-    expect(fetchImpl).toHaveBeenNthCalledWith(
-      1,
-      new URL("/api/agents", "http://flamecast.test"),
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(fetchImpl).toHaveBeenNthCalledWith(
-      2,
-      new URL("/api/agents/agent-1/prompt", "http://flamecast.test"),
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(fetchImpl).toHaveBeenNthCalledWith(
-      3,
-      new URL("/api/agents/agent-1", "http://flamecast.test"),
-      { method: "DELETE" },
-    );
-  });
-
-  it("handles agent snapshots without logs when deriving a reply", async () => {
-    const fetchImpl = vi.fn<typeof fetch>();
-    fetchImpl.mockResolvedValueOnce(
-      new Response(JSON.stringify({ id: "agent-1" }), {
-        headers: { "content-type": "application/json" },
-      }),
-    );
-    fetchImpl.mockResolvedValueOnce(
-      new Response(JSON.stringify({ stopReason: "end_turn" }), {
-        headers: { "content-type": "application/json" },
-      }),
-    );
-    fetchImpl.mockResolvedValueOnce(
-      new Response(JSON.stringify({ id: "agent-1" }), {
-        headers: { "content-type": "application/json" },
-      }),
-    );
-    const client = new FlamecastHttpClient({ baseUrl: "http://flamecast.test", fetch: fetchImpl });
-
-    expect(await client.promptAgentForReply("agent-1", "hello")).toEqual({
-      stopReason: "end_turn",
-      replyText: null,
-    });
-  });
-
-  it("returns null when appended logs do not contain a text assistant reply", async () => {
-    const fetchImpl = vi.fn<typeof fetch>();
-    fetchImpl.mockResolvedValueOnce(
-      new Response(JSON.stringify({ id: "agent-1", logs: [] }), {
-        headers: { "content-type": "application/json" },
-      }),
-    );
-    fetchImpl.mockResolvedValueOnce(
-      new Response(JSON.stringify({ stopReason: "end_turn" }), {
-        headers: { "content-type": "application/json" },
-      }),
-    );
-    fetchImpl.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          id: "agent-1",
-          logs: [
-            { timestamp: "1", type: "session_update", data: {} },
-            {
-              timestamp: "2",
-              type: "rpc",
-              data: {
-                method: "session/prompt",
-                direction: "agent_to_client",
-                phase: "notification",
-                payload: {},
-              },
-            },
-            {
-              timestamp: "3",
-              type: "rpc",
-              data: {
-                method: "session/update",
-                direction: "agent_to_client",
-                phase: "notification",
-                payload: {
-                  update: {
-                    sessionUpdate: "tool_call",
-                    content: { type: "text", text: "ignored" },
-                  },
-                },
-              },
-            },
-            {
-              timestamp: "4",
-              type: "rpc",
-              data: {
-                method: "session/update",
-                direction: "agent_to_client",
-                phase: "notification",
-                payload: {
-                  update: {
-                    sessionUpdate: "agent_message_chunk",
-                    content: { type: "image", text: "ignored" },
-                  },
-                },
-              },
-            },
-          ],
+    fetchImpl
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-1", logs: [] }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
         }),
-        { headers: { "content-type": "application/json" } },
-      ),
-    );
-    const client = new FlamecastHttpClient({ baseUrl: "http://flamecast.test", fetch: fetchImpl });
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-1", logs: [] }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ stopReason: "end_turn" }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-1", logs: [rpcLog("first", "1")] }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-1", logs: [rpcLog("first", "1")] }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ stopReason: "end_turn" }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "agent-1",
+            logs: [rpcLog("first", "1"), rpcLog("second", "2")],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "agent-1",
+            logs: [rpcLog("first", "1"), rpcLog("second", "2")],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ stopReason: "end_turn" }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "agent-1",
+            logs: [rpcLog("first", "1"), rpcLog("second", "2"), rpcLog("third", "3")],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
 
-    expect(await client.promptAgentForReply("agent-1", "hello")).toEqual({
-      stopReason: "end_turn",
-      replyText: null,
+    const chat = createChatStub();
+    const connector = new ChatSdkConnector({
+      agent: { agentTemplateId: "codex" },
+      chat: chat.chat,
+      flamecast: createFlamecast(fetchImpl),
     });
+
+    connector.start();
+    connector.start();
+
+    const firstThread = createThread("thread-1");
+    await chat.emitMention(firstThread, createMessage("hello", "thread-1"));
+    await chat.emitSubscribed(firstThread, createMessage("same-thread", "thread-1"));
+
+    const refreshedThread = createThread("thread-1");
+    await chat.emitSubscribed(refreshedThread, createMessage("follow-up", "thread-1"));
+    await chat.emitSubscribed(refreshedThread, createMessage("   ", "thread-1"));
+
+    expect(firstThread.subscribe).toHaveBeenCalledTimes(1);
+    expect(firstThread.post).toHaveBeenNthCalledWith(1, "first");
+    expect(firstThread.post).toHaveBeenNthCalledWith(2, "second");
+    expect(refreshedThread.post).toHaveBeenCalledWith("third");
+
+    const createAgentCalls = fetchImpl.mock.calls.filter(
+      ([url, init]) => url === "http://flamecast.test/api/agents" && init?.method === "POST",
+    );
+    expect(createAgentCalls).toHaveLength(1);
+
+    const health = await connector.fetch(new Request("http://connector.test/health"));
+    expect(await health.json()).toEqual({ status: "ok", bindings: 1 });
   });
 
-  it("derives the latest assistant reply from newly appended logs", async () => {
+  it("skips posting when the appended logs do not contain a text assistant reply", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
-    fetchImpl.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          id: "agent-1",
-          logs: [{ timestamp: "1", type: "rpc", data: { method: "session/prompt" } }],
+    fetchImpl
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-1", logs: [] }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
         }),
-        { headers: { "content-type": "application/json" } },
-      ),
-    );
-    fetchImpl.mockResolvedValueOnce(
-      new Response(JSON.stringify({ stopReason: "end_turn" }), {
-        headers: { "content-type": "application/json" },
-      }),
-    );
-    fetchImpl.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          id: "agent-1",
-          logs: [
-            { timestamp: "1", type: "rpc", data: { method: "session/prompt" } },
-            {
-              timestamp: "2",
-              type: "rpc",
-              data: {
-                method: "session/update",
-                direction: "agent_to_client",
-                phase: "notification",
-                payload: {
-                  update: {
-                    sessionUpdate: "agent_message_chunk",
-                    content: { type: "text", text: "Hello" },
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-1" }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ stopReason: "end_turn" }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "agent-1",
+            logs: [
+              { timestamp: "1", type: "session_update", data: {} },
+              {
+                timestamp: "2",
+                type: "rpc",
+                data: {
+                  method: "session/prompt",
+                  direction: "agent_to_client",
+                  phase: "notification",
+                  payload: {},
+                },
+              },
+              {
+                timestamp: "3",
+                type: "rpc",
+                data: {
+                  method: "session/update",
+                  direction: "agent_to_client",
+                  phase: "notification",
+                  payload: {
+                    update: {
+                      sessionUpdate: "tool_call",
+                      content: { type: "text", text: "ignored" },
+                    },
                   },
                 },
               },
-            },
-            {
-              timestamp: "3",
-              type: "rpc",
-              data: {
-                method: "session/update",
-                direction: "agent_to_client",
-                phase: "notification",
-                payload: {
-                  update: {
-                    sessionUpdate: "agent_message_chunk",
-                    content: { type: "text", text: " world" },
+              {
+                timestamp: "4",
+                type: "rpc",
+                data: {
+                  method: "session/update",
+                  direction: "agent_to_client",
+                  phase: "notification",
+                  payload: {
+                    update: {
+                      sessionUpdate: "agent_message_chunk",
+                      content: { type: "image", text: "ignored" },
+                    },
                   },
                 },
               },
-            },
-          ],
-        }),
-        { headers: { "content-type": "application/json" } },
-      ),
-    );
-    const client = new FlamecastHttpClient({ baseUrl: "http://flamecast.test", fetch: fetchImpl });
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
 
-    expect(await client.promptAgentForReply("agent-1", "hello")).toEqual({
-      stopReason: "end_turn",
-      replyText: "Hello world",
+    const chat = createChatStub();
+    const connector = new ChatSdkConnector({
+      agent: { agentTemplateId: "codex" },
+      chat: chat.chat,
+      flamecast: createFlamecast(fetchImpl),
     });
+
+    connector.start();
+    const thread = createThread("thread-1");
+    await chat.emitMention(thread, createMessage("hello", "thread-1"));
+
+    expect(thread.post).not.toHaveBeenCalled();
   });
 
-  it("surfaces JSON and non-JSON error responses", async () => {
+  it("surfaces agent creation errors from JSON error responses", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     fetchImpl.mockResolvedValueOnce(
       new Response(JSON.stringify({ error: "agent failed" }), {
@@ -478,220 +412,219 @@ describe("FlamecastHttpClient", () => {
         headers: { "content-type": "application/json" },
       }),
     );
-    fetchImpl.mockResolvedValueOnce(
-      new Response("bad gateway", { status: 502, statusText: "Bad Gateway" }),
-    );
-    const client = new FlamecastHttpClient({
-      baseUrl: "http://flamecast.test",
-      fetch: fetchImpl,
+
+    const chat = createChatStub();
+    const connector = new ChatSdkConnector({
+      agent: { spawn: { command: "node", args: [] }, cwd: "/workspace" },
+      chat: chat.chat,
+      flamecast: createFlamecast(fetchImpl),
     });
 
-    await expect(
-      client.createAgent({
-        spawn: { command: "node" },
-        cwd: "/workspace",
-      }),
-    ).rejects.toThrow("agent failed");
-    await expect(client.terminateAgent("agent-1")).rejects.toThrow("Bad Gateway");
+    connector.start();
+    await expect(chat.emitMention(createThread("thread-1"), createMessage("hello", "thread-1"))).rejects.toThrow(
+      "agent failed",
+    );
   });
 
-  it("uses the global fetch fallback", async () => {
+  it("falls back to the HTTP status text when a JSON error payload omits the error field", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     fetchImpl.mockResolvedValueOnce(
-      new Response(JSON.stringify({ stopReason: "end_turn" }), {
+      new Response(JSON.stringify({ message: "bad gateway" }), {
+        status: 502,
+        statusText: "Bad Gateway",
         headers: { "content-type": "application/json" },
       }),
     );
-    vi.stubGlobal("fetch", fetchImpl);
 
-    const client = new FlamecastHttpClient({
-      baseUrl: "http://flamecast.test",
+    const chat = createChatStub();
+    const connector = new ChatSdkConnector({
+      agent: { agentTemplateId: "codex" },
+      chat: chat.chat,
+      flamecast: createFlamecast(fetchImpl),
     });
 
-    expect(await client.promptAgent("agent 1", "hello")).toEqual({
-      stopReason: "end_turn",
+    connector.start();
+    await expect(chat.emitMention(createThread("thread-1"), createMessage("hello", "thread-1"))).rejects.toThrow(
+      "Bad Gateway",
+    );
+  });
+
+  it("surfaces snapshot errors before prompting", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    fetchImpl
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-1", logs: [] }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Agent not found" }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+    const chat = createChatStub();
+    const connector = new ChatSdkConnector({
+      agent: { agentTemplateId: "codex" },
+      chat: chat.chat,
+      flamecast: createFlamecast(fetchImpl),
     });
-    expect(fetchImpl).toHaveBeenCalledWith(
-      new URL("/api/agents/agent%201/prompt", "http://flamecast.test"),
-      expect.objectContaining({ method: "POST" }),
+
+    connector.start();
+    await expect(chat.emitMention(createThread("thread-1"), createMessage("hello", "thread-1"))).rejects.toThrow(
+      "Agent not found",
+    );
+  });
+
+  it("surfaces prompt errors from JSON error responses", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    fetchImpl
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-1", logs: [] }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-1", logs: [] }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "prompt failed" }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+    const chat = createChatStub();
+    const connector = new ChatSdkConnector({
+      agent: { agentTemplateId: "codex" },
+      chat: chat.chat,
+      flamecast: createFlamecast(fetchImpl),
+    });
+
+    connector.start();
+    await expect(chat.emitMention(createThread("thread-1"), createMessage("hello", "thread-1"))).rejects.toThrow(
+      "prompt failed",
     );
   });
 
   it("falls back to a synthesized status message for non-json errors without status text", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
-    fetchImpl.mockResolvedValueOnce(new Response("bad gateway", { status: 502, statusText: "" }));
-    const client = new FlamecastHttpClient({
-      baseUrl: "http://flamecast.test",
-      fetch: fetchImpl,
+    fetchImpl
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-1", logs: [] }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-1", logs: [] }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ stopReason: "end_turn" }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response("bad gateway", { status: 502, statusText: "" }));
+
+    const chat = createChatStub();
+    const connector = new ChatSdkConnector({
+      agent: { agentTemplateId: "codex" },
+      chat: chat.chat,
+      flamecast: createFlamecast(fetchImpl),
     });
 
-    await expect(client.terminateAgent("agent-1")).rejects.toThrow(
+    connector.start();
+    await expect(chat.emitMention(createThread("thread-1"), createMessage("hello", "thread-1"))).rejects.toThrow(
       "Request failed with status 502",
     );
   });
-});
 
-describe("ChatSdkConnector", () => {
-  function createCallbacks() {
-    let counter = 0;
-    return {
-      createBinding: vi.fn(async (thread: Thread) => ({
-        threadId: thread.id,
-        bindingId: `binding-${++counter}`,
-        thread,
-      })),
-      onMessage: vi.fn<
-        ({
-          binding,
-          text,
-        }: {
-          binding: { bindingId: string };
-          text: string;
-        }) => Promise<string | undefined>
-      >(
-        async ({ binding, text }: { binding: { bindingId: string }; text: string }) =>
-          `${binding.bindingId}:${text}`,
-      ),
-      onBindingRemoved: vi.fn(async () => undefined),
-    };
-  }
-
-  it("creates bindings on first mention, reuses them for follow-ups, and ignores empty messages", async () => {
-    const bindings = new InMemoryThreadBindingStore();
-    const chat = createChatStub();
-    const callbacks = createCallbacks();
-    const connector = new ChatSdkConnector({
-      chat: chat.chat,
-      bindings,
-      createBinding: callbacks.createBinding,
-      onMessage: callbacks.onMessage,
-      onBindingRemoved: callbacks.onBindingRemoved,
-    });
-
-    connector.start();
-    connector.start();
-
-    const firstThread = createThread("thread-1");
-    await chat.emitMention(firstThread, createMessage("hello"));
-
-    expect(firstThread.subscribe).toHaveBeenCalledTimes(1);
-    expect(callbacks.createBinding).toHaveBeenCalledTimes(1);
-    expect(callbacks.onMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        text: "hello",
-        binding: expect.objectContaining({ bindingId: "binding-1" }),
-      }),
-    );
-    expect(firstThread.post).toHaveBeenCalledWith("binding-1:hello");
-    expect(bindings.getByThreadId("thread-1")?.bindingId).toBe("binding-1");
-
-    await chat.emitSubscribed(firstThread, createMessage("same-thread"));
-
-    const refreshedThread = createThread("thread-1");
-    await chat.emitSubscribed(refreshedThread, createMessage("follow-up"));
-    await chat.emitSubscribed(refreshedThread, createMessage("   "));
-
-    expect(callbacks.createBinding).toHaveBeenCalledTimes(1);
-    expect(callbacks.onMessage).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        text: "same-thread",
-        binding: expect.objectContaining({ bindingId: "binding-1" }),
-      }),
-    );
-    expect(callbacks.onMessage).toHaveBeenNthCalledWith(
-      3,
-      expect.objectContaining({
-        text: "follow-up",
-        binding: expect.objectContaining({ bindingId: "binding-1" }),
-      }),
-    );
-    expect(bindings.getByThreadId("thread-1")?.thread).toBe(refreshedThread);
-  });
-
-  it("skips posting when the message handler returns nothing", async () => {
-    const bindings = new InMemoryThreadBindingStore();
-    const chat = createChatStub();
-    const callbacks = createCallbacks();
-    callbacks.onMessage.mockImplementationOnce(async () => undefined);
-    const connector = new ChatSdkConnector({
-      chat: chat.chat,
-      bindings,
-      createBinding: callbacks.createBinding,
-      onMessage: callbacks.onMessage,
-    });
-
-    connector.start();
-    const thread = createThread("thread-1");
-    await chat.emitMention(thread, createMessage("hello"));
-
-    expect(thread.post).not.toHaveBeenCalled();
-  });
-
-  it("posts only non-empty replies", async () => {
-    const bindings = new InMemoryThreadBindingStore();
-    const chat = createChatStub();
-    const callbacks = createCallbacks();
-    callbacks.onMessage.mockResolvedValueOnce("   ");
-    const connector = new ChatSdkConnector({
-      chat: chat.chat,
-      bindings,
-      createBinding: callbacks.createBinding,
-      onMessage: callbacks.onMessage,
-    });
-
-    connector.start();
-    const thread = createThread("thread-1");
-    await chat.emitMention(thread, createMessage("hello"));
-
-    expect(thread.post).not.toHaveBeenCalled();
-  });
-
-  it("stops cleanly and continues cleanup when one binding removal fails", async () => {
-    const bindings = new InMemoryThreadBindingStore();
-    const chat = createChatStub();
-    const callbacks = createCallbacks();
-    callbacks.onBindingRemoved
+  it("stops cleanly, continues cleanup when one delete request rejects, and ignores new messages after stop", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    fetchImpl
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-1", logs: [] }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-1", logs: [] }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ stopReason: "end_turn" }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-1", logs: [rpcLog("one", "1")] }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-2", logs: [] }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-2", logs: [] }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ stopReason: "end_turn" }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "agent-2", logs: [rpcLog("two", "2")] }), {
+          headers: { "content-type": "application/json" },
+        }),
+      )
       .mockRejectedValueOnce(new Error("boom"))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    const chat = createChatStub();
     const connector = new ChatSdkConnector({
+      agent: { agentTemplateId: "codex" },
       chat: chat.chat,
-      bindings,
-      createBinding: callbacks.createBinding,
-      onMessage: callbacks.onMessage,
-      onBindingRemoved: callbacks.onBindingRemoved,
+      flamecast: createFlamecast(fetchImpl),
     });
 
     connector.start();
-    await chat.emitMention(createThread("thread-1"), createMessage("one"));
-    await chat.emitMention(createThread("thread-2"), createMessage("two"));
+    await chat.emitMention(createThread("thread-1"), createMessage("one", "thread-1"));
+    await chat.emitMention(createThread("thread-2"), createMessage("two", "thread-2"));
 
     await expect(connector.stop()).resolves.toBeUndefined();
-    await chat.emitMention(createThread("thread-3"), createMessage("ignored"));
 
-    expect(callbacks.onBindingRemoved).toHaveBeenCalledTimes(2);
-    expect(bindings.list()).toEqual([]);
-    expect(callbacks.createBinding).toHaveBeenCalledTimes(2);
+    const lateThread = createThread("thread-3");
+    const callsBeforeLateMessage = fetchImpl.mock.calls.length;
+    await chat.emitMention(lateThread, createMessage("ignored", "thread-3"));
+
+    expect(lateThread.subscribe).not.toHaveBeenCalled();
+    expect(fetchImpl.mock.calls).toHaveLength(callsBeforeLateMessage);
   });
 
   it("serves health and webhook routes", async () => {
-    const bindings = new InMemoryThreadBindingStore();
-    bindings.set({
-      threadId: "thread-1",
-      bindingId: "binding-1",
-      thread: createThread("thread-1"),
-    });
     const chat = createChatStub();
-    const callbacks = createCallbacks();
     const connector = new ChatSdkConnector({
+      agent: { agentTemplateId: "codex" },
       chat: chat.chat,
-      bindings,
-      createBinding: callbacks.createBinding,
-      onMessage: callbacks.onMessage,
+      flamecast: createFlamecast(vi.fn<typeof fetch>()),
     });
 
     const health = await connector.fetch(new Request("http://connector.test/health"));
-    expect(await health.json()).toEqual({ status: "ok", bindings: 1 });
+    expect(await health.json()).toEqual({ status: "ok", bindings: 0 });
 
     const webhook = await connector.fetch(
       new Request("http://connector.test/webhooks/slack", {
@@ -709,42 +642,5 @@ describe("ChatSdkConnector", () => {
     );
     expect(missing.status).toBe(404);
     expect(await missing.json()).toEqual({ error: "Unknown webhook platform" });
-  });
-
-  it("allows Flamecast integrations to stay outside the connector", async () => {
-    const chat = createChatStub();
-    const flamecast = {
-      createAgent: vi.fn(async (_body: FlamecastCreateAgentBody) => ({ id: "agent-1", logs: [] })),
-      promptAgentForReply: vi.fn(async (_agentId: string, _text: string) => ({
-        stopReason: "end_turn",
-        replyText: "assistant reply",
-      })),
-      terminateAgent: vi.fn(async (_agentId: string) => undefined),
-    };
-    const connector = new ChatSdkConnector({
-      chat: chat.chat,
-      bindings: new InMemoryThreadBindingStore(),
-      createBinding: async (thread) => {
-        const agent = await flamecast.createAgent({ agentTemplateId: "codex" });
-        return { threadId: thread.id, bindingId: agent.id, thread };
-      },
-      onMessage: async ({ binding, text }) => {
-        const result = await flamecast.promptAgentForReply(binding.bindingId, text);
-        return result.replyText;
-      },
-      onBindingRemoved: async ({ bindingId }) => {
-        await flamecast.terminateAgent(bindingId);
-      },
-    });
-
-    connector.start();
-    const thread = createThread("thread-1");
-    await chat.emitMention(thread, createMessage("hello"));
-    await connector.stop();
-
-    expect(flamecast.createAgent).toHaveBeenCalledWith({ agentTemplateId: "codex" });
-    expect(flamecast.promptAgentForReply).toHaveBeenCalledWith("agent-1", "hello");
-    expect(thread.post).toHaveBeenCalledWith("assistant reply");
-    expect(flamecast.terminateAgent).toHaveBeenCalledWith("agent-1");
   });
 });

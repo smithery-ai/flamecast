@@ -1,52 +1,38 @@
+import type { AppType } from "@acp/flamecast/api";
+import type { CreateSessionBody, Session, SessionLog } from "@acp/flamecast/shared/session";
 import type { Chat, Message, Thread } from "chat";
 import { Hono } from "hono";
-import type { InMemoryThreadBindingStore, ThreadBinding } from "./bindings.js";
+import { hc } from "hono/client";
 
-export type ChatSdkClient = Pick<Chat, "onNewMention" | "onSubscribedMessage" | "webhooks">;
-
-export type ChatSdkConnectorMessageContext = {
-  binding: ThreadBinding;
-  message: Message;
-  text: string;
-  thread: Thread;
-};
+type FlamecastClient = ReturnType<typeof hc<AppType>>;
 
 export type ChatSdkConnectorOptions = {
-  chat: ChatSdkClient;
-  bindings: InMemoryThreadBindingStore;
-  createBinding(thread: Thread): Promise<ThreadBinding>;
-  onBindingRemoved?(binding: ThreadBinding): void | Promise<void>;
-  onMessage(
-    context: ChatSdkConnectorMessageContext,
-  ): Promise<string | null | void> | string | null | void;
+  agent: CreateSessionBody;
+  chat: Chat;
+  flamecast: FlamecastClient;
 };
 
-export type { Message as ChatSdkMessage, Thread as ChatSdkThread, ThreadBinding };
-
 export class ChatSdkConnector {
-  private readonly chat: ChatSdkClient;
-  private readonly bindings: InMemoryThreadBindingStore;
-  private readonly createBindingCallback: (thread: Thread) => Promise<ThreadBinding>;
-  private readonly onBindingRemoved?: (binding: ThreadBinding) => void | Promise<void>;
-  private readonly onMessageCallback: ChatSdkConnectorOptions["onMessage"];
+  private readonly agent: CreateSessionBody;
   private readonly app = new Hono();
+  private readonly bindings = new Map<string, { agentId: string; thread: Thread }>();
+  private readonly chat: Chat;
+  private readonly flamecast: FlamecastClient;
   private handlersInstalled = false;
   private active = false;
 
   readonly fetch: (request: Request) => Promise<Response>;
 
   constructor(options: ChatSdkConnectorOptions) {
+    this.agent = options.agent;
     this.chat = options.chat;
-    this.bindings = options.bindings;
-    this.createBindingCallback = options.createBinding;
-    this.onBindingRemoved = options.onBindingRemoved;
-    this.onMessageCallback = options.onMessage;
+    this.flamecast = options.flamecast;
     this.fetch = async (request: Request) => this.app.fetch(request);
 
     this.app.get("/health", (c) =>
       c.json({
         status: "ok",
-        bindings: this.bindings.list().length,
+        bindings: this.bindings.size,
       }),
     );
     this.app.post("/webhooks/:platform", async (c) =>
@@ -60,30 +46,24 @@ export class ChatSdkConnector {
       return;
     }
 
-    this.chat.onNewMention((thread, message) => this.handleNewMention(thread, message));
-    this.chat.onSubscribedMessage((thread, message) =>
-      this.handleSubscribedMessage(thread, message),
-    );
+    this.chat.onNewMention((thread, message) => this.handleInboundMessage(thread, message));
+    this.chat.onSubscribedMessage((thread, message) => this.handleInboundMessage(thread, message));
     this.handlersInstalled = true;
   }
 
   async stop(): Promise<void> {
     this.active = false;
-    const bindings = this.bindings.list();
+    const bindings = [...this.bindings.values()];
     await Promise.all(
       bindings.map(async (binding) => {
-        await Promise.resolve(this.onBindingRemoved?.(binding)).catch(() => undefined);
+        await this.flamecast.agents[":agentId"]
+          .$delete({
+            param: { agentId: binding.agentId },
+          })
+          .catch(() => undefined);
       }),
     );
     this.bindings.clear();
-  }
-
-  async handleNewMention(thread: Thread, message: Message): Promise<void> {
-    await this.handleInboundMessage(thread, message);
-  }
-
-  async handleSubscribedMessage(thread: Thread, message: Message): Promise<void> {
-    await this.handleInboundMessage(thread, message);
   }
 
   async handleWebhookRequest(platform: string, request: Request): Promise<Response> {
@@ -112,44 +92,142 @@ export class ChatSdkConnector {
       return;
     }
 
-    let binding = this.bindings.getByThreadId(thread.id);
+    let binding = this.bindings.get(thread.id);
     if (!binding) {
       await thread.subscribe();
-      binding = await this.createBinding(thread);
+      const createAgentResponse = await this.flamecast.agents.$post({
+        json: this.agent,
+      });
+      if (createAgentResponse.status !== 201) {
+        throw new Error(await readError(createAgentResponse));
+      }
+
+      const agent = await createAgentResponse.json();
+      binding = {
+        agentId: agent.id,
+        thread,
+      };
+      this.bindings.set(thread.id, binding);
     } else if (binding.thread !== thread) {
       binding = {
         ...binding,
         thread,
       };
-      this.bindings.set(binding);
+      this.bindings.set(thread.id, binding);
     }
 
-    const reply = await this.onMessageCallback({
-      binding,
-      message,
-      text,
-      thread,
+    const beforeResponse = await this.flamecast.agents[":agentId"].$get({
+      param: { agentId: binding.agentId },
     });
-    const replyText = typeof reply === "string" ? reply.trim() : "";
+    if (beforeResponse.status !== 200) {
+      throw new Error(await readError(beforeResponse));
+    }
+
+    const before = await beforeResponse.json();
+    const beforeLogCount = getSessionLogs(before).length;
+
+    const promptResponse = await this.flamecast.agents[":agentId"].prompt.$post({
+      param: { agentId: binding.agentId },
+      json: { text },
+    });
+    if (promptResponse.status !== 200) {
+      throw new Error(await readError(promptResponse));
+    }
+
+    await promptResponse.json();
+    const afterResponse = await this.flamecast.agents[":agentId"].$get({
+      param: { agentId: binding.agentId },
+    });
+    if (afterResponse.status !== 200) {
+      throw new Error(await readError(afterResponse));
+    }
+
+    const after = await afterResponse.json();
+    const replyText = extractReplyTextFromLogs(
+      getSessionLogs(after).slice(beforeLogCount),
+    )?.trim();
 
     if (replyText) {
       await thread.post(replyText);
     }
-  }
-
-  private async createBinding(thread: Thread): Promise<ThreadBinding> {
-    const binding = await this.createBindingCallback(thread);
-    const normalizedBinding: ThreadBinding = {
-      ...binding,
-      threadId: thread.id,
-      thread,
-    };
-    this.bindings.set(normalizedBinding);
-    return normalizedBinding;
   }
 }
 
 export function extractMessageText(message: Message): string | null {
   const text = message.text.trim();
   return text || null;
+}
+
+function getSessionLogs(session: Session): SessionLog[] {
+  return Array.isArray(session.logs) ? session.logs : [];
+}
+
+function extractReplyTextFromLogs(logs: SessionLog[]): string | null {
+  const chunks: string[] = [];
+
+  for (const log of logs) {
+    if (log.type !== "rpc") {
+      continue;
+    }
+
+    const method = log.data.method;
+    const direction = log.data.direction;
+    const phase = log.data.phase;
+    const payload = log.data.payload;
+
+    if (
+      method !== "session/update" ||
+      direction !== "agent_to_client" ||
+      phase !== "notification" ||
+      typeof payload !== "object" ||
+      payload === null ||
+      !("update" in payload) ||
+      typeof payload.update !== "object" ||
+      payload.update === null
+    ) {
+      continue;
+    }
+
+    const update = payload.update;
+    if (
+      !("sessionUpdate" in update) ||
+      update.sessionUpdate !== "agent_message_chunk" ||
+      !("content" in update) ||
+      typeof update.content !== "object" ||
+      update.content === null
+    ) {
+      continue;
+    }
+
+    const content = update.content;
+    if (
+      "type" in content &&
+      content.type === "text" &&
+      "text" in content &&
+      typeof content.text === "string"
+    ) {
+      chunks.push(content.text);
+    }
+  }
+
+  const replyText = chunks.join("").trim();
+  return replyText || null;
+}
+
+async function readError(response: Response): Promise<string> {
+  try {
+    const payload = await response.json();
+    if (
+      typeof payload === "object" &&
+      payload !== null &&
+      "error" in payload &&
+      typeof payload.error === "string"
+    ) {
+      return payload.error;
+    }
+  } catch {
+    // Fall back to the HTTP status message when the body is not JSON.
+  }
+
+  return response.statusText || `Request failed with status ${response.status}`;
 }

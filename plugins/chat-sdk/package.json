@@ -11,10 +11,9 @@
     "test": "vitest run --coverage --config vitest.config.ts"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.16.1",
+    "@acp/flamecast": "workspace:*",
     "chat": "^4.20.2",
-    "hono": "^4.12.8",
-    "zod": "^4.3.6"
+    "hono": "^4.12.8"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.0",
