@@ -1,25 +1,101 @@
 import path from "node:path";
 import { getTableConfig } from "drizzle-orm/pg-core";
-import { describe, expect, test } from "vitest";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
-import { PSQL_MIGRATIONS_FOLDER } from "../src/flamecast/storage/psql/migrations-path.js";
-import drizzleConfig from "../src/flamecast/storage/psql/drizzle.config.js";
-import { sessionLogs, sessions } from "../src/flamecast/storage/psql/schema.js";
+import { afterEach, describe, expect, test } from "vitest";
+import { getBuiltinAgentTemplates, localRuntime } from "../src/flamecast/agent-templates.js";
+import { MemoryFlamecastStorage } from "../src/flamecast/state-managers/memory/index.js";
+import { PSQL_MIGRATIONS_FOLDER } from "../src/flamecast/state-managers/psql/migrations-path.js";
+import drizzleConfig from "../src/flamecast/state-managers/psql/drizzle.config.js";
+import {
+  agentTemplates,
+  sessionLogs,
+  sessions,
+} from "../src/flamecast/state-managers/psql/schema.js";
+
+function createTemplate(id: string, name: string) {
+  return {
+    id,
+    name,
+    spawn: {
+      command: "node",
+      args: [`${id}.js`],
+    },
+    runtime: {
+      provider: "local",
+    },
+  };
+}
 
 function createSessionMeta(id: string) {
   return {
     id,
-    agentId: "agent-1",
     agentName: "Example agent",
     spawn: { command: "node", args: ["agent.js"] },
-    cwd: process.cwd(),
     startedAt: "2024-01-01T00:00:00.000Z",
     lastUpdatedAt: "2024-01-01T00:00:00.000Z",
     pendingPermission: null,
   };
 }
 
+const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+
+afterEach(() => {
+  if (originalPlatform) {
+    Object.defineProperty(process, "platform", originalPlatform);
+  }
+});
+
+describe("agent templates", () => {
+  test("returns built-ins and respects the windows npx shim", () => {
+    const unixTemplates = getBuiltinAgentTemplates();
+
+    expect(unixTemplates.map((template) => template.id)).toEqual([
+      "example",
+      "codex",
+      "example-docker",
+      "example-docker-2",
+    ]);
+    expect(unixTemplates[0]?.spawn.command).toBe("npx");
+    expect(localRuntime()).toEqual({ provider: "local" });
+
+    Object.defineProperty(process, "platform", {
+      configurable: true,
+      value: "win32",
+    });
+
+    const windowsTemplates = getBuiltinAgentTemplates();
+    expect(windowsTemplates[0]?.spawn.command).toBe("npx.cmd");
+  });
+});
+
 describe("memory storage", () => {
+  test("seeds templates, preserves user templates, and clones stored values", async () => {
+    const storage = new MemoryFlamecastStorage();
+    const presetOne = createTemplate("preset-1", "Preset One");
+    const presetTwo = createTemplate("preset-2", "Preset Two");
+    const custom = createTemplate("custom-1", "Custom One");
+
+    await storage.seedAgentTemplates([presetOne, presetTwo]);
+    expect((await storage.listAgentTemplates()).map((template) => template.id)).toEqual([
+      "preset-1",
+      "preset-2",
+    ]);
+
+    const listed = await storage.listAgentTemplates();
+    listed[0]?.spawn.args.push("mutated");
+    expect(await storage.getAgentTemplate("preset-1")).toMatchObject({
+      spawn: { args: ["preset-1.js"] },
+    });
+
+    await storage.saveAgentTemplate(custom);
+    await storage.seedAgentTemplates([presetTwo]);
+
+    expect((await storage.listAgentTemplates()).map((template) => template.id)).toEqual([
+      "preset-2",
+      "custom-1",
+    ]);
+    expect(await storage.getAgentTemplate("missing")).toBeNull();
+  });
+
   test("stores sessions and logs with the expected error handling", async () => {
     const storage = new MemoryFlamecastStorage();
     const meta = createSessionMeta("session-1");
@@ -69,17 +145,19 @@ describe("memory storage", () => {
 
 describe("psql module metadata", () => {
   test("exports schema and drizzle metadata", async () => {
-    const psqlTypes = await import("../src/flamecast/storage/psql/types.js");
+    const psqlTypes = await import("../src/flamecast/state-managers/psql/types.js");
     const [sessionLogForeignKey] = getTableConfig(sessionLogs).foreignKeys;
 
     expect(sessions).toBeDefined();
     expect(sessionLogs).toBeDefined();
+    expect(agentTemplates).toBeDefined();
     expect(getTableConfig(sessionLogs).foreignKeys).toHaveLength(1);
     expect(sessionLogForeignKey?.reference().foreignTable).toBe(sessions);
+    expect(getTableConfig(agentTemplates).indexes).toHaveLength(1);
     expect(path.basename(PSQL_MIGRATIONS_FOLDER)).toBe("migrations");
     expect(drizzleConfig).toMatchObject({
-      schema: "./src/flamecast/storage/psql/schema.ts",
-      out: "./src/flamecast/storage/psql/migrations",
+      schema: "./src/flamecast/state-managers/psql/schema.ts",
+      out: "./src/flamecast/state-managers/psql/migrations",
       dialect: "postgresql",
     });
     expect(psqlTypes).toBeTypeOf("object");

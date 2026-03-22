@@ -1,55 +1,32 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
-  Agent,
-  CreateAgentBody,
+  AgentTemplate,
+  CreateSessionBody,
   FilePreview,
-  FileSystemSnapshot,
+  PermissionResponseBody,
+  PromptBody,
+  RegisterAgentTemplateBody,
   Session,
-  SessionSummary,
 } from "../../src/shared/session.js";
-import { FlamecastNotFoundError } from "../../src/flamecast/errors.js";
 import { createServerApp } from "../../src/server/app.js";
 import type { FlamecastApi } from "../../src/flamecast/api.js";
 
-const sampleAgent: Agent = {
-  id: "agent-1",
-  agentName: "Codex ACP",
+const sampleAgentTemplate: AgentTemplate = {
+  id: "codex",
+  name: "Codex ACP",
   spawn: { command: "npx", args: ["@zed-industries/codex-acp"] },
   runtime: { provider: "local" },
-  startedAt: "2026-03-21T00:00:00.000Z",
-  lastUpdatedAt: "2026-03-21T00:00:00.000Z",
-  latestSessionId: "session-1",
-  sessionCount: 1,
 };
 
 const sampleSession: Session = {
   id: "session-1",
-  agentId: sampleAgent.id,
-  agentName: sampleAgent.agentName,
-  spawn: sampleAgent.spawn,
-  cwd: "/tmp/flamecast",
+  agentName: "Codex ACP",
+  spawn: sampleAgentTemplate.spawn,
   startedAt: "2026-03-21T00:00:00.000Z",
   lastUpdatedAt: "2026-03-21T00:00:00.000Z",
   logs: [],
   pendingPermission: null,
   fileSystem: null,
-};
-
-const sampleSessionSummary: SessionSummary = {
-  id: sampleSession.id,
-  agentId: sampleSession.agentId,
-  agentName: sampleSession.agentName,
-  cwd: sampleSession.cwd,
-  startedAt: sampleSession.startedAt,
-  lastUpdatedAt: sampleSession.lastUpdatedAt,
-  pendingPermission: sampleSession.pendingPermission,
-};
-
-const sampleFileSystem: FileSystemSnapshot = {
-  root: "/tmp/flamecast",
-  entries: [{ path: "src", type: "directory" }],
-  truncated: false,
-  maxEntries: 1,
 };
 
 const sampleFilePreview: FilePreview = {
@@ -61,26 +38,27 @@ const sampleFilePreview: FilePreview = {
 
 function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastApi {
   return {
-    createAgent: vi.fn(async (_body: CreateAgentBody) => sampleAgent),
-    getAgent: vi.fn(async (_id: string) => sampleAgent),
-    getFilePreview: vi.fn(
-      async (_agentId: string, _sessionId: string, _path: string) => sampleFilePreview,
-    ),
-    getSessionFileSystem: vi.fn(
-      async (_agentId: string, _sessionId: string, _opts?: { showAllFiles?: boolean }) =>
-        sampleFileSystem,
-    ),
+    terminateSession: vi.fn(async () => undefined),
+    createSession: vi.fn(async (_body: CreateSessionBody) => sampleSession),
     getSession: vi.fn(
-      async (
-        _agentId: string,
-        _sessionId: string,
-        _opts?: { includeFileSystem?: boolean; showAllFiles?: boolean },
-      ) => sampleSession,
+      async (_id: string, _opts?: { includeFileSystem?: boolean; showAllFiles?: boolean }) =>
+        sampleSession,
     ),
-    handleAcp: vi.fn(async (_agentId: string, _request: Request) => new Response("ok")),
-    listAgents: vi.fn(async () => [sampleAgent]),
-    listSessions: vi.fn(async () => [sampleSessionSummary]),
-    terminateAgent: vi.fn(async () => undefined),
+    getFilePreview: vi.fn(async (_id: string, _path: string) => sampleFilePreview),
+    listSessions: vi.fn(async () => [sampleSession]),
+    listAgentTemplates: vi.fn(async () => [sampleAgentTemplate]),
+    promptSession: vi.fn(async (_id: string, _text: string) => ({
+      stopReason: "end_turn" as const,
+    })),
+    registerAgentTemplate: vi.fn(async (body: RegisterAgentTemplateBody) => ({
+      id: "registered-template",
+      name: body.name,
+      spawn: body.spawn,
+      runtime: body.runtime ?? { provider: "local" },
+    })),
+    respondToPermission: vi.fn(
+      async (_id: string, _requestId: string, _body: PermissionResponseBody) => undefined,
+    ),
     ...overrides,
   };
 }
@@ -94,374 +72,430 @@ afterEach(() => {
 });
 
 describe("API server surface", () => {
-  it("lists read-only sessions for the sidebar", async () => {
+  it("reports healthy status", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
-    const response = await app.request("/api/sessions");
+
+    const response = await app.request("/api/health");
 
     expect(response.status).toBe(200);
-    expect(await readJson(response)).toEqual([sampleSessionSummary]);
+    expect(await readJson(response)).toEqual({ status: "ok", sessions: 1 });
     expect(flamecast.listSessions).toHaveBeenCalledTimes(1);
   });
 
-  it("lists agents", async () => {
-    const app = createServerApp(createFlamecastStub());
-    const response = await app.request("/api/agents");
+  it("reports degraded status for Error failures", async () => {
+    const flamecast = createFlamecastStub({
+      listSessions: vi.fn(async () => {
+        throw new Error("database offline");
+      }),
+    });
+    const app = createServerApp(flamecast);
 
-    expect(response.status).toBe(200);
-    expect(await readJson(response)).toEqual([sampleAgent]);
+    const response = await app.request("/api/health");
+
+    expect(response.status).toBe(503);
+    expect(await readJson(response)).toEqual({ status: "degraded", error: "database offline" });
   });
 
-  it("creates agents", async () => {
-    const app = createServerApp(createFlamecastStub());
-    const response = await app.request("/api/agents", {
+  it("reports degraded status for non-Error failures", async () => {
+    const flamecast = createFlamecastStub({
+      listSessions: vi.fn(async () => {
+        throw "boom";
+      }),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/health");
+
+    expect(response.status).toBe(503);
+    expect(await readJson(response)).toEqual({ status: "degraded", error: "Unknown error" });
+  });
+
+  it("lists agent templates", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/agent-templates");
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual([sampleAgentTemplate]);
+  });
+
+  it("registers agent templates", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/agent-templates", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        spawn: { command: "node", args: ["agent.js"] },
-        runtime: { provider: "local" },
         name: "Custom agent",
-      } satisfies CreateAgentBody),
+        spawn: { command: "node", args: ["agent.js"] },
+      } satisfies RegisterAgentTemplateBody),
     });
 
     expect(response.status).toBe(201);
-    expect(await readJson(response)).toEqual(sampleAgent);
+    expect(await readJson(response)).toEqual({
+      id: "registered-template",
+      name: "Custom agent",
+      spawn: { command: "node", args: ["agent.js"] },
+      runtime: { provider: "local" },
+    });
   });
 
-  it("rejects invalid agent payloads", async () => {
-    const app = createServerApp(createFlamecastStub());
-    const response = await app.request("/api/agents", {
+  it("rejects invalid agent template payloads", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/agent-templates", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "missing" }),
+      body: JSON.stringify({ spawn: { command: "node", args: [] } }),
     });
 
     expect(response.status).toBe(400);
   });
 
-  it("returns agent creation errors", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const app = createServerApp(
-      createFlamecastStub({
-        createAgent: vi.fn(async () => {
-          throw new Error("failed to start agent");
-        }),
-      }),
-    );
+  it("lists sessions", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/agents", {
+    const response = await app.request("/api/sessions");
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual([sampleSession]);
+  });
+
+  it("creates sessions", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        spawn: { command: "node", args: ["agent.js"] },
-      } satisfies CreateAgentBody),
+        agentTemplateId: sampleAgentTemplate.id,
+        cwd: "/tmp/flamecast",
+      } satisfies CreateSessionBody),
+    });
+
+    expect(response.status).toBe(201);
+    expect(await readJson(response)).toEqual(sampleSession);
+  });
+
+  it("rejects invalid session payloads", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ cwd: "/tmp/flamecast" }),
     });
 
     expect(response.status).toBe(400);
-    expect(await readJson(response)).toEqual({ error: "failed to start agent" });
+  });
+
+  it("returns session creation errors from Error values", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const flamecast = createFlamecastStub({
+      createSession: vi.fn(async () => {
+        throw new Error("failed to start session");
+      }),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        agentTemplateId: sampleAgentTemplate.id,
+      } satisfies CreateSessionBody),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await readJson(response)).toEqual({ error: "failed to start session" });
     expect(consoleError).toHaveBeenCalledOnce();
   });
 
-  it("stringifies non-Error agent creation failures", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const app = createServerApp(
-      createFlamecastStub({
-        createAgent: vi.fn(async () => {
-          throw { code: "bad_start" };
-        }),
+  it("returns session creation errors from non-Error values", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const flamecast = createFlamecastStub({
+      createSession: vi.fn(async () => {
+        throw { message: "opaque failure" };
       }),
-    );
+    });
+    const app = createServerApp(flamecast);
 
-    const response = await app.request("/api/agents", {
+    const response = await app.request("/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        spawn: { command: "node", args: ["agent.js"] },
-      } satisfies CreateAgentBody),
+        agentTemplateId: sampleAgentTemplate.id,
+      } satisfies CreateSessionBody),
     });
 
     expect(response.status).toBe(400);
     expect(await readJson(response)).toEqual({ error: "[object Object]" });
-    expect(consoleError).toHaveBeenCalledOnce();
   });
 
-  it("fetches an agent", async () => {
-    const app = createServerApp(createFlamecastStub());
-    const response = await app.request(`/api/agents/${sampleAgent.id}`);
-
-    expect(response.status).toBe(200);
-    expect(await readJson(response)).toEqual(sampleAgent);
-  });
-
-  it("returns 404 for unknown agents", async () => {
-    const app = createServerApp(
-      createFlamecastStub({
-        getAgent: vi.fn(async () => {
-          throw new FlamecastNotFoundError('Agent "missing" not found');
-        }),
-      }),
-    );
-    const response = await app.request("/api/agents/missing");
-
-    expect(response.status).toBe(404);
-    expect(await readJson(response)).toEqual({ error: "Agent not found" });
-  });
-
-  it("returns 500 for unexpected agent lookup errors", async () => {
-    const app = createServerApp(
-      createFlamecastStub({
-        getAgent: vi.fn(async () => {
-          throw new Error("agent lookup failed");
-        }),
-      }),
-    );
-    const response = await app.request(`/api/agents/${sampleAgent.id}`);
-
-    expect(response.status).toBe(500);
-    expect(await readJson(response)).toEqual({ error: "agent lookup failed" });
-  });
-
-  it("fetches nested session details and forwards filesystem query flags", async () => {
+  it("fetches a session", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/sessions/${sampleSession.id}`);
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual(sampleSession);
+  });
+
+  it("passes includeFileSystem through the session poll route", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/sessions/${sampleSession.id}?includeFileSystem=true`);
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual(sampleSession);
+    expect(flamecast.getSession).toHaveBeenCalledWith(sampleSession.id, {
+      includeFileSystem: true,
+    });
+  });
+
+  it("passes showAllFiles through the session poll route", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
     const response = await app.request(
-      `/api/agents/${sampleAgent.id}/sessions/${sampleSession.id}?includeFileSystem=true&showAllFiles=true`,
+      `/api/sessions/${sampleSession.id}?includeFileSystem=true&showAllFiles=true`,
     );
 
     expect(response.status).toBe(200);
     expect(await readJson(response)).toEqual(sampleSession);
-    expect(flamecast.getSession).toHaveBeenCalledWith(sampleAgent.id, sampleSession.id, {
+    expect(flamecast.getSession).toHaveBeenCalledWith(sampleSession.id, {
       includeFileSystem: true,
       showAllFiles: true,
     });
   });
 
-  it("fetches a nested filesystem snapshot separately", async () => {
+  it("fetches a file preview", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
+
     const response = await app.request(
-      `/api/agents/${sampleAgent.id}/sessions/${sampleSession.id}/filesystem?showAllFiles=true`,
-    );
-
-    expect(response.status).toBe(200);
-    expect(await readJson(response)).toEqual(sampleFileSystem);
-    expect(flamecast.getSessionFileSystem).toHaveBeenCalledWith(sampleAgent.id, sampleSession.id, {
-      showAllFiles: true,
-    });
-  });
-
-  it("returns 404 for unknown nested sessions", async () => {
-    const app = createServerApp(
-      createFlamecastStub({
-        getSession: vi.fn(async () => {
-          throw new FlamecastNotFoundError('Session "missing" not found');
-        }),
-      }),
-    );
-    const response = await app.request(`/api/agents/${sampleAgent.id}/sessions/missing`);
-
-    expect(response.status).toBe(404);
-    expect(await readJson(response)).toEqual({ error: "Session not found" });
-  });
-
-  it("returns 500 for unexpected nested session lookup errors", async () => {
-    const app = createServerApp(
-      createFlamecastStub({
-        getSession: vi.fn(async () => {
-          throw new Error("session lookup failed");
-        }),
-      }),
-    );
-    const response = await app.request(
-      `/api/agents/${sampleAgent.id}/sessions/${sampleSession.id}`,
-    );
-
-    expect(response.status).toBe(500);
-    expect(await readJson(response)).toEqual({ error: "session lookup failed" });
-  });
-
-  it("returns 404 for unknown nested filesystem snapshots", async () => {
-    const app = createServerApp(
-      createFlamecastStub({
-        getSessionFileSystem: vi.fn(async () => {
-          throw new FlamecastNotFoundError('Session "missing" not found');
-        }),
-      }),
-    );
-    const response = await app.request(
-      `/api/agents/${sampleAgent.id}/sessions/${sampleSession.id}/filesystem`,
-    );
-
-    expect(response.status).toBe(404);
-    expect(await readJson(response)).toEqual({ error: "Session not found" });
-  });
-
-  it("returns 500 for unexpected nested filesystem snapshot errors", async () => {
-    const app = createServerApp(
-      createFlamecastStub({
-        getSessionFileSystem: vi.fn(async () => {
-          throw new Error("filesystem failed");
-        }),
-      }),
-    );
-    const response = await app.request(
-      `/api/agents/${sampleAgent.id}/sessions/${sampleSession.id}/filesystem`,
-    );
-
-    expect(response.status).toBe(500);
-    expect(await readJson(response)).toEqual({ error: "filesystem failed" });
-  });
-
-  it("fetches nested file previews", async () => {
-    const flamecast = createFlamecastStub();
-    const app = createServerApp(flamecast);
-    const response = await app.request(
-      `/api/agents/${sampleAgent.id}/sessions/${sampleSession.id}/file?path=${encodeURIComponent(sampleFilePreview.path)}`,
+      `/api/sessions/${sampleSession.id}/file?path=${encodeURIComponent(sampleFilePreview.path)}`,
     );
 
     expect(response.status).toBe(200);
     expect(await readJson(response)).toEqual(sampleFilePreview);
-    expect(flamecast.getFilePreview).toHaveBeenCalledWith(
-      sampleAgent.id,
-      sampleSession.id,
-      sampleFilePreview.path,
-    );
+    expect(flamecast.getFilePreview).toHaveBeenCalledWith(sampleSession.id, sampleFilePreview.path);
   });
 
-  it("returns 400 for missing file preview paths", async () => {
-    const app = createServerApp(createFlamecastStub());
-    const response = await app.request(
-      `/api/agents/${sampleAgent.id}/sessions/${sampleSession.id}/file`,
-    );
+  it("returns 400 when file preview path is missing", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/sessions/${sampleSession.id}/file`);
 
     expect(response.status).toBe(400);
     expect(await readJson(response)).toEqual({ error: "Missing path" });
   });
 
   it("returns 400 for file preview errors", async () => {
-    const app = createServerApp(
-      createFlamecastStub({
-        getFilePreview: vi.fn(async () => {
-          throw new Error("preview failed");
-        }),
+    const flamecast = createFlamecastStub({
+      getFilePreview: vi.fn(async () => {
+        throw new Error("preview failed");
       }),
-    );
+    });
+    const app = createServerApp(flamecast);
+
     const response = await app.request(
-      `/api/agents/${sampleAgent.id}/sessions/${sampleSession.id}/file?path=${encodeURIComponent(sampleFilePreview.path)}`,
+      `/api/sessions/${sampleSession.id}/file?path=${encodeURIComponent(sampleFilePreview.path)}`,
     );
 
     expect(response.status).toBe(400);
     expect(await readJson(response)).toEqual({ error: "preview failed" });
   });
 
-  it("falls back to the default file preview error string for non-Error failures", async () => {
-    const app = createServerApp(
-      createFlamecastStub({
-        getFilePreview: vi.fn(async () => {
-          throw Symbol.for("preview");
-        }),
+  it("returns 404 for unknown sessions", async () => {
+    const flamecast = createFlamecastStub({
+      getSession: vi.fn(async () => {
+        throw new Error("missing");
       }),
-    );
-    const response = await app.request(
-      `/api/agents/${sampleAgent.id}/sessions/${sampleSession.id}/file?path=${encodeURIComponent(sampleFilePreview.path)}`,
-    );
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/sessions/missing");
+
+    expect(response.status).toBe(404);
+    expect(await readJson(response)).toEqual({ error: "Session not found" });
+  });
+
+  it("sends prompts", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/sessions/${sampleSession.id}/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "hello" } satisfies PromptBody),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual({ stopReason: "end_turn" });
+  });
+
+  it("rejects invalid prompt payloads", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/sessions/${sampleSession.id}/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  it("returns prompt errors from Error values", async () => {
+    const flamecast = createFlamecastStub({
+      promptSession: vi.fn(async () => {
+        throw new Error("prompt blocked");
+      }),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/sessions/${sampleSession.id}/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "hello" } satisfies PromptBody),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await readJson(response)).toEqual({ error: "prompt blocked" });
+  });
+
+  it("returns prompt errors from non-Error values", async () => {
+    const flamecast = createFlamecastStub({
+      promptSession: vi.fn(async () => {
+        throw "prompt failed";
+      }),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/sessions/${sampleSession.id}/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "hello" } satisfies PromptBody),
+    });
 
     expect(response.status).toBe(400);
     expect(await readJson(response)).toEqual({ error: "Unknown error" });
   });
 
-  it("proxies per-agent ACP requests", async () => {
+  it("responds to permission requests", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
-    const response = await app.request(`/api/agents/${sampleAgent.id}/acp`, {
+
+    const response = await app.request("/api/sessions/session-1/permissions/request-1", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+      body: JSON.stringify({ optionId: "allow" } satisfies PermissionResponseBody),
     });
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("ok");
-    expect(flamecast.handleAcp).toHaveBeenCalledOnce();
-  });
-
-  it("returns 404 when the ACP agent is missing", async () => {
-    const app = createServerApp(
-      createFlamecastStub({
-        handleAcp: vi.fn(async () => {
-          throw new FlamecastNotFoundError('Agent "missing" not found');
-        }),
-      }),
-    );
-    const response = await app.request("/api/agents/missing/acp", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
-    });
-
-    expect(response.status).toBe(404);
-    expect(await readJson(response)).toEqual({ error: "Agent not found" });
-  });
-
-  it("returns 500 for ACP transport failures", async () => {
-    const app = createServerApp(
-      createFlamecastStub({
-        handleAcp: vi.fn(async () => {
-          throw new Error("transport exploded");
-        }),
-      }),
-    );
-    const response = await app.request(`/api/agents/${sampleAgent.id}/acp`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
-    });
-
-    expect(response.status).toBe(500);
-    expect(await readJson(response)).toEqual({ error: "transport exploded" });
-  });
-
-  it("terminates agents", async () => {
-    const flamecast = createFlamecastStub();
-    const app = createServerApp(flamecast);
-    const response = await app.request(`/api/agents/${sampleAgent.id}`, { method: "DELETE" });
 
     expect(response.status).toBe(200);
     expect(await readJson(response)).toEqual({ ok: true });
-    expect(flamecast.terminateAgent).toHaveBeenCalledWith(sampleAgent.id);
   });
 
-  it("returns 404 when terminating an unknown agent", async () => {
-    const app = createServerApp(
-      createFlamecastStub({
-        terminateAgent: vi.fn(async () => {
-          throw new FlamecastNotFoundError('Agent "missing" not found');
-        }),
+  it("supports cancelled permission responses", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/sessions/session-1/permissions/request-1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ outcome: "cancelled" } satisfies PermissionResponseBody),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual({ ok: true });
+  });
+
+  it("rejects invalid permission payloads", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/sessions/session-1/permissions/request-1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ optionId: 123 }),
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  it("returns permission errors from Error values", async () => {
+    const flamecast = createFlamecastStub({
+      respondToPermission: vi.fn(async () => {
+        throw new Error("permission expired");
       }),
-    );
-    const response = await app.request("/api/agents/missing", { method: "DELETE" });
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/sessions/session-1/permissions/request-1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ optionId: "allow" } satisfies PermissionResponseBody),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await readJson(response)).toEqual({ error: "permission expired" });
+  });
+
+  it("returns permission errors from non-Error values", async () => {
+    const flamecast = createFlamecastStub({
+      respondToPermission: vi.fn(async () => {
+        throw "permission failed";
+      }),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/sessions/session-1/permissions/request-1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ optionId: "allow" } satisfies PermissionResponseBody),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await readJson(response)).toEqual({ error: "Unknown error" });
+  });
+
+  it("terminates a session", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/sessions/${sampleSession.id}`, {
+      method: "DELETE",
+    });
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual({ ok: true });
+  });
+
+  it("returns 404 when terminating an unknown session", async () => {
+    const flamecast = createFlamecastStub({
+      terminateSession: vi.fn(async () => {
+        throw new Error("missing");
+      }),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/sessions/missing", {
+      method: "DELETE",
+    });
 
     expect(response.status).toBe(404);
-    expect(await readJson(response)).toEqual({ error: "Agent not found" });
-  });
-
-  it("returns 500 when termination fails unexpectedly", async () => {
-    const app = createServerApp(
-      createFlamecastStub({
-        terminateAgent: vi.fn(async () => {
-          throw new Error("terminate failed");
-        }),
-      }),
-    );
-    const response = await app.request(`/api/agents/${sampleAgent.id}`, { method: "DELETE" });
-
-    expect(response.status).toBe(500);
-    expect(await readJson(response)).toEqual({ error: "terminate failed" });
-  });
-
-  it("does not expose /api/health anymore", async () => {
-    const app = createServerApp(createFlamecastStub());
-    const response = await app.request("/api/health");
-
-    expect(response.status).toBe(404);
+    expect(await readJson(response)).toEqual({ error: "Session not found" });
   });
 });

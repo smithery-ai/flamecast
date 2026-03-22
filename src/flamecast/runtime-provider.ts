@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import alchemy from "alchemy";
 import type { AgentSpawn } from "../shared/session.js";
-import type { RuntimeConfig } from "../shared/session.js";
+import type { AgentTemplateRuntime } from "../shared/session.js";
 import type { AcpTransport } from "./transport.js";
 import { findFreePort, openLocalTransport, openTcpTransport } from "./transport.js";
 
@@ -12,7 +12,7 @@ export type StartedRuntime = {
 };
 
 export type RuntimeProviderStartRequest = {
-  runtime: RuntimeConfig;
+  runtime: AgentTemplateRuntime;
   spawn: AgentSpawn;
 };
 
@@ -32,19 +32,8 @@ async function ensureAlchemy(): Promise<void> {
   await alchemyReady;
 }
 
-function readPositiveIntEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-async function waitForAcp(
-  host: string,
-  port: number,
-  timeoutMs = readPositiveIntEnv("FLAMECAST_ACP_WAIT_TIMEOUT_MS", 30_000),
-): Promise<void> {
+async function waitForAcp(host: string, port: number, timeoutMs = 30_000): Promise<void> {
   const { createConnection } = await import("node:net");
-  const retryDelayMs = readPositiveIntEnv("FLAMECAST_ACP_WAIT_RETRY_MS", 200);
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
@@ -83,7 +72,7 @@ async function waitForAcp(
       });
       return;
     } catch {
-      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
 
@@ -112,21 +101,19 @@ function createDockerRuntimeProvider(): RuntimeProvider {
       const provider = await import("alchemy/docker");
       const port = await findFreePort();
       const resourceId = randomUUID();
-      let imageRef: string | Awaited<ReturnType<typeof provider.Image>> = "node:20";
 
       if (runtime.image && runtime.dockerfile) {
-        imageRef = await provider.Image(`agent-image-${resourceId}`, {
+        await provider.Image(`agent-image-${resourceId}`, {
+          adopt: true,
           name: runtime.image,
           tag: "latest",
           build: { context: ".", dockerfile: runtime.dockerfile },
           skipPush: true,
         });
-      } else if (runtime.image) {
-        imageRef = runtime.image;
       }
 
       await provider.Container(`sandbox-${resourceId}`, {
-        image: imageRef,
+        image: runtime.image ? `${runtime.image}:latest` : undefined,
         name: `flamecast-sandbox-${resourceId}`,
         environment: { ACP_PORT: String(port) },
         ports: [{ external: port, internal: port }],

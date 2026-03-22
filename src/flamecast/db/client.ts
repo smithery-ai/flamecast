@@ -6,9 +6,9 @@ import { migrate as migratePgLite } from "drizzle-orm/pglite/migrator";
 import { drizzle as drizzleNodePg } from "drizzle-orm/node-postgres";
 import { migrate as migrateNodePg } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
-import type { PsqlAppDb } from "../storage/psql/types.js";
-import { PSQL_MIGRATIONS_FOLDER } from "../storage/psql/migrations-path.js";
-import * as schema from "../storage/psql/schema.js";
+import type { PsqlAppDb } from "../state-managers/psql/types.js";
+import { PSQL_MIGRATIONS_FOLDER } from "../state-managers/psql/migrations-path.js";
+import * as schema from "../state-managers/psql/schema.js";
 
 export type AppDb = PsqlAppDb;
 
@@ -27,31 +27,13 @@ function postgresConnectionString(): string | undefined {
 }
 
 export type CreateDatabaseOptions = {
-  /**
-   * PGLite data directory when no Postgres URL is set.
-   * Default: `FLAMECAST_PGLITE_DIR` or `<cwd>/.flamecast/pglite`.
-   * Falls back to `ACP_PGLITE_DIR` for legacy installs.
-   */
+  /** PGLite data directory when no Postgres URL is set. Default: `ACP_PGLITE_DIR` or `<cwd>/.acp/pglite`. */
   pgliteDataDir?: string;
 };
 
-function toPgliteStartupError(dataDir: string, error: unknown): Error {
-  const message = error instanceof Error ? error.message : String(error);
-
-  if (message.includes("Aborted()")) {
-    return new Error(
-      `Failed to open the local PGlite database at "${dataDir}". ` +
-        `This usually means another Flamecast process is already using that directory, or it was left locked after a crash. ` +
-        `Stop the other dev server, or set FLAMECAST_PGLITE_DIR to a different path before starting Flamecast again.`,
-    );
-  }
-
-  return error instanceof Error ? error : new Error(message);
-}
-
 /**
  * Connects to **Postgres** when `FLAMECAST_POSTGRES_URL` is set; otherwise **PGLite** on disk.
- * Applies Drizzle migrations from `flamecast/storage/psql/migrations`.
+ * Applies Drizzle migrations from `flamecast/state-managers/psql/migrations`.
  */
 export async function createDatabase(options: CreateDatabaseOptions = {}): Promise<DatabaseBundle> {
   const dbUrl = postgresConnectionString();
@@ -73,17 +55,11 @@ export async function createDatabase(options: CreateDatabaseOptions = {}): Promi
 
   const dataDir = path.resolve(
     options.pgliteDataDir ??
-      process.env.FLAMECAST_PGLITE_DIR ??
       process.env.ACP_PGLITE_DIR ??
-      path.join(process.cwd(), ".flamecast", "pglite"),
+      path.join(process.cwd(), ".acp", "pglite"),
   );
   await mkdir(dataDir, { recursive: true });
-  let client: Awaited<ReturnType<typeof PGlite.create>>;
-  try {
-    client = await PGlite.create(dataDir);
-  } catch (error) {
-    throw toPgliteStartupError(dataDir, error);
-  }
+  const client = await PGlite.create(dataDir);
   const db = drizzlePgLite({ client, schema });
   await migratePgLite(db, { migrationsFolder });
   return {
