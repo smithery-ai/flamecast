@@ -93,9 +93,8 @@ describe("transport helpers", () => {
       throw new Error("Expected TCP server address");
     }
 
-    const { findFreePort, openTcpTransport, waitForPort } = await import(
-      "../src/flamecast/transport.js"
-    );
+    const { findFreePort, openTcpTransport, waitForPort } =
+      await import("../src/flamecast/transport.js");
 
     await waitForPort("127.0.0.1", address.port, 1_200);
     const tcp = await openTcpTransport("127.0.0.1", address.port);

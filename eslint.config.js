@@ -37,7 +37,7 @@ export default [
       ...tseslint.configs.recommended.rules,
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
-      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-explicit-any": "off",
       "no-type-assertion/no-type-assertion": "error",
     },
   },

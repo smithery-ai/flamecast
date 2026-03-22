@@ -287,9 +287,8 @@ test("treats ENOTDIR gitignore read errors like a missing .gitignore", async () 
     }),
   }));
 
-  const { Flamecast: MockedFlamecast } = await import(
-    "../src/flamecast/index.ts?gitignore-enotdir"
-  );
+  const { Flamecast: MockedFlamecast } =
+    await import("../src/flamecast/index.ts?gitignore-enotdir");
   const workspaceRoot = await mkdtemp(path.join(process.cwd(), ".flamecast-enotdir-"));
 
   try {
