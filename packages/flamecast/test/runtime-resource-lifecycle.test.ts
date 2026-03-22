@@ -1,5 +1,3 @@
-process.env.ALCHEMY_CI_STATE_STORE_CHECK = "false";
-
 import { describe, expect, it } from "vitest";
 import { Resource } from "alchemy";
 import type { Context } from "alchemy";

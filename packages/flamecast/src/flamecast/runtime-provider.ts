@@ -159,9 +159,7 @@ const localProvisioner: RuntimeProvisioner = async ({ spawn }) => ({
   transport: openLocalTransport(spawn),
 });
 
-function createDockerProvisioner(
-  options: BuiltinRuntimeProviderOptions = {},
-): RuntimeProvisioner {
+function createDockerProvisioner(options: BuiltinRuntimeProviderOptions = {}): RuntimeProvisioner {
   return async ({ runtime, sessionId }) => {
     const provider = await import("alchemy/docker");
     const port = await findFreePort();
