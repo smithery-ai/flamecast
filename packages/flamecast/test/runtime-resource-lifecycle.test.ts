@@ -1,11 +1,14 @@
 process.env.ALCHEMY_CI_STATE_STORE_CHECK = "false";
 
 import { describe, expect, it } from "vitest";
-import alchemy from "alchemy";
 import { Resource } from "alchemy";
 import type { Context } from "alchemy";
-import type { RuntimeProvider } from "../src/flamecast/runtime-provider.js";
-import { resolveRuntimeProviders } from "../src/flamecast/runtime-provider.js";
+import {
+  createRuntimeProvider,
+  resolveRuntimeProviders,
+  resolveDockerBuildContext,
+} from "../src/flamecast/runtime-provider.js";
+import type { RuntimeProvisioner } from "../src/flamecast/runtime-provider.js";
 
 // ---------------------------------------------------------------------------
 // Test resource — a lightweight alchemy resource that records lifecycle events
@@ -15,7 +18,6 @@ import { resolveRuntimeProviders } from "../src/flamecast/runtime-provider.js";
 type RuntimeResourceProps = { sessionId: string; kind: "sandbox" | "image" };
 interface RuntimeResource extends RuntimeResourceProps {
   createdAt: number;
-  status: "running" | "destroyed";
 }
 
 const lifecycleLog: { event: "create" | "destroy"; id: string; sessionId: string }[] = [];
@@ -37,43 +39,27 @@ const TestRuntimeResource = Resource(
       sessionId: props.sessionId,
       kind: props.kind,
       createdAt: Date.now(),
-      status: "running",
     });
   },
 );
 
 // ---------------------------------------------------------------------------
-// Test runtime provider — mirrors the real docker provider's
-// alchemy.run() + alchemy.destroy(scope) pattern using TestRuntimeResource.
-// Conditionally creates an "image" resource based on runtime.dockerfile,
-// matching docker provider behavior.
+// Test provisioner — creates test resources instead of docker containers.
+// Conditionally creates "image" based on runtime.dockerfile, matching
+// the docker provisioner's behavior.
 // ---------------------------------------------------------------------------
 
-let resourceScope: Promise<import("alchemy").Scope> | undefined;
+const testProvisioner: RuntimeProvisioner = async ({ runtime, sessionId }) => {
+  if (runtime.dockerfile) {
+    await TestRuntimeResource("image", { sessionId, kind: "image" });
+  }
 
-function createTestRuntimeProvider(): RuntimeProvider {
+  await TestRuntimeResource("sandbox", { sessionId, kind: "sandbox" });
+
   return {
-    async start({ sessionId, runtime }) {
-      resourceScope ??= alchemy("flame-resources-test", { quiet: true, noTrack: true });
-      const root = await resourceScope;
-
-      return alchemy.run(`session-${sessionId}`, { parent: root }, async (scope) => {
-        if (runtime.dockerfile) {
-          await TestRuntimeResource("image", { sessionId, kind: "image" });
-        }
-
-        await TestRuntimeResource("sandbox", { sessionId, kind: "sandbox" });
-
-        return {
-          transport: { input: new WritableStream(), output: new ReadableStream() },
-          terminate: async () => {
-            await alchemy.destroy(scope).catch(() => undefined);
-          },
-        };
-      });
-    },
+    transport: { input: new WritableStream(), output: new ReadableStream() },
   };
-}
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -88,7 +74,7 @@ function eventsForSession(sessionId: string) {
 // ---------------------------------------------------------------------------
 
 describe("runtime resource lifecycle", () => {
-  const provider = createTestRuntimeProvider();
+  const provider = createRuntimeProvider(testProvisioner);
 
   it("creates image and sandbox resources when dockerfile is provided", async () => {
     const before = lifecycleLog.length;
@@ -207,15 +193,7 @@ describe("runtime resource lifecycle", () => {
 
 describe("runtime provider registry", () => {
   it("resolveRuntimeProviders merges custom providers with builtins", () => {
-    const custom: RuntimeProvider = {
-      async start() {
-        return {
-          transport: { input: new WritableStream(), output: new ReadableStream() },
-          terminate: async () => {},
-        };
-      },
-    };
-
+    const custom = createRuntimeProvider(testProvisioner);
     const providers = resolveRuntimeProviders({ custom });
     expect(providers).toMatchObject({
       local: expect.any(Object),
@@ -225,16 +203,21 @@ describe("runtime provider registry", () => {
   });
 
   it("custom providers override builtins with the same key", () => {
-    const custom: RuntimeProvider = {
-      async start() {
-        return {
-          transport: { input: new WritableStream(), output: new ReadableStream() },
-          terminate: async () => {},
-        };
-      },
-    };
-
+    const custom = createRuntimeProvider(testProvisioner);
     const providers = resolveRuntimeProviders({ local: custom });
     expect(providers.local).toBe(custom);
+  });
+});
+
+describe("resolveDockerBuildContext", () => {
+  it("resolves parent directory when dockerfile is in a docker/ directory", () => {
+    expect(resolveDockerBuildContext("docker/Dockerfile")).toMatch(/^[^/]|^\//);
+    const result = resolveDockerBuildContext("docker/Dockerfile");
+    expect(result).not.toContain("docker");
+  });
+
+  it("resolves the dockerfile directory for non-docker paths", () => {
+    const result = resolveDockerBuildContext("build/Dockerfile");
+    expect(result).toContain("build");
   });
 });
