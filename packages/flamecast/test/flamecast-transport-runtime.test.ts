@@ -1,4 +1,4 @@
-/* eslint-disable no-type-assertion/no-type-assertion */
+/* oxlint-disable no-type-assertion/no-type-assertion */
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { createServer } from "node:net";

@@ -1,4 +1,4 @@
-/* eslint-disable no-type-assertion/no-type-assertion */
+/* oxlint-disable no-type-assertion/no-type-assertion */
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";

@@ -1,4 +1,4 @@
-/* eslint-disable no-type-assertion/no-type-assertion */
+/* oxlint-disable no-type-assertion/no-type-assertion */
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";

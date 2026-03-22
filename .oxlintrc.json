@@ -1,12 +1,19 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  // Keep Oxlint narrowly scoped so it adds one clear policy without overlapping ESLint.
+  // Oxlint is the single linter. Use the JS plugin bridge only for the repo's
+  // no-type-assertion policy, which is not available natively yet.
   "plugins": ["typescript"],
+  "jsPlugins": ["eslint-plugin-no-type-assertion"],
   "categories": {
-    "correctness": "off"
+    "correctness": "error"
   },
   "rules": {
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+    "no-type-assertion/no-type-assertion": "error",
     "typescript/no-explicit-any": "error"
+  },
+  "options": {
+    "reportUnusedDisableDirectives": "error"
   },
   "ignorePatterns": [
     "dist/",
