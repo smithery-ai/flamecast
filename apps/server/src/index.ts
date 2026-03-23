@@ -15,6 +15,5 @@ function isMainModule(): boolean {
 }
 
 if (isMainModule()) {
-  // Test
   void main();
 }
