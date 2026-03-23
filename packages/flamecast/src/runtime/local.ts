@@ -126,7 +126,8 @@ export class LocalRuntimeClient implements RuntimeClient {
         this.createRpcLog(acp.AGENT_METHODS.initialize, "agent_to_client", "response", initResult),
       );
 
-      const newSessionParams: acp.NewSessionRequest = { cwd, mcpServers: [] };
+      const agentCwd = startedRuntime.agentCwd ?? cwd;
+      const newSessionParams: acp.NewSessionRequest = { cwd: agentCwd, mcpServers: [] };
       managed.pendingLogs.push(
         this.createRpcLog(
           acp.AGENT_METHODS.session_new,

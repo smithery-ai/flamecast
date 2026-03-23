@@ -13,6 +13,8 @@ export type StartedRuntime = {
   terminate: () => Promise<void>;
   reconnect?: () => Promise<AcpTransport>;
   events?: ReadableStream<SessionLog>;
+  /** The working directory the agent sees (e.g. /workspace in Docker). Defaults to the host cwd. */
+  agentCwd?: string;
 };
 
 export type RuntimeProviderStartRequest = {
@@ -34,7 +36,7 @@ export type RuntimeProvisioner = (opts: {
   spawn: AgentSpawn;
   sessionId: string;
   cwd: string;
-}) => Promise<{ transport: AcpTransport; events?: ReadableStream<SessionLog> }>;
+}) => Promise<{ transport: AcpTransport; events?: ReadableStream<SessionLog>; agentCwd?: string }>;
 
 type WaitForAcpOptions = {
   timeoutMs?: number;
@@ -430,6 +432,7 @@ export function createDockerProvisioner(
     return {
       transport: await openTcpTransport("localhost", port),
       events: createFileSystemEventStream(cwd),
+      agentCwd: containerWorkDir,
     };
   };
 }
@@ -442,14 +445,15 @@ export function createRuntimeProvider(provisioner: RuntimeProvisioner): RuntimeP
       const root = await resourceScope;
 
       return alchemy.run(`session-${sessionId}`, { parent: root }, async (scope) => {
-        const { transport, events } = await provisioner({ runtime, spawn, sessionId, cwd });
+        const result = await provisioner({ runtime, spawn, sessionId, cwd });
 
         return {
-          transport,
-          events,
+          transport: result.transport,
+          events: result.events,
+          agentCwd: result.agentCwd,
           terminate: async () => {
-            await events?.cancel().catch(() => undefined);
-            await transport.dispose?.();
+            await result.events?.cancel().catch(() => undefined);
+            await result.transport.dispose?.();
             await alchemy.destroy(scope).catch(() => undefined);
           },
         };
