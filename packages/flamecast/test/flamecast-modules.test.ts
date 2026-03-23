@@ -1,12 +1,7 @@
-import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getTableConfig } from "drizzle-orm/pg-core";
 import { afterEach, describe, expect, test } from "vitest";
 import { getBuiltinAgentTemplates, localRuntime } from "../src/flamecast/agent-templates.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
-import { PSQL_MIGRATIONS_FOLDER } from "../src/flamecast/storage/psql/migrations-path.js";
-import drizzleConfig from "../src/flamecast/storage/psql/drizzle.config.js";
-import { agentTemplates, sessionLogs, sessions } from "../src/flamecast/storage/psql/schema.js";
 
 function createTemplate(id: string, name: string) {
   return {
@@ -146,26 +141,5 @@ describe("memory storage", () => {
         data: { ok: true },
       },
     ]);
-  });
-});
-
-describe("psql module metadata", () => {
-  test("exports schema and drizzle metadata", async () => {
-    const psqlTypes = await import("../src/flamecast/storage/psql/types.js");
-    const [sessionLogForeignKey] = getTableConfig(sessionLogs).foreignKeys;
-
-    expect(sessions).toBeDefined();
-    expect(sessionLogs).toBeDefined();
-    expect(agentTemplates).toBeDefined();
-    expect(getTableConfig(sessionLogs).foreignKeys).toHaveLength(1);
-    expect(sessionLogForeignKey?.reference().foreignTable).toBe(sessions);
-    expect(getTableConfig(agentTemplates).indexes).toHaveLength(1);
-    expect(path.basename(PSQL_MIGRATIONS_FOLDER)).toBe("migrations");
-    expect(drizzleConfig).toMatchObject({
-      schema: "./src/flamecast/storage/psql/schema.ts",
-      out: "./src/flamecast/storage/psql/migrations",
-      dialect: "postgresql",
-    });
-    expect(psqlTypes).toBeTypeOf("object");
   });
 });

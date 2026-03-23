@@ -39,6 +39,7 @@ describe("flamecast createSession failure cleanup", () => {
       };
     });
 
+    vi.resetModules();
     const { Flamecast } = await import("../src/flamecast/index.js?create-session-failure");
 
     const flamecast = new Flamecast({
@@ -122,6 +123,7 @@ describe("flamecast createSession failure cleanup", () => {
       };
     });
 
+    vi.resetModules();
     const { Flamecast } = await import("../src/flamecast/index.js?startup-notification-buffer");
 
     const flamecast = new Flamecast({

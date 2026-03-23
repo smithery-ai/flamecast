@@ -12,7 +12,7 @@ import type {
   AgentSpawn,
   AgentTemplateRuntime,
   PendingPermission,
-} from "../../../shared/session.js";
+} from "@flamecast/sdk/shared/session";
 
 export const sessions = pgTable("sessions", {
   id: text("id").primaryKey(),

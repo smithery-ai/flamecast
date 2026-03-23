@@ -1,7 +1,5 @@
 import type { AgentTemplate, Session, SessionLog } from "../shared/session.js";
-import { createDatabase } from "./db/client.js";
 import { MemoryFlamecastStorage } from "./storage/memory/index.js";
-import { createPsqlStorage } from "./storage/psql/index.js";
 
 /** Durable slice of {@link Session} (everything except runtime-only state). */
 export type SessionMeta = Omit<Session, "fileSystem" | "logs" | "promptQueue">;
@@ -34,21 +32,10 @@ export type FlamecastStorage = {
   finalizeSession(id: string, reason: "terminated"): Promise<void>;
 };
 
-export type StorageConfig =
-  | "memory"
-  | "pglite"
-  | { type: "memory" }
-  | { type: "pglite"; dataDir?: string }
-  | { type: "postgres"; url: string }
-  | FlamecastStorage;
+export type StorageConfig = "memory" | { type: "memory" } | FlamecastStorage;
 
 export async function resolveStorage(config?: StorageConfig): Promise<FlamecastStorage> {
-  if (!config || config === "pglite") {
-    const { db } = await createDatabase();
-    return createPsqlStorage(db);
-  }
-
-  if (config === "memory") {
+  if (!config || config === "memory") {
     return new MemoryFlamecastStorage();
   }
 
@@ -56,15 +43,6 @@ export async function resolveStorage(config?: StorageConfig): Promise<FlamecastS
     switch (config.type) {
       case "memory": {
         return new MemoryFlamecastStorage();
-      }
-      case "pglite": {
-        const { db } = await createDatabase({ pgliteDataDir: config.dataDir });
-        return createPsqlStorage(db);
-      }
-      case "postgres": {
-        process.env.FLAMECAST_POSTGRES_URL = config.url;
-        const { db } = await createDatabase();
-        return createPsqlStorage(db);
       }
     }
   }

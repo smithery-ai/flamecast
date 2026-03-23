@@ -91,10 +91,13 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - name: Run tests
+      - name: Run Flamecast coverage
         run: pnpm run test:api:coverage
         env:
           ALCHEMY_CI_STATE_STORE_CHECK: "false"
+
+      - name: Run server storage tests
+        run: pnpm --filter @acp/server test
 
   check:
     runs-on: ubuntu-latest

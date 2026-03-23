@@ -34,9 +34,9 @@ Open **http://localhost:3000**. The home page lists the registered agent templat
 
 ```mermaid
 graph TD
-    A["Server (apps/server/src/index.ts)<br/>Creates new Flamecast()<br/>Exposes the Hono app on port 3001"]
-    B["Flamecast (packages/flamecast/src/flamecast/index.ts)<br/>Owns session lifecycle, ACP client wiring,<br/>storage initialization, and runtime provider dispatch"]
-    C["Storage<br/>memory / pglite / postgres<br/>metadata + logs"]
+    A["Server (apps/server/src/index.ts)<br/>Creates Flamecast with server-owned SQL storage<br/>Exposes the Hono app on port 3001"]
+    B["Flamecast (packages/flamecast/src/flamecast/index.ts)<br/>Owns session lifecycle, ACP client wiring,<br/>and runtime provider dispatch"]
+    C["Server storage (apps/server/src/storage)<br/>memory / pglite / postgres<br/>metadata + logs"]
     D["Runtime providers<br/>local / docker<br/>custom providers"]
     E["ACP-compatible agent<br/>process or container"]
 
@@ -205,19 +205,21 @@ Configuration is TypeScript via the `Flamecast` constructor:
 import { Flamecast } from "@flamecast/sdk";
 
 const flamecast = new Flamecast({
-  storage: "pglite",
+  storage: "memory",
 });
 
 await flamecast.listen(3001);
 ```
 
-The same instance also exposes a standard `fetch` handler:
+The same instance also exposes a standard `fetch` handler. Durable SQL storage is now host-owned, so the embedding app is responsible for creating the storage implementation it wants to pass in:
 
 ```ts
 import { Flamecast } from "@flamecast/sdk";
 
+const storage = await createCustomStorage();
+
 const flamecast = new Flamecast({
-  storage: { type: "postgres", url: process.env.DATABASE_URL! },
+  storage,
 });
 
 export default flamecast.fetch;
@@ -239,7 +241,7 @@ const sessions = await client.fetchSessions();
 
 | Option | Description |
 |---|---|
-| `storage` | Persistence backend. Defaults to `pglite` |
+| `storage` | Persistence backend. Defaults to in-memory storage |
 | `runtimeProviders` | Registry overrides or additional runtime providers |
 | `agentTemplates` | Initial agent template list. Replaces bundled defaults when provided |
 
@@ -247,18 +249,17 @@ const sessions = await client.fetchSessions();
 
 | Value | Description |
 |---|---|
-| `"pglite"` | Embedded Postgres on disk |
 | `"memory"` | In-process, lost on restart |
-| `{ type: "pglite", dataDir }` | Embedded Postgres with explicit data directory |
-| `{ type: "postgres", url }` | External Postgres |
 | custom `FlamecastStorage` | Bring your own storage implementation |
+
+`apps/server` owns the default durable SQL storage bootstrap. Its local server entrypoint uses embedded PGlite by default and can be pointed at Postgres with environment/config.
 
 ### Environment variables
 
 | Variable | Purpose |
 |---|---|
 | `FLAMECAST_POSTGRES_URL` | External Postgres connection string |
-| `FLAMECAST_PGLITE_DIR` | Override the default PGLite data directory (`<cwd>/.flamecast/pglite`) |
+| `FLAMECAST_PGLITE_DIR` | Override the server app's default PGLite data directory (`<cwd>/.flamecast/pglite`) |
 
 ---
 
@@ -324,7 +325,7 @@ Tests create isolated Flamecast instances and exercise the API surface end-to-en
 | `pnpm alchemy:dev` | Local dev via Alchemy |
 | `pnpm alchemy:deploy` | Deploy via Alchemy |
 | `pnpm alchemy:destroy` | Tear down Alchemy resources |
-| `pnpm psql:generate` | Generate Drizzle migrations |
+| `pnpm psql:generate` | Generate Drizzle migrations for `apps/server` storage |
 
 ---
 

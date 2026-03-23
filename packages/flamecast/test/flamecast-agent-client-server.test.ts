@@ -565,11 +565,15 @@ describe("bootstrap entrypoints", () => {
     const listen = vi.fn(async () => ({
       close: vi.fn(),
     }));
+    const createServerStorage = vi.fn(async () => ({ kind: "server-storage" }));
 
     class FlamecastMock {
       readonly listen = listen;
     }
 
+    vi.doMock("../../../apps/server/src/storage/index.ts", () => ({
+      createServerStorage,
+    }));
     vi.doMock("@flamecast/sdk", () => ({
       Flamecast: FlamecastMock,
     }));
@@ -582,17 +586,22 @@ describe("bootstrap entrypoints", () => {
     expect(secondStart).toBeInstanceOf(FlamecastMock);
     expect(listen).toHaveBeenCalledTimes(2);
     expect(listen).toHaveBeenCalledWith(3001);
+    expect(createServerStorage).toHaveBeenCalledTimes(2);
   });
 
   test("runs server main automatically when imported as the entry module", async () => {
     const serverPath = new URL("../../../apps/server/src/index.ts", import.meta.url);
     const listen = vi.fn(async () => ({ close: vi.fn() }));
+    const createServerStorage = vi.fn(async () => ({ kind: "server-storage" }));
     const originalArgv1 = process.argv[1];
 
     class FlamecastMock {
       readonly listen = listen;
     }
 
+    vi.doMock("../../../apps/server/src/storage/index.ts", () => ({
+      createServerStorage,
+    }));
     vi.doMock("@flamecast/sdk", () => ({
       Flamecast: FlamecastMock,
     }));
@@ -607,5 +616,6 @@ describe("bootstrap entrypoints", () => {
     }
 
     expect(listen).toHaveBeenCalledWith(3001);
+    expect(createServerStorage).toHaveBeenCalledTimes(1);
   });
 });
