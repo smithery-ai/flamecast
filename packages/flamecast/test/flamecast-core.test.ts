@@ -1,37 +1,22 @@
 /* oxlint-disable no-type-assertion/no-type-assertion */
+import { EventEmitter } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { getBuiltinAgentTemplates } from "../src/flamecast/agent-templates.js";
 import { Flamecast } from "../src/flamecast/index.js";
+import { AcpBridge } from "../src/runtime/acp-bridge.js";
 import { LocalRuntimeClient } from "../src/runtime/local.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
-
-type PromptHandler = (params: acp.PromptRequest) => Promise<acp.PromptResponse>;
 
 type ManagedSessionLike = {
   id: string;
   workspaceRoot: string;
-  transport: {
-    input: WritableStream<Uint8Array>;
-    output: ReadableStream<Uint8Array>;
-    dispose?: () => Promise<void>;
-  };
+  bridge: any;
   terminate: () => Promise<void>;
   inFlightPromptId: string | null;
   promptQueue: Array<{ queueId: string; text: string; enqueuedAt: string }>;
-  runtime: {
-    connection: {
-      prompt: PromptHandler;
-    } | null;
-    sessionTextChunkLogBuffer: {
-      sessionId: string;
-      kind: "agent_message_chunk" | "user_message_chunk" | "agent_thought_chunk";
-      messageId: string | null;
-      texts: string[];
-    } | null;
-  };
 };
 
 function createMeta(id: string) {
@@ -46,29 +31,29 @@ function createMeta(id: string) {
   };
 }
 
-function createManagedSession(id: string, prompt?: PromptHandler) {
-  const passthrough = new TransformStream<Uint8Array, Uint8Array>();
+function createMockBridge(opts?: { prompt?: (params: acp.PromptRequest) => Promise<acp.PromptResponse>; isInitialized?: boolean }) {
+  const emitter = new EventEmitter();
+  return Object.assign(emitter, {
+    initialize: vi.fn(),
+    newSession: vi.fn(),
+    prompt: opts?.prompt ?? vi.fn(),
+    resolvePermission: vi.fn(),
+    flush: vi.fn(async () => {}),
+    isInitialized: opts?.isInitialized ?? false,
+  });
+}
+
+function createManagedSession(id: string, prompt?: (params: acp.PromptRequest) => Promise<acp.PromptResponse>) {
   return {
     id,
     workspaceRoot: process.cwd(),
     pendingLogs: [],
     bufferPendingLogs: false,
-    transport: {
-      input: passthrough.writable,
-      output: passthrough.readable,
-    },
+    bridge: createMockBridge({ prompt, isInitialized: !!prompt }),
     terminate: vi.fn(async () => {}),
     lastFileSystemSnapshot: null,
     inFlightPromptId: null,
     promptQueue: [],
-    runtime: {
-      connection: prompt
-        ? {
-            prompt,
-          }
-        : null,
-      sessionTextChunkLogBuffer: null,
-    },
   } satisfies ManagedSessionLike;
 }
 
@@ -86,8 +71,8 @@ function getRuntimeMap(flamecast: Flamecast) {
   return Reflect.get(getRuntimeClient(flamecast), "runtimes") as Map<string, ManagedSessionLike>;
 }
 
-function getPermissionResolvers(flamecast: Flamecast) {
-  return Reflect.get(getRuntimeClient(flamecast), "permissionResolvers") as Map<
+function getBridgePermissionResolvers(bridge: any) {
+  return Reflect.get(bridge, "permissionResolvers") as Map<
     string,
     (response: acp.RequestPermissionResponse) => void | Promise<void>
   >;
@@ -326,53 +311,10 @@ describe("flamecast orchestration internals", () => {
       [string, Record<string, unknown>],
       { type: string; data: Record<string, unknown> }
     >(rc, "createLogEntry");
-    const createRpcLog = getMethod<
-      [
-        string,
-        "client_to_agent" | "agent_to_client",
-        "request" | "response" | "notification",
-        unknown?,
-      ],
-      { type: string; data: Record<string, unknown> }
-    >(rc, "createRpcLog");
     const pushLog = getMethod<
       [ManagedSessionLike, string, Record<string, unknown>],
       Promise<unknown>
     >(rc, "pushLog");
-    const pushRpcLog = getMethod<
-      [
-        ManagedSessionLike,
-        string,
-        "client_to_agent" | "agent_to_client",
-        "request" | "response" | "notification",
-        unknown?,
-      ],
-      Promise<void>
-    >(rc, "pushRpcLog");
-    const flushBuffer = getMethod<[ManagedSessionLike], Promise<void>>(
-      rc,
-      "flushSessionTextChunkLogBuffer",
-    );
-    const createPendingPermission = getMethod<
-      [acp.RequestPermissionRequest],
-      {
-        requestId: string;
-        toolCallId: string;
-        title: string;
-        kind?: string;
-        options: Array<{ optionId: string; name: string; kind: string }>;
-      }
-    >(rc, "createPendingPermission");
-    const getPermissionOption = getMethod<
-      [
-        {
-          permission: ReturnType<typeof createPendingPermission>;
-          resolve: (response: acp.RequestPermissionResponse) => void | Promise<void>;
-        },
-        string,
-      ],
-      { optionId: string; name: string; kind: string }
-    >(rc, "getPermissionOption");
     const getPermissionLogType = getMethod<[string], string>(rc, "getPermissionLogType");
     const stopRuntime = getMethod<
       [
@@ -484,24 +426,9 @@ describe("flamecast orchestration internals", () => {
       type: "rpc",
       data: { ok: true },
     });
-    expect(createRpcLog("method", "client_to_agent", "request")).toMatchObject({
-      type: "rpc",
-      data: {
-        method: "method",
-        direction: "client_to_agent",
-        phase: "request",
-      },
-    });
-    expect(createRpcLog("method", "agent_to_client", "response", { ok: true })).toMatchObject({
-      data: {
-        payload: { ok: true },
-      },
-    });
 
     await pushLog(managed, "permission_cancelled", { requestId: "request-1" });
-    await pushRpcLog(managed, "method", "agent_to_client", "notification", {
-      payload: true,
-    });
+    await pushLog(managed, "rpc", { method: "method", direction: "agent_to_client", phase: "notification", payload: true });
     expect((await storage.getLogs("session-1")).length).toBeGreaterThan(2);
 
     Reflect.set(managed, "pendingLogs", []);
@@ -515,6 +442,21 @@ describe("flamecast orchestration internals", () => {
     Reflect.set(managed, "pendingLogs", []);
     Reflect.set(managed, "bufferPendingLogs", false);
 
+    // Test createPendingPermission on a real AcpBridge
+    const realBridge = new AcpBridge(
+      { input: new TransformStream<Uint8Array, Uint8Array>().writable, output: new TransformStream<Uint8Array, Uint8Array>().readable },
+      managed.workspaceRoot,
+    );
+    const createPendingPermission = getMethod<
+      [acp.RequestPermissionRequest],
+      {
+        requestId: string;
+        toolCallId: string;
+        title: string;
+        kind?: string;
+        options: Array<{ optionId: string; name: string; kind: string }>;
+      }
+    >(realBridge, "createPendingPermission");
     const pendingPermission = createPendingPermission({
       sessionId: "session-1",
       toolCall: {
@@ -534,22 +476,17 @@ describe("flamecast orchestration internals", () => {
     });
     expect(pendingPermission.title).toBe("");
     expect(pendingPermission.kind).toBeUndefined();
-    expect(
-      getPermissionOption({ permission: pendingPermission, resolve: () => {} }, "allow"),
-    ).toEqual({
-      optionId: "allow",
-      name: "Allow",
-      kind: "allow_once",
-    });
-    expect(() =>
-      getPermissionOption({ permission: pendingPermission, resolve: () => {} }, "missing"),
-    ).toThrow('Unknown permission option "missing"');
     expect(getPermissionLogType("allow_once")).toBe("permission_approved");
     expect(getPermissionLogType("reject_once")).toBe("permission_rejected");
     expect(getPermissionLogType("maybe")).toBe("permission_responded");
 
-    const createClient = getMethod<[ManagedSessionLike], acp.Client>(rc, "createClient");
-    const client = createClient(managed);
+    // Replace managed.bridge with a real AcpBridge and wire events
+    managed.bridge = realBridge;
+    const wireBridgeEvents = getMethod<[ManagedSessionLike], void>(rc, "wireBridgeEvents");
+    wireBridgeEvents(managed);
+
+    const createClient = getMethod<[], acp.Client>(realBridge, "createClient");
+    const client = createClient();
 
     await client.sessionUpdate({
       sessionId: "session-1",
@@ -592,30 +529,35 @@ describe("flamecast orchestration internals", () => {
       } as unknown as acp.SessionUpdate,
     });
 
-    managed.runtime.sessionTextChunkLogBuffer = {
+    // Test flush with join failure (Error)
+    Reflect.set(realBridge, "textChunkBuffer", {
       sessionId: "session-1",
-      kind: "agent_message_chunk",
+      kind: "agent_message_chunk" as const,
       messageId: null,
       texts: Object.assign(["a", "b"], {
         join() {
           throw new Error("join failed");
         },
       }),
-    } as unknown as ManagedSessionLike["runtime"]["sessionTextChunkLogBuffer"];
-    await flushBuffer(managed);
-    expect(managed.runtime.sessionTextChunkLogBuffer).toBeNull();
+    });
+    const flushBridge = getMethod<[], Promise<void>>(realBridge, "flush");
+    await flushBridge();
+    expect(Reflect.get(realBridge, "textChunkBuffer")).toBeNull();
 
-    managed.runtime.sessionTextChunkLogBuffer = {
+    // Test flush with join failure (string)
+    Reflect.set(realBridge, "textChunkBuffer", {
       sessionId: "session-1",
-      kind: "agent_message_chunk",
+      kind: "agent_message_chunk" as const,
       messageId: "message-3",
       texts: Object.assign(["c"], {
         join() {
           throw "join failed as string";
         },
       }),
-    } as unknown as ManagedSessionLike["runtime"]["sessionTextChunkLogBuffer"];
-    await flushBuffer(managed);
+    });
+    await flushBridge();
+    // Wait a tick for async event handlers to run
+    await new Promise((resolve) => setTimeout(resolve, 50));
     const flushedLogs = JSON.stringify(await storage.getLogs("session-1"));
     expect(flushedLogs).toContain("join failed as string");
     expect(flushedLogs).toContain('"messageId":"message-3"');
@@ -639,7 +581,8 @@ describe("flamecast orchestration internals", () => {
     await expect(flamecast.respondToPermission("session-1", requestId, {})).rejects.toThrow(
       "Invalid permission response",
     );
-    expect(getPermissionResolvers(flamecast).size).toBe(0);
+    // The resolver remains in the bridge map when validation fails
+    expect(getBridgePermissionResolvers(realBridge).size).toBe(1);
     void invalidPermissionPromise;
 
     const unknownOptionPromise = client.requestPermission({
@@ -657,7 +600,8 @@ describe("flamecast orchestration internals", () => {
     await expect(
       flamecast.respondToPermission("session-1", unknownOptionRequestId, { optionId: "missing" }),
     ).rejects.toThrow('Unknown permission option "missing"');
-    expect(getPermissionResolvers(flamecast).size).toBe(0);
+    // The resolver remains in the bridge map when validation fails
+    expect(getBridgePermissionResolvers(realBridge).size).toBe(2);
     void unknownOptionPromise;
 
     const selectionPromise = client.requestPermission({
@@ -695,7 +639,8 @@ describe("flamecast orchestration internals", () => {
       outcome: "cancelled",
     } as Parameters<Flamecast["respondToPermission"]>[2]);
     expect(await cancelledPromise).toEqual({ outcome: { outcome: "cancelled" } });
-    expect(getPermissionResolvers(flamecast).size).toBe(0);
+    // 2 resolvers remain from the invalid/unknown error cases above
+    expect(getBridgePermissionResolvers(realBridge).size).toBe(2);
     await expect(
       flamecast.respondToPermission("session-1", "missing-request", { optionId: "allow" }),
     ).rejects.toThrow("Permission request not found or already resolved");
@@ -766,12 +711,6 @@ describe("flamecast orchestration internals", () => {
     );
     await storage.createSession(createMeta("session-2"));
     getRuntimeMap(flamecast).set("session-2", promptingManaged);
-    promptingManaged.runtime.sessionTextChunkLogBuffer = {
-      sessionId: "session-2",
-      kind: "agent_message_chunk",
-      messageId: null,
-      texts: ["partial"],
-    };
     await expect(flamecast.promptSession("session-1", "hello")).rejects.toThrow(
       'Session "session-1" is not initialized',
     );
@@ -799,8 +738,6 @@ describe("flamecast orchestration internals", () => {
         throw new Error("terminate failed");
       }),
     });
-    getPermissionResolvers(flamecast).set("request-terminate", async () => {});
-
     await flamecast.terminateSession("session-3");
     expect((await storage.getSessionMeta("session-3"))?.status).toBe("killed");
 

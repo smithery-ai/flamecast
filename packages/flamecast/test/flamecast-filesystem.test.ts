@@ -1,27 +1,21 @@
 import { execFileSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
 import { buildFileSystemSnapshot } from "../src/flamecast/runtime-provider.js";
+import { AcpBridge } from "../src/runtime/acp-bridge.js";
 import { LocalRuntimeClient } from "../src/runtime/local.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 
 type ManagedSessionLike = {
   id: string;
   workspaceRoot: string;
-  transport: {
-    input: WritableStream<Uint8Array>;
-    output: ReadableStream<Uint8Array>;
-    dispose?: () => Promise<void>;
-  };
+  bridge: any;
   terminate: () => Promise<void>;
   inFlightPromptId: string | null;
   promptQueue: Array<{ queueId: string; text: string; enqueuedAt: string }>;
-  runtime: {
-    connection: null;
-    sessionTextChunkLogBuffer: null;
-  };
 };
 
 function createMeta(id: string) {
@@ -36,23 +30,27 @@ function createMeta(id: string) {
   };
 }
 
+function createMockBridge() {
+  const emitter = new EventEmitter();
+  return Object.assign(emitter, {
+    initialize: vi.fn(),
+    newSession: vi.fn(),
+    prompt: vi.fn(),
+    resolvePermission: vi.fn(),
+    flush: vi.fn(async () => {}),
+    isInitialized: false,
+  });
+}
+
 function createManagedSession(id: string, workspaceRoot: string): ManagedSessionLike {
-  const passthrough = new TransformStream<Uint8Array, Uint8Array>();
   return {
     id,
     workspaceRoot,
-    transport: {
-      input: passthrough.writable,
-      output: passthrough.readable,
-    },
+    bridge: createMockBridge(),
     terminate: vi.fn(async () => {}),
     lastFileSystemSnapshot: null,
     inFlightPromptId: null,
     promptQueue: [],
-    runtime: {
-      connection: null,
-      sessionTextChunkLogBuffer: null,
-    },
   };
 }
 
@@ -218,33 +216,37 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
       'Path "linked-outside.txt" is outside workspace root',
     );
 
-    const resolveSessionFilePath = getMethod<[string, string], Promise<string>>(
-      rc,
-      "resolveSessionFilePath",
+    const realBridge = new AcpBridge(
+      { input: new TransformStream<Uint8Array, Uint8Array>().writable, output: new TransformStream<Uint8Array, Uint8Array>().readable },
+      workspaceRoot,
     );
-    await expect(resolveSessionFilePath(workspaceRoot, "visible.txt")).rejects.toThrow(
+    const resolveAbsoluteReadPath = getMethod<[string], Promise<string>>(
+      realBridge,
+      "resolveAbsoluteReadPath",
+    );
+    await expect(resolveAbsoluteReadPath("visible.txt")).rejects.toThrow(
       'File paths must be absolute: "visible.txt"',
     );
-    await expect(resolveSessionFilePath(workspaceRoot, outsideFile)).rejects.toThrow(
+    await expect(resolveAbsoluteReadPath(outsideFile)).rejects.toThrow(
       `Path "${outsideFile}" is outside workspace root`,
     );
 
-    const resolveSessionWritePath = getMethod<[string, string], Promise<string>>(
-      rc,
-      "resolveSessionWritePath",
+    const resolveAbsoluteWritePath = getMethod<[string], Promise<string>>(
+      realBridge,
+      "resolveAbsoluteWritePath",
     );
-    await expect(resolveSessionWritePath(workspaceRoot, "visible.txt")).rejects.toThrow(
+    await expect(resolveAbsoluteWritePath("visible.txt")).rejects.toThrow(
       'File paths must be absolute: "visible.txt"',
     );
-    await expect(resolveSessionWritePath(workspaceRoot, outsideFile)).rejects.toThrow(
+    await expect(resolveAbsoluteWritePath(outsideFile)).rejects.toThrow(
       `Path "${outsideFile}" is outside workspace root`,
     );
 
-    const createClient = getMethod<[ManagedSessionLike], ReturnType<typeof getMethod>>(
-      rc,
+    const createClient = getMethod<[], ReturnType<typeof getMethod>>(
+      realBridge,
       "createClient",
     );
-    const client = createClient(managed);
+    const client = createClient();
     const readResponse = await client.readTextFile({
       path: path.join(workspaceRoot, "preview.txt"),
       line: 0,

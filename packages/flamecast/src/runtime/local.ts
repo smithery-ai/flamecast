@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile, realpath, writeFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import {
@@ -9,7 +9,6 @@ import {
   type AgentTemplateRuntime,
   type FilePreview,
   type FileSystemSnapshot,
-  type PendingPermission,
   type PendingPermissionOption,
   type PermissionResponseBody,
   type PromptQueueState,
@@ -19,34 +18,19 @@ import {
 import type { FlamecastStorage } from "../flamecast/storage.js";
 import type { RuntimeProviderRegistry, StartedRuntime } from "../flamecast/runtime-provider.js";
 import { buildFileSystemSnapshot } from "../flamecast/runtime-provider.js";
-import type { AcpTransport } from "../flamecast/transport.js";
 import type { RuntimeClient } from "./client.js";
-
-type PermissionResolver = (response: acp.RequestPermissionResponse) => void | Promise<void>;
-
-type StreamingTextChunkKind = "agent_message_chunk" | "user_message_chunk" | "agent_thought_chunk";
-
-interface SessionTextChunkLogBuffer {
-  sessionId: string;
-  kind: StreamingTextChunkKind;
-  messageId: string | null;
-  texts: string[];
-}
+import { AcpBridge } from "./acp-bridge.js";
 
 interface ManagedSession {
   id: string;
   workspaceRoot: string;
   pendingLogs: SessionLog[];
   bufferPendingLogs: boolean;
-  transport: AcpTransport;
+  bridge: AcpBridge;
   terminate: () => Promise<void>;
   lastFileSystemSnapshot: FileSystemSnapshot | null;
   inFlightPromptId: string | null;
   promptQueue: Array<{ queueId: string; text: string; enqueuedAt: string }>;
-  runtime: {
-    connection: acp.ClientSideConnection | null;
-    sessionTextChunkLogBuffer: SessionTextChunkLogBuffer | null;
-  };
 }
 
 type LocalRuntimeClientOptions = {
@@ -62,7 +46,6 @@ export class LocalRuntimeClient implements RuntimeClient {
   private readonly getStorage: () => FlamecastStorage;
   private readonly onSessionEvent?: (sessionId: string, event: SessionLog) => void;
   private readonly runtimes = new Map<string, ManagedSession>();
-  private readonly permissionResolvers = new Map<string, PermissionResolver>();
   private readonly sseSubscribers = new Map<string, Set<(event: SessionLog) => void>>();
 
   constructor(opts: LocalRuntimeClientOptions) {
@@ -92,29 +75,22 @@ export class LocalRuntimeClient implements RuntimeClient {
       sessionId,
       cwd,
     });
+
+    const bridge = new AcpBridge(startedRuntime.transport, cwd);
     const managed: ManagedSession = {
       id: "",
       workspaceRoot: cwd,
       pendingLogs: [],
       bufferPendingLogs: true,
-      transport: startedRuntime.transport,
+      bridge,
       terminate: startedRuntime.terminate,
       lastFileSystemSnapshot: null,
       inFlightPromptId: null,
       promptQueue: [],
-      runtime: {
-        connection: null,
-        sessionTextChunkLogBuffer: null,
-      },
     };
 
-    const stream = acp.ndJsonStream(
-      startedRuntime.transport.input,
-      startedRuntime.transport.output,
-    );
-    const client = this.createClient(managed);
-    const connection = new acp.ClientSideConnection((_agent) => client, stream);
-    managed.runtime.connection = connection;
+    // Subscribe to bridge events — route to storage + SSE
+    this.wireBridgeEvents(managed);
 
     try {
       const initParams: acp.InitializeRequest = {
@@ -125,33 +101,11 @@ export class LocalRuntimeClient implements RuntimeClient {
         },
       };
 
-      managed.pendingLogs.push(
-        this.createRpcLog(acp.AGENT_METHODS.initialize, "client_to_agent", "request", initParams),
-      );
-      const initResult = await connection.initialize(initParams);
-      managed.pendingLogs.push(
-        this.createRpcLog(acp.AGENT_METHODS.initialize, "agent_to_client", "response", initResult),
-      );
+      await bridge.initialize(initParams);
 
       const agentCwd = startedRuntime.agentCwd ?? cwd;
       const newSessionParams: acp.NewSessionRequest = { cwd: agentCwd, mcpServers: [] };
-      managed.pendingLogs.push(
-        this.createRpcLog(
-          acp.AGENT_METHODS.session_new,
-          "client_to_agent",
-          "request",
-          newSessionParams,
-        ),
-      );
-      const sessionResult = await connection.newSession(newSessionParams);
-      managed.pendingLogs.push(
-        this.createRpcLog(
-          acp.AGENT_METHODS.session_new,
-          "agent_to_client",
-          "response",
-          sessionResult,
-        ),
-      );
+      const sessionResult = await bridge.newSession(newSessionParams);
 
       managed.id = sessionResult.sessionId;
 
@@ -189,7 +143,7 @@ export class LocalRuntimeClient implements RuntimeClient {
     text: string,
   ): Promise<acp.PromptResponse | QueuedPromptResponse> {
     const managed = this.resolveRuntime(sessionId);
-    if (!managed.runtime.connection) {
+    if (!managed.bridge.isInitialized) {
       throw new Error(`Session "${sessionId}" is not initialized`);
     }
 
@@ -221,8 +175,7 @@ export class LocalRuntimeClient implements RuntimeClient {
   }
 
   private async executePrompt(managed: ManagedSession, text: string): Promise<acp.PromptResponse> {
-    const connection = managed.runtime.connection;
-    if (!connection) {
+    if (!managed.bridge.isInitialized) {
       throw new Error(`Session "${managed.id}" is not initialized`);
     }
 
@@ -234,28 +187,9 @@ export class LocalRuntimeClient implements RuntimeClient {
       prompt: [{ type: "text", text }],
     };
 
-    await this.pushRpcLog(
-      managed,
-      acp.AGENT_METHODS.session_prompt,
-      "client_to_agent",
-      "request",
-      promptParams,
-    );
-
     try {
-      const result = await connection.prompt(promptParams);
-      await this.flushSessionTextChunkLogBuffer(managed);
-      await this.pushRpcLog(
-        managed,
-        acp.AGENT_METHODS.session_prompt,
-        "agent_to_client",
-        "response",
-        result,
-      );
+      const result = await managed.bridge.prompt(promptParams);
       return result;
-    } catch (error) {
-      await this.flushSessionTextChunkLogBuffer(managed);
-      throw error;
     } finally {
       managed.inFlightPromptId = null;
       void this.dequeueNext(managed);
@@ -322,11 +256,22 @@ export class LocalRuntimeClient implements RuntimeClient {
     body: PermissionResponseBody,
   ): Promise<void> {
     const managed = this.resolveRuntime(sessionId);
-    const pending = await this.takePendingPermissionResolution(managed, requestId);
+    const storage = this.getStorage();
+    const meta = await storage.getSessionMeta(managed.id);
+    const permission = meta?.pendingPermission;
+
+    if (!permission || permission.requestId !== requestId) {
+      throw new Error("Permission request not found or already resolved");
+    }
+
+    await storage.updateSession(managed.id, { pendingPermission: null });
 
     if ("outcome" in body && body.outcome === "cancelled") {
-      await this.logPermissionCancelled(managed, pending);
-      await Promise.resolve(pending.resolve({ outcome: { outcome: "cancelled" } }));
+      await this.pushLog(managed, "permission_cancelled", {
+        requestId: permission.requestId,
+        toolCallId: permission.toolCallId,
+      });
+      managed.bridge.resolvePermission(requestId, { outcome: { outcome: "cancelled" } });
       return;
     }
 
@@ -334,22 +279,27 @@ export class LocalRuntimeClient implements RuntimeClient {
       throw new Error("Invalid permission response");
     }
 
-    const option = this.getPermissionOption(pending, body.optionId);
-    await this.logPermissionSelection(managed, pending, option);
-    await Promise.resolve(
-      pending.resolve({
-        outcome: { outcome: "selected", optionId: option.optionId },
-      }),
+    const option = permission.options.find(
+      (candidate: PendingPermissionOption) => candidate.optionId === body.optionId,
     );
+    if (!option) {
+      throw new Error(`Unknown permission option "${body.optionId}"`);
+    }
+
+    await this.pushLog(managed, this.getPermissionLogType(option.kind), {
+      requestId: permission.requestId,
+      toolCallId: permission.toolCallId,
+      optionId: option.optionId,
+      optionName: option.name,
+    });
+    managed.bridge.resolvePermission(requestId, {
+      outcome: { outcome: "selected", optionId: option.optionId },
+    });
   }
 
   async terminateSession(sessionId: string): Promise<void> {
     const managed = this.resolveRuntime(sessionId);
     const storage = this.getStorage();
-    const meta = await storage.getSessionMeta(sessionId);
-    if (meta?.pendingPermission) {
-      this.permissionResolvers.delete(meta.pendingPermission.requestId);
-    }
 
     if (managed.promptQueue.length > 0) {
       const droppedCount = managed.promptQueue.length;
@@ -361,7 +311,7 @@ export class LocalRuntimeClient implements RuntimeClient {
     }
     managed.inFlightPromptId = null;
 
-    await this.flushSessionTextChunkLogBuffer(managed);
+    await managed.bridge.flush();
     await managed.terminate();
     await this.pushLog(managed, "killed", {});
     await storage.finalizeSession(sessionId, "terminated");
@@ -425,7 +375,35 @@ export class LocalRuntimeClient implements RuntimeClient {
     return [...this.runtimes.keys()];
   }
 
-  // ---- Internal helpers (exposed as package-private for test reflection) ----
+  // ---- Bridge event wiring ----
+
+  private wireBridgeEvents(managed: ManagedSession): void {
+    const bridge = managed.bridge;
+
+    bridge.on("rpc", (event) => {
+      const data: Record<string, unknown> = {
+        method: event.method,
+        direction: event.direction,
+        phase: event.phase,
+      };
+      if (event.payload !== undefined) data.payload = event.payload;
+      void this.pushLog(managed, "rpc", data);
+    });
+
+    bridge.on("log", (event) => {
+      void this.pushLog(managed, event.type, event.data);
+    });
+
+    bridge.on("permissionRequest", async (event) => {
+      const now = new Date().toISOString();
+      await this.getStorage().updateSession(managed.id, {
+        pendingPermission: event.pendingPermission,
+        lastUpdatedAt: now,
+      });
+    });
+  }
+
+  // ---- Internal helpers ----
 
   private emitSessionEvent(sessionId: string, event: SessionLog): void {
     this.onSessionEvent?.(sessionId, event);
@@ -478,17 +456,6 @@ export class LocalRuntimeClient implements RuntimeClient {
     };
   }
 
-  private createRpcLog(
-    method: string,
-    direction: "client_to_agent" | "agent_to_client",
-    phase: "request" | "response" | "notification",
-    payload?: unknown,
-  ): SessionLog {
-    const data: Record<string, unknown> = { method, direction, phase };
-    if (payload !== undefined) data.payload = payload;
-    return this.createLogEntry("rpc", data);
-  }
-
   private async pushLog(
     managed: ManagedSession,
     type: string,
@@ -506,178 +473,6 @@ export class LocalRuntimeClient implements RuntimeClient {
     return entry;
   }
 
-  private async pushRpcLog(
-    managed: ManagedSession,
-    method: string,
-    direction: "client_to_agent" | "agent_to_client",
-    phase: "request" | "response" | "notification",
-    payload?: unknown,
-  ): Promise<void> {
-    const entry = this.createRpcLog(method, direction, phase, payload);
-    if (managed.bufferPendingLogs) {
-      managed.pendingLogs.push(entry);
-      return;
-    }
-    const storage = this.getStorage();
-    await storage.appendLog(managed.id, entry);
-    await storage.updateSession(managed.id, { lastUpdatedAt: entry.timestamp });
-    this.emitSessionEvent(managed.id, entry);
-  }
-
-  private async flushSessionTextChunkLogBuffer(managed: ManagedSession): Promise<void> {
-    const buffer = managed.runtime.sessionTextChunkLogBuffer;
-    if (!buffer || buffer.texts.length === 0) {
-      managed.runtime.sessionTextChunkLogBuffer = null;
-      return;
-    }
-
-    managed.runtime.sessionTextChunkLogBuffer = null;
-
-    let combined: string;
-    try {
-      combined = buffer.texts.join("");
-    } catch (error) {
-      await this.pushLog(managed, "rpc_coalesce_error", {
-        reason: "join_failed",
-        message: error instanceof Error ? error.message : String(error),
-        partialParts: buffer.texts.length,
-      });
-
-      for (const text of buffer.texts) {
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.session_update,
-          "agent_to_client",
-          "notification",
-          {
-            sessionId: buffer.sessionId,
-            update: {
-              sessionUpdate: buffer.kind,
-              content: { type: "text", text },
-              ...(buffer.messageId != null ? { messageId: buffer.messageId } : {}),
-            },
-          },
-        );
-      }
-      return;
-    }
-
-    const update = {
-      sessionUpdate: buffer.kind,
-      content: { type: "text" as const, text: combined },
-      ...(buffer.messageId != null ? { messageId: buffer.messageId } : {}),
-    } satisfies acp.SessionUpdate;
-
-    await this.pushRpcLog(
-      managed,
-      acp.CLIENT_METHODS.session_update,
-      "agent_to_client",
-      "notification",
-      { sessionId: buffer.sessionId, update },
-    );
-  }
-
-  private async logSessionUpdateNotification(
-    managed: ManagedSession,
-    params: acp.SessionNotification,
-  ): Promise<void> {
-    const update = params.update;
-    if (
-      (update.sessionUpdate === "agent_message_chunk" ||
-        update.sessionUpdate === "user_message_chunk" ||
-        update.sessionUpdate === "agent_thought_chunk") &&
-      update.content.type === "text" &&
-      typeof update.content.text === "string"
-    ) {
-      const kind = update.sessionUpdate;
-      const messageId = update.messageId ?? null;
-      const buffer = managed.runtime.sessionTextChunkLogBuffer;
-
-      if (
-        buffer &&
-        (buffer.sessionId !== params.sessionId ||
-          buffer.kind !== kind ||
-          (buffer.messageId ?? null) !== messageId)
-      ) {
-        await this.flushSessionTextChunkLogBuffer(managed);
-      }
-
-      const next = managed.runtime.sessionTextChunkLogBuffer;
-      if (next) {
-        next.texts.push(update.content.text);
-      } else {
-        managed.runtime.sessionTextChunkLogBuffer = {
-          sessionId: params.sessionId,
-          kind,
-          messageId,
-          texts: [update.content.text],
-        };
-      }
-      return;
-    }
-
-    await this.flushSessionTextChunkLogBuffer(managed);
-    await this.pushRpcLog(
-      managed,
-      acp.CLIENT_METHODS.session_update,
-      "agent_to_client",
-      "notification",
-      params,
-    );
-  }
-
-  private async takePendingPermissionResolution(
-    managed: ManagedSession,
-    requestId: string,
-  ): Promise<{ permission: PendingPermission; resolve: PermissionResolver }> {
-    const storage = this.getStorage();
-    const meta = await storage.getSessionMeta(managed.id);
-    const permission = meta?.pendingPermission;
-    const resolve = this.permissionResolvers.get(requestId);
-
-    if (!permission || permission.requestId !== requestId || !resolve) {
-      throw new Error("Permission request not found or already resolved");
-    }
-
-    await storage.updateSession(managed.id, { pendingPermission: null });
-    this.permissionResolvers.delete(requestId);
-    return { permission, resolve };
-  }
-
-  private getPermissionOption(
-    pending: { permission: PendingPermission; resolve: PermissionResolver },
-    optionId: string,
-  ): PendingPermissionOption {
-    const option = pending.permission.options.find((candidate) => candidate.optionId === optionId);
-    if (!option) {
-      throw new Error(`Unknown permission option "${optionId}"`);
-    }
-    return option;
-  }
-
-  private async logPermissionCancelled(
-    managed: ManagedSession,
-    pending: { permission: PendingPermission; resolve: PermissionResolver },
-  ): Promise<void> {
-    await this.pushLog(managed, "permission_cancelled", {
-      requestId: pending.permission.requestId,
-      toolCallId: pending.permission.toolCallId,
-    });
-  }
-
-  private async logPermissionSelection(
-    managed: ManagedSession,
-    pending: { permission: PendingPermission; resolve: PermissionResolver },
-    option: PendingPermissionOption,
-  ): Promise<void> {
-    await this.pushLog(managed, this.getPermissionLogType(option.kind), {
-      requestId: pending.permission.requestId,
-      toolCallId: pending.permission.toolCallId,
-      optionId: option.optionId,
-      optionName: option.name,
-    });
-  }
-
   private getPermissionLogType(kind: string): string {
     switch (kind) {
       case "allow_once":
@@ -687,229 +482,6 @@ export class LocalRuntimeClient implements RuntimeClient {
       default:
         return "permission_responded";
     }
-  }
-
-  private createPendingPermission(params: acp.RequestPermissionRequest): PendingPermission {
-    return {
-      requestId: randomUUID(),
-      toolCallId: params.toolCall.toolCallId,
-      title: params.toolCall.title ?? "",
-      kind: params.toolCall.kind ?? undefined,
-      options: params.options.map((option) => ({
-        optionId: option.optionId,
-        name: option.name,
-        kind: String(option.kind),
-      })),
-    };
-  }
-
-  private createClient(managed: ManagedSession): acp.Client {
-    return {
-      sessionUpdate: async (params: acp.SessionNotification) => {
-        await this.logSessionUpdateNotification(managed, params);
-      },
-
-      requestPermission: async (
-        params: acp.RequestPermissionRequest,
-      ): Promise<acp.RequestPermissionResponse> => {
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.session_request_permission,
-          "agent_to_client",
-          "request",
-          params,
-        );
-
-        const pendingPermission = this.createPendingPermission(params);
-        const now = new Date().toISOString();
-
-        await this.getStorage().updateSession(managed.id, {
-          pendingPermission,
-          lastUpdatedAt: now,
-        });
-
-        return new Promise<acp.RequestPermissionResponse>((resolve) => {
-          const wrapped: PermissionResolver = async (response) => {
-            await this.pushRpcLog(
-              managed,
-              acp.CLIENT_METHODS.session_request_permission,
-              "client_to_agent",
-              "response",
-              response,
-            );
-            resolve(response);
-          };
-          this.permissionResolvers.set(pendingPermission.requestId, wrapped);
-        });
-      },
-
-      readTextFile: async (params: acp.ReadTextFileRequest): Promise<acp.ReadTextFileResponse> => {
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.fs_read_text_file,
-          "agent_to_client",
-          "request",
-          params,
-        );
-        const absolutePath = await this.resolveSessionFilePath(managed.workspaceRoot, params.path);
-        const content = await readFile(absolutePath, "utf8");
-        const lines = content.split("\n");
-        const startLine = Math.max(params.line ?? 0, 0);
-        const limitedLines =
-          params.limit != null
-            ? lines.slice(startLine, startLine + params.limit)
-            : lines.slice(startLine);
-        const response: acp.ReadTextFileResponse = { content: limitedLines.join("\n") };
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.fs_read_text_file,
-          "client_to_agent",
-          "response",
-          response,
-        );
-        return response;
-      },
-
-      writeTextFile: async (
-        params: acp.WriteTextFileRequest,
-      ): Promise<acp.WriteTextFileResponse> => {
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.fs_write_text_file,
-          "agent_to_client",
-          "request",
-          params,
-        );
-        const absolutePath = await this.resolveSessionWritePath(managed.workspaceRoot, params.path);
-        await writeFile(absolutePath, params.content, "utf8");
-        const response: acp.WriteTextFileResponse = {};
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.fs_write_text_file,
-          "client_to_agent",
-          "response",
-          response,
-        );
-        return response;
-      },
-
-      createTerminal: async (
-        params: acp.CreateTerminalRequest,
-      ): Promise<acp.CreateTerminalResponse> => {
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.terminal_create,
-          "agent_to_client",
-          "request",
-          params,
-        );
-        const response: acp.CreateTerminalResponse = { terminalId: `stub-${randomUUID()}` };
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.terminal_create,
-          "client_to_agent",
-          "response",
-          response,
-        );
-        return response;
-      },
-
-      terminalOutput: async (
-        params: acp.TerminalOutputRequest,
-      ): Promise<acp.TerminalOutputResponse> => {
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.terminal_output,
-          "agent_to_client",
-          "request",
-          params,
-        );
-        const response: acp.TerminalOutputResponse = { output: "", truncated: false };
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.terminal_output,
-          "client_to_agent",
-          "response",
-          response,
-        );
-        return response;
-      },
-
-      releaseTerminal: async (
-        params: acp.ReleaseTerminalRequest,
-      ): Promise<acp.ReleaseTerminalResponse | void> => {
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.terminal_release,
-          "agent_to_client",
-          "request",
-          params,
-        );
-        const response: acp.ReleaseTerminalResponse = {};
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.terminal_release,
-          "client_to_agent",
-          "response",
-          response,
-        );
-        return response;
-      },
-
-      waitForTerminalExit: async (
-        params: acp.WaitForTerminalExitRequest,
-      ): Promise<acp.WaitForTerminalExitResponse> => {
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.terminal_wait_for_exit,
-          "agent_to_client",
-          "request",
-          params,
-        );
-        const response: acp.WaitForTerminalExitResponse = { exitCode: 0 };
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.terminal_wait_for_exit,
-          "client_to_agent",
-          "response",
-          response,
-        );
-        return response;
-      },
-
-      killTerminal: async (
-        params: acp.KillTerminalRequest,
-      ): Promise<acp.KillTerminalResponse | void> => {
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.terminal_kill,
-          "agent_to_client",
-          "request",
-          params,
-        );
-        const response: acp.KillTerminalResponse = {};
-        await this.pushRpcLog(
-          managed,
-          acp.CLIENT_METHODS.terminal_kill,
-          "client_to_agent",
-          "response",
-          response,
-        );
-        return response;
-      },
-
-      extMethod: async (
-        method: string,
-        params: Record<string, unknown>,
-      ): Promise<Record<string, unknown>> => {
-        await this.pushRpcLog(managed, method, "agent_to_client", "request", params);
-        throw acp.RequestError.methodNotFound(method);
-      },
-
-      extNotification: async (method: string, params: Record<string, unknown>): Promise<void> => {
-        await this.pushRpcLog(managed, method, "agent_to_client", "notification", params);
-      },
-    };
   }
 
   private async resolvePreviewPath(workspaceRoot: string, path: string): Promise<string> {
@@ -924,32 +496,6 @@ export class LocalRuntimeClient implements RuntimeClient {
       throw new Error(`Path "${path}" is outside workspace root`);
     }
     return realPath;
-  }
-
-  private async resolveSessionFilePath(workspaceRoot: string, path: string): Promise<string> {
-    if (!isAbsolute(path)) {
-      throw new Error(`File paths must be absolute: "${path}"`);
-    }
-
-    const realPath = await realpath(path);
-    const rel = relative(workspaceRoot, realPath);
-    if (rel.startsWith("..") || isAbsolute(rel)) {
-      throw new Error(`Path "${path}" is outside workspace root`);
-    }
-    return realPath;
-  }
-
-  private async resolveSessionWritePath(workspaceRoot: string, path: string): Promise<string> {
-    if (!isAbsolute(path)) {
-      throw new Error(`File paths must be absolute: "${path}"`);
-    }
-
-    const requestedPath = resolve(path);
-    const rel = relative(workspaceRoot, requestedPath);
-    if (rel.startsWith("..") || isAbsolute(rel)) {
-      throw new Error(`Path "${path}" is outside workspace root`);
-    }
-    return requestedPath;
   }
 
   private async stopRuntime(runtime: StartedRuntime): Promise<void> {

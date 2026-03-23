@@ -1,4 +1,5 @@
 /* oxlint-disable no-type-assertion/no-type-assertion */
+import { EventEmitter } from "node:events";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -9,19 +10,34 @@ import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js
 import type { SessionLog } from "../src/shared/session.js";
 import { SESSION_EVENT_TYPES } from "../src/shared/session.js";
 
+type MockBridge = EventEmitter & {
+  isInitialized: boolean;
+  prompt: () => Promise<never>;
+  flush: () => Promise<void>;
+  resolvePermission: () => void;
+  initialize: () => Promise<unknown>;
+  newSession: () => Promise<unknown>;
+};
+
+function createMockBridge(): MockBridge {
+  const emitter = new EventEmitter();
+  return Object.assign(emitter, {
+    isInitialized: false,
+    prompt: async () => {
+      throw new Error("not initialized") as never;
+    },
+    flush: async () => {},
+    resolvePermission: () => {},
+    initialize: async () => ({}) as unknown,
+    newSession: async () => ({}) as unknown,
+  }) as MockBridge;
+}
+
 type ManagedSessionLike = {
   id: string;
   workspaceRoot: string;
-  transport: {
-    input: WritableStream<Uint8Array>;
-    output: ReadableStream<Uint8Array>;
-    dispose?: () => Promise<void>;
-  };
+  bridge: MockBridge;
   terminate: () => Promise<void>;
-  runtime: {
-    connection: null;
-    sessionTextChunkLogBuffer: null;
-  };
 };
 
 function createMeta(id: string) {
@@ -37,24 +53,16 @@ function createMeta(id: string) {
 }
 
 function createManagedSession(id: string, workspaceRoot = process.cwd()) {
-  const passthrough = new TransformStream<Uint8Array, Uint8Array>();
   return {
     id,
     workspaceRoot,
     pendingLogs: [] as SessionLog[],
     bufferPendingLogs: false,
-    transport: {
-      input: passthrough.writable,
-      output: passthrough.readable,
-    },
+    bridge: createMockBridge(),
     terminate: vi.fn(async () => {}),
     lastFileSystemSnapshot: null,
     inFlightPromptId: null,
     promptQueue: [],
-    runtime: {
-      connection: null,
-      sessionTextChunkLogBuffer: null,
-    },
   };
 }
 
@@ -257,7 +265,7 @@ describe("session event emission", () => {
     expect(received).toHaveLength(1);
   });
 
-  test("pushRpcLog also emits events", async () => {
+  test("bridge rpc events emit to subscribers via wireBridgeEvents", async () => {
     const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const rc = getRuntimeClient(flamecast);
@@ -266,14 +274,23 @@ describe("session event emission", () => {
     getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
     await storage.createSession(createMeta("s1"));
 
+    // Wire bridge events so rpc emissions flow to subscribers
+    const wireBridgeEvents = getMethod<[unknown], void>(rc, "wireBridgeEvents");
+    wireBridgeEvents(managed);
+
     const received: SessionLog[] = [];
     flamecast.subscribe("s1", (event) => received.push(event));
 
-    const pushRpcLog = getMethod<[unknown, string, string, string, unknown], Promise<void>>(
-      rc,
-      "pushRpcLog",
-    );
-    await pushRpcLog(managed, "test_method", "client_to_agent", "request", { data: 1 });
+    // Simulate bridge emitting an rpc event
+    managed.bridge.emit("rpc", {
+      method: "test_method",
+      direction: "client_to_agent",
+      phase: "request",
+      payload: { data: 1 },
+    });
+
+    // Allow async pushLog to complete
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(received).toHaveLength(1);
     expect(received[0].type).toBe("rpc");
