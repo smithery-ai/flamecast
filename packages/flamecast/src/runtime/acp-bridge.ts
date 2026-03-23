@@ -8,23 +8,23 @@ import type { AcpTransport } from "../flamecast/transport.js";
 
 // ---- Event types emitted by AcpBridge ----
 
-export type RpcEventData = {
+type RpcEventData = {
   method: string;
   direction: "client_to_agent" | "agent_to_client";
   phase: "request" | "response" | "notification";
   payload?: unknown;
 };
 
-export type PermissionRequestEventData = {
+type PermissionRequestEventData = {
   pendingPermission: PendingPermission;
 };
 
-export type LogEventData = {
+type LogEventData = {
   type: string;
   data: Record<string, unknown>;
 };
 
-export interface AcpBridgeEvents {
+interface AcpBridgeEvents {
   rpc: [RpcEventData];
   permissionRequest: [PermissionRequestEventData];
   log: [LogEventData];
@@ -52,7 +52,7 @@ type PermissionResolver = (response: acp.RequestPermissionResponse) => void;
  *
  * This is the unit that will eventually become the sidecar process.
  */
-export type QueuedPrompt = {
+type QueuedPrompt = {
   id: string;
   params: acp.PromptRequest;
   resolve: (result: acp.PromptResponse) => void;

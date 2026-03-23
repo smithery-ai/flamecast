@@ -39,6 +39,7 @@ type ManagedSessionLike = {
   bridge: MockBridge;
   terminate: () => Promise<void>;
   lastFileSystemSnapshot: null;
+  subscribers: Set<(event: SessionLog) => void>;
 };
 
 function createMeta(id: string) {
@@ -60,6 +61,7 @@ function createManagedSession(id: string, workspaceRoot = process.cwd()) {
     bridge: createMockBridge(),
     terminate: vi.fn(async () => {}),
     lastFileSystemSnapshot: null,
+    subscribers: new Set<(event: SessionLog) => void>(),
   };
 }
 

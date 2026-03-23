@@ -3,7 +3,7 @@ import type { WsServerMessage, WsControlMessage } from "../../shared/ws-protocol
 
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
 
-export type FlamecastSessionOptions = {
+type FlamecastSessionOptions = {
   websocketUrl: string;
   sessionId: string;
   /** Max reconnect attempts before giving up. Default: 5 */

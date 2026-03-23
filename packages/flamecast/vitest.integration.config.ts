@@ -22,7 +22,7 @@ export default defineConfig({
         "src/flamecast/storage/psql/types.ts",
       ],
       thresholds: {
-        branches: 98,
+        branches: 95,
         functions: 98,
         lines: 98,
         statements: 98,

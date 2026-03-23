@@ -52,12 +52,12 @@ export type WsServerMessage =
 
 // ---- Client → Server messages ----
 
-export const WsPromptActionSchema = z.object({
+const WsPromptActionSchema = z.object({
   action: z.literal("prompt"),
   text: z.string(),
 });
 
-export const WsPermissionRespondActionSchema = z.object({
+const WsPermissionRespondActionSchema = z.object({
   action: z.literal("permission.respond"),
   requestId: z.string(),
   body: z.union([
@@ -66,25 +66,25 @@ export const WsPermissionRespondActionSchema = z.object({
   ]),
 });
 
-export const WsCancelActionSchema = z.object({
+const WsCancelActionSchema = z.object({
   action: z.literal("cancel"),
   queueId: z.string().optional(),
 });
 
-export const WsTerminateActionSchema = z.object({
+const WsTerminateActionSchema = z.object({
   action: z.literal("terminate"),
 });
 
-export const WsPingActionSchema = z.object({
+const WsPingActionSchema = z.object({
   action: z.literal("ping"),
 });
 
-export const WsFilePreviewActionSchema = z.object({
+const WsFilePreviewActionSchema = z.object({
   action: z.literal("file.preview"),
   path: z.string(),
 });
 
-export const WsFsSnapshotActionSchema = z.object({
+const WsFsSnapshotActionSchema = z.object({
   action: z.literal("fs.snapshot"),
   showAllFiles: z.boolean().optional(),
 });
