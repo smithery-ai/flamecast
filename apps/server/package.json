@@ -5,9 +5,18 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc --project tsconfig.json --noEmit",
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "test": "vitest run",
+    "psql:generate": "drizzle-kit generate --config src/storage/psql/drizzle.config.ts"
   },
   "dependencies": {
-    "@acp/flamecast": "workspace:*"
+    "@electric-sql/pglite": "^0.4.1",
+    "@flamecast/sdk": "workspace:*",
+    "drizzle-orm": "^0.45.1",
+    "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.8",
+    "vitest": "^4.1.0"
   }
 }

@@ -3,8 +3,7 @@
   "ignoreIssues": {
     "packages/flamecast/src/client/components/ui/**/*.tsx": ["exports"],
     "packages/flamecast/src/client/routes/**/*.tsx": ["exports"],
-    "packages/flamecast/src/components/ai-elements/file-tree.tsx": ["exports", "types"],
-    "packages/flamecast/src/flamecast/db/client.ts": ["exports"]
+    "packages/flamecast/src/components/ai-elements/file-tree.tsx": ["exports", "types"]
   },
   "workspaces": {
     "packages/flamecast": {
@@ -18,13 +17,12 @@
         "src/flamecast/index.ts",
         "src/index.ts",
         "src/worker.ts",
-        "src/flamecast/storage/psql/drizzle.config.ts",
         "test/**/*.test.ts"
       ],
       "ignoreFiles": [
         "src/client/components/ui/{accordion,alert-dialog,alert,aspect-ratio,avatar,breadcrumb,button-group,calendar,carousel,chart,checkbox,combobox,command,context-menu,direction,drawer,dropdown-menu,empty,field,hover-card,input-group,input-otp,item,kbd,menubar,native-select,navigation-menu,pagination,popover,progress,radio-group,resizable,scroll-area,select,slider,sonner,spinner,table,textarea,toggle-group,toggle}.tsx"
       ],
-      "ignoreBinaries": ["drizzle-kit", "knip", "vitest"],
+      "ignoreBinaries": ["knip", "vitest"],
       "ignoreDependencies": [
         "@base-ui/react",
         "cmdk",
@@ -38,6 +36,10 @@
         "sonner",
         "vaul"
       ]
+    },
+    "apps/server": {
+      "entry": ["src/**/*.ts", "test/**/*.test.ts"],
+      "ignoreBinaries": ["drizzle-kit", "tsx", "vitest"]
     }
   }
 }

@@ -24,7 +24,7 @@ vi.mock("@electric-sql/pglite", () => ({
 vi.mock("drizzle-orm/pglite", () => ({ drizzle: mocks.drizzlePgLite }));
 vi.mock("drizzle-orm/pglite/migrator", () => ({ migrate: mocks.migratePgLite }));
 
-import { createDatabase } from "../src/flamecast/db/client.js";
+import { createDatabase } from "../src/storage/db/client.js";
 
 function resetPgliteMocks() {
   mocks.mkdir.mockReset().mockImplementation(async () => {});

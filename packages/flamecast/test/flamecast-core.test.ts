@@ -87,7 +87,7 @@ afterEach(() => {
 
 describe("flamecast orchestration internals", () => {
   test("initializes storage lazily and supports listening", async () => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     expect(await flamecast.listSessions()).toEqual([]);
@@ -106,7 +106,7 @@ describe("flamecast orchestration internals", () => {
   });
 
   test("registers shutdown handlers while listening and exits cleanly on SIGTERM", async () => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const processOn = vi.spyOn(process, "on").mockImplementation(() => process);
     const processOff = vi.spyOn(process, "off").mockImplementation(() => process);
     const processExit = vi
@@ -136,7 +136,7 @@ describe("flamecast orchestration internals", () => {
   });
 
   test("avoids duplicate signal registration and rejects listening twice", async () => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const processOn = vi.spyOn(process, "on").mockImplementation(() => process);
     const processOff = vi.spyOn(process, "off").mockImplementation(() => process);
     const registerSignalHandlers = getMethod<[], void>(flamecast, "registerSignalHandlers");
@@ -157,7 +157,10 @@ describe("flamecast orchestration internals", () => {
   });
 
   test("skips signal registration when disabled", () => {
-    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
+    const flamecast = new Flamecast({
+      storage: new MemoryFlamecastStorage(),
+      handleSignals: false,
+    });
     const processOn = vi.spyOn(process, "on").mockImplementation(() => process);
     const registerSignalHandlers = getMethod<[], void>(flamecast, "registerSignalHandlers");
 
@@ -167,7 +170,7 @@ describe("flamecast orchestration internals", () => {
   });
 
   test("covers signal shutdown guards and closeServer error paths", async () => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const shutdownFromSignal = getMethod<["SIGINT" | "SIGTERM"], Promise<void>>(
       flamecast,
       "shutdownFromSignal",
@@ -220,7 +223,7 @@ describe("flamecast orchestration internals", () => {
   });
 
   test("preserves a newer shutdown promise when an older shutdown finishes", async () => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const storage = attachStorage(flamecast);
     let releaseTerminate: (() => void) | null = null;
 
@@ -255,7 +258,7 @@ describe("flamecast orchestration internals", () => {
   });
 
   test("covers private helpers: requireStorage, resolveSessionDefinition, resolveRuntime, snapshotSession, registerAgentTemplate, health endpoint, stopRuntime", async () => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const storage = attachStorage(flamecast);
     await storage.seedAgentTemplates(getBuiltinAgentTemplates());
     const healthResponse = await flamecast.fetch(new Request("http://localhost/api/health"));
@@ -363,7 +366,7 @@ describe("flamecast orchestration internals", () => {
       },
     });
 
-    const pendingReadyFlamecast = new Flamecast({ storage: "memory" });
+    const pendingReadyFlamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     Reflect.set(pendingReadyFlamecast, "readyPromise", Promise.resolve());
     await getMethod<[], Promise<void>>(pendingReadyFlamecast, "ensureReady")();
 
@@ -387,7 +390,7 @@ describe("flamecast orchestration internals", () => {
   });
 
   test("killed sessions remain in listSessions with killed status", async () => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const storage = attachStorage(flamecast);
 
     const managed = createManagedSession("session-kill-list");
@@ -407,7 +410,7 @@ describe("flamecast orchestration internals", () => {
   });
 
   test("getSession returns killed sessions", async () => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const storage = attachStorage(flamecast);
 
     const managed = createManagedSession("session-kill-get");
@@ -422,7 +425,7 @@ describe("flamecast orchestration internals", () => {
   });
 
   test("terminateSession on an already-killed session throws", async () => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const storage = attachStorage(flamecast);
 
     const managed = createManagedSession("session-kill-twice");
@@ -489,7 +492,7 @@ describe("flamecast orchestration internals", () => {
   });
 
   test("terminateSession falls through to resolveRuntime when session is active but not in runtimes", async () => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const storage = attachStorage(flamecast);
     await storage.createSession(createMeta("orphaned-active-term"));
 
@@ -500,7 +503,7 @@ describe("flamecast orchestration internals", () => {
 
   test("handles unknown providers and initialization failures while creating sessions", async () => {
     const missingProviderFlamecast = new Flamecast({
-      storage: "memory",
+      storage: new MemoryFlamecastStorage(),
       agentTemplates: [
         {
           id: "missing-provider",

@@ -1,83 +1,114 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 
-function createStorageStub(label: string) {
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+function createTemplate(id: string, name: string) {
   return {
-    label,
-    seedAgentTemplates: vi.fn(async () => {}),
-    listAgentTemplates: vi.fn(async () => []),
-    getAgentTemplate: vi.fn(async () => null),
-    saveAgentTemplate: vi.fn(async () => {}),
-    createSession: vi.fn(async () => {}),
-    updateSession: vi.fn(async () => {}),
-    appendLog: vi.fn(async () => {}),
-    getSessionMeta: vi.fn(async () => null),
-    getLogs: vi.fn(async () => []),
-    listAllSessions: vi.fn(async () => []),
-    finalizeSession: vi.fn(async () => {}),
+    id,
+    name,
+    spawn: {
+      command: "node",
+      args: [`${id}.js`],
+    },
+    runtime: {
+      provider: "local",
+    },
   };
 }
 
-afterEach(() => {
-  delete process.env.FLAMECAST_POSTGRES_URL;
-  delete process.env.FLAMECAST_PGLITE_DIR;
-  vi.restoreAllMocks();
-  vi.doUnmock("../src/flamecast/db/client.js");
-  vi.doUnmock("../src/flamecast/storage/psql/index.js");
-  vi.doUnmock("../src/flamecast/storage/memory/index.js");
-  vi.resetModules();
-});
+function createSessionMeta(id: string) {
+  return {
+    id,
+    agentName: "Example agent",
+    spawn: { command: "node", args: ["agent.js"] },
+    startedAt: "2024-01-01T00:00:00.000Z",
+    lastUpdatedAt: "2024-01-01T00:00:00.000Z",
+    status: "active" as const,
+    pendingPermission: null,
+  };
+}
 
-describe("storage resolution", () => {
-  test("resolves memory, pglite, postgres, and direct storage configs", async () => {
-    vi.resetModules();
+describe("memory storage", () => {
+  test("seeds templates, preserves user templates, and clones stored values", async () => {
+    const storage = new MemoryFlamecastStorage();
+    const presetOne = createTemplate("preset-1", "Preset One");
+    const presetTwo = createTemplate("preset-2", "Preset Two");
+    const custom = createTemplate("custom-1", "Custom One");
 
-    const memoryInstances: Array<{ label: string }> = [];
-    const createDatabase = vi.fn(async (options?: { pgliteDataDir?: string }) => ({
-      db: { options },
-      close: async () => {},
-    }));
-    const createPsqlStorage = vi.fn((db: unknown) => ({ kind: "psql", db }));
-    const MemoryFlamecastStorage = vi.fn(function MemoryFlamecastStorageMock() {
-      const storage = createStorageStub(`memory-${memoryInstances.length + 1}`);
-      memoryInstances.push(storage);
-      return storage;
+    await storage.seedAgentTemplates([presetOne, presetTwo]);
+    expect((await storage.listAgentTemplates()).map((template) => template.id)).toEqual([
+      "preset-1",
+      "preset-2",
+    ]);
+
+    const listed = await storage.listAgentTemplates();
+    listed[0]?.spawn.args.push("mutated");
+    expect(await storage.getAgentTemplate("preset-1")).toMatchObject({
+      spawn: { args: ["preset-1.js"] },
     });
 
-    vi.doMock("../src/flamecast/db/client.js", () => ({ createDatabase }));
-    vi.doMock("../src/flamecast/storage/psql/index.js", () => ({ createPsqlStorage }));
-    vi.doMock("../src/flamecast/storage/memory/index.js", () => ({
-      MemoryFlamecastStorage,
-    }));
+    await storage.saveAgentTemplate(custom);
+    await storage.seedAgentTemplates([presetTwo]);
 
-    const { resolveStorage } = await import("../src/flamecast/storage.js");
-    const directStorage = createStorageStub("direct");
+    expect((await storage.listAgentTemplates()).map((template) => template.id)).toEqual([
+      "preset-2",
+      "custom-1",
+    ]);
+    expect(await storage.getAgentTemplate("missing")).toBeNull();
+  });
 
-    expect(await resolveStorage()).toMatchObject({ kind: "psql" });
-    expect(await resolveStorage("pglite")).toMatchObject({ kind: "psql" });
-    expect(await resolveStorage("memory")).toMatchObject({ label: "memory-1" });
-    expect(await resolveStorage({ type: "memory" })).toMatchObject({ label: "memory-2" });
-    expect(
-      await resolveStorage({
-        type: "pglite",
-        dataDir: "/tmp/flamecast-pglite",
-      }),
-    ).toMatchObject({ kind: "psql" });
-    expect(
-      await resolveStorage({
-        type: "postgres",
-        url: "postgres://db/flamecast",
-      }),
-    ).toMatchObject({ kind: "psql" });
-    expect(await resolveStorage(directStorage)).toBe(directStorage);
+  test("stores sessions and logs with the expected error handling", async () => {
+    const storage = new MemoryFlamecastStorage();
+    const meta = createSessionMeta("session-1");
 
-    expect(createDatabase).toHaveBeenNthCalledWith(1);
-    expect(createDatabase).toHaveBeenNthCalledWith(2);
-    expect(createDatabase).toHaveBeenNthCalledWith(3, {
-      pgliteDataDir: "/tmp/flamecast-pglite",
+    await expect(storage.updateSession("missing", {})).rejects.toThrow(
+      'Session "missing" not found in storage',
+    );
+    await expect(
+      storage.appendLog("missing", { timestamp: "t", type: "rpc", data: {} }),
+    ).rejects.toThrow('Session "missing" has no log stream');
+
+    await storage.createSession(meta);
+    await storage.updateSession(meta.id, { lastUpdatedAt: "2024-01-02T00:00:00.000Z" });
+    await storage.updateSession(meta.id, {
+      pendingPermission: {
+        requestId: "request-1",
+        toolCallId: "tool-1",
+        title: "Approve",
+        options: [],
+      },
     });
-    expect(createDatabase).toHaveBeenNthCalledWith(4);
-    expect(createPsqlStorage).toHaveBeenCalledTimes(4);
-    expect(MemoryFlamecastStorage).toHaveBeenCalledTimes(2);
-    expect(process.env.FLAMECAST_POSTGRES_URL).toBe("postgres://db/flamecast");
+    await storage.appendLog(meta.id, {
+      timestamp: "2024-01-02T00:00:00.000Z",
+      type: "rpc",
+      data: { ok: true },
+    });
+
+    expect(await storage.getSessionMeta(meta.id)).toMatchObject({
+      lastUpdatedAt: "2024-01-02T00:00:00.000Z",
+      pendingPermission: {
+        requestId: "request-1",
+      },
+    });
+    expect(await storage.getLogs(meta.id)).toEqual([
+      {
+        timestamp: "2024-01-02T00:00:00.000Z",
+        type: "rpc",
+        data: { ok: true },
+      },
+    ]);
+
+    await storage.finalizeSession(meta.id, "terminated");
+    expect((await storage.getSessionMeta(meta.id))?.status).toBe("killed");
+    expect(await storage.getLogs(meta.id)).toEqual([
+      {
+        timestamp: "2024-01-02T00:00:00.000Z",
+        type: "rpc",
+        data: { ok: true },
+      },
+    ]);
   });
 });

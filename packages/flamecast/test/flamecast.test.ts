@@ -9,6 +9,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Flamecast } from "../src/flamecast/index.js";
+import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import type { RuntimeProvider } from "../src/flamecast/runtime-provider.js";
 
 type AlchemyTestFactory = (meta: ImportMeta, opts: { prefix: string }) => typeof describe;
@@ -62,7 +63,7 @@ async function runSessionLifecycle(
 describe("flamecast", () => {
   test("local full session lifecycle", async (scope: unknown) => {
     const flamecast = new Flamecast({
-      storage: "memory",
+      storage: new MemoryFlamecastStorage(),
     });
 
     try {
@@ -76,7 +77,7 @@ describe("flamecast", () => {
 
   test("local preset agent template", async (scope: unknown) => {
     const flamecast = new Flamecast({
-      storage: "memory",
+      storage: new MemoryFlamecastStorage(),
     });
 
     try {
@@ -92,7 +93,7 @@ describe("flamecast", () => {
 
   test("local session management", async (scope: unknown) => {
     const flamecast = new Flamecast({
-      storage: "memory",
+      storage: new MemoryFlamecastStorage(),
     });
 
     try {
@@ -120,7 +121,7 @@ describe("flamecast", () => {
     };
 
     const flamecast = new Flamecast({
-      storage: "memory",
+      storage: new MemoryFlamecastStorage(),
       runtimeProviders: { fixture: fixtureProvider },
       agentTemplates: [
         {
@@ -161,7 +162,7 @@ describe("flamecast", () => {
     };
 
     const flamecast = new Flamecast({
-      storage: "memory",
+      storage: new MemoryFlamecastStorage(),
       runtimeProviders: { fixture: dockerProvider },
       agentTemplates: [
         {

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -42,7 +43,7 @@ describe("flamecast createSession failure cleanup", () => {
     const { Flamecast } = await import("../src/flamecast/index.js?create-session-failure");
 
     const flamecast = new Flamecast({
-      storage: "memory",
+      storage: new MemoryFlamecastStorage(),
       runtimeProviders: {
         local: {
           start: vi.fn(async () => ({

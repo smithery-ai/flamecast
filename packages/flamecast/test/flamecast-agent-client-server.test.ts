@@ -544,8 +544,11 @@ describe("bootstrap entrypoints", () => {
         AgentSideConnection,
       };
     });
-    vi.doMock("@acp/flamecast", () => ({
+    vi.doMock("@flamecast/sdk", () => ({
       Flamecast: FlamecastMock,
+    }));
+    vi.doMock("../../../apps/server/src/storage/index.js", () => ({
+      createServerStorage: vi.fn(async () => ({})),
     }));
 
     try {
@@ -570,8 +573,11 @@ describe("bootstrap entrypoints", () => {
       readonly listen = listen;
     }
 
-    vi.doMock("@acp/flamecast", () => ({
+    vi.doMock("@flamecast/sdk", () => ({
       Flamecast: FlamecastMock,
+    }));
+    vi.doMock("../../../apps/server/src/storage/index.js", () => ({
+      createServerStorage: vi.fn(async () => ({})),
     }));
 
     const serverModule = await import("../../../apps/server/src/index.ts?server");
@@ -593,8 +599,11 @@ describe("bootstrap entrypoints", () => {
       readonly listen = listen;
     }
 
-    vi.doMock("@acp/flamecast", () => ({
+    vi.doMock("@flamecast/sdk", () => ({
       Flamecast: FlamecastMock,
+    }));
+    vi.doMock("../../../apps/server/src/storage/index.js", () => ({
+      createServerStorage: vi.fn(async () => ({})),
     }));
 
     try {

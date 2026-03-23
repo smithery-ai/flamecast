@@ -98,7 +98,10 @@ afterEach(() => {
 
 describe("pipeProviderEvents", () => {
   test("pipeProviderEvents caches filesystem snapshots", async () => {
-    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
+    const flamecast = new Flamecast({
+      storage: new MemoryFlamecastStorage(),
+      handleSignals: false,
+    });
     const storage = attachStorage(flamecast);
     const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");

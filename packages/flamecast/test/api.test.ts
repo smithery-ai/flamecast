@@ -5,6 +5,7 @@ import "alchemy/test/vitest";
 import { Hono } from "hono";
 import { hc } from "hono/client";
 import { Flamecast } from "../src/flamecast/index.js";
+import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import { createApi, type AppType } from "../src/flamecast/api.js";
 import { SessionSchema } from "../src/shared/session.js";
 
@@ -34,7 +35,7 @@ function createClient(flamecast: Flamecast) {
 
 describe("api contract", () => {
   test("list agent templates", async (scope: unknown) => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const client = createClient(flamecast);
 
     try {
@@ -49,7 +50,7 @@ describe("api contract", () => {
   });
 
   test("list agents (empty)", async (scope: unknown) => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const client = createClient(flamecast);
 
     try {
@@ -62,7 +63,7 @@ describe("api contract", () => {
   });
 
   test("404 for unknown agent", async (scope: unknown) => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const client = createClient(flamecast);
 
     try {
@@ -77,7 +78,7 @@ describe("api contract", () => {
     const exampleAgentEntrypoint = fileURLToPath(
       new URL("../src/flamecast/agent.ts", import.meta.url),
     );
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const client = createClient(flamecast);
 
     try {

@@ -24,7 +24,7 @@ vi.mock("pg", () => ({ Pool: mocks.Pool }));
 vi.mock("drizzle-orm/node-postgres", () => ({ drizzle: mocks.drizzleNodePg }));
 vi.mock("drizzle-orm/node-postgres/migrator", () => ({ migrate: mocks.migrateNodePg }));
 
-import { createDatabase } from "../src/flamecast/db/client.js";
+import { createDatabase } from "../src/storage/db/client.js";
 
 afterEach(() => {
   delete process.env.FLAMECAST_POSTGRES_URL;
@@ -49,7 +49,7 @@ describe("database client postgres branch", () => {
       { kind: "pg-db" },
       expect.objectContaining({
         migrationsFolder: expect.stringContaining(
-          path.join("src", "flamecast", "storage", "psql", "migrations"),
+          path.join("src", "storage", "psql", "migrations"),
         ),
       }),
     );

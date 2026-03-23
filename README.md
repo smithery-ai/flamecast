@@ -26,7 +26,7 @@ Open **http://localhost:3000**. The home page lists the registered agent templat
 | API | [Hono](https://hono.dev/) on Node (`@hono/node-server`), port 3001 |
 | Validation | [Zod](https://zod.dev/) schemas in `src/shared/session.ts` |
 | Client | React 19, Vite 8, TanStack Router + Query, Tailwind v4 |
-| Typesafe API | `hono/client` in `src/client/lib/api.ts` |
+| Typesafe API | Shared typed client at `@flamecast/sdk/client` |
 
 ---
 
@@ -130,7 +130,7 @@ Runtime providers are responsible for starting the actual agent runtime and retu
 Custom providers can be added through the `runtimeProviders` option:
 
 ```ts
-import { Flamecast } from "@acp/flamecast";
+import { Flamecast } from "@flamecast/sdk";
 
 const flamecast = new Flamecast({
   runtimeProviders: {
@@ -167,6 +167,8 @@ If you pass `agentTemplates`, they replace the bundled defaults.
 apps/
   server/
     src/index.ts            # Node entry point; constructs Flamecast and listens
+    src/storage/            # Durable SQL storage bootstrap (PGLite / Postgres)
+    test/                   # Server-side tests
 packages/
   flamecast/
     alchemy.run.ts          # Experimental control plane: Postgres + Worker + Vite
@@ -179,15 +181,13 @@ packages/
       flamecast/
         index.ts            # Flamecast class
         api.ts              # REST API routes
-        storage.ts          # FlamecastStorage + config resolution
+        storage.ts          # FlamecastStorage type definitions
         runtime-provider.ts # Built-in runtime providers
         agent-templates.ts  # Built-in agent templates
         transport.ts        # AcpTransport, local/tcp helpers
         agent.ts            # Example ACP agent (stdio + TCP modes)
-        db/client.ts        # PGLite / Postgres connection
         storage/
-          memory/
-          psql/
+          memory/           # In-memory FlamecastStorage
       client/               # React UI
       shared/session.ts     # Zod schemas + shared API types
     test/
@@ -202,7 +202,7 @@ packages/
 Configuration is TypeScript via the `Flamecast` constructor:
 
 ```ts
-import { Flamecast } from "@acp/flamecast";
+import { Flamecast } from "@flamecast/sdk";
 
 const flamecast = new Flamecast({
   storage: "pglite",
@@ -214,7 +214,7 @@ await flamecast.listen(3001);
 The same instance also exposes a standard `fetch` handler:
 
 ```ts
-import { Flamecast } from "@acp/flamecast";
+import { Flamecast } from "@flamecast/sdk";
 
 const flamecast = new Flamecast({
   storage: { type: "postgres", url: process.env.DATABASE_URL! },
@@ -227,7 +227,7 @@ export default flamecast.fetch;
 
 | Option | Description |
 |---|---|
-| `storage` | Persistence backend. Defaults to `pglite` |
+| `storage` | Persistence backend. Defaults to in-memory |
 | `runtimeProviders` | Registry overrides or additional runtime providers |
 | `agentTemplates` | Initial agent template list. Replaces bundled defaults when provided |
 
@@ -235,8 +235,13 @@ export default flamecast.fetch;
 
 | Value | Description |
 |---|---|
+| custom `FlamecastStorage` | Bring your own storage implementation |
+
+The SDK defaults to an in-memory backend. `apps/server` provides a `createServerStorage()` helper that resolves PGLite and Postgres configurations:
+
+| Value | Description |
+|---|---|
 | `"pglite"` | Embedded Postgres on disk |
-| `"memory"` | In-process, lost on restart |
 | `{ type: "pglite", dataDir }` | Embedded Postgres with explicit data directory |
 | `{ type: "postgres", url }` | External Postgres |
 | custom `FlamecastStorage` | Bring your own storage implementation |

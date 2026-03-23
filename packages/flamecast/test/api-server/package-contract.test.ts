@@ -18,7 +18,7 @@ describe("package contract", () => {
       JSON.parse(await readFile(packageJsonPath, "utf8")),
     );
 
-    expect(packageJson.name).toBe("@acp/flamecast");
+    expect(packageJson.name).toBe("@flamecast/sdk");
     expect(packageJson.main).toBe("./dist/index.js");
     expect(packageJson.types).toBe("./dist/index.d.ts");
     expect(packageJson.bin.flamecast).toBe("./dist/cli.js");
