@@ -21,6 +21,7 @@ import type { RuntimeProviderRegistry } from "./runtime-provider.js";
 import { resolveRuntimeProviders } from "./runtime-provider.js";
 import type { RuntimeClient } from "../runtime/client.js";
 import { LocalRuntimeClient } from "../runtime/local.js";
+import { FlamecastWsServer } from "../runtime/ws-server.js";
 
 export type {
   AgentSpawn,
@@ -57,6 +58,8 @@ export class Flamecast {
   private storage: FlamecastStorage | null = null;
   private readyPromise: Promise<void> | null = null;
   private server: ServerType | null = null;
+  private wsServer: FlamecastWsServer | null = null;
+  private listenPort: number | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private readonly app = createServerApp(this);
 
@@ -86,9 +89,18 @@ export class Flamecast {
 
     await this.ensureReady();
     const server = serve({ fetch: this.fetch, port }, (info) => {
+      this.listenPort = info.port;
       console.log(`Flamecast running on http://localhost:${info.port}`);
     });
     this.server = server;
+
+    // Attach WebSocket server for direct session connections
+    const wsServer = new FlamecastWsServer(this.runtimeClient);
+    this.wsServer = wsServer;
+    server.on("upgrade", (request, socket, head) => {
+      wsServer.handleUpgrade(request, socket, head);
+    });
+
     this.registerSignalHandlers();
     return server;
   }
@@ -103,6 +115,11 @@ export class Flamecast {
 
       for (const session of await this.listSessions()) {
         await this.terminateSession(session.id).catch(() => {});
+      }
+
+      if (this.wsServer) {
+        this.wsServer.close();
+        this.wsServer = null;
       }
 
       await this.closeServer();
@@ -373,6 +390,11 @@ export class Flamecast {
         showAllFiles: opts.showAllFiles,
       });
     }
+    const websocketUrl =
+      this.listenPort && this.runtimeClient.hasSession(id)
+        ? `ws://localhost:${this.listenPort}/ws/sessions/${id}`
+        : undefined;
+
     return {
       ...meta,
       logs: [...logs],
@@ -384,6 +406,7 @@ export class Flamecast {
         : null,
       fileSystem,
       promptQueue: this.runtimeClient.hasSession(id) ? this.runtimeClient.getQueueState(id) : null,
+      websocketUrl,
     };
   }
 }

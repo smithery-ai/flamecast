@@ -106,6 +106,7 @@ export const SessionSchema = z.object({
   pendingPermission: PendingPermissionSchema.nullable(),
   fileSystem: FileSystemSnapshotSchema.nullable(),
   promptQueue: PromptQueueStateSchema.nullable(),
+  websocketUrl: z.string().optional(),
 });
 export type Session = z.infer<typeof SessionSchema>;
 
