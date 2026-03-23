@@ -15,7 +15,7 @@ import type {
 } from "../shared/session.js";
 import { createServerApp } from "../server/app.js";
 import { getBuiltinAgentTemplates, localRuntime } from "./agent-templates.js";
-import type { FlamecastStorage, StorageConfig } from "./storage.js";
+import type { FlamecastStorage } from "./storage.js";
 import { resolveStorage } from "./storage.js";
 import type { RuntimeProviderRegistry } from "./runtime-provider.js";
 import { resolveRuntimeProviders } from "./runtime-provider.js";
@@ -30,7 +30,7 @@ export type {
   QueuedPromptResponse,
   Session,
 } from "../shared/session.js";
-export type { SessionMeta, FlamecastStorage, StorageConfig } from "./storage.js";
+export type { SessionMeta, FlamecastStorage } from "./storage.js";
 export type { RuntimeProvider, RuntimeProviderRegistry } from "./runtime-provider.js";
 export type { AppType } from "./api.js";
 export type { AcpTransport } from "./transport.js";
@@ -39,7 +39,7 @@ export type { RuntimeClient } from "../runtime/client.js";
 type ShutdownSignal = "SIGINT" | "SIGTERM";
 
 export type FlamecastOptions = {
-  storage?: StorageConfig;
+  storage?: FlamecastStorage;
   runtimeProviders?: RuntimeProviderRegistry;
   agentTemplates?: AgentTemplate[];
   handleSignals?: boolean;
@@ -50,7 +50,7 @@ export type FlamecastOptions = {
 export class Flamecast {
   private readonly initialAgentTemplates: AgentTemplate[];
   private readonly runtimeProviders: RuntimeProviderRegistry;
-  private readonly storageConfig?: StorageConfig;
+  private readonly storageConfig?: FlamecastStorage;
   private readonly handleSignals: boolean;
   private readonly signalHandlers = new Map<ShutdownSignal, () => void>();
   private readonly runtimeClient: RuntimeClient;
@@ -305,10 +305,11 @@ export class Flamecast {
   private async ensureReady(): Promise<void> {
     if (this.storage) return;
     if (!this.readyPromise) {
-      this.readyPromise = resolveStorage(this.storageConfig).then((storage) => {
+      this.readyPromise = (async () => {
+        const storage = resolveStorage(this.storageConfig);
         this.storage = storage;
-        return storage.seedAgentTemplates(this.initialAgentTemplates);
-      });
+        await storage.seedAgentTemplates(this.initialAgentTemplates);
+      })();
     }
     await this.readyPromise;
   }

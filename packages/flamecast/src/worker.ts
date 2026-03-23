@@ -2,7 +2,6 @@ import { Flamecast } from "./flamecast/index.js";
 import { createServerApp } from "./server/app.js";
 
 const flamecast = new Flamecast({
-  storage: "memory",
   runtimeProviders: {
     local: {
       async start() {

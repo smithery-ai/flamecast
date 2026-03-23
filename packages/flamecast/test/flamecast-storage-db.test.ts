@@ -24,7 +24,7 @@ afterEach(() => {
 });
 
 describe("storage resolution", () => {
-  test("resolves memory and direct storage configs", async () => {
+  test("resolves the default memory storage and preserves injected storage", async () => {
     vi.resetModules();
 
     const memoryInstances: Array<{ label: string }> = [];
@@ -41,11 +41,9 @@ describe("storage resolution", () => {
     const { resolveStorage } = await import("../src/flamecast/storage.js");
     const directStorage = createStorageStub("direct");
 
-    expect(await resolveStorage()).toMatchObject({ label: "memory-1" });
-    expect(await resolveStorage("memory")).toMatchObject({ label: "memory-2" });
-    expect(await resolveStorage({ type: "memory" })).toMatchObject({ label: "memory-3" });
-    expect(await resolveStorage(directStorage)).toBe(directStorage);
+    expect(resolveStorage()).toMatchObject({ label: "memory-1" });
+    expect(resolveStorage(directStorage)).toBe(directStorage);
 
-    expect(MemoryFlamecastStorage).toHaveBeenCalledTimes(3);
+    expect(MemoryFlamecastStorage).toHaveBeenCalledTimes(1);
   });
 });

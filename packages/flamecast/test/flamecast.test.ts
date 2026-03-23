@@ -86,9 +86,7 @@ async function runSessionLifecycle(
 
 describe("flamecast", () => {
   test("local - full session lifecycle", async (scope: unknown) => {
-    const flamecast = new Flamecast({
-      storage: "memory",
-    });
+    const flamecast = new Flamecast({});
 
     try {
       await runSessionLifecycle(flamecast, {
@@ -100,9 +98,7 @@ describe("flamecast", () => {
   });
 
   test("local - preset agent template", async (scope: unknown) => {
-    const flamecast = new Flamecast({
-      storage: "memory",
-    });
+    const flamecast = new Flamecast({});
 
     try {
       const templates = await flamecast.listAgentTemplates();
@@ -116,9 +112,7 @@ describe("flamecast", () => {
   });
 
   test("local - session management", async (scope: unknown) => {
-    const flamecast = new Flamecast({
-      storage: "memory",
-    });
+    const flamecast = new Flamecast({});
 
     try {
       const sessions = await flamecast.listSessions();
@@ -145,7 +139,6 @@ describe("flamecast", () => {
     };
 
     const flamecast = new Flamecast({
-      storage: "memory",
       runtimeProviders: { fixture: fixtureProvider },
       agentTemplates: [
         {
@@ -186,7 +179,6 @@ describe("flamecast", () => {
     };
 
     const flamecast = new Flamecast({
-      storage: "memory",
       runtimeProviders: { fixture: dockerProvider },
       agentTemplates: [
         {

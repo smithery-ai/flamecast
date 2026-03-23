@@ -57,7 +57,7 @@ async function pollForPermission(
 
 describe("api contract", () => {
   test("list agent templates", async (scope: unknown) => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({});
     const client = createClient(flamecast);
 
     try {
@@ -72,7 +72,7 @@ describe("api contract", () => {
   });
 
   test("list agents (empty)", async (scope: unknown) => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({});
     const client = createClient(flamecast);
 
     try {
@@ -85,7 +85,7 @@ describe("api contract", () => {
   });
 
   test("404 for unknown agent", async (scope: unknown) => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({});
     const client = createClient(flamecast);
 
     try {
@@ -97,7 +97,7 @@ describe("api contract", () => {
   });
 
   test("full lifecycle through HTTP", async (scope: unknown) => {
-    const flamecast = new Flamecast({ storage: "memory" });
+    const flamecast = new Flamecast({});
     const client = createClient(flamecast);
 
     try {

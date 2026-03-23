@@ -48,7 +48,7 @@ graph TD
 
 ### How it works
 
-1. `Flamecast` lazily resolves storage and its runtime provider registry when the first API call or `listen()` happens.
+1. `Flamecast` lazily initializes its storage and runtime provider registry when the first API call or `listen()` happens.
 2. `POST /api/agents` resolves either an `agentTemplateId` or an ad-hoc `spawn` definition.
 3. The selected runtime provider starts the agent and returns an ACP transport plus a termination handle.
 4. Flamecast performs ACP `initialize` and `session/new`, then persists the session under the ACP `sessionId`.
@@ -187,9 +187,10 @@ packages/
         db/client.ts        # PGLite / Postgres connection
         storage/
           memory/
-          psql/
       client/               # React UI
       shared/session.ts     # Zod schemas + shared API types
+  apps/server/src/
+    storage/                # PGlite / Postgres bootstrap + Drizzle migrations
     test/
       flamecast.test.ts     # Orchestration tests
       api.test.ts           # HTTP API contract tests
@@ -204,9 +205,7 @@ Configuration is TypeScript via the `Flamecast` constructor:
 ```ts
 import { Flamecast } from "@flamecast/sdk";
 
-const flamecast = new Flamecast({
-  storage: "memory",
-});
+const flamecast = new Flamecast();
 
 await flamecast.listen(3001);
 ```
@@ -241,7 +240,7 @@ const sessions = await client.fetchSessions();
 
 | Option | Description |
 |---|---|
-| `storage` | Persistence backend. Defaults to in-memory storage |
+| `storage` | Inject a `FlamecastStorage`. Defaults to in-memory storage |
 | `runtimeProviders` | Registry overrides or additional runtime providers |
 | `agentTemplates` | Initial agent template list. Replaces bundled defaults when provided |
 
@@ -249,7 +248,6 @@ const sessions = await client.fetchSessions();
 
 | Value | Description |
 |---|---|
-| `"memory"` | In-process, lost on restart |
 | custom `FlamecastStorage` | Bring your own storage implementation |
 
 `apps/server` owns the default durable SQL storage bootstrap. Its local server entrypoint uses embedded PGlite by default and can be pointed at Postgres with environment/config.

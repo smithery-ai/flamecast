@@ -43,7 +43,6 @@ describe("flamecast createSession failure cleanup", () => {
     const { Flamecast } = await import("../src/flamecast/index.js?create-session-failure");
 
     const flamecast = new Flamecast({
-      storage: "memory",
       runtimeProviders: {
         local: {
           start: vi.fn(async () => ({
@@ -127,7 +126,6 @@ describe("flamecast createSession failure cleanup", () => {
     const { Flamecast } = await import("../src/flamecast/index.js?startup-notification-buffer");
 
     const flamecast = new Flamecast({
-      storage: "memory",
       runtimeProviders: {
         local: {
           start: vi.fn(async () => ({

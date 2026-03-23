@@ -32,20 +32,9 @@ export type FlamecastStorage = {
   finalizeSession(id: string, reason: "terminated"): Promise<void>;
 };
 
-export type StorageConfig = "memory" | { type: "memory" } | FlamecastStorage;
-
-export async function resolveStorage(config?: StorageConfig): Promise<FlamecastStorage> {
-  if (!config || config === "memory") {
+export function resolveStorage(storage?: FlamecastStorage): FlamecastStorage {
+  if (!storage) {
     return new MemoryFlamecastStorage();
   }
-
-  if (typeof config === "object" && "type" in config) {
-    switch (config.type) {
-      case "memory": {
-        return new MemoryFlamecastStorage();
-      }
-    }
-  }
-
-  return config;
+  return storage;
 }
