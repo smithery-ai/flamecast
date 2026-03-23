@@ -8,8 +8,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { ExampleClient } from "../src/flamecast/client.js";
 import { ExampleAgent, toUint8ReadableStream } from "../src/flamecast/agent.js";
 
-const flamecastSourceEntry = "../../../packages/flamecast/src/index.js";
-
 function createPermissionRequest(): acp.RequestPermissionRequest {
   return {
     sessionId: "session-1",
@@ -547,7 +545,7 @@ describe("bootstrap entrypoints", () => {
         AgentSideConnection,
       };
     });
-    vi.doMock(flamecastSourceEntry, () => ({
+    vi.doMock("@acp/flamecast", () => ({
       Flamecast: FlamecastMock,
     }));
 
@@ -580,7 +578,7 @@ describe("bootstrap entrypoints", () => {
       readonly shutdown = shutdown;
     }
 
-    vi.doMock(flamecastSourceEntry, () => ({
+    vi.doMock("@acp/flamecast", () => ({
       Flamecast: FlamecastMock,
     }));
 
@@ -621,7 +619,7 @@ describe("bootstrap entrypoints", () => {
       readonly shutdown = vi.fn(async () => {});
     }
 
-    vi.doMock(flamecastSourceEntry, () => ({
+    vi.doMock("@acp/flamecast", () => ({
       Flamecast: FlamecastMock,
     }));
 

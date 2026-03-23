@@ -3,8 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "pnpm --filter @acp/flamecast run build:package",
     "dev": "tsx watch src/index.ts",
+    "prebuild": "pnpm --filter @acp/flamecast run build:package",
     "build": "tsc --project tsconfig.json --noEmit",
+    "prestart": "pnpm --filter @acp/flamecast run build:package",
     "start": "tsx src/index.ts"
   },
   "dependencies": {
