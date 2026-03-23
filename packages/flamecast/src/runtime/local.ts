@@ -24,14 +24,14 @@ type PermissionResolver = (response: acp.RequestPermissionResponse) => void | Pr
 
 type StreamingTextChunkKind = "agent_message_chunk" | "user_message_chunk" | "agent_thought_chunk";
 
-export interface SessionTextChunkLogBuffer {
+interface SessionTextChunkLogBuffer {
   sessionId: string;
   kind: StreamingTextChunkKind;
   messageId: string | null;
   texts: string[];
 }
 
-export interface ManagedSession {
+interface ManagedSession {
   id: string;
   workspaceRoot: string;
   pendingLogs: SessionLog[];
@@ -45,7 +45,7 @@ export interface ManagedSession {
   };
 }
 
-export type LocalRuntimeClientOptions = {
+type LocalRuntimeClientOptions = {
   runtimeProviders: RuntimeProviderRegistry;
   getStorage: () => FlamecastStorage;
   onSessionEvent?: (sessionId: string, event: SessionLog) => void;
