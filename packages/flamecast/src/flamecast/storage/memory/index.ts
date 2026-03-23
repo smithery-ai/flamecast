@@ -106,8 +106,16 @@ export class MemoryFlamecastStorage implements FlamecastStorage {
     return [...(this.logs.get(sessionId) ?? [])];
   }
 
+  async listAllSessions(): Promise<SessionMeta[]> {
+    return [...this.sessions.values()]
+      .map((row) => ({ ...row }))
+      .sort((a, b) => b.lastUpdatedAt.localeCompare(a.lastUpdatedAt));
+  }
+
   async finalizeSession(id: string, _reason: "terminated"): Promise<void> {
-    this.sessions.delete(id);
-    this.logs.delete(id);
+    const row = this.sessions.get(id);
+    if (row) {
+      this.sessions.set(id, { ...row, status: "killed" });
+    }
   }
 }

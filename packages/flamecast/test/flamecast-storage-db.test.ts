@@ -12,6 +12,7 @@ function createStorageStub(label: string) {
     appendLog: vi.fn(async () => {}),
     getSessionMeta: vi.fn(async () => null),
     getLogs: vi.fn(async () => []),
+    listAllSessions: vi.fn(async () => []),
     finalizeSession: vi.fn(async () => {}),
   };
 }

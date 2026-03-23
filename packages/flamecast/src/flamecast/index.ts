@@ -151,8 +151,8 @@ export class Flamecast {
 
   async listSessions(): Promise<Session[]> {
     await this.ensureReady();
-    const ids = this.runtimeClient.listSessionIds();
-    return Promise.all(ids.map((id) => this.snapshotSession(id)));
+    const allMetas = await this.requireStorage().listAllSessions();
+    return Promise.all(allMetas.map((meta) => this.snapshotSession(meta.id)));
   }
 
   async getSession(
@@ -161,7 +161,8 @@ export class Flamecast {
   ): Promise<Session> {
     await this.ensureReady();
     if (!this.runtimeClient.hasSession(id)) {
-      throw new Error(`Session "${id}" not found`);
+      const meta = await this.requireStorage().getSessionMeta(id);
+      if (!meta) throw new Error(`Session "${id}" not found`);
     }
     return this.snapshotSession(id, opts);
   }
@@ -176,11 +177,23 @@ export class Flamecast {
     text: string,
   ): Promise<import("@agentclientprotocol/sdk").PromptResponse> {
     await this.ensureReady();
+    if (!this.runtimeClient.hasSession(id)) {
+      const meta = await this.requireStorage().getSessionMeta(id);
+      if (meta?.status === "killed") {
+        throw new Error("Cannot prompt a terminated session");
+      }
+    }
     return this.runtimeClient.promptSession(id, text);
   }
 
   async terminateSession(id: string): Promise<void> {
     await this.ensureReady();
+    if (!this.runtimeClient.hasSession(id)) {
+      const meta = await this.requireStorage().getSessionMeta(id);
+      if (meta?.status === "killed") {
+        throw new Error("Cannot terminate an already-killed session");
+      }
+    }
     await this.runtimeClient.terminateSession(id);
   }
 

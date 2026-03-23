@@ -158,6 +158,7 @@ export class LocalRuntimeClient implements RuntimeClient {
         spawn: opts.spawn,
         startedAt: opts.startedAt,
         lastUpdatedAt: now,
+        status: "active",
         pendingPermission: null,
       });
 

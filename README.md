@@ -32,34 +32,18 @@ Open **http://localhost:3000**. The home page lists the registered agent templat
 
 ## Architecture
 
-```text
-┌─────────────────────────────────────────────────────┐
-│ Server (apps/server/src/index.ts)                   │
-│   Creates new Flamecast()                           │
-│   Exposes the Hono app on port 3001                 │
-└─────────────────────────────────────────────────────┘
-          │
-          ▼
-┌─────────────────────────────────────────────────────┐
-│ Flamecast (packages/flamecast/src/flamecast/index.ts)│
-│   Owns session lifecycle, ACP client wiring,        │
-│   storage initialization, and runtime provider      │
-│   dispatch                                           │
-└─────────────────────────────────────────────────────┘
-          │
-          ├──────────────────────────────┐
-          ▼                              ▼
-┌───────────────────────────────┐  ┌────────────────────┐
-│ Storage                       │  │ Runtime providers  │
-│   memory / pglite / postgres  │  │   local / docker   │
-│   metadata + logs             │  │   custom providers │
-└───────────────────────────────┘  └────────────────────┘
-                                          │
-                                          ▼
-                               ┌────────────────────────┐
-                               │ ACP-compatible agent   │
-                               │ process or container   │
-                               └────────────────────────┘
+```mermaid
+graph TD
+    A["Server (apps/server/src/index.ts)<br/>Creates new Flamecast()<br/>Exposes the Hono app on port 3001"]
+    B["Flamecast (packages/flamecast/src/flamecast/index.ts)<br/>Owns session lifecycle, ACP client wiring,<br/>storage initialization, and runtime provider dispatch"]
+    C["Storage<br/>memory / pglite / postgres<br/>metadata + logs"]
+    D["Runtime providers<br/>local / docker<br/>custom providers"]
+    E["ACP-compatible agent<br/>process or container"]
+
+    A --> B
+    B --> C
+    B --> D
+    D --> E
 ```
 
 ### How it works
@@ -109,16 +93,15 @@ Built-in templates live in `packages/flamecast/src/flamecast/agent-templates.ts`
 
 ### Template-driven session creation
 
-```text
-POST /api/agents { agentTemplateId: "example-docker" }
-  ↓
-Flamecast loads the template
-  ↓
-runtime.provider === "docker"
-  ↓
-The docker runtime provider starts the container and returns an ACP transport
-  ↓
-Flamecast initializes ACP, creates the session, and persists logs under the ACP sessionId
+```mermaid
+graph TD
+    A["POST /api/agents { agentTemplateId: 'example-docker' }"]
+    B["Flamecast loads the template"]
+    C["runtime.provider === 'docker'"]
+    D["The docker runtime provider starts the container<br/>and returns an ACP transport"]
+    E["Flamecast initializes ACP, creates the session,<br/>and persists logs under the ACP sessionId"]
+
+    A --> B --> C --> D --> E
 ```
 
 You can also create a one-off session without registering a template first:

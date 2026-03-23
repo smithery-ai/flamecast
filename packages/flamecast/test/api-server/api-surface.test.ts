@@ -24,6 +24,7 @@ const sampleSession: Session = {
   spawn: sampleAgentTemplate.spawn,
   startedAt: "2026-03-21T00:00:00.000Z",
   lastUpdatedAt: "2026-03-21T00:00:00.000Z",
+  status: "active",
   logs: [],
   pendingPermission: null,
   fileSystem: null,
