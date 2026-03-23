@@ -1,12 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  fetchFilePreview,
-  fetchSession,
-  respondToPermission,
-  sendPrompt,
-  subscribeToSessionEvents,
-} from "@/client/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { fetchFilePreview, fetchSession } from "@/client/lib/api";
 import { FileTree, FileTreeFile, FileTreeFolder } from "@/components/ai-elements/file-tree";
 import { sessionLogsToSegments } from "@/client/lib/logs-markdown";
 import { Fragment, useEffect, useMemo, useState } from "react";
@@ -33,7 +27,8 @@ import {
   FolderTreeIcon,
   SendIcon,
 } from "lucide-react";
-import type { FileSystemEntry } from "../../shared/session";
+import type { FileSystemEntry, SessionLog } from "../../shared/session";
+import { useFlamecastSession } from "@/client/hooks/use-flamecast-session";
 
 export const Route = createFileRoute("/sessions/$id")({
   component: SessionDetailPage,
@@ -52,40 +47,52 @@ function SessionDetailPage() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [showAllFiles, setShowAllFiles] = useState(false);
-  const queryClient = useQueryClient();
+  const [isSending, setIsSending] = useState(false);
 
+  // WebSocket-based session events and control
+  const {
+    events: wsEvents,
+    isConnected,
+    prompt: wsPrompt,
+    respondToPermission: wsRespondToPermission,
+  } = useFlamecastSession(id);
+
+  // REST for initial session metadata and file system
   const { data: session, isLoading } = useQuery({
     queryKey: ["session", id, showAllFiles],
     queryFn: () => fetchSession(id, { includeFileSystem: true, showAllFiles }),
-    refetchInterval: 10_000, // Fallback polling; SSE handles real-time updates
+    refetchInterval: 10_000,
   });
 
-  useEffect(() => {
-    const unsubscribe = subscribeToSessionEvents(id, () => {
-      queryClient.invalidateQueries({ queryKey: ["session", id] });
-    });
-    return unsubscribe;
-  }, [id, queryClient]);
+  // Merge: use WS events if available, fall back to REST logs
+  const logs: SessionLog[] = useMemo(() => {
+    if (wsEvents.length > 0) return [...wsEvents];
+    return session?.logs ?? [];
+  }, [wsEvents, session?.logs]);
 
-  const promptMutation = useMutation({
-    mutationFn: (text: string) => sendPrompt(id, text),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["session", id] });
-    },
-  });
-
-  const permissionMutation = useMutation({
-    mutationFn: ({
-      requestId,
-      body,
-    }: {
-      requestId: string;
-      body: { optionId: string } | { outcome: "cancelled" };
-    }) => respondToPermission(id, requestId, body),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["session", id] });
-    },
-  });
+  // Derive pending permission from the latest events
+  const pendingPermission = useMemo(() => {
+    // Check WS events for latest permission state, fall back to REST
+    if (wsEvents.length > 0) {
+      // Walk events backwards to find the latest permission state
+      for (let i = wsEvents.length - 1; i >= 0; i--) {
+        const event = wsEvents[i];
+        if (
+          event.type === "permission_approved" ||
+          event.type === "permission_rejected" ||
+          event.type === "permission_cancelled" ||
+          event.type === "permission_responded"
+        ) {
+          return null; // Permission was resolved
+        }
+        if (event.type === "rpc" && event.data.method === "session/request_permission" && event.data.direction === "agent_to_client" && event.data.phase === "request") {
+          // Permission request found but we need structured data — fall back to REST
+          break;
+        }
+      }
+    }
+    return session?.pendingPermission ?? null;
+  }, [wsEvents, session?.pendingPermission]);
 
   const fileEntries = session?.fileSystem?.entries ?? [];
   const fileEntryMap = useMemo(
@@ -93,10 +100,7 @@ function SessionDetailPage() {
     [fileEntries],
   );
   const fileTree = useMemo(() => buildTree(fileEntries), [fileEntries]);
-  const markdownSegments = useMemo(
-    () => sessionLogsToSegments(session?.logs ?? []),
-    [session?.logs],
-  );
+  const markdownSegments = useMemo(() => sessionLogsToSegments(logs), [logs]);
 
   useEffect(() => {
     setExpandedPaths((current) => (current.size > 0 ? current : getInitialExpandedPaths(fileTree)));
@@ -128,13 +132,16 @@ function SessionDetailPage() {
     requestId: string,
     body: { optionId: string } | { outcome: "cancelled" },
   ) => {
-    permissionMutation.mutate({ requestId, body });
+    wsRespondToPermission(requestId, body);
   };
 
   const handleSend = () => {
     if (!prompt.trim()) return;
-    promptMutation.mutate(prompt);
+    setIsSending(true);
+    wsPrompt(prompt);
     setPrompt("");
+    // Reset sending state after a short delay (the WS is fire-and-forget)
+    setTimeout(() => setIsSending(false), 500);
   };
 
   const handleTreeSelect = (path: string) => {
@@ -188,6 +195,11 @@ function SessionDetailPage() {
           >
             {session.id}
           </code>
+          {isConnected ? (
+            <Badge variant="outline" className="text-green-600">WS</Badge>
+          ) : (
+            <Badge variant="outline" className="text-muted-foreground">SSE</Badge>
+          )}
         </div>
       </div>
 
@@ -216,7 +228,7 @@ function SessionDetailPage() {
                   markdownSegments.map((seg, index) => {
                     const isLiveAssistant =
                       seg.kind === "assistant" &&
-                      promptMutation.isPending &&
+                      isSending &&
                       index === markdownSegments.length - 1;
                     if (seg.kind === "user") {
                       return (
@@ -254,22 +266,22 @@ function SessionDetailPage() {
                     return null;
                   })
                 )}
-                {session.pendingPermission ? (
+                {pendingPermission ? (
                   <Card className="max-w-2xl border-primary/50 bg-primary/5">
                     <CardHeader>
                       <CardTitle className="text-base">Permission required</CardTitle>
                       <CardDescription>
-                        {session.pendingPermission.title}
-                        {session.pendingPermission.kind ? (
+                        {pendingPermission.title}
+                        {pendingPermission.kind ? (
                           <Badge variant="outline" className="ml-2">
-                            {session.pendingPermission.kind}
+                            {pendingPermission.kind}
                           </Badge>
                         ) : null}
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="flex flex-wrap gap-2">
                       {(() => {
-                        const pending = session.pendingPermission;
+                        const pending = pendingPermission;
                         return (
                           <>
                             {pending.options.map((opt) => (
@@ -277,7 +289,6 @@ function SessionDetailPage() {
                                 key={opt.optionId}
                                 variant={opt.kind === "allow_once" ? "default" : "secondary"}
                                 size="sm"
-                                disabled={permissionMutation.isPending}
                                 onClick={() =>
                                   handlePermission(pending.requestId, {
                                     optionId: opt.optionId,
@@ -290,7 +301,6 @@ function SessionDetailPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              disabled={permissionMutation.isPending}
                               onClick={() =>
                                 handlePermission(pending.requestId, {
                                   outcome: "cancelled",
@@ -319,12 +329,12 @@ function SessionDetailPage() {
               initial="smooth"
             >
               <StickToBottom.Content className="flex flex-col gap-3 p-4">
-                {session.logs.length === 0 ? (
+                {logs.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
                     No logs yet. Send a prompt to get started.
                   </p>
                 ) : (
-                  session.logs.map((log, index) => (
+                  logs.map((log, index) => (
                     <Fragment key={index}>
                       {index > 0 ? <Separator /> : null}
                       <div className="flex items-start gap-3 text-sm">
@@ -441,16 +451,16 @@ function SessionDetailPage() {
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={(event) => event.key === "Enter" && handleSend()}
             placeholder="Send a prompt to the agent..."
-            disabled={promptMutation.isPending || !!session.pendingPermission}
+            disabled={isSending || !!pendingPermission}
           />
           <Button
             onClick={handleSend}
-            disabled={promptMutation.isPending || !!session.pendingPermission || !prompt.trim()}
+            disabled={isSending || !!pendingPermission || !prompt.trim()}
           >
             <SendIcon data-icon="inline-start" />
-            {session.pendingPermission
+            {pendingPermission
               ? "Permission required"
-              : promptMutation.isPending
+              : isSending
                 ? "Sending…"
                 : "Send"}
           </Button>
