@@ -130,7 +130,7 @@ Runtime providers are responsible for starting the actual agent runtime and retu
 Custom providers can be added through the `runtimeProviders` option:
 
 ```ts
-import { Flamecast } from "@acp/flamecast";
+import { Flamecast } from "@flamecast/sdk";
 
 const flamecast = new Flamecast({
   runtimeProviders: {
@@ -202,7 +202,7 @@ packages/
 Configuration is TypeScript via the `Flamecast` constructor:
 
 ```ts
-import { Flamecast } from "@acp/flamecast";
+import { Flamecast } from "@flamecast/sdk";
 
 const flamecast = new Flamecast({
   storage: "pglite",
@@ -214,13 +214,25 @@ await flamecast.listen(3001);
 The same instance also exposes a standard `fetch` handler:
 
 ```ts
-import { Flamecast } from "@acp/flamecast";
+import { Flamecast } from "@flamecast/sdk";
 
 const flamecast = new Flamecast({
   storage: { type: "postgres", url: process.env.DATABASE_URL! },
 });
 
 export default flamecast.fetch;
+```
+
+The package also exports a typed Hono RPC client for external consumers and the web UI:
+
+```ts
+import { createFlamecastClient } from "@flamecast/sdk/client";
+
+const client = createFlamecastClient({
+  baseUrl: "http://localhost:3001/api",
+});
+
+const sessions = await client.fetchSessions();
 ```
 
 ### Constructor options

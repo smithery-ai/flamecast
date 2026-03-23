@@ -16,7 +16,7 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "lcov"],
       reportsDirectory: "./coverage/api-server",
-      include: ["src/flamecast/**/*.ts", "src/server/**/*.ts"],
+      include: ["src/flamecast/**/*.ts", "src/server/**/*.ts", "src/client/api.ts"],
       exclude: [
         "src/flamecast/storage/psql/drizzle.config.ts",
         "src/flamecast/storage/psql/types.ts",

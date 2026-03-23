@@ -8,6 +8,6 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
-    "@acp/flamecast": "workspace:*"
+    "@flamecast/sdk": "workspace:*"
   }
 }

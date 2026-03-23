@@ -4,10 +4,13 @@ import alchemy from "alchemy";
 import "alchemy/test/vitest";
 import { Hono } from "hono";
 import { hc } from "hono/client";
-import { z } from "zod";
 import { Flamecast } from "../src/flamecast/index.js";
 import { createApi, type AppType } from "../src/flamecast/api.js";
-import { PendingPermissionSchema, SessionSchema } from "../src/shared/session.js";
+import {
+  PendingPermissionSchema,
+  PromptResultSchema,
+  SessionSchema,
+} from "../src/shared/session.js";
 
 type AlchemyTestFactory = (meta: ImportMeta, opts: { prefix: string }) => typeof describe;
 
@@ -23,10 +26,6 @@ if (!isAlchemyTestFactory(maybeAlchemyTest)) {
 
 const test = maybeAlchemyTest(import.meta, { prefix: "test" });
 const exampleAgentEntrypoint = fileURLToPath(new URL("../src/flamecast/agent.ts", import.meta.url));
-
-const PromptResultSchema = z.object({
-  stopReason: z.string(),
-});
 
 function createClient(flamecast: Flamecast) {
   const api = createApi(flamecast);

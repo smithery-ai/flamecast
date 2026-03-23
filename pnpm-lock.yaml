@@ -67,7 +67,7 @@ importers:
 
   apps/server:
     dependencies:
-      '@acp/flamecast':
+      '@flamecast/sdk':
         specifier: workspace:*
         version: link:../../packages/flamecast
 

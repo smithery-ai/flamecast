@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import { Flamecast } from "@acp/flamecast";
+import { Flamecast } from "@flamecast/sdk";
 
 export async function main() {
   const flamecast = new Flamecast();

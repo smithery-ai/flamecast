@@ -544,7 +544,7 @@ describe("bootstrap entrypoints", () => {
         AgentSideConnection,
       };
     });
-    vi.doMock("@acp/flamecast", () => ({
+    vi.doMock("@flamecast/sdk", () => ({
       Flamecast: FlamecastMock,
     }));
 
@@ -570,7 +570,7 @@ describe("bootstrap entrypoints", () => {
       readonly listen = listen;
     }
 
-    vi.doMock("@acp/flamecast", () => ({
+    vi.doMock("@flamecast/sdk", () => ({
       Flamecast: FlamecastMock,
     }));
 
@@ -593,7 +593,7 @@ describe("bootstrap entrypoints", () => {
       readonly listen = listen;
     }
 
-    vi.doMock("@acp/flamecast", () => ({
+    vi.doMock("@flamecast/sdk", () => ({
       Flamecast: FlamecastMock,
     }));
 

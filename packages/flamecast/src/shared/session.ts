@@ -129,6 +129,11 @@ export const PromptBodySchema = z.object({
 });
 export type PromptBody = z.infer<typeof PromptBodySchema>;
 
+export const PromptResultSchema = z.object({
+  stopReason: z.string(),
+});
+export type PromptResult = z.infer<typeof PromptResultSchema>;
+
 export const PermissionResponseBodySchema = z.union([
   z.object({ optionId: z.string() }),
   z.object({ outcome: z.literal("cancelled") }),
