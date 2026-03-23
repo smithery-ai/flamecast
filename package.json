@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @acp/flamecast run build:package && turbo run dev",
+    "dev": "turbo run dev",
     "dev:client": "turbo run dev --filter=@acp/flamecast",
-    "dev:server": "pnpm --filter @acp/flamecast run build:package && turbo run dev --filter=@acp/server",
+    "dev:server": "turbo run dev --filter=@acp/server",
     "build": "turbo run build",
     "start": "pnpm dev",
     "knip": "pnpm --filter @acp/flamecast run generate:routes && knip --config knip.json --workspace packages/flamecast --no-config-hints",
