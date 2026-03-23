@@ -165,35 +165,11 @@ If you pass `agentTemplates`, they replace the bundled defaults.
 
 ```text
 apps/
-  server/
-    src/index.ts            # Node entry point; constructs Flamecast and listens
+  server/                # Node host app; owns durable storage bootstrap
 packages/
-  flamecast/
-    alchemy.run.ts          # Experimental control plane: Postgres + Worker + Vite
-    docker/
-      example-agent.Dockerfile
-      codex-agent.Dockerfile
-    src/
-      server/app.ts         # Root Hono app
-      worker.ts             # Cloudflare Worker entry point
-      flamecast/
-        index.ts            # Flamecast class
-        api.ts              # REST API routes
-        storage.ts          # FlamecastStorage + config resolution
-        runtime-provider.ts # Built-in runtime providers
-        agent-templates.ts  # Built-in agent templates
-        transport.ts        # AcpTransport, local/tcp helpers
-        agent.ts            # Example ACP agent (stdio + TCP modes)
-        db/client.ts        # PGLite / Postgres connection
-        storage/
-          memory/
-      client/               # React UI
-      shared/session.ts     # Zod schemas + shared API types
-  apps/server/src/
-    storage/                # PGlite / Postgres bootstrap + Drizzle migrations
-    test/
-      flamecast.test.ts     # Orchestration tests
-      api.test.ts           # HTTP API contract tests
+  flamecast/             # SDK package, Hono app, React UI, and worker entrypoint
+plugins/
+  chat-sdk/              # External Chat SDK connector package
 ```
 
 ---
