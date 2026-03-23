@@ -3,10 +3,15 @@
   "tasks": {
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "dependsOn": ["^build:package"]
     },
     "build": {
       "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "build:package": {
+      "dependsOn": ["^build:package"],
       "outputs": ["dist/**"]
     },
     "test": {
