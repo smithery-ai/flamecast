@@ -15,6 +15,8 @@ export type StartedRuntime = {
   events?: ReadableStream<SessionLog>;
   /** The working directory the agent sees (e.g. /workspace in Docker). Defaults to the host cwd. */
   agentCwd?: string;
+  /** Direct WebSocket URL to the runtime bridge sidecar (if running as separate process). */
+  websocketUrl?: string;
 };
 
 export type RuntimeProviderStartRequest = {
