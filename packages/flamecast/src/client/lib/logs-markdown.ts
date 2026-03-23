@@ -1,5 +1,6 @@
 import * as acp from "@agentclientprotocol/sdk";
-import type { SessionLog } from "@/shared/session";
+import type { SessionDiff, SessionLog } from "@/shared/session";
+import { extractToolCallDiffs } from "@/client/lib/tool-call-diffs";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -8,7 +9,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export type SessionLogMarkdownSegment =
   | { kind: "assistant"; text: string }
   | { kind: "user"; text: string }
-  | { kind: "tool"; toolCallId: string; title: string; status: string };
+  | { kind: "tool"; toolCallId: string; title: string; status: string; diffs: SessionDiff[] };
 
 function appendAssistant(segments: SessionLogMarkdownSegment[], chunk: string): void {
   const last = segments.at(-1);
@@ -50,24 +51,45 @@ function applySessionUpdateRecord(
     const toolCallId = typeof d.toolCallId === "string" ? d.toolCallId : "";
     const title = typeof d.title === "string" ? d.title : "Tool";
     const status = typeof d.status === "string" ? d.status : "";
-    segments.push({ kind: "tool", toolCallId, title, status });
+    segments.push({
+      kind: "tool",
+      toolCallId,
+      title,
+      status,
+      diffs: extractToolCallDiffs(d.content),
+    });
   } else if (su === "tool_call_update") {
-    const toolCallId = typeof d.toolCallId === "string" ? d.toolCallId : "";
-    const status = typeof d.status === "string" ? d.status : "";
-    applyToolSegmentStatus(segments, toolCallId, status);
+    applyToolSegmentUpdate(segments, {
+      toolCallId: typeof d.toolCallId === "string" ? d.toolCallId : "",
+      status: typeof d.status === "string" ? d.status : "",
+      title: typeof d.title === "string" ? d.title : undefined,
+      diffs: extractToolCallDiffs(d.content),
+    });
   }
 }
 
-function applyToolSegmentStatus(
+function applyToolSegmentUpdate(
   segments: SessionLogMarkdownSegment[],
-  toolCallId: string,
-  status: string,
+  update: {
+    toolCallId: string;
+    status?: string;
+    title?: string;
+    diffs?: SessionDiff[];
+  },
 ): void {
-  if (!toolCallId || !status) return;
+  if (!update.toolCallId) return;
   for (let i = segments.length - 1; i >= 0; i--) {
     const seg = segments[i];
-    if (seg.kind === "tool" && seg.toolCallId === toolCallId) {
-      seg.status = status;
+    if (seg.kind === "tool" && seg.toolCallId === update.toolCallId) {
+      if (update.status) {
+        seg.status = update.status;
+      }
+      if (update.title) {
+        seg.title = update.title;
+      }
+      if (update.diffs && update.diffs.length > 0) {
+        seg.diffs = update.diffs;
+      }
       break;
     }
   }
@@ -97,7 +119,7 @@ export function sessionLogsToSegments(logs: SessionLog[]): SessionLogMarkdownSeg
     if (log.type === "permission_cancelled") {
       const d = log.data;
       if (isRecord(d) && typeof d.toolCallId === "string") {
-        applyToolSegmentStatus(segments, d.toolCallId, "cancelled");
+        applyToolSegmentUpdate(segments, { toolCallId: d.toolCallId, status: "cancelled" });
       }
       continue;
     }
@@ -105,7 +127,7 @@ export function sessionLogsToSegments(logs: SessionLog[]): SessionLogMarkdownSeg
     if (log.type === "permission_rejected") {
       const d = log.data;
       if (isRecord(d) && typeof d.toolCallId === "string") {
-        applyToolSegmentStatus(segments, d.toolCallId, "rejected");
+        applyToolSegmentUpdate(segments, { toolCallId: d.toolCallId, status: "rejected" });
       }
       continue;
     }

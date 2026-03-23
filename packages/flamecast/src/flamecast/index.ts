@@ -17,6 +17,7 @@ import type {
   PermissionResponseBody,
   RegisterAgentTemplateBody,
   Session,
+  SessionDiff,
   SessionLog,
 } from "../shared/session.js";
 import { createServerApp } from "../server/app.js";
@@ -27,7 +28,13 @@ import type { RuntimeProviderRegistry, StartedRuntime } from "./runtime-provider
 import { resolveRuntimeProviders } from "./runtime-provider.js";
 import type { AcpTransport } from "./transport.js";
 
-export type { AgentSpawn, AgentTemplate, PendingPermission, Session } from "../shared/session.js";
+export type {
+  AgentSpawn,
+  AgentTemplate,
+  PendingPermission,
+  Session,
+  SessionDiff,
+} from "../shared/session.js";
 export type { SessionMeta, FlamecastStorage, StorageConfig } from "./storage.js";
 export type { RuntimeProvider, RuntimeProviderRegistry } from "./runtime-provider.js";
 export type { AppType } from "./api.js";
@@ -643,6 +650,14 @@ export class Flamecast {
       pendingPermission: meta.pendingPermission
         ? {
             ...meta.pendingPermission,
+            ...(meta.pendingPermission.diffs
+              ? {
+                  diffs: meta.pendingPermission.diffs.map((diff) => ({
+                    ...diff,
+                    oldText: diff.oldText ?? null,
+                  })),
+                }
+              : {}),
             options: meta.pendingPermission.options.map((option) => ({ ...option })),
           }
         : null,
@@ -960,12 +975,29 @@ export class Flamecast {
     }
   }
 
+  private extractToolCallDiffs(toolCall: acp.ToolCallUpdate): SessionDiff[] | undefined {
+    const diffs = toolCall.content?.flatMap((item) =>
+      item.type === "diff"
+        ? [
+            {
+              path: item.path,
+              oldText: item.oldText ?? null,
+              newText: item.newText,
+            } satisfies SessionDiff,
+          ]
+        : [],
+    );
+
+    return diffs && diffs.length > 0 ? diffs : undefined;
+  }
+
   private createPendingPermission(params: acp.RequestPermissionRequest): PendingPermission {
     return {
       requestId: randomUUID(),
       toolCallId: params.toolCall.toolCallId,
       title: params.toolCall.title ?? "",
       kind: params.toolCall.kind ?? undefined,
+      diffs: this.extractToolCallDiffs(params.toolCall),
       options: params.options.map((option) => ({
         optionId: option.optionId,
         name: option.name,

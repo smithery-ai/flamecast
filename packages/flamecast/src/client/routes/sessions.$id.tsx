@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchFilePreview, fetchSession, respondToPermission, sendPrompt } from "@/client/lib/api";
 import { FileTree, FileTreeFile, FileTreeFolder } from "@/components/ai-elements/file-tree";
 import { sessionLogsToSegments } from "@/client/lib/logs-markdown";
+import { buildDiffLines } from "@/client/lib/tool-call-diffs";
+import { cn } from "@/client/lib/utils";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Button } from "@/client/components/ui/button";
 import {
@@ -18,6 +20,11 @@ import { Separator } from "@/client/components/ui/separator";
 import { Skeleton } from "@/client/components/ui/skeleton";
 import { Switch } from "@/client/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/client/components/ui/tabs";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/client/components/ui/collapsible";
 import { Streamdown } from "streamdown";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import {
@@ -27,7 +34,7 @@ import {
   FolderTreeIcon,
   SendIcon,
 } from "lucide-react";
-import type { FileSystemEntry } from "../../shared/session";
+import type { FileSystemEntry, PendingPermission, SessionDiff } from "../../shared/session";
 
 export const Route = createFileRoute("/sessions/$id")({
   component: SessionDetailPage,
@@ -45,6 +52,12 @@ function SessionDetailPage() {
   const [prompt, setPrompt] = useState("");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [expandedHistoricalToolCallIds, setExpandedHistoricalToolCallIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [collapsedCurrentToolCallIds, setCollapsedCurrentToolCallIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [showAllFiles, setShowAllFiles] = useState(false);
   const queryClient = useQueryClient();
 
@@ -84,10 +97,36 @@ function SessionDetailPage() {
     () => sessionLogsToSegments(session?.logs ?? []),
     [session?.logs],
   );
+  const renderableToolSegments = useMemo(
+    () =>
+      markdownSegments.filter(
+        (segment) =>
+          segment.kind === "tool" &&
+          !shouldHidePendingToolCall(
+            segment.toolCallId,
+            segment.status,
+            session?.pendingPermission,
+          ),
+      ),
+    [markdownSegments, session?.pendingPermission],
+  );
+  const renderableToolCallIds = useMemo(
+    () => renderableToolSegments.map((segment) => segment.toolCallId).filter(Boolean),
+    [renderableToolSegments],
+  );
+  const latestVisibleToolCallId = session?.pendingPermission
+    ? null
+    : (renderableToolSegments.at(-1)?.toolCallId ?? null);
 
   useEffect(() => {
     setExpandedPaths((current) => (current.size > 0 ? current : getInitialExpandedPaths(fileTree)));
   }, [fileTree]);
+
+  useEffect(() => {
+    const visibleToolCallIds = new Set(renderableToolCallIds);
+    setExpandedHistoricalToolCallIds((current) => filterToolCallIds(current, visibleToolCallIds));
+    setCollapsedCurrentToolCallIds((current) => filterToolCallIds(current, visibleToolCallIds));
+  }, [renderableToolCallIds]);
 
   useEffect(() => {
     if (selectedPath && fileEntryMap.get(selectedPath)?.type === "file") {
@@ -228,13 +267,43 @@ function SessionDetailPage() {
                       );
                     }
                     if (seg.kind === "tool") {
-                      const toolMd = `**Tool:** ${seg.title}${seg.status ? ` — \`${seg.status}\`` : ""}`;
+                      if (
+                        shouldHidePendingToolCall(
+                          seg.toolCallId,
+                          seg.status,
+                          session.pendingPermission,
+                        )
+                      ) {
+                        return null;
+                      }
+                      const isHistoricalToolCall =
+                        latestVisibleToolCallId == null ||
+                        seg.toolCallId !== latestVisibleToolCallId;
+                      const isExpanded = isHistoricalToolCall
+                        ? expandedHistoricalToolCallIds.has(seg.toolCallId)
+                        : !collapsedCurrentToolCallIds.has(seg.toolCallId);
                       return (
-                        <Fragment key={index}>
+                        <Fragment key={seg.toolCallId || index}>
                           {index > 0 ? <Separator /> : null}
-                          <Streamdown className="max-w-none text-muted-foreground">
-                            {toolMd}
-                          </Streamdown>
+                          <ToolCallCard
+                            toolCallId={seg.toolCallId}
+                            title={seg.title}
+                            status={seg.status}
+                            diffs={seg.diffs}
+                            workspaceRoot={session.fileSystem?.root}
+                            expanded={isExpanded}
+                            onExpandedChange={(open) => {
+                              if (isHistoricalToolCall) {
+                                setExpandedHistoricalToolCallIds((current) =>
+                                  updateToolCallIdSet(current, seg.toolCallId, open),
+                                );
+                                return;
+                              }
+                              setCollapsedCurrentToolCallIds((current) =>
+                                updateToolCallIdSet(current, seg.toolCallId, !open),
+                              );
+                            }}
+                          />
                         </Fragment>
                       );
                     }
@@ -254,41 +323,49 @@ function SessionDetailPage() {
                         ) : null}
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="flex flex-wrap gap-2">
-                      {(() => {
-                        const pending = session.pendingPermission;
-                        return (
-                          <>
-                            {pending.options.map((opt) => (
+                    <CardContent className="space-y-4">
+                      {(session.pendingPermission.diffs?.length ?? 0) > 0 ? (
+                        <ProposedDiffList
+                          diffs={session.pendingPermission.diffs ?? []}
+                          workspaceRoot={session.fileSystem?.root}
+                        />
+                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        {(() => {
+                          const pending = session.pendingPermission;
+                          return (
+                            <>
+                              {pending.options.map((opt) => (
+                                <Button
+                                  key={opt.optionId}
+                                  variant={opt.kind === "allow_once" ? "default" : "secondary"}
+                                  size="sm"
+                                  disabled={permissionMutation.isPending}
+                                  onClick={() =>
+                                    handlePermission(pending.requestId, {
+                                      optionId: opt.optionId,
+                                    })
+                                  }
+                                >
+                                  {opt.name}
+                                </Button>
+                              ))}
                               <Button
-                                key={opt.optionId}
-                                variant={opt.kind === "allow_once" ? "default" : "secondary"}
+                                variant="outline"
                                 size="sm"
                                 disabled={permissionMutation.isPending}
                                 onClick={() =>
                                   handlePermission(pending.requestId, {
-                                    optionId: opt.optionId,
+                                    outcome: "cancelled",
                                   })
                                 }
                               >
-                                {opt.name}
+                                Cancel
                               </Button>
-                            ))}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={permissionMutation.isPending}
-                              onClick={() =>
-                                handlePermission(pending.requestId, {
-                                  outcome: "cancelled",
-                                })
-                              }
-                            >
-                              Cancel
-                            </Button>
-                          </>
-                        );
-                      })()}
+                            </>
+                          );
+                        })()}
+                      </div>
                     </CardContent>
                   </Card>
                 ) : null}
@@ -455,6 +532,161 @@ function EmptyPreview({ message }: { message: string }) {
   );
 }
 
+function ToolCallCard({
+  toolCallId,
+  title,
+  status,
+  diffs,
+  workspaceRoot,
+  expanded,
+  onExpandedChange,
+}: {
+  toolCallId: string;
+  title: string;
+  status: string;
+  diffs: SessionDiff[];
+  workspaceRoot?: string;
+  expanded: boolean;
+  onExpandedChange: (open: boolean) => void;
+}) {
+  const hasDiffs = diffs.length > 0;
+
+  return (
+    <Collapsible
+      open={hasDiffs ? expanded : true}
+      onOpenChange={hasDiffs ? onExpandedChange : undefined}
+    >
+      <Card className="border-border/70 bg-muted/20">
+        <CardHeader className="gap-2 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0 flex-1 space-y-1">
+              <CardTitle className="text-sm font-medium">{title}</CardTitle>
+              {hasDiffs ? (
+                <CardDescription className="text-xs">
+                  {expanded ? "Diff visible" : "Diff hidden"}
+                </CardDescription>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              {status ? (
+                <Badge variant={status === "completed" ? "default" : "outline"}>{status}</Badge>
+              ) : null}
+              {hasDiffs ? (
+                <CollapsibleTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={`${expanded ? "Hide" : "Show"} diff for ${toolCallId}`}
+                  >
+                    {expanded ? "Hide diff" : "Show diff"}
+                    <ChevronDownIcon
+                      className={cn("size-4 transition-transform", expanded && "rotate-180")}
+                    />
+                  </Button>
+                </CollapsibleTrigger>
+              ) : null}
+            </div>
+          </div>
+        </CardHeader>
+        {hasDiffs ? (
+          <CollapsibleContent>
+            <CardContent className="space-y-3 pt-0">
+              <ProposedDiffList diffs={diffs} workspaceRoot={workspaceRoot} />
+            </CardContent>
+          </CollapsibleContent>
+        ) : null}
+      </Card>
+    </Collapsible>
+  );
+}
+
+function ProposedDiffList({
+  diffs,
+  workspaceRoot,
+}: {
+  diffs: SessionDiff[];
+  workspaceRoot?: string;
+}) {
+  return (
+    <div className="space-y-3">
+      {diffs.map((diff) => (
+        <DiffPreview
+          key={`${diff.path}:${diff.newText.length}`}
+          diff={diff}
+          workspaceRoot={workspaceRoot}
+        />
+      ))}
+    </div>
+  );
+}
+
+function DiffPreview({ diff, workspaceRoot }: { diff: SessionDiff; workspaceRoot?: string }) {
+  const lines = buildDiffLines(diff.oldText ?? null, diff.newText);
+  const diffKind =
+    diff.oldText == null ? "new file" : diff.newText.length === 0 ? "deleted" : "modified";
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border/70">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-4 py-2">
+        <code className="text-xs text-foreground">
+          {formatWorkspacePath(diff.path, workspaceRoot)}
+        </code>
+        <Badge variant="outline">{diffKind}</Badge>
+      </div>
+      {lines.length === 0 ? (
+        <div className="px-4 py-3 text-xs text-muted-foreground">No textual changes.</div>
+      ) : (
+        <div className="overflow-auto">
+          <div className="min-w-full font-mono text-xs leading-6">
+            {lines.map((line, index) => (
+              <div
+                key={index}
+                className={cn(
+                  "grid grid-cols-[1.5rem_minmax(0,1fr)] gap-3 px-4",
+                  line.kind === "add" && "bg-emerald-500/10 text-emerald-950 dark:text-emerald-100",
+                  line.kind === "remove" && "bg-rose-500/10 text-rose-950 dark:text-rose-100",
+                )}
+              >
+                <span className="select-none text-muted-foreground">
+                  {line.kind === "add" ? "+" : line.kind === "remove" ? "-" : " "}
+                </span>
+                <span className="whitespace-pre-wrap break-all">{line.text || " "}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function updateToolCallIdSet(current: Set<string>, toolCallId: string, present: boolean) {
+  const next = new Set(current);
+  if (present) {
+    next.add(toolCallId);
+  } else {
+    next.delete(toolCallId);
+  }
+  return areSetsEqual(current, next) ? current : next;
+}
+
+function filterToolCallIds(current: Set<string>, visibleToolCallIds: Set<string>) {
+  const next = new Set([...current].filter((toolCallId) => visibleToolCallIds.has(toolCallId)));
+  return areSetsEqual(current, next) ? current : next;
+}
+
+function areSetsEqual(left: Set<string>, right: Set<string>) {
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const value of left) {
+    if (!right.has(value)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function StickToBottomFab() {
   const { isAtBottom, scrollToBottom } = useStickToBottomContext();
   if (isAtBottom) return null;
@@ -549,6 +781,29 @@ function getParentPaths(path: string) {
   }
 
   return parents;
+}
+
+function formatWorkspacePath(path: string, workspaceRoot?: string) {
+  if (!workspaceRoot) {
+    return path;
+  }
+
+  return path.startsWith(`${workspaceRoot}/`) ? path.slice(workspaceRoot.length + 1) : path;
+}
+
+function shouldHidePendingToolCall(
+  toolCallId: string,
+  status: string,
+  pendingPermission: PendingPermission | null,
+) {
+  if (!pendingPermission) {
+    return false;
+  }
+
+  return (
+    pendingPermission.toolCallId === toolCallId &&
+    (status === "pending" || status === "in_progress")
+  );
 }
 
 function getLogVariant(type: string): "default" | "secondary" | "destructive" | "outline" {

@@ -4,7 +4,8 @@ import "alchemy/test/vitest";
 import { File } from "alchemy/fs";
 import * as docker from "alchemy/docker";
 import { existsSync, rmSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -36,6 +37,18 @@ async function pollForPermission(flamecast: Flamecast, sessionId: string, timeou
   throw new Error(`No pending permission after ${timeoutMs}ms`);
 }
 
+async function allowNextPermission(flamecast: Flamecast, sessionId: string, timeoutMs: number) {
+  const pending = await pollForPermission(flamecast, sessionId, timeoutMs);
+  const allow = pending.options.find((option) => option.optionId === "allow");
+  if (!allow) throw new Error("No allow option found");
+
+  await flamecast.respondToPermission(sessionId, pending.requestId, {
+    optionId: allow.optionId,
+  });
+
+  return pending;
+}
+
 function hasDockerDaemon(): boolean {
   const dockerInfo = spawnSync("docker", ["info"], { stdio: "ignore" });
   if (!dockerInfo.error) {
@@ -54,32 +67,51 @@ async function runSessionLifecycle(
   flamecast: Flamecast,
   createBody: Parameters<Flamecast["createSession"]>[0],
 ) {
-  const session = await flamecast.createSession(createBody);
-  expect(session.id).toBeTruthy();
-
-  const sessionId = session.id;
-
+  const workspaceDir = await mkdtemp(path.join(tmpdir(), "flamecast-workspace-"));
+  let sessionId: string | null = null;
   try {
+    const session = await flamecast.createSession({ ...createBody, cwd: workspaceDir });
+    expect(session.id).toBeTruthy();
+
+    sessionId = session.id;
     const promptPromise = flamecast.promptSession(sessionId, "Hello from integration test!");
 
-    const pending = await pollForPermission(flamecast, sessionId, 15_000);
+    const pending = await allowNextPermission(flamecast, sessionId, 15_000);
     expect(pending).toBeDefined();
     expect(pending.options.length).toBeGreaterThanOrEqual(2);
+    expect(pending.title).toBe("Preparing a real workspace edit");
+    const proposedPath = pending.diffs?.[0]?.path;
+    expect(proposedPath).toBeTruthy();
 
-    const allow = pending.options.find((option) => option.optionId === "allow");
-    if (!allow) throw new Error("No allow option found");
+    const appendPending = await allowNextPermission(flamecast, sessionId, 15_000);
+    expect(appendPending.title).toBe("Add a line to the existing demo file");
+    expect(appendPending.diffs?.[0]?.path).toBe(proposedPath);
 
-    await flamecast.respondToPermission(sessionId, pending.requestId, {
-      optionId: allow.optionId,
-    });
+    const undoPending = await allowNextPermission(flamecast, sessionId, 15_000);
+    expect(undoPending.title).toBe("Undo the extra line change");
+    expect(undoPending.diffs?.[0]?.path).toBe(proposedPath);
+
+    const cleanupPending = await allowNextPermission(flamecast, sessionId, 15_000);
+    expect(cleanupPending.title).toBe("cleanup");
+    expect(cleanupPending.diffs?.[0]?.path).toBe(proposedPath);
 
     const result = await promptPromise;
     expect(result.stopReason).toBe("end_turn");
 
     const state = await flamecast.getSession(sessionId);
     expect(state.logs.length).toBeGreaterThan(0);
-  } finally {
+    if (!proposedPath) {
+      throw new Error("Expected a proposed edit path");
+    }
+    await expect(readFile(proposedPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+
     await flamecast.terminateSession(sessionId);
+    sessionId = null;
+  } finally {
+    if (sessionId) {
+      await flamecast.terminateSession(sessionId).catch(() => {});
+    }
+    await rm(workspaceDir, { recursive: true, force: true });
   }
 }
 
