@@ -1,5 +1,4 @@
 import type { AgentTemplate, Session, SessionLog } from "../shared/session.js";
-import { MemoryFlamecastStorage } from "./storage/memory/index.js";
 
 /** Durable slice of {@link Session} (everything except runtime-only state). */
 export type SessionMeta = Omit<Session, "fileSystem" | "logs" | "promptQueue">;
@@ -31,10 +30,3 @@ export type FlamecastStorage = {
   /** Called after the last termination log is appended — e.g. mark row dead (SQL) or evict (memory). */
   finalizeSession(id: string, reason: "terminated"): Promise<void>;
 };
-
-export function resolveStorage(storage?: FlamecastStorage): FlamecastStorage {
-  if (!storage) {
-    return new MemoryFlamecastStorage();
-  }
-  return storage;
-}

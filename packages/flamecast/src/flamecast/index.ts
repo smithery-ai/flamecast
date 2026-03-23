@@ -16,7 +16,7 @@ import type {
 import { createServerApp } from "../server/app.js";
 import { getBuiltinAgentTemplates, localRuntime } from "./agent-templates.js";
 import type { FlamecastStorage } from "./storage.js";
-import { resolveStorage } from "./storage.js";
+import { MemoryFlamecastStorage } from "./storage/memory/index.js";
 import type { RuntimeProviderRegistry } from "./runtime-provider.js";
 import { resolveRuntimeProviders } from "./runtime-provider.js";
 import type { RuntimeClient } from "../runtime/client.js";
@@ -306,7 +306,7 @@ export class Flamecast {
     if (this.storage) return;
     if (!this.readyPromise) {
       this.readyPromise = (async () => {
-        const storage = resolveStorage(this.storageConfig);
+        const storage = this.storageConfig ?? new MemoryFlamecastStorage();
         this.storage = storage;
         await storage.seedAgentTemplates(this.initialAgentTemplates);
       })();

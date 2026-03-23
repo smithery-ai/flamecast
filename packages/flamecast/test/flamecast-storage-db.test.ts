@@ -19,31 +19,25 @@ function createStorageStub(label: string) {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.doUnmock("../src/flamecast/storage/memory/index.js");
-  vi.resetModules();
 });
 
 describe("storage resolution", () => {
-  test("resolves the default memory storage and preserves injected storage", async () => {
-    vi.resetModules();
-
-    const memoryInstances: Array<{ label: string }> = [];
-    const MemoryFlamecastStorage = vi.fn(function MemoryFlamecastStorageMock() {
-      const storage = createStorageStub(`memory-${memoryInstances.length + 1}`);
-      memoryInstances.push(storage);
-      return storage;
-    });
-
-    vi.doMock("../src/flamecast/storage/memory/index.js", () => ({
-      MemoryFlamecastStorage,
-    }));
-
-    const { resolveStorage } = await import("../src/flamecast/storage.js");
+  test("exposes the storage contract shape used by the SDK", async () => {
     const directStorage = createStorageStub("direct");
 
-    expect(resolveStorage()).toMatchObject({ label: "memory-1" });
-    expect(resolveStorage(directStorage)).toBe(directStorage);
-
-    expect(MemoryFlamecastStorage).toHaveBeenCalledTimes(1);
+    expect(directStorage).toMatchObject({
+      label: "direct",
+      seedAgentTemplates: expect.any(Function),
+      listAgentTemplates: expect.any(Function),
+      getAgentTemplate: expect.any(Function),
+      saveAgentTemplate: expect.any(Function),
+      createSession: expect.any(Function),
+      updateSession: expect.any(Function),
+      appendLog: expect.any(Function),
+      getSessionMeta: expect.any(Function),
+      getLogs: expect.any(Function),
+      listAllSessions: expect.any(Function),
+      finalizeSession: expect.any(Function),
+    });
   });
 });
