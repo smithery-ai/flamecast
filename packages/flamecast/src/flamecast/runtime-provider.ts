@@ -1,7 +1,10 @@
-import { basename, dirname, resolve } from "node:path";
+import { existsSync, watch, type FSWatcher } from "node:fs";
+import { readdir } from "node:fs/promises";
+import { basename, dirname, relative, resolve } from "node:path";
 import alchemy from "alchemy";
 import type { AgentSpawn } from "../shared/session.js";
-import type { AgentTemplateRuntime } from "../shared/session.js";
+import type { AgentTemplateRuntime, SessionLog } from "../shared/session.js";
+import { SESSION_EVENT_TYPES } from "../shared/session.js";
 import type { AcpTransport } from "./transport.js";
 import { findFreePort, openLocalTransport, openTcpTransport } from "./transport.js";
 
@@ -9,12 +12,14 @@ export type StartedRuntime = {
   transport: AcpTransport;
   terminate: () => Promise<void>;
   reconnect?: () => Promise<AcpTransport>;
+  events?: ReadableStream<SessionLog>;
 };
 
 export type RuntimeProviderStartRequest = {
   runtime: AgentTemplateRuntime;
   spawn: AgentSpawn;
   sessionId: string;
+  cwd: string;
 };
 
 export type RuntimeProvider = {
@@ -28,7 +33,8 @@ export type RuntimeProvisioner = (opts: {
   runtime: AgentTemplateRuntime;
   spawn: AgentSpawn;
   sessionId: string;
-}) => Promise<{ transport: AcpTransport }>;
+  cwd: string;
+}) => Promise<{ transport: AcpTransport; events?: ReadableStream<SessionLog> }>;
 
 type WaitForAcpOptions = {
   timeoutMs?: number;
@@ -155,15 +161,112 @@ export async function waitForAcp(
   });
 }
 
-const localProvisioner: RuntimeProvisioner = async ({ spawn }) => ({
+type FileSystemEntry = {
+  path: string;
+  type: "file" | "directory" | "symlink" | "other";
+};
+
+async function buildFileSystemSnapshot(workspaceRoot: string) {
+  const entries: FileSystemEntry[] = [];
+  const queue = [workspaceRoot];
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const dir = queue[index];
+    const children = await readdir(dir, { withFileTypes: true });
+    children.sort((a, b) => {
+      if (a.isDirectory() !== b.isDirectory()) {
+        return a.isDirectory() ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    for (const child of children) {
+      const absolutePath = resolve(dir, child.name);
+      const path = relative(workspaceRoot, absolutePath);
+
+      const type: FileSystemEntry["type"] = child.isDirectory()
+        ? "directory"
+        : child.isFile()
+          ? "file"
+          : child.isSymbolicLink()
+            ? "symlink"
+            : "other";
+
+      entries.push({ path, type });
+
+      if (type === "directory") {
+        queue.push(absolutePath);
+      }
+    }
+  }
+
+  return {
+    root: workspaceRoot,
+    entries,
+    truncated: false,
+    maxEntries: entries.length,
+  };
+}
+
+export function createFileSystemEventStream(
+  workspaceRoot: string,
+): ReadableStream<SessionLog> | undefined {
+  if (!existsSync(workspaceRoot)) {
+    return undefined;
+  }
+
+  let watcher: FSWatcher;
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  let cancelled = false;
+
+  try {
+    return new ReadableStream<SessionLog>({
+      start(controller) {
+        watcher = watch(workspaceRoot, { recursive: true }, () => {
+          if (cancelled) return;
+
+          if (debounceTimer) {
+            clearTimeout(debounceTimer);
+          }
+
+          debounceTimer = setTimeout(() => {
+            debounceTimer = undefined;
+            if (cancelled) return;
+
+            void buildFileSystemSnapshot(workspaceRoot).then((snapshot) => {
+              if (cancelled) return;
+              controller.enqueue({
+                timestamp: new Date().toISOString(),
+                type: SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT,
+                data: { snapshot },
+              });
+            });
+          }, 300);
+        });
+      },
+      cancel() {
+        cancelled = true;
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+        }
+        watcher?.close();
+      },
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+const localProvisioner: RuntimeProvisioner = async ({ spawn, cwd }) => ({
   transport: openLocalTransport(spawn),
+  events: createFileSystemEventStream(cwd),
 });
 
 /* v8 ignore start -- docker provisioning requires a running Docker daemon */
 export function createDockerProvisioner(
   options: BuiltinRuntimeProviderOptions = {},
 ): RuntimeProvisioner {
-  return async ({ runtime, sessionId }) => {
+  return async ({ runtime, sessionId, cwd }) => {
     const provider = await import("alchemy/docker");
     const port = await findFreePort();
     const image = runtime.image;
@@ -184,11 +287,14 @@ export function createDockerProvisioner(
       });
     }
 
+    const containerWorkDir = "/workspace";
+
     await provider.Container("sandbox", {
       image: `${image}:latest`,
       name: `flamecast-sandbox-${sessionId}`,
       environment: { ACP_PORT: String(port) },
       ports: [{ external: port, internal: port }],
+      volumes: [{ hostPath: cwd, containerPath: containerWorkDir }],
       start: true,
     });
 
@@ -198,23 +304,28 @@ export function createDockerProvisioner(
       retryDelayMs: options.acpRetryDelayMs,
     });
 
-    return { transport: await openTcpTransport("localhost", port) };
+    return {
+      transport: await openTcpTransport("localhost", port),
+      events: createFileSystemEventStream(cwd),
+    };
   };
 }
 /* v8 ignore stop */
 
 export function createRuntimeProvider(provisioner: RuntimeProvisioner): RuntimeProvider {
   return {
-    async start({ runtime, spawn, sessionId }) {
+    async start({ runtime, spawn, sessionId, cwd }) {
       resourceScope ??= alchemy("flame-resources", { quiet: true });
       const root = await resourceScope;
 
       return alchemy.run(`session-${sessionId}`, { parent: root }, async (scope) => {
-        const { transport } = await provisioner({ runtime, spawn, sessionId });
+        const { transport, events } = await provisioner({ runtime, spawn, sessionId, cwd });
 
         return {
           transport,
+          events,
           terminate: async () => {
+            await events?.cancel().catch(() => undefined);
             await transport.dispose?.();
             await alchemy.destroy(scope).catch(() => undefined);
           },

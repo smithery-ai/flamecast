@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
+import { createFileSystemEventStream } from "../src/flamecast/runtime-provider.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import type { SessionLog } from "../src/shared/session.js";
 import { SESSION_EVENT_TYPES } from "../src/shared/session.js";
@@ -16,7 +17,6 @@ type ManagedSessionLike = {
     dispose?: () => Promise<void>;
   };
   terminate: () => Promise<void>;
-  fileSystemWatcher: unknown;
   runtime: {
     connection: null;
     sessionTextChunkLogBuffer: null;
@@ -39,7 +39,6 @@ function createManagedSession(id: string, workspaceRoot = process.cwd()) {
   return {
     id,
     workspaceRoot,
-    runtimeProvider: "local",
     pendingLogs: [] as SessionLog[],
     bufferPendingLogs: false,
     transport: {
@@ -47,7 +46,6 @@ function createManagedSession(id: string, workspaceRoot = process.cwd()) {
       output: passthrough.readable,
     },
     terminate: vi.fn(async () => {}),
-    fileSystemWatcher: null,
     runtime: {
       connection: null,
       sessionTextChunkLogBuffer: null,
@@ -183,7 +181,6 @@ describe("session event emission", () => {
     const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     attachStorage(flamecast);
     const managed = createManagedSession("s1");
-    // bufferPendingLogs defaults to true for new sessions
     managed.bufferPendingLogs = true;
     getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
 
@@ -217,7 +214,6 @@ describe("session event emission", () => {
     );
     expect(terminatedEvents).toHaveLength(1);
 
-    // Subscriber set should be cleaned up
     const sseSubscribers = Reflect.get(flamecast, "sseSubscribers") as Map<string, Set<unknown>>;
     expect(sseSubscribers.has("s1")).toBe(false);
   });
@@ -266,128 +262,126 @@ describe("session event emission", () => {
     expect(received[0].type).toBe("rpc");
     expect(received[0].data).toMatchObject({ method: "test_method" });
   });
+
+  test("pipeProviderEvents forwards events from a ReadableStream", async () => {
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
+    const storage = attachStorage(flamecast);
+    const managed = createManagedSession("s1");
+    getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
+    await storage.createSession(createMeta("s1"));
+
+    const received: SessionLog[] = [];
+    flamecast.subscribe("s1", (event) => received.push(event));
+
+    const event: SessionLog = {
+      timestamp: new Date().toISOString(),
+      type: SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT,
+      data: { snapshot: { root: "/tmp", entries: [], truncated: false, maxEntries: 0 } },
+    };
+
+    const stream = new ReadableStream<SessionLog>({
+      start(controller) {
+        controller.enqueue(event);
+        controller.close();
+      },
+    });
+
+    const pipeProviderEvents = getMethod<[string, ReadableStream<SessionLog> | undefined], void>(
+      flamecast,
+      "pipeProviderEvents",
+    );
+    pipeProviderEvents("s1", stream);
+
+    // Give the async reader a tick to process
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(received).toHaveLength(1);
+    expect(received[0].type).toBe(SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT);
+  });
 });
 
-describe("filesystem watcher", () => {
+describe("createFileSystemEventStream", () => {
   test("emits filesystem.snapshot event when files change", async () => {
     const workspaceRoot = await mkdtemp(path.join(process.cwd(), ".flamecast-events-"));
     try {
       await writeFile(path.join(workspaceRoot, "initial.txt"), "hello");
 
-      const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
-      const storage = attachStorage(flamecast);
-      const managed = createManagedSession("s1", workspaceRoot);
-      managed.bufferPendingLogs = false;
-      getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
-      await storage.createSession(createMeta("s1"));
+      const stream = createFileSystemEventStream(workspaceRoot);
+      expect(stream).toBeDefined();
 
       const received: SessionLog[] = [];
-      flamecast.subscribe("s1", (event) => received.push(event));
+      const reader = stream!.getReader();
+      const readLoop = async () => {
+        const { value, done } = await reader.read();
+        if (!done && value) {
+          received.push(value);
+        }
+      };
 
-      // Start the filesystem watcher
-      const startWatcher = getMethod<[unknown], void>(flamecast, "startFileSystemWatcher");
-      startWatcher(managed);
+      // Start reading (non-blocking)
+      const readPromise = readLoop();
 
       // Create a new file to trigger the watcher
       await writeFile(path.join(workspaceRoot, "new-file.txt"), "world");
 
-      // Wait for debounce (300ms) + some margin
+      // Wait for debounce (300ms) + margin
       await new Promise((resolve) => setTimeout(resolve, 600));
+      await readPromise;
 
-      const fsEvents = received.filter((e) => e.type === SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT);
-      expect(fsEvents.length).toBeGreaterThanOrEqual(1);
+      expect(received.length).toBeGreaterThanOrEqual(1);
+      expect(received[0].type).toBe(SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT);
+      expect(received[0].data.snapshot).toBeDefined();
 
-      const snapshot = fsEvents[0].data.snapshot;
-      expect(snapshot).toBeDefined();
-      expect(snapshot).toHaveProperty("entries");
-
-      // Clean up watcher
-      const stopWatcher = getMethod<[unknown], void>(flamecast, "stopFileSystemWatcher");
-      stopWatcher(managed);
+      // Cleanup
+      reader.releaseLock();
+      await stream!.cancel();
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   });
 
-  test("stopFileSystemWatcher cleans up watcher and debounce timer", async () => {
+  test("returns undefined for non-existent workspace root", () => {
+    const stream = createFileSystemEventStream("/nonexistent/path/should/not/exist");
+    expect(stream).toBeUndefined();
+  });
+
+  test("cancel stops the watcher and debounce timer", async () => {
     const workspaceRoot = await mkdtemp(path.join(process.cwd(), ".flamecast-events-"));
     try {
-      const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
-      const storage = attachStorage(flamecast);
-      const managed = createManagedSession("s1", workspaceRoot);
-      managed.bufferPendingLogs = false;
-      getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
-      await storage.createSession(createMeta("s1"));
-
-      const received: SessionLog[] = [];
-      flamecast.subscribe("s1", (event) => received.push(event));
-
-      const startWatcher = getMethod<[unknown], void>(flamecast, "startFileSystemWatcher");
-      startWatcher(managed);
-      expect(managed.fileSystemWatcher).not.toBeNull();
+      const stream = createFileSystemEventStream(workspaceRoot);
+      expect(stream).toBeDefined();
 
       // Trigger a file change to start a debounce timer
       await writeFile(path.join(workspaceRoot, "trigger.txt"), "data");
-      // Give fs.watch a moment to fire (but less than debounce timeout)
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      // Stop watcher while debounce timer is still pending
-      const stopWatcher = getMethod<[unknown], void>(flamecast, "stopFileSystemWatcher");
-      stopWatcher(managed);
-      expect(managed.fileSystemWatcher).toBeNull();
+      // Cancel before debounce fires
+      await stream!.cancel();
 
-      // Verify the debounce timer was cleared (no event should fire)
+      // No errors should occur after cancel
       await new Promise((resolve) => setTimeout(resolve, 400));
-      expect(received).toHaveLength(0);
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   });
 
-  test("skips watcher for non-local runtime providers", async () => {
+  test("debounces rapid file changes", async () => {
     const workspaceRoot = await mkdtemp(path.join(process.cwd(), ".flamecast-events-"));
     try {
-      const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
-      attachStorage(flamecast);
-      const managed = createManagedSession("s1", workspaceRoot);
-      managed.runtimeProvider = "docker";
-      getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
-
-      const startWatcher = getMethod<[unknown], void>(flamecast, "startFileSystemWatcher");
-      startWatcher(managed);
-
-      expect(managed.fileSystemWatcher).toBeNull();
-    } finally {
-      await rm(workspaceRoot, { recursive: true, force: true });
-    }
-  });
-
-  test("skips watcher for non-existent workspace root", () => {
-    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
-    attachStorage(flamecast);
-    const managed = createManagedSession("s1", "/nonexistent/path/should/not/exist");
-
-    const startWatcher = getMethod<[unknown], void>(flamecast, "startFileSystemWatcher");
-    startWatcher(managed);
-
-    expect(managed.fileSystemWatcher).toBeNull();
-  });
-
-  test("debounces rapid file changes into a single event", async () => {
-    const workspaceRoot = await mkdtemp(path.join(process.cwd(), ".flamecast-events-"));
-    try {
-      const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
-      const storage = attachStorage(flamecast);
-      const managed = createManagedSession("s1", workspaceRoot);
-      managed.bufferPendingLogs = false;
-      getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
-      await storage.createSession(createMeta("s1"));
+      const stream = createFileSystemEventStream(workspaceRoot);
+      expect(stream).toBeDefined();
 
       const received: SessionLog[] = [];
-      flamecast.subscribe("s1", (event) => received.push(event));
+      const reader = stream!.getReader();
 
-      const startWatcher = getMethod<[unknown], void>(flamecast, "startFileSystemWatcher");
-      startWatcher(managed);
+      // Read events in background
+      const readAll = (async () => {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          received.push(value);
+        }
+      })();
 
       // Create multiple files rapidly
       await mkdir(path.join(workspaceRoot, "subdir"));
@@ -398,13 +392,14 @@ describe("filesystem watcher", () => {
       // Wait for debounce to fire
       await new Promise((resolve) => setTimeout(resolve, 600));
 
-      const fsEvents = received.filter((e) => e.type === SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT);
-      // Should produce a small number of events (1 or 2) — not one per file operation
-      expect(fsEvents.length).toBeLessThanOrEqual(2);
-      expect(fsEvents.length).toBeGreaterThanOrEqual(1);
+      // Cancel to stop the read loop
+      reader.releaseLock();
+      await stream!.cancel();
+      await readAll.catch(() => {});
 
-      const stopWatcher = getMethod<[unknown], void>(flamecast, "stopFileSystemWatcher");
-      stopWatcher(managed);
+      // Should produce a small number of events, not one per file op
+      expect(received.length).toBeLessThanOrEqual(2);
+      expect(received.length).toBeGreaterThanOrEqual(1);
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, watch, type FSWatcher } from "node:fs";
 import { readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
@@ -49,12 +48,10 @@ interface SessionTextChunkLogBuffer {
 interface ManagedSession {
   id: string;
   workspaceRoot: string;
-  runtimeProvider: string;
   pendingLogs: SessionLog[];
   bufferPendingLogs: boolean;
   transport: AcpTransport;
   terminate: () => Promise<void>;
-  fileSystemWatcher: FSWatcher | null;
   runtime: {
     connection: acp.ClientSideConnection | null;
     sessionTextChunkLogBuffer: SessionTextChunkLogBuffer | null;
@@ -190,7 +187,6 @@ export class Flamecast {
   private readonly permissionResolvers = new Map<string, PermissionResolver>();
   private readonly signalHandlers = new Map<ShutdownSignal, () => void>();
   private readonly sseSubscribers = new Map<string, Set<(event: SessionLog) => void>>();
-  private readonly fsWatcherDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly onSessionEvent?: (sessionId: string, event: SessionLog) => void;
   private readonly app = createServerApp(this);
   private storage: FlamecastStorage | null = null;
@@ -283,16 +279,14 @@ export class Flamecast {
 
     const startedAt = new Date().toISOString();
     const sessionId = randomUUID();
-    const startedRuntime = await provider.start({ runtime, spawn, sessionId });
+    const startedRuntime = await provider.start({ runtime, spawn, sessionId, cwd });
     const managed: ManagedSession = {
       id: "",
       workspaceRoot: cwd,
-      runtimeProvider: runtime.provider,
       pendingLogs: [],
       bufferPendingLogs: true,
       transport: startedRuntime.transport,
       terminate: startedRuntime.terminate,
-      fileSystemWatcher: null,
       runtime: {
         connection: null,
         sessionTextChunkLogBuffer: null,
@@ -363,7 +357,7 @@ export class Flamecast {
       managed.bufferPendingLogs = false;
 
       this.runtimes.set(managed.id, managed);
-      this.startFileSystemWatcher(managed);
+      this.pipeProviderEvents(managed.id, startedRuntime.events);
       return this.snapshotSession(managed.id);
     } catch (error) {
       await this.stopRuntime(startedRuntime);
@@ -448,7 +442,6 @@ export class Flamecast {
       this.permissionResolvers.delete(meta.pendingPermission.requestId);
     }
 
-    this.stopFileSystemWatcher(managed);
     await this.flushSessionTextChunkLogBuffer(managed);
     await managed.terminate();
     await this.pushLog(managed, "killed", {});
@@ -537,55 +530,18 @@ export class Flamecast {
     }
   }
 
-  private startFileSystemWatcher(managed: ManagedSession): void {
-    if (managed.runtimeProvider !== "local") {
-      return;
-    }
+  private pipeProviderEvents(sessionId: string, events?: ReadableStream<SessionLog>): void {
+    if (!events) return;
 
-    if (!existsSync(managed.workspaceRoot)) {
-      return;
-    }
-
-    try {
-      const watcher = watch(managed.workspaceRoot, { recursive: true }, () => {
-        const existing = this.fsWatcherDebounceTimers.get(managed.id);
-        if (existing) {
-          clearTimeout(existing);
-        }
-
-        this.fsWatcherDebounceTimers.set(
-          managed.id,
-          setTimeout(() => {
-            this.fsWatcherDebounceTimers.delete(managed.id);
-            if (!this.runtimes.has(managed.id)) return;
-
-            void this.buildFileSystemSnapshot(managed.workspaceRoot).then((snapshot) => {
-              this.emitSessionEvent(
-                managed.id,
-                this.createLogEntry(SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT, { snapshot }),
-              );
-            });
-          }, 300),
-        );
+    const reader = events.getReader();
+    const read = (): void => {
+      void reader.read().then(({ value, done }) => {
+        if (done || !this.runtimes.has(sessionId)) return;
+        this.emitSessionEvent(sessionId, value);
+        read();
       });
-
-      managed.fileSystemWatcher = watcher;
-    } catch {
-      // fs.watch may not support recursive on this platform — degrade gracefully
-    }
-  }
-
-  private stopFileSystemWatcher(managed: ManagedSession): void {
-    const timer = this.fsWatcherDebounceTimers.get(managed.id);
-    if (timer) {
-      clearTimeout(timer);
-      this.fsWatcherDebounceTimers.delete(managed.id);
-    }
-
-    if (managed.fileSystemWatcher) {
-      managed.fileSystemWatcher.close();
-      managed.fileSystemWatcher = null;
-    }
+    };
+    read();
   }
 
   private async shutdownFromSignal(signal: ShutdownSignal): Promise<void> {
