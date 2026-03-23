@@ -160,12 +160,8 @@
           "tableFrom": "session_logs",
           "tableTo": "sessions",
           "schemaTo": "flamecast",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
