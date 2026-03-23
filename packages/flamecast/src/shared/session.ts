@@ -111,3 +111,8 @@ export const PermissionResponseBodySchema = z.union([
   z.object({ outcome: z.literal("cancelled") }),
 ]);
 export type PermissionResponseBody = z.infer<typeof PermissionResponseBodySchema>;
+
+export const SESSION_EVENT_TYPES = {
+  FILESYSTEM_SNAPSHOT: "filesystem.snapshot",
+  SESSION_TERMINATED: "session.terminated",
+} as const;

@@ -1,6 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchFilePreview, fetchSession, respondToPermission, sendPrompt } from "@/client/lib/api";
+import {
+  fetchFilePreview,
+  fetchSession,
+  respondToPermission,
+  sendPrompt,
+  subscribeToSessionEvents,
+} from "@/client/lib/api";
 import { FileTree, FileTreeFile, FileTreeFolder } from "@/components/ai-elements/file-tree";
 import { sessionLogsToSegments } from "@/client/lib/logs-markdown";
 import { Fragment, useEffect, useMemo, useState } from "react";
@@ -51,8 +57,15 @@ function SessionDetailPage() {
   const { data: session, isLoading } = useQuery({
     queryKey: ["session", id, showAllFiles],
     queryFn: () => fetchSession(id, { includeFileSystem: true, showAllFiles }),
-    refetchInterval: 1000,
+    refetchInterval: 10_000, // Fallback polling; SSE handles real-time updates
   });
+
+  useEffect(() => {
+    const unsubscribe = subscribeToSessionEvents(id, () => {
+      queryClient.invalidateQueries({ queryKey: ["session", id] });
+    });
+    return unsubscribe;
+  }, [id, queryClient]);
 
   const promptMutation = useMutation({
     mutationFn: (text: string) => sendPrompt(id, text),

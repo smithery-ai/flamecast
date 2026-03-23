@@ -14,6 +14,7 @@ type ManagedSessionLike = {
     dispose?: () => Promise<void>;
   };
   terminate: () => Promise<void>;
+  fileSystemWatcher: unknown;
   runtime: {
     connection: null;
     sessionTextChunkLogBuffer: null;
@@ -41,6 +42,7 @@ function createManagedSession(id: string, workspaceRoot: string): ManagedSession
       output: passthrough.readable,
     },
     terminate: vi.fn(async () => {}),
+    fileSystemWatcher: null,
     runtime: {
       connection: null,
       sessionTextChunkLogBuffer: null,

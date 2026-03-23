@@ -61,6 +61,7 @@ function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastAp
     respondToPermission: vi.fn(
       async (_id: string, _requestId: string, _body: PermissionResponseBody) => undefined,
     ),
+    subscribe: vi.fn((_sessionId: string, _callback: (event: unknown) => void) => () => {}),
     ...overrides,
   };
 }
@@ -529,5 +530,31 @@ describe("API server surface", () => {
 
     expect(response.status).toBe(404);
     expect(flamecast.getSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("SSE events endpoint", () => {
+  it("returns 404 for non-existent session", async () => {
+    const flamecast = createFlamecastStub({
+      getSession: vi.fn(async () => {
+        throw new Error("not found");
+      }),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/unknown-id/events`);
+
+    expect(response.status).toBe(404);
+    expect(await readJson(response)).toEqual({ error: "Agent not found" });
+  });
+
+  it("opens SSE stream for valid session", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/${sampleAgentId}/events`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
   });
 });

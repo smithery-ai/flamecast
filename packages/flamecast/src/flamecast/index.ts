@@ -1,23 +1,25 @@
 import { randomUUID } from "node:crypto";
+import { existsSync, watch, type FSWatcher } from "node:fs";
 import { readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
-import type {
-  AgentSpawn,
-  AgentTemplate,
-  AgentTemplateRuntime,
-  CreateSessionBody,
-  FilePreview,
-  FileSystemEntry,
-  FileSystemSnapshot,
-  PendingPermission,
-  PendingPermissionOption,
-  PermissionResponseBody,
-  RegisterAgentTemplateBody,
-  Session,
-  SessionLog,
+import {
+  SESSION_EVENT_TYPES,
+  type AgentSpawn,
+  type AgentTemplate,
+  type AgentTemplateRuntime,
+  type CreateSessionBody,
+  type FilePreview,
+  type FileSystemEntry,
+  type FileSystemSnapshot,
+  type PendingPermission,
+  type PendingPermissionOption,
+  type PermissionResponseBody,
+  type RegisterAgentTemplateBody,
+  type Session,
+  type SessionLog,
 } from "../shared/session.js";
 import { createServerApp } from "../server/app.js";
 import { getBuiltinAgentTemplates, localRuntime } from "./agent-templates.js";
@@ -51,6 +53,7 @@ interface ManagedSession {
   bufferPendingLogs: boolean;
   transport: AcpTransport;
   terminate: () => Promise<void>;
+  fileSystemWatcher: FSWatcher | null;
   runtime: {
     connection: acp.ClientSideConnection | null;
     sessionTextChunkLogBuffer: SessionTextChunkLogBuffer | null;
@@ -69,6 +72,7 @@ export type FlamecastOptions = {
   runtimeProviders?: RuntimeProviderRegistry;
   agentTemplates?: AgentTemplate[];
   handleSignals?: boolean;
+  onSessionEvent?: (sessionId: string, event: SessionLog) => void;
 };
 
 async function loadGitIgnoreRules(workspaceRoot: string): Promise<GitIgnoreRule[]> {
@@ -184,6 +188,9 @@ export class Flamecast {
   private readonly runtimes = new Map<string, ManagedSession>();
   private readonly permissionResolvers = new Map<string, PermissionResolver>();
   private readonly signalHandlers = new Map<ShutdownSignal, () => void>();
+  private readonly sseSubscribers = new Map<string, Set<(event: SessionLog) => void>>();
+  private readonly fsWatcherDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly onSessionEvent?: (sessionId: string, event: SessionLog) => void;
   private readonly app = createServerApp(this);
   private storage: FlamecastStorage | null = null;
   private readyPromise: Promise<void> | null = null;
@@ -195,6 +202,7 @@ export class Flamecast {
   constructor(opts: FlamecastOptions = {}) {
     this.storageConfig = opts.storage;
     this.handleSignals = opts.handleSignals ?? true;
+    this.onSessionEvent = opts.onSessionEvent;
     this.runtimeProviders = resolveRuntimeProviders(opts.runtimeProviders);
     this.initialAgentTemplates = opts.agentTemplates ?? getBuiltinAgentTemplates();
     this.fetch = async (request: Request) => this.app.fetch(request);
@@ -282,6 +290,7 @@ export class Flamecast {
       bufferPendingLogs: true,
       transport: startedRuntime.transport,
       terminate: startedRuntime.terminate,
+      fileSystemWatcher: null,
       runtime: {
         connection: null,
         sessionTextChunkLogBuffer: null,
@@ -352,6 +361,7 @@ export class Flamecast {
       managed.bufferPendingLogs = false;
 
       this.runtimes.set(managed.id, managed);
+      this.startFileSystemWatcher(managed);
       return this.snapshotSession(managed.id);
     } catch (error) {
       await this.stopRuntime(startedRuntime);
@@ -436,11 +446,29 @@ export class Flamecast {
       this.permissionResolvers.delete(meta.pendingPermission.requestId);
     }
 
+    this.stopFileSystemWatcher(managed);
     await this.flushSessionTextChunkLogBuffer(managed);
     await managed.terminate();
     await this.pushLog(managed, "killed", {});
     await this.requireStorage().finalizeSession(id, "terminated");
+    this.emitSessionEvent(id, this.createLogEntry(SESSION_EVENT_TYPES.SESSION_TERMINATED, {}));
+    this.sseSubscribers.delete(id);
     this.runtimes.delete(id);
+  }
+
+  subscribe(sessionId: string, callback: (event: SessionLog) => void): () => void {
+    let subscribers = this.sseSubscribers.get(sessionId);
+    if (!subscribers) {
+      subscribers = new Set();
+      this.sseSubscribers.set(sessionId, subscribers);
+    }
+    subscribers.add(callback);
+    return () => {
+      subscribers.delete(callback);
+      if (subscribers.size === 0) {
+        this.sseSubscribers.delete(sessionId);
+      }
+    };
   }
 
   async respondToPermission(
@@ -491,6 +519,67 @@ export class Flamecast {
       process.off(signal, handler);
     }
     this.signalHandlers.clear();
+  }
+
+  private emitSessionEvent(sessionId: string, event: SessionLog): void {
+    this.onSessionEvent?.(sessionId, event);
+    const subscribers = this.sseSubscribers.get(sessionId);
+    if (subscribers) {
+      for (const callback of subscribers) {
+        try {
+          callback(event);
+        } catch {
+          // Subscriber errors must not disrupt the emitter
+        }
+      }
+    }
+  }
+
+  private startFileSystemWatcher(managed: ManagedSession): void {
+    if (!existsSync(managed.workspaceRoot)) {
+      return;
+    }
+
+    try {
+      const watcher = watch(managed.workspaceRoot, { recursive: true }, () => {
+        const existing = this.fsWatcherDebounceTimers.get(managed.id);
+        if (existing) {
+          clearTimeout(existing);
+        }
+
+        this.fsWatcherDebounceTimers.set(
+          managed.id,
+          setTimeout(() => {
+            this.fsWatcherDebounceTimers.delete(managed.id);
+            if (!this.runtimes.has(managed.id)) return;
+
+            void this.buildFileSystemSnapshot(managed.workspaceRoot).then((snapshot) => {
+              this.emitSessionEvent(
+                managed.id,
+                this.createLogEntry(SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT, { snapshot }),
+              );
+            });
+          }, 300),
+        );
+      });
+
+      managed.fileSystemWatcher = watcher;
+    } catch {
+      // fs.watch may not support recursive on this platform — degrade gracefully
+    }
+  }
+
+  private stopFileSystemWatcher(managed: ManagedSession): void {
+    const timer = this.fsWatcherDebounceTimers.get(managed.id);
+    if (timer) {
+      clearTimeout(timer);
+      this.fsWatcherDebounceTimers.delete(managed.id);
+    }
+
+    if (managed.fileSystemWatcher) {
+      managed.fileSystemWatcher.close();
+      managed.fileSystemWatcher = null;
+    }
   }
 
   private async shutdownFromSignal(signal: ShutdownSignal): Promise<void> {
@@ -757,6 +846,7 @@ export class Flamecast {
     const storage = this.requireStorage();
     await storage.appendLog(managed.id, entry);
     await storage.updateSession(managed.id, { lastUpdatedAt: entry.timestamp });
+    this.emitSessionEvent(managed.id, entry);
     return entry;
   }
 
@@ -775,6 +865,7 @@ export class Flamecast {
     const storage = this.requireStorage();
     await storage.appendLog(managed.id, entry);
     await storage.updateSession(managed.id, { lastUpdatedAt: entry.timestamp });
+    this.emitSessionEvent(managed.id, entry);
   }
 
   private async flushSessionTextChunkLogBuffer(managed: ManagedSession): Promise<void> {

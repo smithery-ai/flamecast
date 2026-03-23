@@ -1,12 +1,14 @@
 import { hc } from "hono/client";
 import type { AppType } from "@/flamecast/api";
-import type {
-  AgentTemplate,
-  CreateSessionBody,
-  FilePreview,
-  PermissionResponseBody,
-  RegisterAgentTemplateBody,
-  Session,
+import {
+  SessionLogSchema,
+  type AgentTemplate,
+  type CreateSessionBody,
+  type FilePreview,
+  type PermissionResponseBody,
+  type RegisterAgentTemplateBody,
+  type Session,
+  type SessionLog,
 } from "../../shared/session";
 
 const client = hc<AppType>("/api");
@@ -91,4 +93,31 @@ export async function respondToPermission(
     json: body,
   });
   if (!res.ok) throw new Error("Failed to respond to permission");
+}
+
+export function subscribeToSessionEvents(
+  sessionId: string,
+  onEvent: (event: SessionLog) => void,
+  onError?: (error: Event) => void,
+): () => void {
+  const eventSource = new EventSource(`/api/agents/${encodeURIComponent(sessionId)}/events`);
+
+  eventSource.onmessage = (e) => {
+    try {
+      const result = SessionLogSchema.safeParse(JSON.parse(e.data));
+      if (result.success) {
+        onEvent(result.data);
+      }
+    } catch {
+      // Skip malformed events
+    }
+  };
+
+  if (onError) {
+    eventSource.onerror = onError;
+  }
+
+  return () => {
+    eventSource.close();
+  };
 }

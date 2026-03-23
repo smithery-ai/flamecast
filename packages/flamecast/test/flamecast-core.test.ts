@@ -18,6 +18,7 @@ type ManagedSessionLike = {
     dispose?: () => Promise<void>;
   };
   terminate: () => Promise<void>;
+  fileSystemWatcher: unknown;
   runtime: {
     connection: {
       prompt: PromptHandler;
@@ -52,6 +53,7 @@ function createManagedSession(id: string, prompt?: PromptHandler) {
       output: passthrough.readable,
     },
     terminate: vi.fn(async () => {}),
+    fileSystemWatcher: null,
     runtime: {
       connection: prompt
         ? {

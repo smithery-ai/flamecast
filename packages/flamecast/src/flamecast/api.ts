@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { streamSSE } from "hono/streaming";
 import { zValidator } from "@hono/zod-validator";
 import type { Flamecast } from "./index.js";
 import {
@@ -7,6 +8,7 @@ import {
   PromptBodySchema,
   RegisterAgentTemplateBodySchema,
 } from "../shared/session.js";
+import type { SessionLog } from "../shared/session.js";
 
 export type FlamecastApi = Pick<
   Flamecast,
@@ -18,6 +20,7 @@ export type FlamecastApi = Pick<
   | "promptSession"
   | "registerAgentTemplate"
   | "respondToPermission"
+  | "subscribe"
   | "terminateSession"
 >;
 
@@ -77,6 +80,39 @@ export function createApi(flamecast: FlamecastApi) {
     })
     .get("/agents/:agentId", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
     .get("/agents/:agentId/", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
+    .get("/agents/:agentId/events", async (c) => {
+      const agentId = c.req.param("agentId");
+      try {
+        await flamecast.getSession(agentId);
+      } catch {
+        return c.json({ error: "Agent not found" }, 404);
+      }
+
+      return streamSSE(c, async (stream) => {
+        await stream.writeSSE({
+          event: "connected",
+          data: JSON.stringify({ sessionId: agentId }),
+        });
+
+        const callback = (event: SessionLog) => {
+          void stream.writeSSE({
+            event: event.type,
+            data: JSON.stringify(event),
+            id: event.timestamp,
+          });
+        };
+
+        const unsubscribe = flamecast.subscribe(agentId, callback);
+
+        try {
+          await new Promise<void>((resolve) => {
+            c.req.raw.signal.addEventListener("abort", () => resolve());
+          });
+        } finally {
+          unsubscribe();
+        }
+      });
+    })
     .get("/agents/:agentId/file", async (c) => {
       const path = c.req.query("path");
       if (!path) {
