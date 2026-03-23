@@ -16,5 +16,5 @@ export function useSessionEvents(
     if (eventTypes.length === 0) return events;
     const typeSet = new Set(eventTypes);
     return events.filter((e) => typeSet.has(e.type));
-  }, [events, ...eventTypes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [events, ...eventTypes]);
 }

@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AgentTemplate,
   CreateSessionBody,
-  FilePreview,
   RegisterAgentTemplateBody,
   Session,
 } from "../../src/shared/session.js";
@@ -30,13 +29,6 @@ const sampleSession: Session = {
 };
 
 const sampleAgentId = sampleSession.id;
-
-const sampleFilePreview: FilePreview = {
-  path: "src/app.tsx",
-  content: "console.log('preview');\n",
-  truncated: false,
-  maxChars: 20_000,
-};
 
 function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastApi {
   return {

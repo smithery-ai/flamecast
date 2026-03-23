@@ -1,19 +1,15 @@
 /* oxlint-disable no-type-assertion/no-type-assertion */
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
-import * as acp from "@agentclientprotocol/sdk";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { getBuiltinAgentTemplates } from "../src/flamecast/agent-templates.js";
 import { Flamecast } from "../src/flamecast/index.js";
-import { AcpBridge } from "../src/runtime/acp-bridge.js";
 import { LocalRuntimeClient } from "../src/runtime/local.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 
 type ManagedSessionLike = {
   id: string;
   workspaceRoot: string;
-  bridge: any;
+  bridge: unknown;
   terminate: () => Promise<void>;
   lastFileSystemSnapshot: null;
 };

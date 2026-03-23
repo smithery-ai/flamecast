@@ -27,6 +27,7 @@ import {
   FolderTreeIcon,
   SendIcon,
 } from "lucide-react";
+/* oxlint-disable no-type-assertion/no-type-assertion */
 import type { FileSystemEntry, PendingPermission, SessionLog } from "../../shared/session";
 import { useFlamecastSession } from "@/client/hooks/use-flamecast-session";
 

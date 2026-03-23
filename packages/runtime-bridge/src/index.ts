@@ -1,7 +1,8 @@
 #!/usr/bin/env node
+/* oxlint-disable no-type-assertion/no-type-assertion */
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { Writable, Readable } from "node:stream";
+import { Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import { WebSocketServer, WebSocket } from "ws";
 import { startFileWatcher, type FileChange } from "./file-watcher.js";
@@ -11,11 +12,11 @@ import { startFileWatcher, type FileChange } from "./file-watcher.js";
 const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT ?? "0", 10);
 const BRIDGE_WORKSPACE = process.env.BRIDGE_WORKSPACE ?? process.cwd();
 const AGENT_COMMAND = process.env.AGENT_COMMAND ?? "";
-const AGENT_ARGS = process.env.AGENT_ARGS ? JSON.parse(process.env.AGENT_ARGS) as string[] : [];
+const AGENT_ARGS: string[] = process.env.AGENT_ARGS ? JSON.parse(process.env.AGENT_ARGS) : [];
 const AGENT_CWD = process.env.AGENT_CWD ?? BRIDGE_WORKSPACE;
 const FILE_WATCHER_ENABLED = process.env.FILE_WATCHER_ENABLED !== "false";
-const FILE_WATCHER_IGNORE = process.env.FILE_WATCHER_IGNORE
-  ? (JSON.parse(process.env.FILE_WATCHER_IGNORE) as string[])
+const FILE_WATCHER_IGNORE: string[] = process.env.FILE_WATCHER_IGNORE
+  ? JSON.parse(process.env.FILE_WATCHER_IGNORE)
   : ["node_modules", ".git"];
 
 if (!AGENT_COMMAND) {

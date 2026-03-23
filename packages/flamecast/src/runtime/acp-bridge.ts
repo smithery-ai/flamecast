@@ -135,7 +135,8 @@ export class AcpBridge extends EventEmitter<AcpBridgeEvents> {
     this.turnActive = true;
     this.emitRpc(acp.AGENT_METHODS.session_prompt, "client_to_agent", "request", params);
     try {
-      const result = await this.connection!.prompt(params);
+      if (!this.connection) throw new Error("Not initialized");
+      const result = await this.connection.prompt(params);
       await this.flush();
       this.emitRpc(acp.AGENT_METHODS.session_prompt, "agent_to_client", "response", result);
       return result;
@@ -150,7 +151,8 @@ export class AcpBridge extends EventEmitter<AcpBridgeEvents> {
 
   private async drainQueue(): Promise<void> {
     while (this.promptQueue.length > 0 && !this.turnActive) {
-      const next = this.promptQueue.shift()!;
+      const next = this.promptQueue.shift();
+      if (!next) break;
       this.emit("log", {
         type: "queue_updated",
         data: { queue: this.promptQueue.map((q) => ({ id: q.id, text: this.extractPromptText(q.params) })) },

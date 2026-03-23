@@ -130,7 +130,7 @@ export class FlamecastSession {
     };
 
     ws.onmessage = (event) => {
-      this.handleMessage(event.data as string);
+      this.handleMessage(String(event.data));
     };
 
     ws.onclose = (event) => {
@@ -150,10 +150,14 @@ export class FlamecastSession {
 
   private handleMessage(data: string): void {
     try {
-      const msg = JSON.parse(data) as WsServerMessage;
+      const msg: WsServerMessage = JSON.parse(data);
 
       if (msg.type === "event") {
-        const sessionEvent = msg.event as SessionLog;
+        const sessionEvent: SessionLog = {
+          type: msg.event.type,
+          timestamp: msg.event.timestamp,
+          data: msg.event.data,
+        };
         console.log("[FlamecastSession] event:", sessionEvent.type, JSON.stringify(sessionEvent.data).slice(0, 200));
         this.eventBuffer.push(sessionEvent);
         for (const listener of this.listeners) {

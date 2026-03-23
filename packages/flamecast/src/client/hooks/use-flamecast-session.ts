@@ -55,8 +55,6 @@ export function useFlamecastSession(sessionId: string) {
         onStoreChange();
       });
     },
-    // Re-subscribe when session instance changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [websocketUrl, sessionId],
   );
 
@@ -76,7 +74,6 @@ export function useFlamecastSession(sessionId: string) {
         onStoreChange();
       });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [websocketUrl, sessionId],
   );
 

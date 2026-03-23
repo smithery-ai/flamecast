@@ -1,74 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { EventEmitter } from "node:events";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
-import { Flamecast } from "../src/flamecast/index.js";
 import { buildFileSystemSnapshot } from "../src/flamecast/runtime-provider.js";
 import { AcpBridge } from "../src/runtime/acp-bridge.js";
-import { LocalRuntimeClient } from "../src/runtime/local.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 
-type ManagedSessionLike = {
-  id: string;
-  workspaceRoot: string;
-  bridge: any;
-  terminate: () => Promise<void>;
-  inFlightPromptId: string | null;
-  promptQueue: Array<{ queueId: string; text: string; enqueuedAt: string }>;
-};
-
-function createMeta(id: string) {
-  return {
-    id,
-    agentName: "Example agent",
-    spawn: { command: "node", args: ["agent.js"] },
-    startedAt: "2024-01-01T00:00:00.000Z",
-    lastUpdatedAt: "2024-01-01T00:00:00.000Z",
-    status: "active" as const,
-    pendingPermission: null,
-  };
-}
-
-function createMockBridge() {
-  const emitter = new EventEmitter();
-  return Object.assign(emitter, {
-    initialize: vi.fn(),
-    newSession: vi.fn(),
-    prompt: vi.fn(),
-    resolvePermission: vi.fn(),
-    flush: vi.fn(async () => {}),
-    isInitialized: false,
-  });
-}
-
-function createManagedSession(id: string, workspaceRoot: string): ManagedSessionLike {
-  return {
-    id,
-    workspaceRoot,
-    bridge: createMockBridge(),
-    terminate: vi.fn(async () => {}),
-    lastFileSystemSnapshot: null,
-    inFlightPromptId: null,
-    promptQueue: [],
-  };
-}
-
-function attachStorage(flamecast: Flamecast, storage = new MemoryFlamecastStorage()) {
-  Reflect.set(flamecast, "storage", storage);
-  Reflect.set(flamecast, "readyPromise", Promise.resolve());
-  return storage;
-}
-
-function getRuntimeClient(flamecast: Flamecast): LocalRuntimeClient {
-  // oxlint-disable-next-line no-type-assertion/no-type-assertion
-  return Reflect.get(flamecast, "runtimeClient") as LocalRuntimeClient;
-}
-
-function getRuntimeMap(flamecast: Flamecast) {
-  // oxlint-disable-next-line no-type-assertion/no-type-assertion
-  return Reflect.get(getRuntimeClient(flamecast), "runtimes") as Map<string, ManagedSessionLike>;
-}
+/* oxlint-disable no-type-assertion/no-type-assertion */
 
 function getMethod<Args extends unknown[], Result>(
   target: object,
@@ -78,7 +15,6 @@ function getMethod<Args extends unknown[], Result>(
   if (typeof method !== "function") {
     throw new Error(`Expected ${name} to be a function`);
   }
-  // oxlint-disable-next-line no-type-assertion/no-type-assertion
   return method.bind(target) as (...args: Args) => Result;
 }
 

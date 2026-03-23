@@ -214,18 +214,20 @@ export class LocalRuntimeClient implements RuntimeClient, WsSessionHandler {
     const sessionId = managed.id;
 
     managed.bridge.on("rpc", (data) => {
+      const record: Record<string, unknown> = { ...data };
       this.broadcast(sessionId, {
         timestamp: new Date().toISOString(),
         type: "rpc",
-        data: data as unknown as Record<string, unknown>,
+        data: record,
       });
     });
 
     managed.bridge.on("permissionRequest", (data) => {
+      const record: Record<string, unknown> = { ...data };
       this.broadcast(sessionId, {
         timestamp: new Date().toISOString(),
         type: "permission_request",
-        data: data as unknown as Record<string, unknown>,
+        data: record,
       });
     });
 
