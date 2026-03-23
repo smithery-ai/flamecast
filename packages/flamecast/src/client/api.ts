@@ -77,11 +77,7 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
     rpc,
     async fetchAgentTemplates() {
       const response = await rpc["agent-templates"].$get();
-      return parseOkJson(
-        response,
-        z.array(AgentTemplateSchema),
-        "Failed to fetch agent templates",
-      );
+      return parseOkJson(response, z.array(AgentTemplateSchema), "Failed to fetch agent templates");
     },
     async registerAgentTemplate(body) {
       const response = await rpc["agent-templates"].$post({ json: body });

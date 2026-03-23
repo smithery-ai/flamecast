@@ -28,6 +28,7 @@ const sampleSession: Session = {
   status: "active",
   logs: [],
   pendingPermission: null,
+  promptQueue: null,
   fileSystem: null,
 };
 
