@@ -9,6 +9,8 @@ export type WsSessionHandler = {
   terminateSession(sessionId: string): Promise<void>;
   // Phase 6: these methods are optional during migration — the sidecar will provide them.
   subscribe?(sessionId: string, callback: (event: SessionLog) => void): () => void;
+  /** Return all past events for a session so new WS clients get full history on connect. */
+  getEventHistory?(sessionId: string): readonly SessionLog[];
   promptSession?(sessionId: string, text: string): Promise<unknown>;
   resolvePermission?(
     sessionId: string,
@@ -85,13 +87,19 @@ export class FlamecastWsServer {
     console.log("[WS] Client connected for session", sessionId);
     this.send(ws, { type: "connected", sessionId });
 
+    // Replay event history so refreshed clients get full state
+    if (this.handler.getEventHistory) {
+      const history = this.handler.getEventHistory(sessionId);
+      for (const event of history) {
+        this.send(ws, {
+          type: "event",
+          timestamp: event.timestamp,
+          event,
+        });
+      }
+    }
+
     // Subscribe to session events (if handler supports it)
-    console.log(
-      "[WS] handler.subscribe?",
-      !!this.handler.subscribe,
-      "handler.promptSession?",
-      !!this.handler.promptSession,
-    );
     if (this.handler.subscribe) {
       const unsubscribe = this.handler.subscribe(sessionId, (event) => {
         this.send(ws, {

@@ -40,6 +40,7 @@ type ManagedSessionLike = {
   terminate: () => Promise<void>;
   lastFileSystemSnapshot: null;
   subscribers: Set<(event: SessionLog) => void>;
+  eventHistory: SessionLog[];
 };
 
 function createMeta(id: string) {
@@ -62,6 +63,7 @@ function createManagedSession(id: string, workspaceRoot = process.cwd()) {
     terminate: vi.fn(async () => {}),
     lastFileSystemSnapshot: null,
     subscribers: new Set<(event: SessionLog) => void>(),
+    eventHistory: [] as SessionLog[],
   };
 }
 

@@ -23,6 +23,8 @@ interface ManagedSession {
   terminate: () => Promise<void>;
   lastFileSystemSnapshot: FileSystemSnapshot | null;
   subscribers: Set<(event: SessionLog) => void>;
+  /** All events emitted during this session, for replay on WS reconnect. */
+  eventHistory: SessionLog[];
 }
 
 type LocalRuntimeClientOptions = {
@@ -70,6 +72,7 @@ export class LocalRuntimeClient implements RuntimeClient, WsSessionHandler {
       terminate: startedRuntime.terminate,
       lastFileSystemSnapshot: null,
       subscribers: new Set(),
+      eventHistory: [],
     };
 
     try {
@@ -131,6 +134,11 @@ export class LocalRuntimeClient implements RuntimeClient, WsSessionHandler {
   }
 
   // ---- WsSessionHandler methods ----
+
+  getEventHistory(sessionId: string): readonly SessionLog[] {
+    const managed = this.runtimes.get(sessionId);
+    return managed?.eventHistory ?? [];
+  }
 
   subscribe(sessionId: string, callback: (event: SessionLog) => void): () => void {
     const managed = this.runtimes.get(sessionId);
@@ -248,6 +256,7 @@ export class LocalRuntimeClient implements RuntimeClient, WsSessionHandler {
   private broadcast(sessionId: string, event: SessionLog): void {
     const managed = this.runtimes.get(sessionId);
     if (!managed) return;
+    managed.eventHistory.push(event);
     for (const cb of managed.subscribers) {
       try {
         cb(event);
