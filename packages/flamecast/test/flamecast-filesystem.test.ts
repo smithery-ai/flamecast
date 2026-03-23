@@ -146,7 +146,7 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
     await writeFile(outsideFile, "outside");
     await symlink(outsideFile, path.join(workspaceRoot, "linked-outside.txt"));
 
-    const flamecast = new Flamecast({});
+    const flamecast = new Flamecast({ storage: "memory" });
     const storage = attachStorage(flamecast);
     const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("session-1", workspaceRoot);

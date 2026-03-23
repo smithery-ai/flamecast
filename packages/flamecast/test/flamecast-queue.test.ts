@@ -93,7 +93,7 @@ afterEach(() => {
 
 describe("prompt queue", () => {
   test("first prompt to idle session executes immediately", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const managed = createManagedSession("s1", async () => ({
       stopReason: "end_turn" as const,
@@ -109,7 +109,7 @@ describe("prompt queue", () => {
   });
 
   test("second prompt while busy is queued", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const d = deferred<acp.PromptResponse>();
     const managed = createManagedSession("s1", async () => d.promise);
@@ -140,7 +140,7 @@ describe("prompt queue", () => {
   });
 
   test("queued prompt auto-executes after turn completes", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const calls: string[] = [];
     const d = deferred<acp.PromptResponse>();
@@ -184,7 +184,7 @@ describe("prompt queue", () => {
   });
 
   test("FIFO ordering preserved", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const calls: string[] = [];
     const d = deferred<acp.PromptResponse>();
@@ -221,7 +221,7 @@ describe("prompt queue", () => {
   });
 
   test("queue overflow throws error", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const d = deferred<acp.PromptResponse>();
 
@@ -248,7 +248,7 @@ describe("prompt queue", () => {
   });
 
   test("cancel a queued prompt", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const d = deferred<acp.PromptResponse>();
 
@@ -276,7 +276,7 @@ describe("prompt queue", () => {
   });
 
   test("cancel non-existent queueId throws", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const managed = createManagedSession("s1", async () => ({
       stopReason: "end_turn" as const,
@@ -290,7 +290,7 @@ describe("prompt queue", () => {
   });
 
   test("terminate clears queue", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const d = deferred<acp.PromptResponse>();
 
@@ -333,7 +333,7 @@ describe("prompt queue", () => {
   });
 
   test("error in dequeued prompt does not break chain", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const calls: string[] = [];
     const d = deferred<acp.PromptResponse>();
@@ -377,7 +377,7 @@ describe("prompt queue", () => {
   });
 
   test("getQueueState returns correct shape", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const d = deferred<acp.PromptResponse>();
 
@@ -405,7 +405,7 @@ describe("prompt queue", () => {
   });
 
   test("dequeued prompt errors when connection lost", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const d = deferred<acp.PromptResponse>();
     let callCount = 0;
@@ -439,7 +439,7 @@ describe("prompt queue", () => {
   });
 
   test("session snapshot includes promptQueue", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const d = deferred<acp.PromptResponse>();
 

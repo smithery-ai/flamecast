@@ -89,7 +89,7 @@ afterEach(() => {
 
 describe("session event emission", () => {
   test("subscribe receives events from pushLog", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");
@@ -114,7 +114,7 @@ describe("session event emission", () => {
   });
 
   test("unsubscribe stops event delivery", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");
@@ -140,7 +140,7 @@ describe("session event emission", () => {
   });
 
   test("multiple subscribers receive the same event", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");
@@ -166,6 +166,7 @@ describe("session event emission", () => {
   test("onSessionEvent callback receives events", async () => {
     const onSessionEvent = vi.fn();
     const flamecast = new Flamecast({
+      storage: "memory",
       handleSignals: false,
       onSessionEvent,
     });
@@ -190,7 +191,7 @@ describe("session event emission", () => {
   });
 
   test("events are not emitted during bufferPendingLogs phase", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     attachStorage(flamecast);
     const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");
@@ -210,7 +211,7 @@ describe("session event emission", () => {
   });
 
   test("terminateSession emits session.terminated and cleans up subscribers", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const managed = createManagedSession("s1");
     managed.bufferPendingLogs = false;
@@ -233,7 +234,7 @@ describe("session event emission", () => {
   });
 
   test("subscriber errors do not disrupt other subscribers", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");
@@ -257,7 +258,7 @@ describe("session event emission", () => {
   });
 
   test("pushRpcLog also emits events", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");
@@ -280,7 +281,7 @@ describe("session event emission", () => {
   });
 
   test("pipeProviderEvents forwards events from a ReadableStream", async () => {
-    const flamecast = new Flamecast({ handleSignals: false });
+    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");

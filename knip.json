@@ -3,7 +3,8 @@
   "ignoreIssues": {
     "packages/flamecast/src/client/components/ui/**/*.tsx": ["exports"],
     "packages/flamecast/src/client/routes/**/*.tsx": ["exports"],
-    "packages/flamecast/src/components/ai-elements/file-tree.tsx": ["exports", "types"]
+    "packages/flamecast/src/components/ai-elements/file-tree.tsx": ["exports", "types"],
+    "packages/flamecast/src/flamecast/db/client.ts": ["exports"]
   },
   "workspaces": {
     "packages/flamecast": {
@@ -17,6 +18,7 @@
         "src/flamecast/index.ts",
         "src/index.ts",
         "src/worker.ts",
+        "src/flamecast/storage/psql/drizzle.config.ts",
         "test/**/*.test.ts"
       ],
       "ignoreFiles": [
@@ -36,10 +38,6 @@
         "sonner",
         "vaul"
       ]
-    },
-    "apps/server": {
-      "entry": ["src/**/*.ts", "test/**/*.test.ts"],
-      "ignoreBinaries": ["drizzle-kit", "tsx", "vitest"]
     }
   }
 }

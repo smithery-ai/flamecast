@@ -1,11 +1,8 @@
 import { pathToFileURL } from "node:url";
-import { Flamecast } from "@flamecast/sdk";
-import { createServerStorage } from "./storage/index.js";
+import { Flamecast } from "@acp/flamecast";
 
 export async function main() {
-  const flamecast = new Flamecast({
-    storage: await createServerStorage(),
-  });
+  const flamecast = new Flamecast();
   await flamecast.listen(3001);
   return flamecast;
 }
