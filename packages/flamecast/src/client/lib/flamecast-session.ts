@@ -98,6 +98,16 @@ export class FlamecastSession {
     this.sendControl({ action: "terminate" });
   }
 
+  /** Request a file preview from the sidecar. */
+  requestFilePreview(path: string): void {
+    this.sendControl({ action: "file.preview", path });
+  }
+
+  /** Request a filesystem snapshot from the sidecar. */
+  requestFsSnapshot(showAllFiles?: boolean): void {
+    this.sendControl({ action: "fs.snapshot", showAllFiles });
+  }
+
   // ---- Private ----
 
   private openWebSocket(): void {

@@ -3,7 +3,6 @@ import type { AppType } from "@/flamecast/api";
 import {
   type AgentTemplate,
   type CreateSessionBody,
-  type FilePreview,
   type RegisterAgentTemplateBody,
   type Session,
 } from "../../shared/session";
@@ -44,15 +43,6 @@ export async function fetchSession(
     },
   });
   if (!res.ok) throw new Error("Session not found");
-  return res.json();
-}
-
-export async function fetchFilePreview(id: string, path: string): Promise<FilePreview> {
-  const res = await client.agents[":agentId"].file.$get({
-    param: { agentId: id },
-    query: { path },
-  });
-  if (!res.ok) throw new Error("Failed to fetch file preview");
   return res.json();
 }
 

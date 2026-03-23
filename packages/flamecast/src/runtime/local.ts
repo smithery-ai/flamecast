@@ -1,19 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { readFile, realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { realpath } from "node:fs/promises";
+import { resolve } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import {
   FileSystemSnapshotSchema,
   SESSION_EVENT_TYPES,
   type AgentSpawn,
   type AgentTemplateRuntime,
-  type FilePreview,
   type FileSystemSnapshot,
   type SessionLog,
 } from "../shared/session.js";
 import type { FlamecastStorage } from "../flamecast/storage.js";
 import type { RuntimeProviderRegistry, StartedRuntime } from "../flamecast/runtime-provider.js";
-import { buildFileSystemSnapshot } from "../flamecast/runtime-provider.js";
 import type { RuntimeClient } from "./client.js";
 import { AcpBridge } from "./acp-bridge.js";
 
@@ -31,7 +29,6 @@ type LocalRuntimeClientOptions = {
 };
 
 export class LocalRuntimeClient implements RuntimeClient {
-  private static readonly MAX_FILE_PREVIEW_CHARS = 20_000;
   private readonly runtimeProviders: RuntimeProviderRegistry;
   private readonly getStorage: () => FlamecastStorage;
   private readonly runtimes = new Map<string, ManagedSession>();
@@ -89,7 +86,6 @@ export class LocalRuntimeClient implements RuntimeClient {
 
       managed.id = sessionResult.sessionId;
 
-      // Create the session row in storage (metadata only, no logs)
       const storage = this.getStorage();
       const now = new Date().toISOString();
 
@@ -120,35 +116,6 @@ export class LocalRuntimeClient implements RuntimeClient {
     await managed.terminate();
     await storage.finalizeSession(sessionId, "terminated");
     this.runtimes.delete(sessionId);
-  }
-
-  async getFileSystemSnapshot(
-    sessionId: string,
-    opts?: { showAllFiles?: boolean },
-  ): Promise<FileSystemSnapshot | null> {
-    const managed = this.runtimes.get(sessionId);
-    if (!managed) {
-      return null;
-    }
-    if (managed.lastFileSystemSnapshot && !opts?.showAllFiles) {
-      return managed.lastFileSystemSnapshot;
-    }
-    return buildFileSystemSnapshot(managed.workspaceRoot, {
-      showAllFiles: opts?.showAllFiles === true,
-    });
-  }
-
-  async getFilePreview(sessionId: string, path: string): Promise<FilePreview> {
-    const managed = this.resolveRuntime(sessionId);
-    const absolutePath = await this.resolvePreviewPath(managed.workspaceRoot, path);
-    const content = await readFile(absolutePath, "utf8");
-
-    return {
-      path,
-      content: content.slice(0, LocalRuntimeClient.MAX_FILE_PREVIEW_CHARS),
-      truncated: content.length > LocalRuntimeClient.MAX_FILE_PREVIEW_CHARS,
-      maxChars: LocalRuntimeClient.MAX_FILE_PREVIEW_CHARS,
-    };
   }
 
   hasSession(sessionId: string): boolean {
@@ -187,20 +154,6 @@ export class LocalRuntimeClient implements RuntimeClient {
       throw new Error(`Session "${id}" not found`);
     }
     return managed;
-  }
-
-  async resolvePreviewPath(workspaceRoot: string, path: string): Promise<string> {
-    if (isAbsolute(path)) {
-      throw new Error(`File preview paths must be relative: "${path}"`);
-    }
-
-    const requestedPath = resolve(workspaceRoot, path);
-    const realPath = await realpath(requestedPath);
-    const rel = relative(workspaceRoot, realPath);
-    if (rel.startsWith("..") || isAbsolute(rel)) {
-      throw new Error(`Path "${path}" is outside workspace root`);
-    }
-    return realPath;
   }
 
   async stopRuntime(runtime: StartedRuntime): Promise<void> {

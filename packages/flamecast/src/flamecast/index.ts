@@ -6,7 +6,6 @@ import type {
   AgentTemplate,
   AgentTemplateRuntime,
   CreateSessionBody,
-  FilePreview,
   RegisterAgentTemplateBody,
   Session,
 } from "../shared/session.js";
@@ -186,11 +185,6 @@ export class Flamecast {
     return this.snapshotSession(id, opts);
   }
 
-  async getFilePreview(id: string, path: string): Promise<FilePreview> {
-    await this.ensureReady();
-    return this.runtimeClient.getFilePreview(id, path);
-  }
-
   async terminateSession(id: string): Promise<void> {
     await this.ensureReady();
     if (!this.runtimeClient.hasSession(id)) {
@@ -332,18 +326,12 @@ export class Flamecast {
 
   private async snapshotSession(
     id: string,
-    opts: { includeFileSystem?: boolean; showAllFiles?: boolean } = {},
+    _opts: { includeFileSystem?: boolean; showAllFiles?: boolean } = {},
   ): Promise<Session> {
     const storage = this.requireStorage();
     const meta = await storage.getSessionMeta(id);
     if (!meta) {
       throw new Error(`Session "${id}" not found`);
-    }
-    let fileSystem = null;
-    if (opts.includeFileSystem) {
-      fileSystem = await this.runtimeClient.getFileSystemSnapshot(id, {
-        showAllFiles: opts.showAllFiles,
-      });
     }
     const websocketUrl =
       this.listenPort && this.runtimeClient.hasSession(id)
@@ -359,7 +347,7 @@ export class Flamecast {
             options: meta.pendingPermission.options.map((option) => ({ ...option })),
           }
         : null,
-      fileSystem,
+      fileSystem: null,
       promptQueue: null,
       websocketUrl,
     };

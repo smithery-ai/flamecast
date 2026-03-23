@@ -1,8 +1,3 @@
-import type {
-  FilePreview,
-  FileSystemSnapshot,
-} from "../shared/session.js";
-
 export interface RuntimeClient {
   startSession(opts: {
     agentName: string;
@@ -13,13 +8,6 @@ export interface RuntimeClient {
   }): Promise<{ sessionId: string }>;
 
   terminateSession(sessionId: string): Promise<void>;
-
-  getFileSystemSnapshot(
-    sessionId: string,
-    opts?: { showAllFiles?: boolean },
-  ): Promise<FileSystemSnapshot | null>;
-
-  getFilePreview(sessionId: string, path: string): Promise<FilePreview>;
 
   hasSession(sessionId: string): boolean;
   listSessionIds(): string[];

@@ -144,16 +144,9 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
     await writeFile(outsideFile, "outside");
     await symlink(outsideFile, path.join(workspaceRoot, "linked-outside.txt"));
 
-    const flamecast = new Flamecast({ storage: "memory" });
-    const storage = attachStorage(flamecast);
-    const rc = getRuntimeClient(flamecast);
-    const managed = createManagedSession("session-1", workspaceRoot);
-    await storage.createSession(createMeta("session-1"));
-    await storage.createSession(createMeta("session-2"));
-    getRuntimeMap(flamecast).set("session-1", managed);
-
-    const session = await flamecast.getSession("session-1", { includeFileSystem: true });
-    const fileSystemEntries = session.fileSystem?.entries.map((entry) => entry.path) ?? [];
+    // Test buildFileSystemSnapshot directly (no longer via Flamecast.getSession)
+    const snapshot = await buildFileSystemSnapshot(workspaceRoot);
+    const fileSystemEntries = snapshot.entries.map((entry) => entry.path);
 
     expect(fileSystemEntries).toContain("visible.txt");
     expect(fileSystemEntries).toContain("keep.log");
@@ -174,11 +167,8 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
     expect(fileSystemEntries).not.toContain("nested/ignored-subdir");
     expect(fileSystemEntries).not.toContain("nested/secret.txt");
 
-    const allFilesSession = await flamecast.getSession("session-1", {
-      includeFileSystem: true,
-      showAllFiles: true,
-    });
-    const allEntries = allFilesSession.fileSystem?.entries.map((entry) => entry.path) ?? [];
+    const allFilesSnapshot = await buildFileSystemSnapshot(workspaceRoot, { showAllFiles: true });
+    const allEntries = allFilesSnapshot.entries.map((entry) => entry.path);
     expect(allEntries).toContain(".git");
     expect(allEntries).toContain("ignored.txt");
     expect(allEntries).toContain("#literal.txt");
@@ -190,31 +180,6 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
     expect(allEntries).toContain("nested/exact.md");
     expect(allEntries).toContain("nested/ignored-subdir");
     expect(allEntries).toContain("nested/secret.txt");
-
-    const snapshotSession = getMethod<
-      [string, { includeFileSystem?: boolean; showAllFiles?: boolean }?],
-      Promise<{ fileSystem: { entries: Array<{ path: string }> } | null }>
-    >(flamecast, "snapshotSession");
-    const missingRuntimeSession = await snapshotSession("session-2", {
-      includeFileSystem: true,
-    });
-    expect(missingRuntimeSession.fileSystem).toBeNull();
-
-    const preview = await flamecast.getFilePreview("session-1", "preview.txt");
-    expect(preview.path).toBe("preview.txt");
-    expect(preview.content).toHaveLength(20_000);
-    expect(preview.truncated).toBe(true);
-
-    const resolvePreviewPath = getMethod<[string, string], Promise<string>>(
-      rc,
-      "resolvePreviewPath",
-    );
-    await expect(resolvePreviewPath(workspaceRoot, outsideFile)).rejects.toThrow(
-      `File preview paths must be relative: "${outsideFile}"`,
-    );
-    await expect(resolvePreviewPath(workspaceRoot, "linked-outside.txt")).rejects.toThrow(
-      'Path "linked-outside.txt" is outside workspace root',
-    );
 
     const realBridge = new AcpBridge(
       { input: new TransformStream<Uint8Array, Uint8Array>().writable, output: new TransformStream<Uint8Array, Uint8Array>().readable },

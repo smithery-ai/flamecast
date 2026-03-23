@@ -46,7 +46,6 @@ function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastAp
       async (_id: string, _opts?: { includeFileSystem?: boolean; showAllFiles?: boolean }) =>
         sampleSession,
     ),
-    getFilePreview: vi.fn(async (_id: string, _path: string) => sampleFilePreview),
     listSessions: vi.fn(async () => [sampleSession]),
     listAgentTemplates: vi.fn(async () => [sampleAgentTemplate]),
     registerAgentTemplate: vi.fn(async (body: RegisterAgentTemplateBody) => ({
@@ -284,43 +283,12 @@ describe("API server surface", () => {
     });
   });
 
-  it("fetches a file preview", async () => {
+  it("returns 404 for file preview route (removed)", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request(
-      `/api/agents/${sampleAgentId}/file?path=${encodeURIComponent(sampleFilePreview.path)}`,
-    );
-
-    expect(response.status).toBe(200);
-    expect(await readJson(response)).toEqual(sampleFilePreview);
-    expect(flamecast.getFilePreview).toHaveBeenCalledWith(sampleAgentId, sampleFilePreview.path);
-  });
-
-  it("returns 400 when file preview path is missing", async () => {
-    const flamecast = createFlamecastStub();
-    const app = createServerApp(flamecast);
-
-    const response = await app.request(`/api/agents/${sampleAgentId}/file`);
-
-    expect(response.status).toBe(400);
-    expect(await readJson(response)).toEqual({ error: "Missing path" });
-  });
-
-  it("returns 400 for file preview errors", async () => {
-    const flamecast = createFlamecastStub({
-      getFilePreview: vi.fn(async () => {
-        throw new Error("preview failed");
-      }),
-    });
-    const app = createServerApp(flamecast);
-
-    const response = await app.request(
-      `/api/agents/${sampleAgentId}/file?path=${encodeURIComponent(sampleFilePreview.path)}`,
-    );
-
-    expect(response.status).toBe(400);
-    expect(await readJson(response)).toEqual({ error: "preview failed" });
+    const response = await app.request(`/api/agents/${sampleAgentId}/file?path=test.txt`);
+    expect(response.status).toBe(404);
   });
 
   it("returns 404 for unknown agents", async () => {

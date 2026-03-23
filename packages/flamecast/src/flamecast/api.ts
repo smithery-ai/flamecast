@@ -9,7 +9,6 @@ import {
 export type FlamecastApi = Pick<
   Flamecast,
   | "createSession"
-  | "getFilePreview"
   | "getSession"
   | "listAgentTemplates"
   | "listSessions"
@@ -73,18 +72,6 @@ export function createApi(flamecast: FlamecastApi) {
     })
     .get("/agents/:agentId", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
     .get("/agents/:agentId/", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
-    .get("/agents/:agentId/file", async (c) => {
-      const path = c.req.query("path");
-      if (!path) {
-        return c.json({ error: "Missing path" }, 400);
-      }
-      try {
-        const preview = await flamecast.getFilePreview(c.req.param("agentId"), path);
-        return c.json(preview);
-      } catch (error) {
-        return c.json({ error: toErrorMessage(error) }, 400);
-      }
-    })
     .delete("/agents/:agentId", async (c) => {
       try {
         await flamecast.terminateSession(c.req.param("agentId"));

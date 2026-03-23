@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { fetchFilePreview, fetchSession } from "@/client/lib/api";
+import { fetchSession } from "@/client/lib/api";
 import { FileTree, FileTreeFile, FileTreeFolder } from "@/components/ai-elements/file-tree";
 import { sessionLogsToSegments } from "@/client/lib/logs-markdown";
 import { Fragment, useEffect, useMemo, useState } from "react";
@@ -117,16 +117,8 @@ function SessionDetailPage() {
 
   const selectedEntry = selectedPath ? (fileEntryMap.get(selectedPath) ?? null) : null;
 
-  const previewQuery = useQuery({
-    queryKey: ["session-file-preview", id, selectedPath],
-    queryFn: () => {
-      if (!selectedPath) {
-        throw new Error("No file selected");
-      }
-      return fetchFilePreview(id, selectedPath);
-    },
-    enabled: Boolean(selectedPath && selectedEntry?.type === "file"),
-  });
+  // File preview is now served by the sidecar via WebSocket
+  // TODO: Implement WS-based file preview request/response
 
   const handlePermission = (
     requestId: string,
@@ -418,25 +410,8 @@ function SessionDetailPage() {
                   <EmptyPreview message="No file selected." />
                 ) : selectedEntry.type !== "file" ? (
                   <EmptyPreview message="Select a file to preview its contents." />
-                ) : previewQuery.isLoading ? (
-                  <div className="space-y-3 p-4">
-                    <Skeleton className="h-5 w-48" />
-                    <Skeleton className="h-64 w-full" />
-                  </div>
-                ) : previewQuery.isError ? (
-                  <EmptyPreview message="Failed to load file preview." />
                 ) : (
-                  <div className="flex min-h-full flex-col">
-                    <pre className="min-h-full overflow-auto whitespace-pre-wrap break-words bg-muted/30 p-4 font-mono text-xs leading-6 text-foreground">
-                      {previewQuery.data?.content ?? ""}
-                    </pre>
-                    {previewQuery.data?.truncated ? (
-                      <div className="border-t px-4 py-2 text-xs text-muted-foreground">
-                        Preview truncated at {previewQuery.data.maxChars.toLocaleString()}{" "}
-                        characters.
-                      </div>
-                    ) : null}
-                  </div>
+                  <EmptyPreview message="File preview coming soon via WebSocket." />
                 )}
               </div>
             </section>
