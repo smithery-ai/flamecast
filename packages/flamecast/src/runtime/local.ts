@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { realpath } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import {
@@ -13,6 +13,7 @@ import {
 import type { FlamecastStorage } from "../flamecast/storage.js";
 import type { RuntimeProviderRegistry, StartedRuntime } from "../flamecast/runtime-provider.js";
 import type { RuntimeClient } from "./client.js";
+import type { WsSessionHandler } from "./ws-server.js";
 import { AcpBridge } from "./acp-bridge.js";
 
 interface ManagedSession {
@@ -21,6 +22,7 @@ interface ManagedSession {
   bridge: AcpBridge;
   terminate: () => Promise<void>;
   lastFileSystemSnapshot: FileSystemSnapshot | null;
+  subscribers: Set<(event: SessionLog) => void>;
 }
 
 type LocalRuntimeClientOptions = {
@@ -28,7 +30,7 @@ type LocalRuntimeClientOptions = {
   getStorage: () => FlamecastStorage;
 };
 
-export class LocalRuntimeClient implements RuntimeClient {
+export class LocalRuntimeClient implements RuntimeClient, WsSessionHandler {
   private readonly runtimeProviders: RuntimeProviderRegistry;
   private readonly getStorage: () => FlamecastStorage;
   private readonly runtimes = new Map<string, ManagedSession>();
@@ -67,6 +69,7 @@ export class LocalRuntimeClient implements RuntimeClient {
       bridge,
       terminate: startedRuntime.terminate,
       lastFileSystemSnapshot: null,
+      subscribers: new Set(),
     };
 
     try {
@@ -100,6 +103,7 @@ export class LocalRuntimeClient implements RuntimeClient {
       });
 
       this.runtimes.set(managed.id, managed);
+      this.pipeBridgeEvents(managed);
       this.pipeProviderEvents(managed.id, startedRuntime.events);
       return { sessionId: managed.id };
     } catch (error) {
@@ -126,7 +130,125 @@ export class LocalRuntimeClient implements RuntimeClient {
     return [...this.runtimes.keys()];
   }
 
+  // ---- WsSessionHandler methods ----
+
+  subscribe(sessionId: string, callback: (event: SessionLog) => void): () => void {
+    const managed = this.runtimes.get(sessionId);
+    if (!managed) {
+      return () => {};
+    }
+    managed.subscribers.add(callback);
+
+    // Send initial filesystem snapshot if available
+    console.log("[subscribe] lastFileSystemSnapshot?", !!managed.lastFileSystemSnapshot, "entries:", managed.lastFileSystemSnapshot?.entries?.length);
+    if (managed.lastFileSystemSnapshot) {
+      callback({
+        timestamp: new Date().toISOString(),
+        type: SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT,
+        data: { snapshot: managed.lastFileSystemSnapshot },
+      });
+    }
+
+    return () => {
+      managed.subscribers.delete(callback);
+    };
+  }
+
+  async promptSession(sessionId: string, text: string): Promise<unknown> {
+    const managed = this.resolveRuntime(sessionId);
+    return managed.bridge.prompt({
+      sessionId: managed.id,
+      prompt: [{ type: "text", text }],
+    });
+  }
+
+  async cancelQueuedPrompt(sessionId: string, queueId: string): Promise<void> {
+    const managed = this.resolveRuntime(sessionId);
+    managed.bridge.cancelQueuedPrompt(queueId);
+  }
+
+  async resolvePermission(
+    sessionId: string,
+    requestId: string,
+    body: { optionId: string } | { outcome: "cancelled" },
+  ): Promise<void> {
+    const managed = this.resolveRuntime(sessionId);
+    if ("optionId" in body) {
+      managed.bridge.resolvePermission(requestId, {
+        outcome: { outcome: "selected", optionId: body.optionId },
+      });
+    } else {
+      managed.bridge.resolvePermission(requestId, { outcome: { outcome: "cancelled" } });
+    }
+    // Broadcast resolution so UI clears the permission card
+    this.broadcast(sessionId, {
+      timestamp: new Date().toISOString(),
+      type: "permission_responded",
+      data: { requestId },
+    });
+  }
+
+  async readFileContent(
+    sessionId: string,
+    path: string,
+  ): Promise<{ content: string; truncated: boolean; maxChars: number }> {
+    const managed = this.resolveRuntime(sessionId);
+    const MAX_CHARS = 100_000;
+    const absolutePath = resolve(managed.workspaceRoot, path);
+    // Prevent path traversal
+    if (!absolutePath.startsWith(managed.workspaceRoot)) {
+      throw new Error("Path outside workspace");
+    }
+    const raw = await readFile(absolutePath, "utf8");
+    const truncated = raw.length > MAX_CHARS;
+    return {
+      content: truncated ? raw.slice(0, MAX_CHARS) : raw,
+      truncated,
+      maxChars: MAX_CHARS,
+    };
+  }
+
   // ---- Internal helpers ----
+
+  private pipeBridgeEvents(managed: ManagedSession): void {
+    const sessionId = managed.id;
+
+    managed.bridge.on("rpc", (data) => {
+      this.broadcast(sessionId, {
+        timestamp: new Date().toISOString(),
+        type: "rpc",
+        data: data as unknown as Record<string, unknown>,
+      });
+    });
+
+    managed.bridge.on("permissionRequest", (data) => {
+      this.broadcast(sessionId, {
+        timestamp: new Date().toISOString(),
+        type: "permission_request",
+        data: data as unknown as Record<string, unknown>,
+      });
+    });
+
+    managed.bridge.on("log", (data) => {
+      this.broadcast(sessionId, {
+        timestamp: new Date().toISOString(),
+        type: data.type,
+        data: data.data,
+      });
+    });
+  }
+
+  private broadcast(sessionId: string, event: SessionLog): void {
+    const managed = this.runtimes.get(sessionId);
+    if (!managed) return;
+    for (const cb of managed.subscribers) {
+      try {
+        cb(event);
+      } catch {
+        // subscriber error — ignore
+      }
+    }
+  }
 
   private pipeProviderEvents(sessionId: string, events?: ReadableStream<SessionLog>): void {
     if (!events) return;
@@ -142,6 +264,7 @@ export class LocalRuntimeClient implements RuntimeClient {
             managed.lastFileSystemSnapshot = parsed.data;
           }
         }
+        this.broadcast(sessionId, value);
         read();
       });
     };

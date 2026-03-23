@@ -37,7 +37,7 @@
     "dev": "vite",
     "build": "pnpm run build:client && pnpm run build:package",
     "build:client": "vite build",
-    "build:package": "tsc -p tsconfig.package.json && cp -r src/flamecast/storage/psql/migrations dist/flamecast/storage/psql/migrations",
+    "build:package": "tsc -p tsconfig.package.json && cp -r src/flamecast/storage/psql/migrations dist/flamecast/storage/psql/migrations && cp src/flamecast/agent.ts dist/flamecast/agent.ts",
     "generate:routes": "tsx scripts/generate-route-tree.ts",
     "psql:generate": "drizzle-kit generate --config src/flamecast/storage/psql/drizzle.config.ts",
     "start": "node dist/cli.js",

@@ -16,6 +16,7 @@ export type WsSessionHandler = {
     body: { optionId: string } | { outcome: "cancelled" },
   ): Promise<void>;
   cancelQueuedPrompt?(sessionId: string, queueId: string): Promise<void>;
+  readFileContent?(sessionId: string, path: string): Promise<{ content: string; truncated: boolean; maxChars: number }>;
 };
 
 /**
@@ -78,9 +79,11 @@ export class FlamecastWsServer {
     sessionConns.add(ws);
 
     // Send connected message
+    console.log("[WS] Client connected for session", sessionId);
     this.send(ws, { type: "connected", sessionId });
 
     // Subscribe to session events (if handler supports it)
+    console.log("[WS] handler.subscribe?", !!this.handler.subscribe, "handler.promptSession?", !!this.handler.promptSession);
     if (this.handler.subscribe) {
       const unsubscribe = this.handler.subscribe(sessionId, (event) => {
         this.send(ws, {
@@ -155,6 +158,21 @@ export class FlamecastWsServer {
         case "ping":
           this.send(ws, { type: "connected", sessionId });
           break;
+
+        case "file.preview": {
+          if (!this.handler.readFileContent) {
+            throw new Error("File preview not supported on this handler");
+          }
+          const result = await this.handler.readFileContent(sessionId, msg.path);
+          this.send(ws, {
+            type: "file.preview",
+            path: msg.path,
+            content: result.content,
+            truncated: result.truncated,
+            maxChars: result.maxChars,
+          });
+          break;
+        }
       }
     } catch (error) {
       this.send(ws, {

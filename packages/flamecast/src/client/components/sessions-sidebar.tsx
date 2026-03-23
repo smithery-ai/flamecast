@@ -27,7 +27,7 @@ export function SessionsSidebar() {
   const { data: sessions, isLoading } = useQuery({
     queryKey: ["sessions"],
     queryFn: fetchSessions,
-    refetchInterval: 3000,
+    refetchInterval: 30_000,
   });
 
   const terminateMutation = useMutation({

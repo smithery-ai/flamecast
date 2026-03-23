@@ -349,6 +349,16 @@ export function createFileSystemEventStream(
   try {
     return new ReadableStream<SessionLog>({
       start(controller) {
+        // Emit initial snapshot immediately
+        void buildFileSystemSnapshot(workspaceRoot).then((snapshot) => {
+          if (cancelled) return;
+          controller.enqueue({
+            timestamp: new Date().toISOString(),
+            type: SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT,
+            data: { snapshot },
+          });
+        });
+
         watcher = watch(workspaceRoot, { recursive: true }, () => {
           if (cancelled) return;
 

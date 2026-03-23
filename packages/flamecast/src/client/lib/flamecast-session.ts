@@ -28,6 +28,7 @@ export class FlamecastSession {
   private readonly listeners = new Set<EventCallback>();
   private readonly stateListeners = new Set<(state: ConnectionState) => void>();
   private readonly eventBuffer: SessionLog[] = [];
+  private readonly filePreviewResolvers = new Map<string, (result: { content: string; truncated: boolean; maxChars: number }) => void>();
 
   constructor(opts: FlamecastSessionOptions) {
     this.sessionId = opts.sessionId;
@@ -98,9 +99,18 @@ export class FlamecastSession {
     this.sendControl({ action: "terminate" });
   }
 
-  /** Request a file preview from the sidecar. */
-  requestFilePreview(path: string): void {
-    this.sendControl({ action: "file.preview", path });
+  /** Request a file preview from the sidecar. Returns the file content. */
+  requestFilePreview(path: string): Promise<{ content: string; truncated: boolean; maxChars: number }> {
+    return new Promise((resolve, reject) => {
+      this.filePreviewResolvers.set(path, resolve);
+      this.sendControl({ action: "file.preview", path });
+      // Timeout after 10s
+      setTimeout(() => {
+        if (this.filePreviewResolvers.delete(path)) {
+          reject(new Error("File preview request timed out"));
+        }
+      }, 10_000);
+    });
   }
 
   /** Request a filesystem snapshot from the sidecar. */
@@ -116,21 +126,23 @@ export class FlamecastSession {
     ws.onopen = () => {
       this.reconnectAttempts = 0;
       this.setConnectionState("connected");
+      console.log("[FlamecastSession] WS connected to", this.websocketUrl);
     };
 
     ws.onmessage = (event) => {
       this.handleMessage(event.data as string);
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      console.log("[FlamecastSession] WS closed", event.code, event.reason);
       this.ws = null;
       if (this._connectionState !== "disconnected") {
         this.attemptReconnect();
       }
     };
 
-    ws.onerror = () => {
-      // onclose will fire after onerror
+    ws.onerror = (event) => {
+      console.error("[FlamecastSession] WS error", event);
     };
 
     this.ws = ws;
@@ -142,6 +154,7 @@ export class FlamecastSession {
 
       if (msg.type === "event") {
         const sessionEvent = msg.event as SessionLog;
+        console.log("[FlamecastSession] event:", sessionEvent.type, JSON.stringify(sessionEvent.data).slice(0, 200));
         this.eventBuffer.push(sessionEvent);
         for (const listener of this.listeners) {
           try {
@@ -149,6 +162,12 @@ export class FlamecastSession {
           } catch {
             // Listener errors must not disrupt
           }
+        }
+      } else if (msg.type === "file.preview") {
+        const resolver = this.filePreviewResolvers.get(msg.path);
+        if (resolver) {
+          this.filePreviewResolvers.delete(msg.path);
+          resolver({ content: msg.content, truncated: msg.truncated, maxChars: msg.maxChars });
         }
       }
     } catch {

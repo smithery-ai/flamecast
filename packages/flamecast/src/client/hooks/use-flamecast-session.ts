@@ -51,7 +51,7 @@ export function useFlamecastSession(sessionId: string) {
       if (!session) return () => {};
 
       return session.on(() => {
-        eventsSnapshotRef.current = session.events;
+        eventsSnapshotRef.current = [...session.events];
         onStoreChange();
       });
     },
@@ -61,7 +61,7 @@ export function useFlamecastSession(sessionId: string) {
   );
 
   const getEventsSnapshot = useCallback(() => {
-    return sessionRef.current?.events ?? eventsSnapshotRef.current;
+    return eventsSnapshotRef.current;
   }, []);
 
   const events = useSyncExternalStore(subscribeToEvents, getEventsSnapshot, getEventsSnapshot);
@@ -110,6 +110,10 @@ export function useFlamecastSession(sessionId: string) {
     sessionRef.current?.terminate();
   }, []);
 
+  const requestFilePreview = useCallback((path: string) => {
+    return sessionRef.current?.requestFilePreview(path) ?? Promise.reject(new Error("No session"));
+  }, []);
+
   return {
     events,
     connectionState,
@@ -118,5 +122,6 @@ export function useFlamecastSession(sessionId: string) {
     respondToPermission,
     cancel,
     terminate,
+    requestFilePreview,
   };
 }

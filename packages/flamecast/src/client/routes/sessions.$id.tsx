@@ -27,7 +27,7 @@ import {
   FolderTreeIcon,
   SendIcon,
 } from "lucide-react";
-import type { FileSystemEntry, SessionLog } from "../../shared/session";
+import type { FileSystemEntry, PendingPermission, SessionLog } from "../../shared/session";
 import { useFlamecastSession } from "@/client/hooks/use-flamecast-session";
 
 export const Route = createFileRoute("/sessions/$id")({
@@ -55,13 +55,14 @@ function SessionDetailPage() {
     isConnected,
     prompt: wsPrompt,
     respondToPermission: wsRespondToPermission,
+    requestFilePreview,
   } = useFlamecastSession(id);
 
   // REST for initial session metadata and file system
   const { data: session, isLoading } = useQuery({
     queryKey: ["session", id, showAllFiles],
     queryFn: () => fetchSession(id, { includeFileSystem: true, showAllFiles }),
-    refetchInterval: 10_000,
+    staleTime: Infinity, // WS handles real-time updates
   });
 
   // Merge: use WS events if available, fall back to REST logs
@@ -70,31 +71,59 @@ function SessionDetailPage() {
     return session?.logs ?? [];
   }, [wsEvents, session?.logs]);
 
-  // Derive pending permission from the latest events
+  // Derive pending permission from WS events
   const pendingPermission = useMemo(() => {
-    // Check WS events for latest permission state, fall back to REST
-    if (wsEvents.length > 0) {
-      // Walk events backwards to find the latest permission state
-      for (let i = wsEvents.length - 1; i >= 0; i--) {
-        const event = wsEvents[i];
-        if (
-          event.type === "permission_approved" ||
-          event.type === "permission_rejected" ||
-          event.type === "permission_cancelled" ||
-          event.type === "permission_responded"
-        ) {
-          return null; // Permission was resolved
-        }
-        if (event.type === "rpc" && event.data.method === "session/request_permission" && event.data.direction === "agent_to_client" && event.data.phase === "request") {
-          // Permission request found but we need structured data — fall back to REST
-          break;
+    for (let i = wsEvents.length - 1; i >= 0; i--) {
+      const event = wsEvents[i];
+      // Permission was resolved
+      if (
+        event.type === "permission_approved" ||
+        event.type === "permission_rejected" ||
+        event.type === "permission_cancelled" ||
+        event.type === "permission_responded"
+      ) {
+        return null;
+      }
+      // Permission request from bridge event
+      if (event.type === "permission_request" && event.data.pendingPermission) {
+        return event.data.pendingPermission as PendingPermission;
+      }
+      // Permission request from RPC passthrough
+      if (
+        event.type === "rpc" &&
+        event.data.method === "session/request_permission" &&
+        event.data.direction === "agent_to_client" &&
+        event.data.phase === "request"
+      ) {
+        // The bridge also emits a permission_request event with structured data,
+        // so this is a fallback — extract what we can from the RPC payload
+        const payload = event.data.payload as Record<string, unknown> | undefined;
+        if (payload) {
+          return (payload as { pendingPermission?: PendingPermission }).pendingPermission ?? null;
         }
       }
     }
     return session?.pendingPermission ?? null;
   }, [wsEvents, session?.pendingPermission]);
 
-  const fileEntries = session?.fileSystem?.entries ?? [];
+  // Derive file system data from WS filesystem events, fall back to REST
+  const { fileEntries, workspaceRoot } = useMemo(() => {
+    // Walk backwards to find latest filesystem.snapshot
+    for (let i = wsEvents.length - 1; i >= 0; i--) {
+      const event = wsEvents[i];
+      if (event.type === "filesystem.snapshot" && event.data.snapshot) {
+        const snapshot = event.data.snapshot as { root?: string; entries?: FileSystemEntry[] };
+        return {
+          fileEntries: snapshot.entries ?? [],
+          workspaceRoot: snapshot.root ?? null,
+        };
+      }
+    }
+    return {
+      fileEntries: session?.fileSystem?.entries ?? [],
+      workspaceRoot: session?.fileSystem?.root ?? null,
+    };
+  }, [wsEvents, session?.fileSystem?.entries, session?.fileSystem?.root]);
   const fileEntryMap = useMemo(
     () => new Map(fileEntries.map((entry) => [entry.path, entry])),
     [fileEntries],
@@ -117,8 +146,33 @@ function SessionDetailPage() {
 
   const selectedEntry = selectedPath ? (fileEntryMap.get(selectedPath) ?? null) : null;
 
-  // File preview is now served by the sidecar via WebSocket
-  // TODO: Implement WS-based file preview request/response
+  // File preview via WebSocket
+  const [filePreview, setFilePreview] = useState<{ content: string; truncated: boolean } | null>(null);
+  const [filePreviewLoading, setFilePreviewLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedPath || !selectedEntry || selectedEntry.type !== "file" || !isConnected) {
+      setFilePreview(null);
+      return;
+    }
+    let cancelled = false;
+    setFilePreviewLoading(true);
+    requestFilePreview(selectedPath)
+      .then((result) => {
+        if (!cancelled) {
+          setFilePreview({ content: result.content, truncated: result.truncated });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFilePreview(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setFilePreviewLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [selectedPath, selectedEntry, isConnected, requestFilePreview]);
 
   const handlePermission = (
     requestId: string,
@@ -359,7 +413,7 @@ function SessionDetailPage() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium">Files</p>
                   <p className="truncate text-xs text-muted-foreground">
-                    {session.fileSystem?.root ?? "No workspace root"}
+                    {workspaceRoot ?? "No workspace root"}
                   </p>
                 </div>
                 <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
@@ -373,7 +427,7 @@ function SessionDetailPage() {
                 </label>
               </div>
               <div className="min-h-0 flex-1 overflow-auto p-3">
-                {!session.fileSystem || fileTree.length === 0 ? (
+                {fileTree.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
                     No filesystem entries returned.
                   </p>
@@ -410,8 +464,17 @@ function SessionDetailPage() {
                   <EmptyPreview message="No file selected." />
                 ) : selectedEntry.type !== "file" ? (
                   <EmptyPreview message="Select a file to preview its contents." />
+                ) : filePreviewLoading ? (
+                  <EmptyPreview message="Loading..." />
+                ) : filePreview ? (
+                  <pre className="whitespace-pre-wrap break-all p-4 text-xs font-mono">
+                    {filePreview.content}
+                    {filePreview.truncated && (
+                      <span className="text-muted-foreground">{"\n\n--- File truncated ---"}</span>
+                    )}
+                  </pre>
                 ) : (
-                  <EmptyPreview message="File preview coming soon via WebSocket." />
+                  <EmptyPreview message="Could not load file preview." />
                 )}
               </div>
             </section>

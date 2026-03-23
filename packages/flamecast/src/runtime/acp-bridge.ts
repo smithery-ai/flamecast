@@ -52,10 +52,19 @@ type PermissionResolver = (response: acp.RequestPermissionResponse) => void;
  *
  * This is the unit that will eventually become the sidecar process.
  */
+export type QueuedPrompt = {
+  id: string;
+  params: acp.PromptRequest;
+  resolve: (result: acp.PromptResponse) => void;
+  reject: (error: unknown) => void;
+};
+
 export class AcpBridge extends EventEmitter<AcpBridgeEvents> {
   private connection: acp.ClientSideConnection | null = null;
   private textChunkBuffer: TextChunkBuffer | null = null;
   private readonly permissionResolvers = new Map<string, PermissionResolver>();
+  private turnActive = false;
+  private readonly promptQueue: QueuedPrompt[] = [];
 
   constructor(
     private readonly transport: AcpTransport,
@@ -85,19 +94,80 @@ export class AcpBridge extends EventEmitter<AcpBridgeEvents> {
     return result;
   }
 
-  /** Send a prompt to the agent. */
+  /** Send a prompt to the agent. Queues if a turn is already active. */
   async prompt(params: acp.PromptRequest): Promise<acp.PromptResponse> {
     if (!this.connection) throw new Error("Not initialized");
+
+    if (this.turnActive) {
+      // Queue it and return a promise that resolves when this prompt's turn completes
+      return new Promise<acp.PromptResponse>((resolve, reject) => {
+        const queued: QueuedPrompt = { id: randomUUID(), params, resolve, reject };
+        this.promptQueue.push(queued);
+        this.emit("log", {
+          type: "queue_updated",
+          data: { queue: this.promptQueue.map((q) => ({ id: q.id, text: this.extractPromptText(q.params) })) },
+        });
+      });
+    }
+
+    return this.executePrompt(params);
+  }
+
+  /** Cancel a queued prompt by id. Returns true if found and removed. */
+  cancelQueuedPrompt(queueId: string): boolean {
+    const index = this.promptQueue.findIndex((q) => q.id === queueId);
+    if (index === -1) return false;
+    const [removed] = this.promptQueue.splice(index, 1);
+    removed.reject(new Error("Prompt cancelled"));
+    this.emit("log", {
+      type: "queue_updated",
+      data: { queue: this.promptQueue.map((q) => ({ id: q.id, text: this.extractPromptText(q.params) })) },
+    });
+    return true;
+  }
+
+  /** Get the current prompt queue. */
+  getPromptQueue(): Array<{ id: string; text: string }> {
+    return this.promptQueue.map((q) => ({ id: q.id, text: this.extractPromptText(q.params) }));
+  }
+
+  private async executePrompt(params: acp.PromptRequest): Promise<acp.PromptResponse> {
+    this.turnActive = true;
     this.emitRpc(acp.AGENT_METHODS.session_prompt, "client_to_agent", "request", params);
     try {
-      const result = await this.connection.prompt(params);
+      const result = await this.connection!.prompt(params);
       await this.flush();
       this.emitRpc(acp.AGENT_METHODS.session_prompt, "agent_to_client", "response", result);
       return result;
     } catch (error) {
       await this.flush();
       throw error;
+    } finally {
+      this.turnActive = false;
+      void this.drainQueue();
     }
+  }
+
+  private async drainQueue(): Promise<void> {
+    while (this.promptQueue.length > 0 && !this.turnActive) {
+      const next = this.promptQueue.shift()!;
+      this.emit("log", {
+        type: "queue_updated",
+        data: { queue: this.promptQueue.map((q) => ({ id: q.id, text: this.extractPromptText(q.params) })) },
+      });
+      try {
+        const result = await this.executePrompt(next.params);
+        next.resolve(result);
+      } catch (error) {
+        next.reject(error);
+      }
+    }
+  }
+
+  private extractPromptText(params: acp.PromptRequest): string {
+    const first = params.prompt?.[0];
+    if (first && "text" in first && typeof first.text === "string") return first.text;
+    return "(prompt)";
   }
 
   /**
@@ -299,42 +369,7 @@ export class AcpBridge extends EventEmitter<AcpBridgeEvents> {
   // ---- Private: Text chunk coalescing ----
 
   private async handleSessionUpdate(params: acp.SessionNotification): Promise<void> {
-    const update = params.update;
-    if (
-      (update.sessionUpdate === "agent_message_chunk" ||
-        update.sessionUpdate === "user_message_chunk" ||
-        update.sessionUpdate === "agent_thought_chunk") &&
-      update.content.type === "text" &&
-      typeof update.content.text === "string"
-    ) {
-      const kind = update.sessionUpdate;
-      const messageId = update.messageId ?? null;
-      const buffer = this.textChunkBuffer;
-
-      if (
-        buffer &&
-        (buffer.sessionId !== params.sessionId ||
-          buffer.kind !== kind ||
-          (buffer.messageId ?? null) !== messageId)
-      ) {
-        await this.flush();
-      }
-
-      const next = this.textChunkBuffer;
-      if (next) {
-        next.texts.push(update.content.text);
-      } else {
-        this.textChunkBuffer = {
-          sessionId: params.sessionId,
-          kind,
-          messageId,
-          texts: [update.content.text],
-        };
-      }
-      return;
-    }
-
-    await this.flush();
+    // Emit every update immediately for real-time streaming to WS clients
     this.emitRpc(acp.CLIENT_METHODS.session_update, "agent_to_client", "notification", params);
   }
 
