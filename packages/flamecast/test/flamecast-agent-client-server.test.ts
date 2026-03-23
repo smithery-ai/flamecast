@@ -342,6 +342,223 @@ describe("example agent", () => {
     }
   });
 
+  test("covers remaining permission branches and utility edge cases", async () => {
+    const workspaceDir = await mkdtemp(path.join(tmpdir(), "example-agent-branches-"));
+
+    try {
+      let readCallCount = 0;
+      const readTextFile = vi.fn(async () => {
+        readCallCount++;
+        // First call throws (file doesn't exist yet), subsequent calls return content
+        if (readCallCount <= 1) {
+          throw new Error("missing");
+        }
+        return { content: "# Flamecast Approval Demo\n\n## Update 1\n\nhello\n" };
+      });
+      const writeTextFile = vi.fn(async (params: acp.WriteTextFileRequest) => {
+        await writeFile(params.path, params.content, "utf8");
+        return {};
+      });
+
+      // Permission sequence:
+      // Prompt 1 (allow → append reject → delete reject): 3 permissions
+      // Prompt 2 (allow → append allow → undo reject → delete cancelled): 4 permissions
+      // Prompt 3 (allow → append cancelled): 2 permissions
+      // Prompt 4 (allow → append allow → undo cancelled): 3 permissions
+      // Prompt 5 with long prompt (allow → append allow → undo allow → delete reject): 4 permissions
+      const requestPermission = vi
+        .fn()
+        // Prompt 1: allow, append reject, delete reject
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "allow" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "reject" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "reject" } })
+        // Prompt 2: allow, append allow, undo reject, delete cancelled
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "allow" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "allow" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "reject" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "cancelled" } })
+        // Prompt 3: allow, append cancelled
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "allow" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "cancelled" } })
+        // Prompt 4: allow, append allow, undo cancelled
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "allow" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "allow" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "cancelled" } })
+        // Prompt 5 with long text: allow, append allow, undo allow, delete reject
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "allow" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "allow" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "allow" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "reject" } });
+
+      const connection = {
+        sessionUpdate: vi.fn(async () => {}),
+        readTextFile,
+        requestPermission,
+        writeTextFile,
+      };
+      const agent = new ExampleAgent(connection as unknown as acp.AgentSideConnection);
+      Reflect.set(
+        agent,
+        "delayBetweenStreamChunks",
+        vi.fn(async () => {}),
+      );
+      Reflect.set(
+        agent,
+        "simulateModelInteraction",
+        vi.fn(async () => {}),
+      );
+
+      await agent.initialize({ protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} });
+      const session = await agent.newSession({ cwd: workspaceDir, mcpServers: [] });
+
+      // Prompt 1: covers append reject + delete reject
+      const r1 = await agent.prompt({
+        sessionId: session.sessionId,
+        prompt: [{ type: "text", text: "hello" }],
+      });
+      expect(r1).toEqual({ stopReason: "end_turn" });
+
+      // Prompt 2: covers readExistingProposal success + undo reject + delete cancelled
+      const r2 = await agent.prompt({
+        sessionId: session.sessionId,
+        prompt: [{ type: "text", text: "second" }],
+      });
+      expect(r2).toEqual({ stopReason: "end_turn" });
+
+      // Prompt 3: covers append cancelled
+      const r3 = await agent.prompt({
+        sessionId: session.sessionId,
+        prompt: [{ type: "text", text: "third" }],
+      });
+      expect(r3).toEqual({ stopReason: "end_turn" });
+
+      // Prompt 4: covers undo cancelled
+      const r4 = await agent.prompt({
+        sessionId: session.sessionId,
+        prompt: [{ type: "text", text: "fourth" }],
+      });
+      expect(r4).toEqual({ stopReason: "end_turn" });
+
+      // Prompt 5: long prompt text covers buildExtraLine > 60 chars branch
+      const r5 = await agent.prompt({
+        sessionId: session.sessionId,
+        prompt: [
+          { type: "text", text: "" },
+          {
+            type: "text",
+            text: "This is a very long prompt text that exceeds sixty characters in total length for testing",
+          },
+        ],
+      });
+      expect(r5).toEqual({ stopReason: "end_turn" });
+
+      // Prompt 6: allow, append unexpected → throws
+      requestPermission
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "allow" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "unexpected" } });
+      await expect(
+        agent.prompt({
+          sessionId: session.sessionId,
+          prompt: [{ type: "text", text: "p6" }],
+        }),
+      ).rejects.toThrow("Unexpected permission outcome");
+
+      // Prompt 7: allow, append allow, undo unexpected → throws
+      requestPermission
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "allow" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "allow" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "unexpected" } });
+      await expect(
+        agent.prompt({
+          sessionId: session.sessionId,
+          prompt: [{ type: "text", text: "p7" }],
+        }),
+      ).rejects.toThrow("Unexpected permission outcome");
+
+      // Prompt 8: allow, append allow, undo allow, delete unexpected → throws
+      requestPermission
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "allow" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "allow" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "allow" } })
+        .mockResolvedValueOnce({ outcome: { outcome: "selected", optionId: "unexpected" } });
+      await expect(
+        agent.prompt({
+          sessionId: session.sessionId,
+          prompt: [{ type: "text", text: "p8" }],
+        }),
+      ).rejects.toThrow("Unexpected permission outcome");
+
+      expect(readTextFile).toHaveBeenCalled();
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  test("covers utility method edge cases via private access", async () => {
+    const connection = {
+      sessionUpdate: vi.fn(async () => {}),
+      requestPermission: vi.fn(),
+      readTextFile: vi.fn(async () => ({ content: "test" })),
+      writeTextFile: vi.fn(async () => ({})),
+    };
+    const agent = new ExampleAgent(connection as unknown as acp.AgentSideConnection);
+
+    const getPromptText = getPrivateMethod<[acp.PromptRequest["prompt"]], string>(
+      agent,
+      "getPromptText",
+    );
+    const takeTrailingLines = getPrivateMethod<[string, number], string>(
+      agent,
+      "takeTrailingLines",
+    );
+
+    // getPromptText with empty/whitespace-only items
+    expect(getPromptText([{ type: "text", text: "   " }])).toBe("");
+    expect(getPromptText([{ type: "text", text: "" }])).toBe("");
+
+    // takeTrailingLines with empty string returns a single newline (one empty line)
+    expect(takeTrailingLines("", 3)).toBe("\n");
+
+    // buildProposedDiff with empty promptText exercises the || fallback (line 684)
+    const buildProposedDiff = getPrivateMethod<
+      [{ appliedEditCount: number; proposalPath: string }, string, string | null],
+      acp.Diff
+    >(agent, "buildProposedDiff");
+    const diffEmpty = buildProposedDiff(
+      { appliedEditCount: 0, proposalPath: "/tmp/test.md" },
+      "   ",
+      null,
+    );
+    expect(diffEmpty.newText).toContain("No prompt text was provided.");
+
+    // buildProposedDiff with existing oldText (line 686 branch)
+    const diffWithOld = buildProposedDiff(
+      { appliedEditCount: 1, proposalPath: "/tmp/test.md" },
+      "update",
+      "# Existing\n",
+    );
+    expect(diffWithOld.newText).toContain("# Existing");
+    expect(diffWithOld.newText).toContain("update");
+
+    // buildAppendLineEdit when oldText doesn't end with \n (line 711)
+    const buildAppendLineEdit = getPrivateMethod<
+      [string, string, string],
+      { newText: string; previewDiff: acp.Diff }
+    >(agent, "buildAppendLineEdit");
+    const appendNoTrailingNewline = buildAppendLineEdit("/tmp/test.md", "no newline", "hello");
+    expect(appendNoTrailingNewline.newText).toContain("no newline\n");
+
+    // buildExtraLine with empty prompt text (line 739)
+    const buildExtraLine = getPrivateMethod<[string], string>(agent, "buildExtraLine");
+    expect(buildExtraLine("   ")).toContain("No prompt text was provided.");
+    // buildExtraLine with long prompt text > 60 chars (line 740)
+    const longPrompt = "A".repeat(70);
+    expect(buildExtraLine(longPrompt)).toContain("...");
+
+    // takeTrailingLines with text that doesn't end in newline
+    expect(takeTrailingLines("a\nb\nc", 2)).toBe("b\nc\n");
+  });
+
   test("covers private chunking helpers and uint8 stream conversion", async () => {
     vi.useFakeTimers();
 
