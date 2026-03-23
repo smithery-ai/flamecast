@@ -1,4 +1,5 @@
 /* oxlint-disable no-type-assertion/no-type-assertion */
+import { EventEmitter } from "node:events";
 import * as acp from "@agentclientprotocol/sdk";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
@@ -8,25 +9,46 @@ import type { SessionLog } from "../src/shared/session.js";
 
 type PromptHandler = (params: acp.PromptRequest) => Promise<acp.PromptResponse>;
 
+type MockBridge = EventEmitter & {
+  isInitialized: boolean;
+  prompt: (params: acp.PromptRequest) => Promise<acp.PromptResponse>;
+  flush: () => Promise<void>;
+  resolvePermission: () => void;
+  initialize: () => Promise<unknown>;
+  newSession: () => Promise<unknown>;
+};
+
+function createMockBridge(promptHandler?: PromptHandler): MockBridge {
+  const emitter = new EventEmitter();
+  let _initialized = promptHandler != null;
+  return Object.assign(emitter, {
+    get isInitialized() {
+      return _initialized;
+    },
+    set isInitialized(val: boolean) {
+      _initialized = val;
+    },
+    prompt: promptHandler
+      ? async (params: acp.PromptRequest) => promptHandler(params)
+      : async () => {
+          throw new Error("not initialized");
+        },
+    flush: async () => {},
+    resolvePermission: () => {},
+    initialize: async () => ({}) as unknown,
+    newSession: async () => ({}) as unknown,
+  }) as MockBridge;
+}
+
 type ManagedSessionLike = {
   id: string;
   workspaceRoot: string;
   pendingLogs: SessionLog[];
   bufferPendingLogs: boolean;
-  transport: {
-    input: WritableStream<Uint8Array>;
-    output: ReadableStream<Uint8Array>;
-    dispose?: () => Promise<void>;
-  };
+  bridge: MockBridge;
   terminate: () => Promise<void>;
   inFlightPromptId: string | null;
   promptQueue: Array<{ queueId: string; text: string; enqueuedAt: string }>;
-  runtime: {
-    connection: {
-      prompt: PromptHandler;
-    } | null;
-    sessionTextChunkLogBuffer: null;
-  };
 };
 
 function createMeta(id: string) {
@@ -42,24 +64,16 @@ function createMeta(id: string) {
 }
 
 function createManagedSession(id: string, prompt?: PromptHandler) {
-  const passthrough = new TransformStream<Uint8Array, Uint8Array>();
   return {
     id,
     workspaceRoot: process.cwd(),
     pendingLogs: [] as SessionLog[],
     bufferPendingLogs: false,
-    transport: {
-      input: passthrough.writable,
-      output: passthrough.readable,
-    },
+    bridge: createMockBridge(prompt),
     terminate: vi.fn(async () => {}),
     lastFileSystemSnapshot: null,
     inFlightPromptId: null,
     promptQueue: [],
-    runtime: {
-      connection: prompt ? { prompt } : null,
-      sessionTextChunkLogBuffer: null,
-    },
   } satisfies ManagedSessionLike;
 }
 
@@ -425,8 +439,8 @@ describe("prompt queue", () => {
 
     await flamecast.promptSession("s1", "queued");
 
-    // Null the connection before the queued prompt can execute
-    managed.runtime.connection = null;
+    // Mark bridge as not initialized before the queued prompt can execute
+    managed.bridge.isInitialized = false;
 
     d.resolve({ stopReason: "end_turn" });
     await firstPromise;
