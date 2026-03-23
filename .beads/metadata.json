@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "flamecast_v2",
+  "project_id": "079f9ca6-5ecd-4534-8a12-781dc0479f45"
+}
