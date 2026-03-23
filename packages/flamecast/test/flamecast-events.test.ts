@@ -172,7 +172,10 @@ describe("session event emission", () => {
     await pushLog(managed, "test_event", { key: "value" });
 
     expect(onSessionEvent).toHaveBeenCalledOnce();
-    expect(onSessionEvent).toHaveBeenCalledWith("s1", expect.objectContaining({ type: "test_event" }));
+    expect(onSessionEvent).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ type: "test_event" }),
+    );
   });
 
   test("events are not emitted during bufferPendingLogs phase", async () => {
@@ -252,10 +255,10 @@ describe("session event emission", () => {
     const received: SessionLog[] = [];
     flamecast.subscribe("s1", (event) => received.push(event));
 
-    const pushRpcLog = getMethod<
-      [unknown, string, string, string, unknown],
-      Promise<void>
-    >(flamecast, "pushRpcLog");
+    const pushRpcLog = getMethod<[unknown, string, string, string, unknown], Promise<void>>(
+      flamecast,
+      "pushRpcLog",
+    );
     await pushRpcLog(managed, "test_method", "client_to_agent", "request", { data: 1 });
 
     expect(received).toHaveLength(1);
@@ -290,9 +293,7 @@ describe("filesystem watcher", () => {
       // Wait for debounce (300ms) + some margin
       await new Promise((resolve) => setTimeout(resolve, 600));
 
-      const fsEvents = received.filter(
-        (e) => e.type === SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT,
-      );
+      const fsEvents = received.filter((e) => e.type === SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT);
       expect(fsEvents.length).toBeGreaterThanOrEqual(1);
 
       const snapshot = fsEvents[0].data.snapshot;
@@ -311,17 +312,32 @@ describe("filesystem watcher", () => {
     const workspaceRoot = await mkdtemp(path.join(process.cwd(), ".flamecast-events-"));
     try {
       const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
-      attachStorage(flamecast);
+      const storage = attachStorage(flamecast);
       const managed = createManagedSession("s1", workspaceRoot);
+      managed.bufferPendingLogs = false;
       getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
+      await storage.createSession(createMeta("s1"));
+
+      const received: SessionLog[] = [];
+      flamecast.subscribe("s1", (event) => received.push(event));
 
       const startWatcher = getMethod<[unknown], void>(flamecast, "startFileSystemWatcher");
       startWatcher(managed);
       expect(managed.fileSystemWatcher).not.toBeNull();
 
+      // Trigger a file change to start a debounce timer
+      await writeFile(path.join(workspaceRoot, "trigger.txt"), "data");
+      // Give fs.watch a moment to fire (but less than debounce timeout)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Stop watcher while debounce timer is still pending
       const stopWatcher = getMethod<[unknown], void>(flamecast, "stopFileSystemWatcher");
       stopWatcher(managed);
       expect(managed.fileSystemWatcher).toBeNull();
+
+      // Verify the debounce timer was cleared (no event should fire)
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(received).toHaveLength(0);
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
@@ -363,9 +379,7 @@ describe("filesystem watcher", () => {
       // Wait for debounce to fire
       await new Promise((resolve) => setTimeout(resolve, 600));
 
-      const fsEvents = received.filter(
-        (e) => e.type === SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT,
-      );
+      const fsEvents = received.filter((e) => e.type === SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT);
       // Should produce a small number of events (1 or 2) — not one per file operation
       expect(fsEvents.length).toBeLessThanOrEqual(2);
       expect(fsEvents.length).toBeGreaterThanOrEqual(1);
