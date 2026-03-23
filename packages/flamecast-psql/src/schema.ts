@@ -1,12 +1,4 @@
-import {
-  boolean,
-  index,
-  integer,
-  jsonb,
-  pgSchema,
-  text,
-  timestamp,
-} from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgSchema, text, timestamp } from "drizzle-orm/pg-core";
 import type {
   AgentSpawn,
   AgentTemplateRuntime,
