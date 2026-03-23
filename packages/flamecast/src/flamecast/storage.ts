@@ -1,11 +1,11 @@
-import type { AgentTemplate, Session, SessionLog } from "../shared/session.js";
+import type { AgentTemplate, Session } from "../shared/session.js";
 
 /** Durable slice of {@link Session} (everything except runtime-only state). */
 export type SessionMeta = Omit<Session, "fileSystem" | "logs" | "promptQueue">;
 
 /**
  * Durable backing store for orchestrator state. Runtime (child process, ACP stream)
- * stays in memory; storage is the source of truth for metadata and logs.
+ * stays in memory; storage is the source of truth for metadata.
  */
 export type FlamecastStorage = {
   /**
@@ -22,11 +22,8 @@ export type FlamecastStorage = {
     id: string,
     patch: Partial<Pick<SessionMeta, "lastUpdatedAt" | "pendingPermission">>,
   ): Promise<void>;
-  appendLog(sessionId: string, log: SessionLog): Promise<void>;
   getSessionMeta(id: string): Promise<SessionMeta | null>;
-  getLogs(sessionId: string): Promise<SessionLog[]>;
   /** Return all sessions (active + killed), ordered by lastUpdatedAt desc. */
   listAllSessions(): Promise<SessionMeta[]>;
-  /** Called after the last termination log is appended — e.g. mark row dead (SQL) or evict (memory). */
   finalizeSession(id: string, reason: "terminated"): Promise<void>;
 };

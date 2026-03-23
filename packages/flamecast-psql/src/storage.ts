@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, not } from "drizzle-orm";
-import type { AgentTemplate, SessionLog } from "@flamecast/sdk/shared/session";
+import type { AgentTemplate } from "@flamecast/sdk/shared/session";
 import type { FlamecastStorage, SessionMeta } from "@flamecast/sdk";
-import { agentTemplates, sessionLogs, sessions } from "./schema.js";
+import { agentTemplates, sessions } from "./schema.js";
 import type { PsqlAppDb } from "./types.js";
 
 function rowToMeta(row: typeof sessions.$inferSelect | undefined): SessionMeta | null {
@@ -133,31 +133,9 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
       await db.update(sessions).set(updates).where(eq(sessions.id, id));
     },
 
-    async appendLog(sessionId: string, log: SessionLog) {
-      await db.insert(sessionLogs).values({
-        sessionId,
-        occurredAt: log.timestamp,
-        type: log.type,
-        data: log.data,
-      });
-    },
-
     async getSessionMeta(id: string) {
       const rows = await db.select().from(sessions).where(eq(sessions.id, id)).limit(1);
       return rowToMeta(rows[0]);
-    },
-
-    async getLogs(sessionId: string): Promise<SessionLog[]> {
-      const rows = await db
-        .select()
-        .from(sessionLogs)
-        .where(eq(sessionLogs.sessionId, sessionId))
-        .orderBy(asc(sessionLogs.id));
-      return rows.map((r) => ({
-        timestamp: r.occurredAt,
-        type: r.type,
-        data: r.data,
-      }));
     },
 
     async listAllSessions() {
