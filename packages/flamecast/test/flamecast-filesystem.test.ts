@@ -16,6 +16,8 @@ type ManagedSessionLike = {
     dispose?: () => Promise<void>;
   };
   terminate: () => Promise<void>;
+  inFlightPromptId: string | null;
+  promptQueue: Array<{ queueId: string; text: string; enqueuedAt: string }>;
   runtime: {
     connection: null;
     sessionTextChunkLogBuffer: null;
@@ -44,6 +46,9 @@ function createManagedSession(id: string, workspaceRoot: string): ManagedSession
       output: passthrough.readable,
     },
     terminate: vi.fn(async () => {}),
+    lastFileSystemSnapshot: null,
+    inFlightPromptId: null,
+    promptQueue: [],
     runtime: {
       connection: null,
       sessionTextChunkLogBuffer: null,

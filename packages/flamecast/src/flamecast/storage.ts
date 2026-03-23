@@ -3,8 +3,8 @@ import { createDatabase } from "./db/client.js";
 import { MemoryFlamecastStorage } from "./storage/memory/index.js";
 import { createPsqlStorage } from "./storage/psql/index.js";
 
-/** Durable slice of {@link Session} (everything except `logs`). */
-export type SessionMeta = Omit<Session, "fileSystem" | "logs">;
+/** Durable slice of {@link Session} (everything except runtime-only state). */
+export type SessionMeta = Omit<Session, "fileSystem" | "logs" | "promptQueue">;
 
 /**
  * Durable backing store for orchestrator state. Runtime (child process, ACP stream)

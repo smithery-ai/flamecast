@@ -12,6 +12,8 @@ import {
   type PendingPermission,
   type PendingPermissionOption,
   type PermissionResponseBody,
+  type PromptQueueState,
+  type QueuedPromptResponse,
   type SessionLog,
 } from "../shared/session.js";
 import type { FlamecastStorage } from "../flamecast/storage.js";
@@ -39,6 +41,8 @@ interface ManagedSession {
   transport: AcpTransport;
   terminate: () => Promise<void>;
   lastFileSystemSnapshot: FileSystemSnapshot | null;
+  inFlightPromptId: string | null;
+  promptQueue: Array<{ queueId: string; text: string; enqueuedAt: string }>;
   runtime: {
     connection: acp.ClientSideConnection | null;
     sessionTextChunkLogBuffer: SessionTextChunkLogBuffer | null;
@@ -53,6 +57,7 @@ type LocalRuntimeClientOptions = {
 
 export class LocalRuntimeClient implements RuntimeClient {
   private static readonly MAX_FILE_PREVIEW_CHARS = 20_000;
+  private static readonly MAX_QUEUE_SIZE = 50;
   private readonly runtimeProviders: RuntimeProviderRegistry;
   private readonly getStorage: () => FlamecastStorage;
   private readonly onSessionEvent?: (sessionId: string, event: SessionLog) => void;
@@ -95,6 +100,8 @@ export class LocalRuntimeClient implements RuntimeClient {
       transport: startedRuntime.transport,
       terminate: startedRuntime.terminate,
       lastFileSystemSnapshot: null,
+      inFlightPromptId: null,
+      promptQueue: [],
       runtime: {
         connection: null,
         sessionTextChunkLogBuffer: null,
@@ -177,11 +184,50 @@ export class LocalRuntimeClient implements RuntimeClient {
     }
   }
 
-  async promptSession(sessionId: string, text: string): Promise<acp.PromptResponse> {
+  async promptSession(
+    sessionId: string,
+    text: string,
+  ): Promise<acp.PromptResponse | QueuedPromptResponse> {
     const managed = this.resolveRuntime(sessionId);
     if (!managed.runtime.connection) {
       throw new Error(`Session "${sessionId}" is not initialized`);
     }
+
+    if (managed.inFlightPromptId === null) {
+      return this.executePrompt(managed, text);
+    }
+
+    return this.enqueuePrompt(managed, text);
+  }
+
+  getQueueState(sessionId: string): PromptQueueState {
+    const managed = this.resolveRuntime(sessionId);
+    return this.buildQueueState(managed);
+  }
+
+  async cancelQueuedPrompt(sessionId: string, queueId: string): Promise<void> {
+    const managed = this.resolveRuntime(sessionId);
+
+    const index = managed.promptQueue.findIndex((item) => item.queueId === queueId);
+    if (index === -1) {
+      throw new Error(`Queued prompt "${queueId}" not found`);
+    }
+
+    const [removed] = managed.promptQueue.splice(index, 1);
+    await this.pushLog(managed, "prompt_cancelled", {
+      queueId: removed.queueId,
+      text: removed.text,
+    });
+  }
+
+  private async executePrompt(managed: ManagedSession, text: string): Promise<acp.PromptResponse> {
+    const connection = managed.runtime.connection;
+    if (!connection) {
+      throw new Error(`Session "${managed.id}" is not initialized`);
+    }
+
+    const promptId = randomUUID();
+    managed.inFlightPromptId = promptId;
 
     const promptParams: acp.PromptRequest = {
       sessionId: managed.id,
@@ -197,7 +243,7 @@ export class LocalRuntimeClient implements RuntimeClient {
     );
 
     try {
-      const result = await managed.runtime.connection.prompt(promptParams);
+      const result = await connection.prompt(promptParams);
       await this.flushSessionTextChunkLogBuffer(managed);
       await this.pushRpcLog(
         managed,
@@ -210,7 +256,64 @@ export class LocalRuntimeClient implements RuntimeClient {
     } catch (error) {
       await this.flushSessionTextChunkLogBuffer(managed);
       throw error;
+    } finally {
+      managed.inFlightPromptId = null;
+      void this.dequeueNext(managed);
     }
+  }
+
+  private async enqueuePrompt(
+    managed: ManagedSession,
+    text: string,
+  ): Promise<QueuedPromptResponse> {
+    if (managed.promptQueue.length >= LocalRuntimeClient.MAX_QUEUE_SIZE) {
+      throw new Error("Prompt queue is full");
+    }
+
+    const queueId = randomUUID();
+    const enqueuedAt = new Date().toISOString();
+    const position = managed.promptQueue.length + 1;
+
+    managed.promptQueue.push({ queueId, text, enqueuedAt });
+
+    await this.pushLog(managed, "prompt_queued", { queueId, text, position });
+
+    return { queued: true, queueId, position };
+  }
+
+  private async dequeueNext(managed: ManagedSession): Promise<void> {
+    if (!this.runtimes.has(managed.id)) return;
+
+    const next = managed.promptQueue.shift();
+    if (!next) return;
+
+    await this.pushLog(managed, "prompt_dequeued", {
+      queueId: next.queueId,
+      text: next.text,
+    });
+
+    try {
+      await this.executePrompt(managed, next.text);
+    } catch (error) {
+      await this.pushLog(managed, "prompt_error", {
+        queueId: next.queueId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private buildQueueState(managed: ManagedSession): PromptQueueState {
+    const queue = managed.promptQueue ?? [];
+    return {
+      processing: (managed.inFlightPromptId ?? null) !== null,
+      items: queue.map((item, index) => ({
+        queueId: item.queueId,
+        text: item.text,
+        enqueuedAt: item.enqueuedAt,
+        position: index + 1,
+      })),
+      size: queue.length,
+    };
   }
 
   async resolvePermission(
@@ -247,6 +350,16 @@ export class LocalRuntimeClient implements RuntimeClient {
     if (meta?.pendingPermission) {
       this.permissionResolvers.delete(meta.pendingPermission.requestId);
     }
+
+    if (managed.promptQueue.length > 0) {
+      const droppedCount = managed.promptQueue.length;
+      managed.promptQueue = [];
+      await this.pushLog(managed, "queue_cleared", {
+        reason: "terminated",
+        droppedCount,
+      });
+    }
+    managed.inFlightPromptId = null;
 
     await this.flushSessionTextChunkLogBuffer(managed);
     await managed.terminate();

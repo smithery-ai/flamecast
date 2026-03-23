@@ -74,6 +74,27 @@ export const FilePreviewSchema = z.object({
 });
 export type FilePreview = z.infer<typeof FilePreviewSchema>;
 
+export const QueuedPromptResponseSchema = z.object({
+  queued: z.literal(true),
+  queueId: z.string(),
+  position: z.number().int().positive(),
+});
+export type QueuedPromptResponse = z.infer<typeof QueuedPromptResponseSchema>;
+
+export const PromptQueueItemSchema = z.object({
+  queueId: z.string(),
+  text: z.string(),
+  enqueuedAt: z.string(),
+  position: z.number().int().nonnegative(),
+});
+
+export const PromptQueueStateSchema = z.object({
+  processing: z.boolean(),
+  items: z.array(PromptQueueItemSchema),
+  size: z.number().int().nonnegative(),
+});
+export type PromptQueueState = z.infer<typeof PromptQueueStateSchema>;
+
 export const SessionSchema = z.object({
   id: z.string(),
   agentName: z.string(),
@@ -84,6 +105,7 @@ export const SessionSchema = z.object({
   logs: z.array(SessionLogSchema),
   pendingPermission: PendingPermissionSchema.nullable(),
   fileSystem: FileSystemSnapshotSchema.nullable(),
+  promptQueue: PromptQueueStateSchema.nullable(),
 });
 export type Session = z.infer<typeof SessionSchema>;
 

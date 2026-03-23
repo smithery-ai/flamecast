@@ -49,6 +49,8 @@ function createManagedSession(id: string, workspaceRoot = process.cwd()) {
     },
     terminate: vi.fn(async () => {}),
     lastFileSystemSnapshot: null,
+    inFlightPromptId: null,
+    promptQueue: [],
     runtime: {
       connection: null,
       sessionTextChunkLogBuffer: null,

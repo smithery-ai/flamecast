@@ -28,6 +28,7 @@ const sampleSession: Session = {
   logs: [],
   pendingPermission: null,
   fileSystem: null,
+  promptQueue: null,
 };
 
 const sampleAgentId = sampleSession.id;
@@ -63,6 +64,12 @@ function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastAp
       async (_id: string, _requestId: string, _body: PermissionResponseBody) => undefined,
     ),
     subscribe: vi.fn((_sessionId: string, _callback: (event: unknown) => void) => () => {}),
+    getQueueState: vi.fn(async (_id: string) => ({
+      processing: false,
+      items: [],
+      size: 0,
+    })),
+    cancelQueuedPrompt: vi.fn(async (_id: string, _queueId: string) => undefined),
     ...overrides,
   };
 }
@@ -557,5 +564,108 @@ describe("SSE events endpoint", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/event-stream");
+  });
+});
+
+describe("prompt queue endpoints", () => {
+  it("returns 202 when prompt is queued", async () => {
+    const flamecast = createFlamecastStub({
+      promptSession: vi.fn(async () => ({
+        queued: true as const,
+        queueId: "q1",
+        position: 1,
+      })),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/${sampleAgentId}/prompt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "hello" }),
+    });
+
+    expect(response.status).toBe(202);
+    const body = await readJson(response);
+    expect(body).toEqual({ queued: true, queueId: "q1", position: 1 });
+  });
+
+  it("returns 200 when prompt executes immediately", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/${sampleAgentId}/prompt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "hello" }),
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  it("GET /queue returns queue state", async () => {
+    const flamecast = createFlamecastStub({
+      getQueueState: vi.fn(async () => ({
+        processing: true,
+        items: [
+          {
+            queueId: "q1",
+            text: "pending",
+            enqueuedAt: "2026-03-21T00:00:00.000Z",
+            position: 1,
+          },
+        ],
+        size: 1,
+      })),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/${sampleAgentId}/queue`);
+
+    expect(response.status).toBe(200);
+    const body = await readJson(response);
+    expect(body.processing).toBe(true);
+    expect(body.size).toBe(1);
+    expect(body.items).toHaveLength(1);
+  });
+
+  it("GET /queue returns 404 for unknown agent", async () => {
+    const flamecast = createFlamecastStub({
+      getQueueState: vi.fn(async () => {
+        throw new Error("not found");
+      }),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/unknown/queue`);
+
+    expect(response.status).toBe(404);
+  });
+
+  it("DELETE /queue/:queueId cancels queued prompt", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/${sampleAgentId}/queue/q1`, {
+      method: "DELETE",
+    });
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual({ ok: true });
+    expect(flamecast.cancelQueuedPrompt).toHaveBeenCalledWith(sampleAgentId, "q1");
+  });
+
+  it("DELETE /queue/:queueId returns 400 on error", async () => {
+    const flamecast = createFlamecastStub({
+      cancelQueuedPrompt: vi.fn(async () => {
+        throw new Error('Queued prompt "q1" not found');
+      }),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/${sampleAgentId}/queue/q1`, {
+      method: "DELETE",
+    });
+
+    expect(response.status).toBe(400);
   });
 });
