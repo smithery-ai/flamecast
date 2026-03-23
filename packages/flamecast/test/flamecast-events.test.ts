@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
+import { LocalRuntimeClient } from "../src/runtime/local.js";
 import { createFileSystemEventStream } from "../src/flamecast/runtime-provider.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import type { SessionLog } from "../src/shared/session.js";
@@ -46,6 +47,7 @@ function createManagedSession(id: string, workspaceRoot = process.cwd()) {
       output: passthrough.readable,
     },
     terminate: vi.fn(async () => {}),
+    lastFileSystemSnapshot: null,
     runtime: {
       connection: null,
       sessionTextChunkLogBuffer: null,
@@ -59,19 +61,23 @@ function attachStorage(flamecast: Flamecast, storage = new MemoryFlamecastStorag
   return storage;
 }
 
+function getRuntimeClient(flamecast: Flamecast): LocalRuntimeClient {
+  return Reflect.get(flamecast, "runtimeClient") as LocalRuntimeClient;
+}
+
 function getRuntimeMap(flamecast: Flamecast) {
-  return Reflect.get(flamecast, "runtimes") as Map<string, ManagedSessionLike>;
+  return Reflect.get(getRuntimeClient(flamecast), "runtimes") as Map<string, ManagedSessionLike>;
 }
 
 function getMethod<Args extends unknown[], Result>(
-  flamecast: Flamecast,
+  target: object,
   name: string,
 ): (...args: Args) => Result {
-  const method = Reflect.get(flamecast, name);
+  const method = Reflect.get(target, name);
   if (typeof method !== "function") {
     throw new Error(`Expected ${name} to be a function`);
   }
-  return method.bind(flamecast) as (...args: Args) => Result;
+  return method.bind(target) as (...args: Args) => Result;
 }
 
 afterEach(() => {
@@ -82,6 +88,7 @@ describe("session event emission", () => {
   test("subscribe receives events from pushLog", async () => {
     const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
+    const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");
     managed.bufferPendingLogs = false;
     getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
@@ -93,7 +100,7 @@ describe("session event emission", () => {
     });
 
     const pushLog = getMethod<[unknown, string, Record<string, unknown>], Promise<SessionLog>>(
-      flamecast,
+      rc,
       "pushLog",
     );
     await pushLog(managed, "test_event", { foo: "bar" });
@@ -106,6 +113,7 @@ describe("session event emission", () => {
   test("unsubscribe stops event delivery", async () => {
     const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
+    const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");
     managed.bufferPendingLogs = false;
     getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
@@ -117,7 +125,7 @@ describe("session event emission", () => {
     });
 
     const pushLog = getMethod<[unknown, string, Record<string, unknown>], Promise<SessionLog>>(
-      flamecast,
+      rc,
       "pushLog",
     );
     await pushLog(managed, "event_1", {});
@@ -131,6 +139,7 @@ describe("session event emission", () => {
   test("multiple subscribers receive the same event", async () => {
     const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
+    const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");
     managed.bufferPendingLogs = false;
     getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
@@ -142,7 +151,7 @@ describe("session event emission", () => {
     flamecast.subscribe("s1", (event) => received2.push(event));
 
     const pushLog = getMethod<[unknown, string, Record<string, unknown>], Promise<SessionLog>>(
-      flamecast,
+      rc,
       "pushLog",
     );
     await pushLog(managed, "test_event", {});
@@ -159,13 +168,14 @@ describe("session event emission", () => {
       onSessionEvent,
     });
     const storage = attachStorage(flamecast);
+    const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");
     managed.bufferPendingLogs = false;
     getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
     await storage.createSession(createMeta("s1"));
 
     const pushLog = getMethod<[unknown, string, Record<string, unknown>], Promise<SessionLog>>(
-      flamecast,
+      rc,
       "pushLog",
     );
     await pushLog(managed, "test_event", { key: "value" });
@@ -180,6 +190,7 @@ describe("session event emission", () => {
   test("events are not emitted during bufferPendingLogs phase", async () => {
     const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     attachStorage(flamecast);
+    const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");
     managed.bufferPendingLogs = true;
     getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
@@ -188,7 +199,7 @@ describe("session event emission", () => {
     flamecast.subscribe("s1", (event) => received.push(event));
 
     const pushLog = getMethod<[unknown, string, Record<string, unknown>], Promise<SessionLog>>(
-      flamecast,
+      rc,
       "pushLog",
     );
     await pushLog(managed, "buffered_event", {});
@@ -214,13 +225,15 @@ describe("session event emission", () => {
     );
     expect(terminatedEvents).toHaveLength(1);
 
-    const sseSubscribers = Reflect.get(flamecast, "sseSubscribers") as Map<string, Set<unknown>>;
+    const rc = getRuntimeClient(flamecast);
+    const sseSubscribers = Reflect.get(rc, "sseSubscribers") as Map<string, Set<unknown>>;
     expect(sseSubscribers.has("s1")).toBe(false);
   });
 
   test("subscriber errors do not disrupt other subscribers", async () => {
     const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
+    const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");
     managed.bufferPendingLogs = false;
     getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
@@ -233,7 +246,7 @@ describe("session event emission", () => {
     flamecast.subscribe("s1", (event) => received.push(event));
 
     const pushLog = getMethod<[unknown, string, Record<string, unknown>], Promise<SessionLog>>(
-      flamecast,
+      rc,
       "pushLog",
     );
     await pushLog(managed, "test_event", {});
@@ -244,6 +257,7 @@ describe("session event emission", () => {
   test("pushRpcLog also emits events", async () => {
     const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
+    const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");
     managed.bufferPendingLogs = false;
     getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
@@ -253,7 +267,7 @@ describe("session event emission", () => {
     flamecast.subscribe("s1", (event) => received.push(event));
 
     const pushRpcLog = getMethod<[unknown, string, string, string, unknown], Promise<void>>(
-      flamecast,
+      rc,
       "pushRpcLog",
     );
     await pushRpcLog(managed, "test_method", "client_to_agent", "request", { data: 1 });
@@ -266,6 +280,7 @@ describe("session event emission", () => {
   test("pipeProviderEvents forwards events from a ReadableStream", async () => {
     const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
+    const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("s1");
     getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
     await storage.createSession(createMeta("s1"));
@@ -287,7 +302,7 @@ describe("session event emission", () => {
     });
 
     const pipeProviderEvents = getMethod<[string, ReadableStream<SessionLog> | undefined], void>(
-      flamecast,
+      rc,
       "pipeProviderEvents",
     );
     pipeProviderEvents("s1", stream);

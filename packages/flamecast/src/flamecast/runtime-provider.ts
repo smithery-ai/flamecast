@@ -1,5 +1,5 @@
 import { existsSync, watch, type FSWatcher } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
 import alchemy from "alchemy";
 import type { AgentSpawn } from "../shared/session.js";
@@ -161,13 +161,133 @@ export async function waitForAcp(
   });
 }
 
+type GitIgnoreRule = {
+  negated: boolean;
+  regex: RegExp;
+};
+
+async function loadGitIgnoreRules(workspaceRoot: string): Promise<GitIgnoreRule[]> {
+  const defaultRules = [parseGitIgnoreRule(".git/")].filter(
+    (rule): rule is GitIgnoreRule => rule !== null,
+  );
+
+  try {
+    const content = await readFile(resolve(workspaceRoot, ".gitignore"), "utf8");
+    return [
+      ...defaultRules,
+      ...content
+        .split(/\r?\n/u)
+        .map(parseGitIgnoreRule)
+        .filter((rule): rule is GitIgnoreRule => rule !== null),
+    ];
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) {
+      return defaultRules;
+    }
+    throw error;
+  }
+}
+
+function parseGitIgnoreRule(line: string): GitIgnoreRule | null {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.startsWith("#")) {
+    return null;
+  }
+
+  const literal = trimmed.startsWith("\\#") || trimmed.startsWith("\\!");
+  const negated = !literal && trimmed.startsWith("!");
+  const rawPattern = negated ? trimmed.slice(1) : literal ? trimmed.slice(1) : trimmed;
+
+  if (!rawPattern) {
+    return null;
+  }
+
+  const directoryOnly = rawPattern.endsWith("/");
+  const anchored = rawPattern.startsWith("/");
+  const normalized = rawPattern.slice(anchored ? 1 : 0, directoryOnly ? -1 : undefined);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const hasSlash = normalized.includes("/");
+  const source = globToRegexSource(normalized);
+  const regex = !hasSlash
+    ? new RegExp(directoryOnly ? `(^|/)${source}(/|$)` : `(^|/)${source}$`, "u")
+    : anchored
+      ? new RegExp(directoryOnly ? `^${source}(/|$)` : `^${source}$`, "u")
+      : new RegExp(directoryOnly ? `(^|.*/)${source}(/|$)` : `(^|.*/)${source}$`, "u");
+
+  return { negated, regex };
+}
+
+function globToRegexSource(pattern: string): string {
+  let source = "";
+
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+
+    if (char === "*") {
+      if (pattern[index + 1] === "*") {
+        source += ".*";
+        index += 1;
+      } else {
+        source += "[^/]*";
+      }
+      continue;
+    }
+
+    if (char === "?") {
+      source += "[^/]";
+      continue;
+    }
+
+    if ("\\^$+?.()|{}[]".includes(char)) {
+      source += `\\${char}`;
+      continue;
+    }
+
+    source += char;
+  }
+
+  return source;
+}
+
+function isGitIgnored(path: string, rules: GitIgnoreRule[]): boolean {
+  let ignored = false;
+
+  for (const rule of rules) {
+    if (rule.regex.test(path)) {
+      ignored = !rule.negated;
+    }
+  }
+
+  return ignored;
+}
+
 type FileSystemEntry = {
   path: string;
   type: "file" | "directory" | "symlink" | "other";
 };
 
-async function buildFileSystemSnapshot(workspaceRoot: string) {
+type FileSystemSnapshot = {
+  root: string;
+  entries: FileSystemEntry[];
+  truncated: boolean;
+  maxEntries: number;
+};
+
+export async function buildFileSystemSnapshot(
+  workspaceRoot: string,
+  opts: { showAllFiles?: boolean } = {},
+): Promise<FileSystemSnapshot> {
   const entries: FileSystemEntry[] = [];
+  const gitIgnoreRules = opts.showAllFiles ? [] : await loadGitIgnoreRules(workspaceRoot);
   const queue = [workspaceRoot];
 
   for (let index = 0; index < queue.length; index += 1) {
@@ -183,6 +303,9 @@ async function buildFileSystemSnapshot(workspaceRoot: string) {
     for (const child of children) {
       const absolutePath = resolve(dir, child.name);
       const path = relative(workspaceRoot, absolutePath);
+      if (isGitIgnored(path, gitIgnoreRules)) {
+        continue;
+      }
 
       const type: FileSystemEntry["type"] = child.isDirectory()
         ? "directory"

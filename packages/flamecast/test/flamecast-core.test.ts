@@ -5,6 +5,7 @@ import * as acp from "@agentclientprotocol/sdk";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { getBuiltinAgentTemplates } from "../src/flamecast/agent-templates.js";
 import { Flamecast } from "../src/flamecast/index.js";
+import { LocalRuntimeClient } from "../src/runtime/local.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 
 type PromptHandler = (params: acp.PromptRequest) => Promise<acp.PromptResponse>;
@@ -47,11 +48,14 @@ function createManagedSession(id: string, prompt?: PromptHandler) {
   return {
     id,
     workspaceRoot: process.cwd(),
+    pendingLogs: [],
+    bufferPendingLogs: false,
     transport: {
       input: passthrough.writable,
       output: passthrough.readable,
     },
     terminate: vi.fn(async () => {}),
+    lastFileSystemSnapshot: null,
     runtime: {
       connection: prompt
         ? {
@@ -69,26 +73,30 @@ function attachStorage(flamecast: Flamecast, storage = new MemoryFlamecastStorag
   return storage;
 }
 
+function getRuntimeClient(flamecast: Flamecast): LocalRuntimeClient {
+  return Reflect.get(flamecast, "runtimeClient") as LocalRuntimeClient;
+}
+
 function getRuntimeMap(flamecast: Flamecast) {
-  return Reflect.get(flamecast, "runtimes") as Map<string, ManagedSessionLike>;
+  return Reflect.get(getRuntimeClient(flamecast), "runtimes") as Map<string, ManagedSessionLike>;
 }
 
 function getPermissionResolvers(flamecast: Flamecast) {
-  return Reflect.get(flamecast, "permissionResolvers") as Map<
+  return Reflect.get(getRuntimeClient(flamecast), "permissionResolvers") as Map<
     string,
     (response: acp.RequestPermissionResponse) => void | Promise<void>
   >;
 }
 
 function getMethod<Args extends unknown[], Result>(
-  flamecast: Flamecast,
+  target: object,
   name: string,
 ): (...args: Args) => Result {
-  const method = Reflect.get(flamecast, name);
+  const method = Reflect.get(target, name);
   if (typeof method !== "function") {
     throw new Error(`Expected ${name} to be a function`);
   }
-  return method.bind(flamecast) as (...args: Args) => Result;
+  return method.bind(target) as (...args: Args) => Result;
 }
 
 async function waitForPendingPermission(storage: MemoryFlamecastStorage, sessionId: string) {
@@ -287,6 +295,7 @@ describe("flamecast orchestration internals", () => {
     const storage = attachStorage(flamecast);
     await storage.seedAgentTemplates(getBuiltinAgentTemplates());
     const healthResponse = await flamecast.fetch(new Request("http://localhost/api/health"));
+    const rc = getRuntimeClient(flamecast);
 
     const requireStorage = getMethod<[], MemoryFlamecastStorage>(flamecast, "requireStorage");
     const resolveSessionDefinition = getMethod<
@@ -303,7 +312,7 @@ describe("flamecast orchestration internals", () => {
         runtime: { provider: string };
       }
     >(flamecast, "resolveSessionDefinition");
-    const resolveRuntime = getMethod<[string], ManagedSessionLike>(flamecast, "resolveRuntime");
+    const resolveRuntime = getMethod<[string], ManagedSessionLike>(rc, "resolveRuntime");
     const snapshotSession = getMethod<
       [string],
       Promise<Awaited<ReturnType<Flamecast["getSession"]>>>
@@ -311,7 +320,7 @@ describe("flamecast orchestration internals", () => {
     const createLogEntry = getMethod<
       [string, Record<string, unknown>],
       { type: string; data: Record<string, unknown> }
-    >(flamecast, "createLogEntry");
+    >(rc, "createLogEntry");
     const createRpcLog = getMethod<
       [
         string,
@@ -320,11 +329,11 @@ describe("flamecast orchestration internals", () => {
         unknown?,
       ],
       { type: string; data: Record<string, unknown> }
-    >(flamecast, "createRpcLog");
+    >(rc, "createRpcLog");
     const pushLog = getMethod<
       [ManagedSessionLike, string, Record<string, unknown>],
       Promise<unknown>
-    >(flamecast, "pushLog");
+    >(rc, "pushLog");
     const pushRpcLog = getMethod<
       [
         ManagedSessionLike,
@@ -334,9 +343,9 @@ describe("flamecast orchestration internals", () => {
         unknown?,
       ],
       Promise<void>
-    >(flamecast, "pushRpcLog");
+    >(rc, "pushRpcLog");
     const flushBuffer = getMethod<[ManagedSessionLike], Promise<void>>(
-      flamecast,
+      rc,
       "flushSessionTextChunkLogBuffer",
     );
     const createPendingPermission = getMethod<
@@ -348,7 +357,7 @@ describe("flamecast orchestration internals", () => {
         kind?: string;
         options: Array<{ optionId: string; name: string; kind: string }>;
       }
-    >(flamecast, "createPendingPermission");
+    >(rc, "createPendingPermission");
     const getPermissionOption = getMethod<
       [
         {
@@ -358,8 +367,8 @@ describe("flamecast orchestration internals", () => {
         string,
       ],
       { optionId: string; name: string; kind: string }
-    >(flamecast, "getPermissionOption");
-    const getPermissionLogType = getMethod<[string], string>(flamecast, "getPermissionLogType");
+    >(rc, "getPermissionOption");
+    const getPermissionLogType = getMethod<[string], string>(rc, "getPermissionLogType");
     const stopRuntime = getMethod<
       [
         {
@@ -367,7 +376,7 @@ describe("flamecast orchestration internals", () => {
         },
       ],
       Promise<void>
-    >(flamecast, "stopRuntime");
+    >(rc, "stopRuntime");
 
     Reflect.set(flamecast, "storage", null);
     expect(() => requireStorage()).toThrow("Flamecast storage is not ready");
@@ -534,7 +543,7 @@ describe("flamecast orchestration internals", () => {
     expect(getPermissionLogType("reject_once")).toBe("permission_rejected");
     expect(getPermissionLogType("maybe")).toBe("permission_responded");
 
-    const createClient = getMethod<[ManagedSessionLike], acp.Client>(flamecast, "createClient");
+    const createClient = getMethod<[ManagedSessionLike], acp.Client>(rc, "createClient");
     const client = createClient(managed);
 
     await client.sessionUpdate({

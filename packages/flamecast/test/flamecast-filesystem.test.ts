@@ -3,6 +3,8 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promis
 import path from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
+import { buildFileSystemSnapshot } from "../src/flamecast/runtime-provider.js";
+import { LocalRuntimeClient } from "../src/runtime/local.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 
 type ManagedSessionLike = {
@@ -54,21 +56,26 @@ function attachStorage(flamecast: Flamecast, storage = new MemoryFlamecastStorag
   return storage;
 }
 
+function getRuntimeClient(flamecast: Flamecast): LocalRuntimeClient {
+  // oxlint-disable-next-line no-type-assertion/no-type-assertion
+  return Reflect.get(flamecast, "runtimeClient") as LocalRuntimeClient;
+}
+
 function getRuntimeMap(flamecast: Flamecast) {
   // oxlint-disable-next-line no-type-assertion/no-type-assertion
-  return Reflect.get(flamecast, "runtimes") as Map<string, ManagedSessionLike>;
+  return Reflect.get(getRuntimeClient(flamecast), "runtimes") as Map<string, ManagedSessionLike>;
 }
 
 function getMethod<Args extends unknown[], Result>(
-  flamecast: Flamecast,
+  target: object,
   name: string,
 ): (...args: Args) => Result {
-  const method = Reflect.get(flamecast, name);
+  const method = Reflect.get(target, name);
   if (typeof method !== "function") {
     throw new Error(`Expected ${name} to be a function`);
   }
   // oxlint-disable-next-line no-type-assertion/no-type-assertion
-  return method.bind(flamecast) as (...args: Args) => Result;
+  return method.bind(target) as (...args: Args) => Result;
 }
 
 afterEach(() => {
@@ -135,6 +142,7 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
 
     const flamecast = new Flamecast({ storage: "memory" });
     const storage = attachStorage(flamecast);
+    const rc = getRuntimeClient(flamecast);
     const managed = createManagedSession("session-1", workspaceRoot);
     await storage.createSession(createMeta("session-1"));
     await storage.createSession(createMeta("session-2"));
@@ -194,7 +202,7 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
     expect(preview.truncated).toBe(true);
 
     const resolvePreviewPath = getMethod<[string, string], Promise<string>>(
-      flamecast,
+      rc,
       "resolvePreviewPath",
     );
     await expect(resolvePreviewPath(workspaceRoot, outsideFile)).rejects.toThrow(
@@ -205,7 +213,7 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
     );
 
     const resolveSessionFilePath = getMethod<[string, string], Promise<string>>(
-      flamecast,
+      rc,
       "resolveSessionFilePath",
     );
     await expect(resolveSessionFilePath(workspaceRoot, "visible.txt")).rejects.toThrow(
@@ -216,7 +224,7 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
     );
 
     const resolveSessionWritePath = getMethod<[string, string], Promise<string>>(
-      flamecast,
+      rc,
       "resolveSessionWritePath",
     );
     await expect(resolveSessionWritePath(workspaceRoot, "visible.txt")).rejects.toThrow(
@@ -227,7 +235,7 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
     );
 
     const createClient = getMethod<[ManagedSessionLike], ReturnType<typeof getMethod>>(
-      flamecast,
+      rc,
       "createClient",
     );
     const client = createClient(managed);
@@ -259,11 +267,6 @@ test("builds snapshots when .gitignore is missing", async () => {
     await mkdir(path.join(workspaceRoot, ".git"));
     await writeFile(path.join(workspaceRoot, "visible.txt"), "visible");
 
-    const flamecast = new Flamecast({ storage: "memory" });
-    const buildFileSystemSnapshot = getMethod<
-      [string, { showAllFiles?: boolean }?],
-      Promise<{ entries: Array<{ path: string }> }>
-    >(flamecast, "buildFileSystemSnapshot");
     const snapshot = await buildFileSystemSnapshot(workspaceRoot);
     const entries = snapshot.entries.map((entry) => entry.path);
 
@@ -288,21 +291,16 @@ test("treats ENOTDIR gitignore read errors like a missing .gitignore", async () 
     }),
   }));
 
-  const { Flamecast: MockedFlamecast } =
-    await import("../src/flamecast/index.ts?gitignore-enotdir");
+  const { buildFileSystemSnapshot: mockedBuild } =
+    await import("../src/flamecast/runtime-provider.ts?gitignore-enotdir");
   const workspaceRoot = await mkdtemp(path.join(process.cwd(), ".flamecast-enotdir-"));
 
   try {
     await mkdir(path.join(workspaceRoot, ".git"));
     await writeFile(path.join(workspaceRoot, "visible.txt"), "visible");
 
-    const flamecast = new MockedFlamecast({ storage: "memory" });
-    const buildFileSystemSnapshot = getMethod<
-      [string, { showAllFiles?: boolean }?],
-      Promise<{ entries: Array<{ path: string }> }>
-    >(flamecast, "buildFileSystemSnapshot");
-    const snapshot = await buildFileSystemSnapshot(workspaceRoot);
-    const entries = snapshot.entries.map((entry) => entry.path);
+    const snapshot = await mockedBuild(workspaceRoot);
+    const entries = snapshot.entries.map((entry: { path: string }) => entry.path);
 
     expect(entries).toContain("visible.txt");
     expect(entries).not.toContain(".git");
@@ -324,17 +322,12 @@ test("rethrows unexpected gitignore read errors", async () => {
     }),
   }));
 
-  const { Flamecast: MockedFlamecast } = await import("../src/flamecast/index.ts?gitignore-error");
+  const { buildFileSystemSnapshot: mockedBuild } =
+    await import("../src/flamecast/runtime-provider.ts?gitignore-error");
   const workspaceRoot = await mkdtemp(path.join(process.cwd(), ".flamecast-error-"));
 
   try {
-    const flamecast = new MockedFlamecast({ storage: "memory" });
-    const buildFileSystemSnapshot = getMethod<
-      [string, { showAllFiles?: boolean }?],
-      Promise<unknown>
-    >(flamecast, "buildFileSystemSnapshot");
-
-    await expect(buildFileSystemSnapshot(workspaceRoot)).rejects.toThrow("boom");
+    await expect(mockedBuild(workspaceRoot)).rejects.toThrow("boom");
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true });
   }
