@@ -38,6 +38,7 @@ type ManagedSessionLike = {
   workspaceRoot: string;
   bridge: MockBridge;
   terminate: () => Promise<void>;
+  lastFileSystemSnapshot: null;
 };
 
 function createMeta(id: string) {
@@ -56,13 +57,9 @@ function createManagedSession(id: string, workspaceRoot = process.cwd()) {
   return {
     id,
     workspaceRoot,
-    pendingLogs: [] as SessionLog[],
-    bufferPendingLogs: false,
     bridge: createMockBridge(),
     terminate: vi.fn(async () => {}),
     lastFileSystemSnapshot: null,
-    inFlightPromptId: null,
-    promptQueue: [],
   };
 }
 
@@ -95,209 +92,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("session event emission", () => {
-  test("subscribe receives events from pushLog", async () => {
-    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
-    const storage = attachStorage(flamecast);
-    const rc = getRuntimeClient(flamecast);
-    const managed = createManagedSession("s1");
-    managed.bufferPendingLogs = false;
-    getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
-    await storage.createSession(createMeta("s1"));
-
-    const received: SessionLog[] = [];
-    flamecast.subscribe("s1", (event) => {
-      received.push(event);
-    });
-
-    const pushLog = getMethod<[unknown, string, Record<string, unknown>], Promise<SessionLog>>(
-      rc,
-      "pushLog",
-    );
-    await pushLog(managed, "test_event", { foo: "bar" });
-
-    expect(received).toHaveLength(1);
-    expect(received[0].type).toBe("test_event");
-    expect(received[0].data).toEqual({ foo: "bar" });
-  });
-
-  test("unsubscribe stops event delivery", async () => {
-    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
-    const storage = attachStorage(flamecast);
-    const rc = getRuntimeClient(flamecast);
-    const managed = createManagedSession("s1");
-    managed.bufferPendingLogs = false;
-    getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
-    await storage.createSession(createMeta("s1"));
-
-    const received: SessionLog[] = [];
-    const unsubscribe = flamecast.subscribe("s1", (event) => {
-      received.push(event);
-    });
-
-    const pushLog = getMethod<[unknown, string, Record<string, unknown>], Promise<SessionLog>>(
-      rc,
-      "pushLog",
-    );
-    await pushLog(managed, "event_1", {});
-    unsubscribe();
-    await pushLog(managed, "event_2", {});
-
-    expect(received).toHaveLength(1);
-    expect(received[0].type).toBe("event_1");
-  });
-
-  test("multiple subscribers receive the same event", async () => {
-    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
-    const storage = attachStorage(flamecast);
-    const rc = getRuntimeClient(flamecast);
-    const managed = createManagedSession("s1");
-    managed.bufferPendingLogs = false;
-    getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
-    await storage.createSession(createMeta("s1"));
-
-    const received1: SessionLog[] = [];
-    const received2: SessionLog[] = [];
-    flamecast.subscribe("s1", (event) => received1.push(event));
-    flamecast.subscribe("s1", (event) => received2.push(event));
-
-    const pushLog = getMethod<[unknown, string, Record<string, unknown>], Promise<SessionLog>>(
-      rc,
-      "pushLog",
-    );
-    await pushLog(managed, "test_event", {});
-
-    expect(received1).toHaveLength(1);
-    expect(received2).toHaveLength(1);
-  });
-
-  test("onSessionEvent callback receives events", async () => {
-    const onSessionEvent = vi.fn();
-    const flamecast = new Flamecast({
-      storage: "memory",
-      handleSignals: false,
-      onSessionEvent,
-    });
-    const storage = attachStorage(flamecast);
-    const rc = getRuntimeClient(flamecast);
-    const managed = createManagedSession("s1");
-    managed.bufferPendingLogs = false;
-    getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
-    await storage.createSession(createMeta("s1"));
-
-    const pushLog = getMethod<[unknown, string, Record<string, unknown>], Promise<SessionLog>>(
-      rc,
-      "pushLog",
-    );
-    await pushLog(managed, "test_event", { key: "value" });
-
-    expect(onSessionEvent).toHaveBeenCalledOnce();
-    expect(onSessionEvent).toHaveBeenCalledWith(
-      "s1",
-      expect.objectContaining({ type: "test_event" }),
-    );
-  });
-
-  test("events are not emitted during bufferPendingLogs phase", async () => {
-    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
-    attachStorage(flamecast);
-    const rc = getRuntimeClient(flamecast);
-    const managed = createManagedSession("s1");
-    managed.bufferPendingLogs = true;
-    getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
-
-    const received: SessionLog[] = [];
-    flamecast.subscribe("s1", (event) => received.push(event));
-
-    const pushLog = getMethod<[unknown, string, Record<string, unknown>], Promise<SessionLog>>(
-      rc,
-      "pushLog",
-    );
-    await pushLog(managed, "buffered_event", {});
-
-    expect(received).toHaveLength(0);
-  });
-
-  test("terminateSession emits session.terminated and cleans up subscribers", async () => {
-    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
-    const storage = attachStorage(flamecast);
-    const managed = createManagedSession("s1");
-    managed.bufferPendingLogs = false;
-    getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
-    await storage.createSession(createMeta("s1"));
-
-    const received: SessionLog[] = [];
-    flamecast.subscribe("s1", (event) => received.push(event));
-
-    await flamecast.terminateSession("s1");
-
-    const terminatedEvents = received.filter(
-      (e) => e.type === SESSION_EVENT_TYPES.SESSION_TERMINATED,
-    );
-    expect(terminatedEvents).toHaveLength(1);
-
-    const rc = getRuntimeClient(flamecast);
-    const sseSubscribers = Reflect.get(rc, "sseSubscribers") as Map<string, Set<unknown>>;
-    expect(sseSubscribers.has("s1")).toBe(false);
-  });
-
-  test("subscriber errors do not disrupt other subscribers", async () => {
-    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
-    const storage = attachStorage(flamecast);
-    const rc = getRuntimeClient(flamecast);
-    const managed = createManagedSession("s1");
-    managed.bufferPendingLogs = false;
-    getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
-    await storage.createSession(createMeta("s1"));
-
-    const received: SessionLog[] = [];
-    flamecast.subscribe("s1", () => {
-      throw new Error("subscriber error");
-    });
-    flamecast.subscribe("s1", (event) => received.push(event));
-
-    const pushLog = getMethod<[unknown, string, Record<string, unknown>], Promise<SessionLog>>(
-      rc,
-      "pushLog",
-    );
-    await pushLog(managed, "test_event", {});
-
-    expect(received).toHaveLength(1);
-  });
-
-  test("bridge rpc events emit to subscribers via wireBridgeEvents", async () => {
-    const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
-    const storage = attachStorage(flamecast);
-    const rc = getRuntimeClient(flamecast);
-    const managed = createManagedSession("s1");
-    managed.bufferPendingLogs = false;
-    getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
-    await storage.createSession(createMeta("s1"));
-
-    // Wire bridge events so rpc emissions flow to subscribers
-    const wireBridgeEvents = getMethod<[unknown], void>(rc, "wireBridgeEvents");
-    wireBridgeEvents(managed);
-
-    const received: SessionLog[] = [];
-    flamecast.subscribe("s1", (event) => received.push(event));
-
-    // Simulate bridge emitting an rpc event
-    managed.bridge.emit("rpc", {
-      method: "test_method",
-      direction: "client_to_agent",
-      phase: "request",
-      payload: { data: 1 },
-    });
-
-    // Allow async pushLog to complete
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    expect(received).toHaveLength(1);
-    expect(received[0].type).toBe("rpc");
-    expect(received[0].data).toMatchObject({ method: "test_method" });
-  });
-
-  test("pipeProviderEvents forwards events from a ReadableStream", async () => {
+describe("pipeProviderEvents", () => {
+  test("pipeProviderEvents caches filesystem snapshots", async () => {
     const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
     const storage = attachStorage(flamecast);
     const rc = getRuntimeClient(flamecast);
@@ -305,13 +101,11 @@ describe("session event emission", () => {
     getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
     await storage.createSession(createMeta("s1"));
 
-    const received: SessionLog[] = [];
-    flamecast.subscribe("s1", (event) => received.push(event));
-
+    const snapshot = { root: "/tmp", entries: [], truncated: false, maxEntries: 0 };
     const event: SessionLog = {
       timestamp: new Date().toISOString(),
       type: SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT,
-      data: { snapshot: { root: "/tmp", entries: [], truncated: false, maxEntries: 0 } },
+      data: { snapshot },
     };
 
     const stream = new ReadableStream<SessionLog>({
@@ -330,8 +124,8 @@ describe("session event emission", () => {
     // Give the async reader a tick to process
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(received).toHaveLength(1);
-    expect(received[0].type).toBe(SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT);
+    const cachedManaged = getRuntimeMap(flamecast).get("s1");
+    expect(cachedManaged?.lastFileSystemSnapshot).toEqual(snapshot);
   });
 });
 

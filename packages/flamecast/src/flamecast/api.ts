@@ -1,28 +1,19 @@
 import { Hono, type Context } from "hono";
-import { streamSSE } from "hono/streaming";
 import { zValidator } from "@hono/zod-validator";
 import type { Flamecast } from "./index.js";
 import {
   CreateSessionBodySchema,
-  PermissionResponseBodySchema,
-  PromptBodySchema,
   RegisterAgentTemplateBodySchema,
 } from "../shared/session.js";
-import type { SessionLog } from "../shared/session.js";
 
 export type FlamecastApi = Pick<
   Flamecast,
-  | "cancelQueuedPrompt"
   | "createSession"
   | "getFilePreview"
-  | "getQueueState"
   | "getSession"
   | "listAgentTemplates"
   | "listSessions"
-  | "promptSession"
   | "registerAgentTemplate"
-  | "respondToPermission"
-  | "subscribe"
   | "terminateSession"
 >;
 
@@ -82,39 +73,6 @@ export function createApi(flamecast: FlamecastApi) {
     })
     .get("/agents/:agentId", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
     .get("/agents/:agentId/", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
-    .get("/agents/:agentId/events", async (c) => {
-      const agentId = c.req.param("agentId");
-      try {
-        await flamecast.getSession(agentId);
-      } catch {
-        return c.json({ error: "Agent not found" }, 404);
-      }
-
-      return streamSSE(c, async (stream) => {
-        await stream.writeSSE({
-          event: "connected",
-          data: JSON.stringify({ sessionId: agentId }),
-        });
-
-        const callback = (event: SessionLog) => {
-          void stream.writeSSE({
-            event: event.type,
-            data: JSON.stringify(event),
-            id: event.timestamp,
-          });
-        };
-
-        const unsubscribe = flamecast.subscribe(agentId, callback);
-
-        try {
-          await new Promise<void>((resolve) => {
-            c.req.raw.signal.addEventListener("abort", () => resolve());
-          });
-        } finally {
-          unsubscribe();
-        }
-      });
-    })
     .get("/agents/:agentId/file", async (c) => {
       const path = c.req.query("path");
       if (!path) {
@@ -127,51 +85,6 @@ export function createApi(flamecast: FlamecastApi) {
         return c.json({ error: toErrorMessage(error) }, 400);
       }
     })
-    .post("/agents/:agentId/prompt", zValidator("json", PromptBodySchema), async (c) => {
-      const { text } = c.req.valid("json");
-      try {
-        const result = await flamecast.promptSession(c.req.param("agentId"), text);
-        if ("queued" in result && result.queued) {
-          return c.json(result, 202);
-        }
-        return c.json(result);
-      } catch (error) {
-        return c.json({ error: toErrorMessage(error) }, 400);
-      }
-    })
-    .get("/agents/:agentId/queue", async (c) => {
-      try {
-        const state = await flamecast.getQueueState(c.req.param("agentId"));
-        return c.json(state);
-      } catch {
-        return c.json({ error: "Agent not found" }, 404);
-      }
-    })
-    .delete("/agents/:agentId/queue/:queueId", async (c) => {
-      try {
-        await flamecast.cancelQueuedPrompt(c.req.param("agentId"), c.req.param("queueId"));
-        return c.json({ ok: true });
-      } catch (error) {
-        return c.json({ error: toErrorMessage(error) }, 400);
-      }
-    })
-    .post(
-      "/agents/:agentId/permissions/:requestId",
-      zValidator("json", PermissionResponseBodySchema),
-      async (c) => {
-        const body = c.req.valid("json");
-        try {
-          await flamecast.respondToPermission(
-            c.req.param("agentId"),
-            c.req.param("requestId"),
-            body,
-          );
-          return c.json({ ok: true });
-        } catch (error) {
-          return c.json({ error: toErrorMessage(error) }, 400);
-        }
-      },
-    )
     .delete("/agents/:agentId", async (c) => {
       try {
         await flamecast.terminateSession(c.req.param("agentId"));

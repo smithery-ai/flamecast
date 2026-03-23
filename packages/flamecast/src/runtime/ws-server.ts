@@ -5,16 +5,17 @@ import type { SessionLog } from "../shared/session.js";
 import { WsControlMessageSchema, type WsServerMessage } from "../shared/ws-protocol.js";
 
 export type WsSessionHandler = {
-  subscribe(sessionId: string, callback: (event: SessionLog) => void): () => void;
   hasSession(sessionId: string): boolean;
-  promptSession(sessionId: string, text: string): Promise<unknown>;
-  resolvePermission(
+  terminateSession(sessionId: string): Promise<void>;
+  // Phase 6: these methods are optional during migration — the sidecar will provide them.
+  subscribe?(sessionId: string, callback: (event: SessionLog) => void): () => void;
+  promptSession?(sessionId: string, text: string): Promise<unknown>;
+  resolvePermission?(
     sessionId: string,
     requestId: string,
     body: { optionId: string } | { outcome: "cancelled" },
   ): Promise<void>;
-  cancelQueuedPrompt(sessionId: string, queueId: string): Promise<void>;
-  terminateSession(sessionId: string): Promise<void>;
+  cancelQueuedPrompt?(sessionId: string, queueId: string): Promise<void>;
 };
 
 /**
@@ -79,15 +80,17 @@ export class FlamecastWsServer {
     // Send connected message
     this.send(ws, { type: "connected", sessionId });
 
-    // Subscribe to session events
-    const unsubscribe = this.handler.subscribe(sessionId, (event) => {
-      this.send(ws, {
-        type: "event",
-        timestamp: new Date().toISOString(),
-        event,
+    // Subscribe to session events (if handler supports it)
+    if (this.handler.subscribe) {
+      const unsubscribe = this.handler.subscribe(sessionId, (event) => {
+        this.send(ws, {
+          type: "event",
+          timestamp: new Date().toISOString(),
+          event,
+        });
       });
-    });
-    this.unsubscribers.set(ws, unsubscribe);
+      this.unsubscribers.set(ws, unsubscribe);
+    }
 
     // Handle incoming control messages
     ws.on("message", (data) => {
@@ -123,15 +126,24 @@ export class FlamecastWsServer {
 
       switch (msg.action) {
         case "prompt":
+          if (!this.handler.promptSession) {
+            throw new Error("Prompt not supported on this handler");
+          }
           await this.handler.promptSession(sessionId, msg.text);
           break;
 
         case "permission.respond":
+          if (!this.handler.resolvePermission) {
+            throw new Error("Permission resolution not supported on this handler");
+          }
           await this.handler.resolvePermission(sessionId, msg.requestId, msg.body);
           break;
 
         case "cancel":
           if (msg.queueId) {
+            if (!this.handler.cancelQueuedPrompt) {
+              throw new Error("Queue cancellation not supported on this handler");
+            }
             await this.handler.cancelQueuedPrompt(sessionId, msg.queueId);
           }
           break;

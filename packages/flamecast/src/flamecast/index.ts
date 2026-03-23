@@ -7,11 +7,8 @@ import type {
   AgentTemplateRuntime,
   CreateSessionBody,
   FilePreview,
-  PromptQueueState,
-  QueuedPromptResponse,
   RegisterAgentTemplateBody,
   Session,
-  SessionLog,
 } from "../shared/session.js";
 import { createServerApp } from "../server/app.js";
 import { getBuiltinAgentTemplates, localRuntime } from "./agent-templates.js";
@@ -27,8 +24,6 @@ export type {
   AgentSpawn,
   AgentTemplate,
   PendingPermission,
-  PromptQueueState,
-  QueuedPromptResponse,
   Session,
 } from "../shared/session.js";
 export type { SessionMeta, FlamecastStorage, StorageConfig } from "./storage.js";
@@ -44,7 +39,6 @@ export type FlamecastOptions = {
   runtimeProviders?: RuntimeProviderRegistry;
   agentTemplates?: AgentTemplate[];
   handleSignals?: boolean;
-  onSessionEvent?: (sessionId: string, event: SessionLog) => void;
   runtimeClient?: RuntimeClient;
 };
 
@@ -76,7 +70,6 @@ export class Flamecast {
       new LocalRuntimeClient({
         runtimeProviders: this.runtimeProviders,
         getStorage: () => this.requireStorage(),
-        onSessionEvent: opts.onSessionEvent,
       });
 
     this.fetch = async (request: Request) => this.app.fetch(request);
@@ -198,30 +191,6 @@ export class Flamecast {
     return this.runtimeClient.getFilePreview(id, path);
   }
 
-  async promptSession(
-    id: string,
-    text: string,
-  ): Promise<import("@agentclientprotocol/sdk").PromptResponse | QueuedPromptResponse> {
-    await this.ensureReady();
-    if (!this.runtimeClient.hasSession(id)) {
-      const meta = await this.requireStorage().getSessionMeta(id);
-      if (meta?.status === "killed") {
-        throw new Error("Cannot prompt a terminated session");
-      }
-    }
-    return this.runtimeClient.promptSession(id, text);
-  }
-
-  async getQueueState(id: string): Promise<PromptQueueState> {
-    await this.ensureReady();
-    return this.runtimeClient.getQueueState(id);
-  }
-
-  async cancelQueuedPrompt(id: string, queueId: string): Promise<void> {
-    await this.ensureReady();
-    return this.runtimeClient.cancelQueuedPrompt(id, queueId);
-  }
-
   async terminateSession(id: string): Promise<void> {
     await this.ensureReady();
     if (!this.runtimeClient.hasSession(id)) {
@@ -231,19 +200,6 @@ export class Flamecast {
       }
     }
     await this.runtimeClient.terminateSession(id);
-  }
-
-  subscribe(sessionId: string, callback: (event: SessionLog) => void): () => void {
-    return this.runtimeClient.subscribe(sessionId, callback);
-  }
-
-  async respondToPermission(
-    id: string,
-    requestId: string,
-    body: import("../shared/session.js").PermissionResponseBody,
-  ): Promise<void> {
-    await this.ensureReady();
-    await this.runtimeClient.resolvePermission(id, requestId, body);
   }
 
   private registerSignalHandlers(): void {
@@ -383,7 +339,6 @@ export class Flamecast {
     if (!meta) {
       throw new Error(`Session "${id}" not found`);
     }
-    const logs = await storage.getLogs(id);
     let fileSystem = null;
     if (opts.includeFileSystem) {
       fileSystem = await this.runtimeClient.getFileSystemSnapshot(id, {
@@ -397,7 +352,7 @@ export class Flamecast {
 
     return {
       ...meta,
-      logs: [...logs],
+      logs: [],
       pendingPermission: meta.pendingPermission
         ? {
             ...meta.pendingPermission,
@@ -405,7 +360,7 @@ export class Flamecast {
           }
         : null,
       fileSystem,
-      promptQueue: this.runtimeClient.hasSession(id) ? this.runtimeClient.getQueueState(id) : null,
+      promptQueue: null,
       websocketUrl,
     };
   }

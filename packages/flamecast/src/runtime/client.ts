@@ -1,34 +1,16 @@
-import type * as acp from "@agentclientprotocol/sdk";
 import type {
-  AgentSpawn,
-  AgentTemplateRuntime,
   FilePreview,
   FileSystemSnapshot,
-  PermissionResponseBody,
-  PromptQueueState,
-  QueuedPromptResponse,
-  SessionLog,
 } from "../shared/session.js";
 
 export interface RuntimeClient {
   startSession(opts: {
     agentName: string;
-    spawn: AgentSpawn;
+    spawn: import("../shared/session.js").AgentSpawn;
     cwd: string;
-    runtime: AgentTemplateRuntime;
+    runtime: import("../shared/session.js").AgentTemplateRuntime;
     startedAt: string;
   }): Promise<{ sessionId: string }>;
-
-  promptSession(
-    sessionId: string,
-    text: string,
-  ): Promise<acp.PromptResponse | QueuedPromptResponse>;
-
-  resolvePermission(
-    sessionId: string,
-    requestId: string,
-    response: PermissionResponseBody,
-  ): Promise<void>;
 
   terminateSession(sessionId: string): Promise<void>;
 
@@ -38,12 +20,6 @@ export interface RuntimeClient {
   ): Promise<FileSystemSnapshot | null>;
 
   getFilePreview(sessionId: string, path: string): Promise<FilePreview>;
-
-  getQueueState(sessionId: string): PromptQueueState;
-
-  cancelQueuedPrompt(sessionId: string, queueId: string): Promise<void>;
-
-  subscribe(sessionId: string, callback: (event: SessionLog) => void): () => void;
 
   hasSession(sessionId: string): boolean;
   listSessionIds(): string[];
