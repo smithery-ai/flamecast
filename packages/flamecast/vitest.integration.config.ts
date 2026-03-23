@@ -30,6 +30,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
       "alchemy/test/vitest": alchemyTestVitestPath,
+      "@flamecast/storage-psql": path.resolve(__dirname, "../flamecast-psql/src/index.ts"),
     },
   },
 });
