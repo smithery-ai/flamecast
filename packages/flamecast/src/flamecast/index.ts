@@ -49,6 +49,7 @@ interface SessionTextChunkLogBuffer {
 interface ManagedSession {
   id: string;
   workspaceRoot: string;
+  runtimeProvider: string;
   pendingLogs: SessionLog[];
   bufferPendingLogs: boolean;
   transport: AcpTransport;
@@ -286,6 +287,7 @@ export class Flamecast {
     const managed: ManagedSession = {
       id: "",
       workspaceRoot: cwd,
+      runtimeProvider: runtime.provider,
       pendingLogs: [],
       bufferPendingLogs: true,
       transport: startedRuntime.transport,
@@ -536,6 +538,10 @@ export class Flamecast {
   }
 
   private startFileSystemWatcher(managed: ManagedSession): void {
+    if (managed.runtimeProvider !== "local") {
+      return;
+    }
+
     if (!existsSync(managed.workspaceRoot)) {
       return;
     }

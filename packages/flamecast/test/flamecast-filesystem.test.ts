@@ -8,6 +8,7 @@ import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js
 type ManagedSessionLike = {
   id: string;
   workspaceRoot: string;
+  runtimeProvider: string;
   transport: {
     input: WritableStream<Uint8Array>;
     output: ReadableStream<Uint8Array>;
@@ -37,6 +38,7 @@ function createManagedSession(id: string, workspaceRoot: string): ManagedSession
   return {
     id,
     workspaceRoot,
+    runtimeProvider: "local",
     transport: {
       input: passthrough.writable,
       output: passthrough.readable,

@@ -39,6 +39,7 @@ function createManagedSession(id: string, workspaceRoot = process.cwd()) {
   return {
     id,
     workspaceRoot,
+    runtimeProvider: "local",
     pendingLogs: [] as SessionLog[],
     bufferPendingLogs: false,
     transport: {
@@ -338,6 +339,24 @@ describe("filesystem watcher", () => {
       // Verify the debounce timer was cleared (no event should fire)
       await new Promise((resolve) => setTimeout(resolve, 400));
       expect(received).toHaveLength(0);
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("skips watcher for non-local runtime providers", async () => {
+    const workspaceRoot = await mkdtemp(path.join(process.cwd(), ".flamecast-events-"));
+    try {
+      const flamecast = new Flamecast({ storage: "memory", handleSignals: false });
+      attachStorage(flamecast);
+      const managed = createManagedSession("s1", workspaceRoot);
+      managed.runtimeProvider = "docker";
+      getRuntimeMap(flamecast).set("s1", managed as unknown as ManagedSessionLike);
+
+      const startWatcher = getMethod<[unknown], void>(flamecast, "startFileSystemWatcher");
+      startWatcher(managed);
+
+      expect(managed.fileSystemWatcher).toBeNull();
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
