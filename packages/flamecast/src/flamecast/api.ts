@@ -12,8 +12,10 @@ import type { SessionLog } from "../shared/session.js";
 
 export type FlamecastApi = Pick<
   Flamecast,
+  | "cancelQueuedPrompt"
   | "createSession"
   | "getFilePreview"
+  | "getQueueState"
   | "getSession"
   | "listAgentTemplates"
   | "listSessions"
@@ -129,7 +131,26 @@ export function createApi(flamecast: FlamecastApi) {
       const { text } = c.req.valid("json");
       try {
         const result = await flamecast.promptSession(c.req.param("agentId"), text);
+        if ("queued" in result && result.queued) {
+          return c.json(result, 202);
+        }
         return c.json(result);
+      } catch (error) {
+        return c.json({ error: toErrorMessage(error) }, 400);
+      }
+    })
+    .get("/agents/:agentId/queue", async (c) => {
+      try {
+        const state = await flamecast.getQueueState(c.req.param("agentId"));
+        return c.json(state);
+      } catch {
+        return c.json({ error: "Agent not found" }, 404);
+      }
+    })
+    .delete("/agents/:agentId/queue/:queueId", async (c) => {
+      try {
+        await flamecast.cancelQueuedPrompt(c.req.param("agentId"), c.req.param("queueId"));
+        return c.json({ ok: true });
       } catch (error) {
         return c.json({ error: toErrorMessage(error) }, 400);
       }

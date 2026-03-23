@@ -6,6 +6,7 @@ import {
   type CreateSessionBody,
   type FilePreview,
   type PermissionResponseBody,
+  type QueuedPromptResponse,
   type RegisterAgentTemplateBody,
   type Session,
   type SessionLog,
@@ -69,7 +70,10 @@ export async function createSession(body: CreateSessionBody): Promise<Session> {
   return res.json();
 }
 
-export async function sendPrompt(id: string, text: string): Promise<PromptResult> {
+export async function sendPrompt(
+  id: string,
+  text: string,
+): Promise<PromptResult | QueuedPromptResponse> {
   const res = await client.agents[":agentId"].prompt.$post({
     param: { agentId: id },
     json: { text },

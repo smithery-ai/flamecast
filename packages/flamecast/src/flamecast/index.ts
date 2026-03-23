@@ -7,6 +7,8 @@ import type {
   AgentTemplateRuntime,
   CreateSessionBody,
   FilePreview,
+  PromptQueueState,
+  QueuedPromptResponse,
   RegisterAgentTemplateBody,
   Session,
   SessionLog,
@@ -20,7 +22,14 @@ import { resolveRuntimeProviders } from "./runtime-provider.js";
 import type { RuntimeClient } from "../runtime/client.js";
 import { LocalRuntimeClient } from "../runtime/local.js";
 
-export type { AgentSpawn, AgentTemplate, PendingPermission, Session } from "../shared/session.js";
+export type {
+  AgentSpawn,
+  AgentTemplate,
+  PendingPermission,
+  PromptQueueState,
+  QueuedPromptResponse,
+  Session,
+} from "../shared/session.js";
 export type { SessionMeta, FlamecastStorage, StorageConfig } from "./storage.js";
 export type { RuntimeProvider, RuntimeProviderRegistry } from "./runtime-provider.js";
 export type { AppType } from "./api.js";
@@ -175,7 +184,7 @@ export class Flamecast {
   async promptSession(
     id: string,
     text: string,
-  ): Promise<import("@agentclientprotocol/sdk").PromptResponse> {
+  ): Promise<import("@agentclientprotocol/sdk").PromptResponse | QueuedPromptResponse> {
     await this.ensureReady();
     if (!this.runtimeClient.hasSession(id)) {
       const meta = await this.requireStorage().getSessionMeta(id);
@@ -184,6 +193,16 @@ export class Flamecast {
       }
     }
     return this.runtimeClient.promptSession(id, text);
+  }
+
+  async getQueueState(id: string): Promise<PromptQueueState> {
+    await this.ensureReady();
+    return this.runtimeClient.getQueueState(id);
+  }
+
+  async cancelQueuedPrompt(id: string, queueId: string): Promise<void> {
+    await this.ensureReady();
+    return this.runtimeClient.cancelQueuedPrompt(id, queueId);
   }
 
   async terminateSession(id: string): Promise<void> {
@@ -364,6 +383,7 @@ export class Flamecast {
           }
         : null,
       fileSystem,
+      promptQueue: this.runtimeClient.hasSession(id) ? this.runtimeClient.getQueueState(id) : null,
     };
   }
 }

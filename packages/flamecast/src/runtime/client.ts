@@ -5,6 +5,8 @@ import type {
   FilePreview,
   FileSystemSnapshot,
   PermissionResponseBody,
+  PromptQueueState,
+  QueuedPromptResponse,
   SessionLog,
 } from "../shared/session.js";
 
@@ -17,7 +19,10 @@ export interface RuntimeClient {
     startedAt: string;
   }): Promise<{ sessionId: string }>;
 
-  promptSession(sessionId: string, text: string): Promise<acp.PromptResponse>;
+  promptSession(
+    sessionId: string,
+    text: string,
+  ): Promise<acp.PromptResponse | QueuedPromptResponse>;
 
   resolvePermission(
     sessionId: string,
@@ -33,6 +38,10 @@ export interface RuntimeClient {
   ): Promise<FileSystemSnapshot | null>;
 
   getFilePreview(sessionId: string, path: string): Promise<FilePreview>;
+
+  getQueueState(sessionId: string): PromptQueueState;
+
+  cancelQueuedPrompt(sessionId: string, queueId: string): Promise<void>;
 
   subscribe(sessionId: string, callback: (event: SessionLog) => void): () => void;
 

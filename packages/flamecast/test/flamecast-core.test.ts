@@ -19,6 +19,8 @@ type ManagedSessionLike = {
     dispose?: () => Promise<void>;
   };
   terminate: () => Promise<void>;
+  inFlightPromptId: string | null;
+  promptQueue: Array<{ queueId: string; text: string; enqueuedAt: string }>;
   runtime: {
     connection: {
       prompt: PromptHandler;
@@ -57,6 +59,8 @@ function createManagedSession(id: string, prompt?: PromptHandler) {
     },
     terminate: vi.fn(async () => {}),
     lastFileSystemSnapshot: null,
+    inFlightPromptId: null,
+    promptQueue: [],
     runtime: {
       connection: prompt
         ? {
