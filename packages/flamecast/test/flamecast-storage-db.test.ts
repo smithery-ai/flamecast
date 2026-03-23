@@ -60,16 +60,13 @@ describe("memory storage", () => {
     expect(await storage.getAgentTemplate("missing")).toBeNull();
   });
 
-  test("stores sessions and logs with the expected error handling", async () => {
+  test("stores sessions with the expected error handling", async () => {
     const storage = new MemoryFlamecastStorage();
     const meta = createSessionMeta("session-1");
 
     await expect(storage.updateSession("missing", {})).rejects.toThrow(
       'Session "missing" not found in storage',
     );
-    await expect(
-      storage.appendLog("missing", { timestamp: "t", type: "rpc", data: {} }),
-    ).rejects.toThrow('Session "missing" has no log stream');
 
     await storage.createSession(meta);
     await storage.updateSession(meta.id, { lastUpdatedAt: "2024-01-02T00:00:00.000Z" });
@@ -81,11 +78,6 @@ describe("memory storage", () => {
         options: [],
       },
     });
-    await storage.appendLog(meta.id, {
-      timestamp: "2024-01-02T00:00:00.000Z",
-      type: "rpc",
-      data: { ok: true },
-    });
 
     expect(await storage.getSessionMeta(meta.id)).toMatchObject({
       lastUpdatedAt: "2024-01-02T00:00:00.000Z",
@@ -93,22 +85,8 @@ describe("memory storage", () => {
         requestId: "request-1",
       },
     });
-    expect(await storage.getLogs(meta.id)).toEqual([
-      {
-        timestamp: "2024-01-02T00:00:00.000Z",
-        type: "rpc",
-        data: { ok: true },
-      },
-    ]);
 
     await storage.finalizeSession(meta.id, "terminated");
     expect((await storage.getSessionMeta(meta.id))?.status).toBe("killed");
-    expect(await storage.getLogs(meta.id)).toEqual([
-      {
-        timestamp: "2024-01-02T00:00:00.000Z",
-        type: "rpc",
-        data: { ok: true },
-      },
-    ]);
   });
 });

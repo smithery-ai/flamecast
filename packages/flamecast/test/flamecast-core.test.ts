@@ -439,26 +439,6 @@ describe("flamecast orchestration internals", () => {
     );
   });
 
-  test("memory backend preserves logs after finalization", async () => {
-    const storage = new MemoryFlamecastStorage();
-
-    await storage.createSession(createMeta("session-logs"));
-    await storage.appendLog("session-logs", {
-      timestamp: "2024-01-01T00:00:00.000Z",
-      type: "rpc",
-      data: { ok: true },
-    });
-
-    await storage.finalizeSession("session-logs", "terminated");
-
-    const logs = await storage.getLogs("session-logs");
-    expect(logs).toHaveLength(1);
-    expect(logs[0].type).toBe("rpc");
-
-    const meta = await storage.getSessionMeta("session-logs");
-    expect(meta?.status).toBe("killed");
-  });
-
   test("memory backend listAllSessions returns active and killed sessions", async () => {
     const storage = new MemoryFlamecastStorage();
 
@@ -484,11 +464,6 @@ describe("flamecast orchestration internals", () => {
     const storage = new MemoryFlamecastStorage();
     await storage.finalizeSession("nonexistent", "terminated");
     expect(await storage.getSessionMeta("nonexistent")).toBeNull();
-  });
-
-  test("memory backend getLogs returns empty array for unknown session", async () => {
-    const storage = new MemoryFlamecastStorage();
-    expect(await storage.getLogs("nonexistent")).toEqual([]);
   });
 
   test("terminateSession falls through to resolveRuntime when session is active but not in runtimes", async () => {
