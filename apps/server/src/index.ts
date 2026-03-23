@@ -18,5 +18,3 @@ if (isMainModule()) {
   // Test
   void main();
 }
-
-// Swagssss
