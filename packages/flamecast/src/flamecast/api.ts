@@ -1,10 +1,7 @@
 import { Hono, type Context } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import type { Flamecast } from "./index.js";
-import {
-  CreateSessionBodySchema,
-  RegisterAgentTemplateBodySchema,
-} from "../shared/session.js";
+import { CreateSessionBodySchema, RegisterAgentTemplateBodySchema } from "../shared/session.js";
 
 export type FlamecastApi = Pick<
   Flamecast,

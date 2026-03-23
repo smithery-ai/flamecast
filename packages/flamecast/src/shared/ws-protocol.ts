@@ -33,10 +33,12 @@ export const WsFilePreviewResponseSchema = z.object({
 export const WsFsSnapshotResponseSchema = z.object({
   type: z.literal("fs.snapshot"),
   root: z.string(),
-  entries: z.array(z.object({
-    path: z.string(),
-    type: z.enum(["file", "directory", "symlink", "other"]),
-  })),
+  entries: z.array(
+    z.object({
+      path: z.string(),
+      type: z.enum(["file", "directory", "symlink", "other"]),
+    }),
+  ),
   truncated: z.boolean(),
   maxEntries: z.number(),
 });

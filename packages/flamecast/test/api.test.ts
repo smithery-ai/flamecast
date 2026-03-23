@@ -74,7 +74,9 @@ describe("api contract", () => {
   });
 
   test("session lifecycle with create get list terminate", async (scope: unknown) => {
-    const exampleAgentEntrypoint = fileURLToPath(new URL("../src/flamecast/agent.ts", import.meta.url));
+    const exampleAgentEntrypoint = fileURLToPath(
+      new URL("../src/flamecast/agent.ts", import.meta.url),
+    );
     const flamecast = new Flamecast({ storage: "memory" });
     const client = createClient(flamecast);
 

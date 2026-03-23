@@ -118,7 +118,10 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
     expect(allEntries).toContain("nested/secret.txt");
 
     const realBridge = new AcpBridge(
-      { input: new TransformStream<Uint8Array, Uint8Array>().writable, output: new TransformStream<Uint8Array, Uint8Array>().readable },
+      {
+        input: new TransformStream<Uint8Array, Uint8Array>().writable,
+        output: new TransformStream<Uint8Array, Uint8Array>().readable,
+      },
       workspaceRoot,
     );
     const resolveAbsoluteReadPath = getMethod<[string], Promise<string>>(
@@ -143,10 +146,7 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
       `Path "${outsideFile}" is outside workspace root`,
     );
 
-    const createClient = getMethod<[], ReturnType<typeof getMethod>>(
-      realBridge,
-      "createClient",
-    );
+    const createClient = getMethod<[], ReturnType<typeof getMethod>>(realBridge, "createClient");
     const client = createClient();
     const readResponse = await client.readTextFile({
       path: path.join(workspaceRoot, "preview.txt"),

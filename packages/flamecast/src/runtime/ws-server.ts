@@ -16,7 +16,10 @@ export type WsSessionHandler = {
     body: { optionId: string } | { outcome: "cancelled" },
   ): Promise<void>;
   cancelQueuedPrompt?(sessionId: string, queueId: string): Promise<void>;
-  readFileContent?(sessionId: string, path: string): Promise<{ content: string; truncated: boolean; maxChars: number }>;
+  readFileContent?(
+    sessionId: string,
+    path: string,
+  ): Promise<{ content: string; truncated: boolean; maxChars: number }>;
 };
 
 /**
@@ -83,7 +86,12 @@ export class FlamecastWsServer {
     this.send(ws, { type: "connected", sessionId });
 
     // Subscribe to session events (if handler supports it)
-    console.log("[WS] handler.subscribe?", !!this.handler.subscribe, "handler.promptSession?", !!this.handler.promptSession);
+    console.log(
+      "[WS] handler.subscribe?",
+      !!this.handler.subscribe,
+      "handler.promptSession?",
+      !!this.handler.promptSession,
+    );
     if (this.handler.subscribe) {
       const unsubscribe = this.handler.subscribe(sessionId, (event) => {
         this.send(ws, {
@@ -110,11 +118,7 @@ export class FlamecastWsServer {
     });
   }
 
-  private async handleMessage(
-    ws: WebSocket,
-    sessionId: string,
-    data: unknown,
-  ): Promise<void> {
+  private async handleMessage(ws: WebSocket, sessionId: string, data: unknown): Promise<void> {
     try {
       const text = typeof data === "string" ? data : String(data);
       const parsed = JSON.parse(text);

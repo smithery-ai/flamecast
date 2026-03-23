@@ -28,7 +28,10 @@ export class FlamecastSession {
   private readonly listeners = new Set<EventCallback>();
   private readonly stateListeners = new Set<(state: ConnectionState) => void>();
   private readonly eventBuffer: SessionLog[] = [];
-  private readonly filePreviewResolvers = new Map<string, (result: { content: string; truncated: boolean; maxChars: number }) => void>();
+  private readonly filePreviewResolvers = new Map<
+    string,
+    (result: { content: string; truncated: boolean; maxChars: number }) => void
+  >();
 
   constructor(opts: FlamecastSessionOptions) {
     this.sessionId = opts.sessionId;
@@ -100,7 +103,9 @@ export class FlamecastSession {
   }
 
   /** Request a file preview from the sidecar. Returns the file content. */
-  requestFilePreview(path: string): Promise<{ content: string; truncated: boolean; maxChars: number }> {
+  requestFilePreview(
+    path: string,
+  ): Promise<{ content: string; truncated: boolean; maxChars: number }> {
     return new Promise((resolve, reject) => {
       this.filePreviewResolvers.set(path, resolve);
       this.sendControl({ action: "file.preview", path });
@@ -158,7 +163,11 @@ export class FlamecastSession {
           timestamp: msg.event.timestamp,
           data: msg.event.data,
         };
-        console.log("[FlamecastSession] event:", sessionEvent.type, JSON.stringify(sessionEvent.data).slice(0, 200));
+        console.log(
+          "[FlamecastSession] event:",
+          sessionEvent.type,
+          JSON.stringify(sessionEvent.data).slice(0, 200),
+        );
         this.eventBuffer.push(sessionEvent);
         for (const listener of this.listeners) {
           try {

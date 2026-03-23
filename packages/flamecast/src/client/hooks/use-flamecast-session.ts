@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchSession } from "../lib/api.js";
-import {
-  FlamecastSession,
-  type ConnectionState,
-} from "../lib/flamecast-session.js";
+import { FlamecastSession, type ConnectionState } from "../lib/flamecast-session.js";
 import type { SessionLog, PermissionResponseBody } from "../../shared/session.js";
 
 /**
@@ -92,12 +89,9 @@ export function useFlamecastSession(sessionId: string) {
     sessionRef.current?.prompt(text);
   }, []);
 
-  const respondToPermission = useCallback(
-    (requestId: string, body: PermissionResponseBody) => {
-      sessionRef.current?.respondToPermission(requestId, body);
-    },
-    [],
-  );
+  const respondToPermission = useCallback((requestId: string, body: PermissionResponseBody) => {
+    sessionRef.current?.respondToPermission(requestId, body);
+  }, []);
 
   const cancel = useCallback((queueId?: string) => {
     sessionRef.current?.cancel(queueId);

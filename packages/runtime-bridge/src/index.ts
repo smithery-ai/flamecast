@@ -27,7 +27,11 @@ if (!AGENT_COMMAND) {
 // ---- Types ----
 
 type WsMessage =
-  | { type: "event"; timestamp: string; event: { type: string; data: Record<string, unknown>; timestamp: string } }
+  | {
+      type: "event";
+      timestamp: string;
+      event: { type: string; data: Record<string, unknown>; timestamp: string };
+    }
   | { type: "connected"; sessionId: string }
   | { type: "error"; message: string };
 
@@ -132,9 +136,10 @@ const acpClient: acp.Client = {
     const content = await readFile(params.path, "utf8");
     const lines = content.split("\n");
     const startLine = Math.max(params.line ?? 0, 0);
-    const limitedLines = params.limit != null
-      ? lines.slice(startLine, startLine + params.limit)
-      : lines.slice(startLine);
+    const limitedLines =
+      params.limit != null
+        ? lines.slice(startLine, startLine + params.limit)
+        : lines.slice(startLine);
     const response: acp.ReadTextFileResponse = { content: limitedLines.join("\n") };
     emitRpc(acp.CLIENT_METHODS.fs_read_text_file, "client_to_agent", "response", response);
     return response;
@@ -241,7 +246,12 @@ async function handleControl(msg: ControlMessage): Promise<void> {
         if (resolver) {
           permissionResolvers.delete(msg.requestId);
           const response = msg.body as unknown as acp.RequestPermissionResponse;
-          emitRpc(acp.CLIENT_METHODS.session_request_permission, "client_to_agent", "response", response);
+          emitRpc(
+            acp.CLIENT_METHODS.session_request_permission,
+            "client_to_agent",
+            "response",
+            response,
+          );
           resolver(response);
         }
         break;

@@ -140,7 +140,12 @@ export class LocalRuntimeClient implements RuntimeClient, WsSessionHandler {
     managed.subscribers.add(callback);
 
     // Send initial filesystem snapshot if available
-    console.log("[subscribe] lastFileSystemSnapshot?", !!managed.lastFileSystemSnapshot, "entries:", managed.lastFileSystemSnapshot?.entries?.length);
+    console.log(
+      "[subscribe] lastFileSystemSnapshot?",
+      !!managed.lastFileSystemSnapshot,
+      "entries:",
+      managed.lastFileSystemSnapshot?.entries?.length,
+    );
     if (managed.lastFileSystemSnapshot) {
       callback({
         timestamp: new Date().toISOString(),

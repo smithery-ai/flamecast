@@ -105,7 +105,12 @@ export class AcpBridge extends EventEmitter<AcpBridgeEvents> {
         this.promptQueue.push(queued);
         this.emit("log", {
           type: "queue_updated",
-          data: { queue: this.promptQueue.map((q) => ({ id: q.id, text: this.extractPromptText(q.params) })) },
+          data: {
+            queue: this.promptQueue.map((q) => ({
+              id: q.id,
+              text: this.extractPromptText(q.params),
+            })),
+          },
         });
       });
     }
@@ -121,7 +126,9 @@ export class AcpBridge extends EventEmitter<AcpBridgeEvents> {
     removed.reject(new Error("Prompt cancelled"));
     this.emit("log", {
       type: "queue_updated",
-      data: { queue: this.promptQueue.map((q) => ({ id: q.id, text: this.extractPromptText(q.params) })) },
+      data: {
+        queue: this.promptQueue.map((q) => ({ id: q.id, text: this.extractPromptText(q.params) })),
+      },
     });
     return true;
   }
@@ -155,7 +162,12 @@ export class AcpBridge extends EventEmitter<AcpBridgeEvents> {
       if (!next) break;
       this.emit("log", {
         type: "queue_updated",
-        data: { queue: this.promptQueue.map((q) => ({ id: q.id, text: this.extractPromptText(q.params) })) },
+        data: {
+          queue: this.promptQueue.map((q) => ({
+            id: q.id,
+            text: this.extractPromptText(q.params),
+          })),
+        },
       });
       try {
         const result = await this.executePrompt(next.params);

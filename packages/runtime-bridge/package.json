@@ -1,10 +1,10 @@
 {
   "name": "@acp/runtime-bridge",
   "version": "0.0.0",
-  "type": "module",
   "bin": {
     "runtime-bridge": "./dist/index.js"
   },
+  "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {

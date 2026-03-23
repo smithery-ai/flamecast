@@ -19,12 +19,7 @@ import type { RuntimeClient } from "../runtime/client.js";
 import { LocalRuntimeClient } from "../runtime/local.js";
 import { FlamecastWsServer } from "../runtime/ws-server.js";
 
-export type {
-  AgentSpawn,
-  AgentTemplate,
-  PendingPermission,
-  Session,
-} from "../shared/session.js";
+export type { AgentSpawn, AgentTemplate, PendingPermission, Session } from "../shared/session.js";
 export type { SessionMeta, FlamecastStorage, StorageConfig } from "./storage.js";
 export type { RuntimeProvider, RuntimeProviderRegistry } from "./runtime-provider.js";
 export type { AppType } from "./api.js";

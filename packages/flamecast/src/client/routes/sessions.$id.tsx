@@ -148,7 +148,9 @@ function SessionDetailPage() {
   const selectedEntry = selectedPath ? (fileEntryMap.get(selectedPath) ?? null) : null;
 
   // File preview via WebSocket
-  const [filePreview, setFilePreview] = useState<{ content: string; truncated: boolean } | null>(null);
+  const [filePreview, setFilePreview] = useState<{ content: string; truncated: boolean } | null>(
+    null,
+  );
   const [filePreviewLoading, setFilePreviewLoading] = useState(false);
 
   useEffect(() => {
@@ -172,7 +174,9 @@ function SessionDetailPage() {
       .finally(() => {
         if (!cancelled) setFilePreviewLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [selectedPath, selectedEntry, isConnected, requestFilePreview]);
 
   const handlePermission = (
@@ -243,9 +247,13 @@ function SessionDetailPage() {
             {session.id}
           </code>
           {isConnected ? (
-            <Badge variant="outline" className="text-green-600">WS</Badge>
+            <Badge variant="outline" className="text-green-600">
+              WS
+            </Badge>
           ) : (
-            <Badge variant="outline" className="text-muted-foreground">SSE</Badge>
+            <Badge variant="outline" className="text-muted-foreground">
+              SSE
+            </Badge>
           )}
         </div>
       </div>
@@ -497,11 +505,7 @@ function SessionDetailPage() {
             disabled={isSending || !!pendingPermission || !prompt.trim()}
           >
             <SendIcon data-icon="inline-start" />
-            {pendingPermission
-              ? "Permission required"
-              : isSending
-                ? "Sending…"
-                : "Send"}
+            {pendingPermission ? "Permission required" : isSending ? "Sending…" : "Send"}
           </Button>
         </div>
       </div>
