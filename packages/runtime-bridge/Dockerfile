@@ -12,6 +12,11 @@ COPY dist/ ./dist/
 # Install common agent tooling so TypeScript agents can run via tsx
 RUN npm install tsx @agentclientprotocol/sdk
 
+# Pre-cache heavy agent deps so setup commands are near-instant.
+# Setup still runs but finds everything already installed.
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends libssl3 && rm -rf /var/lib/apt/lists/*
+RUN npm install -g @zed-industries/codex-acp
+
 EXPOSE 8080
 ENV BRIDGE_PORT=8080
 

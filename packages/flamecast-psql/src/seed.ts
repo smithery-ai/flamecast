@@ -29,7 +29,7 @@ await storage.seedAgentTemplates([
   {
     id: "codex",
     name: "Codex ACP",
-    spawn: { command: "codex-acp", args: [] },
+    spawn: { command: "npx", args: ["@zed-industries/codex-acp"] },
     runtime: {
       provider: "container",
       setup:
