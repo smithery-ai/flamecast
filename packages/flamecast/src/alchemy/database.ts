@@ -9,7 +9,7 @@ function envRecord(): Record<string, string> {
   }
   return result;
 }
-import { Resource, type Context } from "alchemy";
+import alchemy, { Resource, Secret, type Context } from "alchemy";
 import { Hyperdrive } from "alchemy/cloudflare";
 import { Exec } from "alchemy/os";
 
@@ -37,8 +37,8 @@ export interface FlamecastDatabase extends FlamecastDatabaseProps {
  * - **Local** (`alchemy dev`): Spawns pglite-server via scope.spawn
  *   (idempotent, PID-tracked, auto-respawn on restart via idempotentSpawn).
  *   Creates Hyperdrive with dev.origin pointing at the local pglite-server port.
- * - **Deployed** (`alchemy deploy`): Provisions PlanetScale, creates
- *   Hyperdrive with origin pointing at PlanetScale.
+ * - **Deployed** (`alchemy deploy`): Provisions Neon PostgreSQL, creates
+ *   Hyperdrive with origin pointing at Neon.
  *
  * Migrations run via Exec at provision time (Node.js process with
  * filesystem access), never inside the Worker.
@@ -75,35 +75,28 @@ export const FlamecastDatabase = Resource(
 
       connectionString = `postgresql://postgres:postgres@127.0.0.1:${port}/postgres`;
     } else {
-      // Deployed mode: PlanetScale PostgreSQL
-      const { Database, Branch, Password } = await import("alchemy/planetscale");
+      // Deployed mode: Neon PostgreSQL
+      const { NeonProject, NeonBranch } = await import("alchemy/neon");
 
-      const database = await Database("db", {
+      const project = await NeonProject("db", {
         adopt: true,
         name: `flamecast-${this.scope.stage}`,
-        clusterSize: "PS_10",
-        kind: "postgresql",
-        defaultBranch: "main",
-        migrationFramework: "other",
-        migrationTableName: "__drizzle_migrations",
+        region_id: "aws-us-east-1",
+        pg_version: 16,
+        apiKey: alchemy.secret.env.NEON_API_KEY,
       });
 
-      const branch = await Branch("branch", {
+      const branch = await NeonBranch("branch", {
         adopt: true,
-        name: `${this.scope.stage}-branch`,
-        database,
-        parentBranch: database.defaultBranch,
-        isProduction: this.scope.stage === "prod",
+        project,
+        name: this.scope.stage,
+        endpoints: [{ type: "read_write" }],
       });
 
-      const password = await Password("password", {
-        name: `flamecast-${this.scope.stage}-password`,
-        database,
-        branch,
-        role: "admin",
-      });
-
-      connectionString = password.connectionString;
+      // Extract connection string from branch connection URIs
+      const uri = branch.connectionUris[0];
+      if (!uri) throw new Error("No connection URI returned from Neon branch");
+      connectionString = Secret.unwrap(uri.connection_uri);
     }
 
     // Run migrations at provision time

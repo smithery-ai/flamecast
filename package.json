@@ -21,7 +21,7 @@
     "test:api:coverage": "turbo run test:api:coverage --filter=@flamecast/sdk",
     "test:server": "pnpm --filter @acp/server test",
     "check": "pnpm ci:lint && pnpm build && pnpm test:api:coverage && pnpm test:server && pnpm knip",
-    "alchemy:deploy": "alchemy deploy",
+    "alchemy:deploy": "infisical run --path=/tooling --env=staging --silent -- alchemy deploy --stage prod",
     "alchemy:destroy": "alchemy destroy",
     "clean": "git clean -ffdX"
   },
