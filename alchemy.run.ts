@@ -1,11 +1,4 @@
 import path from "node:path";
-// Suppress ECONNREFUSED during shutdown — pglite-server cleanup races with Miniflare's
-// open postgres connections. Alchemy's onExit handler calls scope.cleanup() which kills
-// pglite-server, but Miniflare's postgres.js client throws before cleanup completes.
-process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
-  if (err.code === "ECONNREFUSED") return;
-  throw err;
-});
 import alchemy from "alchemy";
 import { Worker, Vite } from "alchemy/cloudflare";
 import { FlamecastDatabase } from "./packages/flamecast/src/alchemy/database.ts";
@@ -52,11 +45,3 @@ export const client = await Vite("flamecast-client", {
 console.log(`API: ${server.url}`);
 
 await app.finalize();
-
-// Alchemy doesn't call scope.cleanup() on SIGINT in dev mode — do it manually
-for (const sig of ["SIGINT", "SIGTERM"] as const) {
-  process.on(sig, async () => {
-    await app.cleanup();
-    process.exit(0);
-  });
-}

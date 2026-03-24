@@ -26,8 +26,8 @@ export interface FlamecastDatabase extends FlamecastDatabaseProps {
  * Flamecast database resource.
  *
  * - **Local** (`alchemy dev`): Spawns pglite-server via scope.spawn
- *   (idempotent, PID-tracked, auto-cleanup on exit). Creates Hyperdrive
- *   with dev.origin pointing at the local pglite-server port.
+ *   (idempotent, PID-tracked, auto-respawn on restart via idempotentSpawn).
+ *   Creates Hyperdrive with dev.origin pointing at the local pglite-server port.
  * - **Deployed** (`alchemy deploy`): Provisions PlanetScale, creates
  *   Hyperdrive with origin pointing at PlanetScale.
  *
@@ -51,7 +51,9 @@ export const FlamecastDatabase = Resource(
       const dataDir = resolve(props.dataDir ?? ".flamecast/pglite");
       await mkdir(dataDir, { recursive: true });
 
-      // Spawn pglite-server via scope.spawn — idempotent, PID-tracked, auto-cleanup
+      // scope.spawn uses idempotentSpawn — persists PID to state file,
+      // checks liveness on restart, respawns if dead. Handles alchemy dev
+      // restart correctly without nuking .alchemy/ state.
       const nodeBinDir = dirname(process.execPath);
       const port = await this.scope.spawn("pglite-server", {
         cmd: `npx pglite-server --db ${dataDir} --port 0 --max-connections 5`,

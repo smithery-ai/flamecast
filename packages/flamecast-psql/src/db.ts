@@ -17,7 +17,10 @@ export type DatabaseBundle = {
  * FlamecastDatabase Alchemy resource (via Exec), not at Worker startup.
  */
 export async function createDatabase(options: { url: string }): Promise<DatabaseBundle> {
-  const client = postgres(options.url);
+  const client = postgres(options.url, {
+    prepare: false,
+    max: 1,
+  });
   const db = drizzle(client, { schema });
   return {
     db,
