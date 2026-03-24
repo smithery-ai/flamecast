@@ -41,7 +41,7 @@ export const client = await Vite("flamecast-client", {
   name: `flamecast-client-${app.stage}`,
   cwd: "./packages/flamecast",
   bindings: {
-    VITE_FLAMECAST_API_URL: `${server.url}api`,
+    VITE_FLAMECAST_API_URL: `${server.url?.replace(/\/$/, "")}/api`,
   },
   dev: {
     command: `PATH=${path.dirname(process.execPath)}:$PATH npx vite dev --port 3000`,
