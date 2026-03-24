@@ -3,26 +3,25 @@ import { createDatabase } from "./db.js";
 import { createStorageFromDb } from "./storage.js";
 
 export type PsqlStorageOptions = {
-  /** Postgres connection URL. If omitted, falls back to embedded PGLite. */
-  url?: string;
-  /** PGLite data directory (only used when no URL is provided). */
-  dataDir?: string;
+  /** Postgres connection URL (required). */
+  url: string;
 };
 
 /**
- * Create a {@link FlamecastStorage} backed by PostgreSQL (or embedded PGLite).
+ * Create a {@link FlamecastStorage} backed by PostgreSQL.
+ *
+ * Connects via the standard Postgres wire protocol. Works with any
+ * Postgres-compatible server: PlanetScale, Neon, pglite-server, etc.
  *
  * @example
  * ```ts
- * // Postgres
- * const storage = await createPsqlStorage({ url: "postgres://localhost/flamecast" });
- *
- * // PGLite (default)
- * const storage = await createPsqlStorage();
+ * const storage = await createPsqlStorage({
+ *   url: "postgresql://postgres:postgres@127.0.0.1:5432/postgres",
+ * });
  * ```
  */
 export async function createPsqlStorage(
-  options: PsqlStorageOptions = {},
+  options: PsqlStorageOptions,
 ): Promise<FlamecastStorage> {
   const { db } = await createDatabase(options);
   return createStorageFromDb(db);

@@ -1,6 +1,5 @@
 /* v8 ignore file */
-import type { PgliteDatabase } from "drizzle-orm/pglite";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "./schema.js";
 
-export type PsqlAppDb = PgliteDatabase<typeof schema> | NodePgDatabase<typeof schema>;
+export type PsqlAppDb = PostgresJsDatabase<typeof schema>;

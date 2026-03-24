@@ -329,10 +329,13 @@ export class Flamecast {
     if (!meta) {
       throw new Error(`Session "${id}" not found`);
     }
+
+    // Prefer sidecar URL from the runtime client, fall back to local WS server
     const websocketUrl =
-      this.listenPort && this.runtimeClient.hasSession(id)
+      this.runtimeClient.getWebsocketUrl?.(id) ??
+      (this.listenPort && this.runtimeClient.hasSession(id)
         ? `ws://localhost:${this.listenPort}/ws/sessions/${id}`
-        : undefined;
+        : undefined);
 
     return {
       ...meta,

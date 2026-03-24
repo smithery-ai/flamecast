@@ -17,13 +17,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.package.json && cp -r src/migrations dist/migrations",
     "test": "vitest run",
-    "psql:generate": "drizzle-kit generate --config src/drizzle.config.ts"
+    "db:migrate": "drizzle-kit migrate --config src/drizzle.config.ts",
+    "db:seed": "tsx src/seed.ts",
+    "db:generate": "drizzle-kit generate --config src/drizzle.config.ts"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.4.1",
     "@flamecast/sdk": "workspace:*",
     "drizzle-orm": "^0.45.1",
-    "pg": "^8.20.0"
+    "postgres": "^3.4.8"
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.8",

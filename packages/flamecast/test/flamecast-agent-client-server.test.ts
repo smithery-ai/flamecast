@@ -554,10 +554,12 @@ describe("bootstrap entrypoints", () => {
     try {
       vi.resetModules();
       process.argv[1] = undefined as unknown as string;
+      process.env.DATABASE_URL = "postgres://test:test@localhost:5432/test";
       await import("../src/flamecast/agent.ts?guard-false");
       await import("../../../apps/server/src/index.ts?guard-false");
     } finally {
       process.argv[1] = originalArgv1;
+      delete process.env.DATABASE_URL;
     }
 
     expect(AgentSideConnection).not.toHaveBeenCalled();
@@ -580,6 +582,7 @@ describe("bootstrap entrypoints", () => {
       createPsqlStorage: vi.fn(async () => ({})),
     }));
 
+    process.env.DATABASE_URL = "postgres://test:test@localhost:5432/test";
     const serverModule = await import("../../../apps/server/src/index.ts?server");
     const firstStart = await serverModule.main();
     const secondStart = await serverModule.main();
@@ -588,6 +591,7 @@ describe("bootstrap entrypoints", () => {
     expect(secondStart).toBeInstanceOf(FlamecastMock);
     expect(listen).toHaveBeenCalledTimes(2);
     expect(listen).toHaveBeenCalledWith(3001);
+    delete process.env.DATABASE_URL;
   });
 
   test("runs server main automatically when imported as the entry module", async () => {
@@ -610,12 +614,14 @@ describe("bootstrap entrypoints", () => {
       }));
 
       process.argv[1] = fileURLToPath(serverPath);
+      process.env.DATABASE_URL = "postgres://test:test@localhost:5432/test";
       const serverModule = await import("../../../apps/server/src/index.ts");
       // main() is called via void (fire-and-forget) in the module body;
       // await the exported main() to ensure the listen mock is invoked.
       await serverModule.main();
     } finally {
       process.argv[1] = originalArgv1;
+      delete process.env.DATABASE_URL;
     }
 
     expect(listen).toHaveBeenCalledWith(3001);

@@ -11,4 +11,5 @@ export interface RuntimeClient {
 
   hasSession(sessionId: string): boolean;
   listSessionIds(): string[];
+  getWebsocketUrl?(sessionId: string): string | undefined;
 }
