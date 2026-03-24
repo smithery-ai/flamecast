@@ -1,4 +1,10 @@
 import path from "node:path";
+// Suppress connection errors during shutdown — pglite-server cleanup races with
+// Miniflare's open postgres connections. See memory/project_shutdown_race.md.
+process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
+  if (err.code === "ECONNREFUSED" || err.code === "ECONNRESET" || err.code === "EPIPE") return;
+  throw err;
+});
 import alchemy from "alchemy";
 import { Worker, Vite } from "alchemy/cloudflare";
 import { FlamecastDatabase } from "./packages/flamecast/src/alchemy/database.ts";
