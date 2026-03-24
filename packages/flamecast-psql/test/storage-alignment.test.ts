@@ -6,7 +6,7 @@ const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 
 describe.skipIf(!TEST_DB_URL)("storage alignment", () => {
   it("stores managed and user templates in psql-backed storage", async () => {
-    const { db, close } = await createDatabase({ url: TEST_DB_URL! });
+    const { db, close } = await createDatabase({ url: TEST_DB_URL ?? "" });
     const storage = createStorageFromDb(db);
 
     try {
@@ -59,7 +59,7 @@ describe.skipIf(!TEST_DB_URL)("storage alignment", () => {
   });
 
   it("stores sessions in the flamecast schema", async () => {
-    const { db, close } = await createDatabase({ url: TEST_DB_URL! });
+    const { db, close } = await createDatabase({ url: TEST_DB_URL ?? "" });
     const storage = createStorageFromDb(db);
 
     try {

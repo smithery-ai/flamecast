@@ -188,6 +188,9 @@ importers:
       '@electric-sql/pglite-socket':
         specifier: ^0.1.1
         version: 0.1.1(@electric-sql/pglite@0.4.1)
+      '@flamecast/storage-psql':
+        specifier: workspace:*
+        version: link:../flamecast-psql
       '@tanstack/router-generator':
         specifier: 1.166.15
         version: 1.166.15

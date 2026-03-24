@@ -1,5 +1,14 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+
+/** Convert process.env to Record<string, string> without type assertion. */
+function envRecord(): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value != null) result[key] = value;
+  }
+  return result;
+}
 import { Resource, type Context } from "alchemy";
 import { Hyperdrive } from "alchemy/cloudflare";
 import { Exec } from "alchemy/os";
@@ -57,7 +66,7 @@ export const FlamecastDatabase = Resource(
       const nodeBinDir = dirname(process.execPath);
       const port = await this.scope.spawn("pglite-server", {
         cmd: `npx pglite-server --db ${dataDir} --port 0 --max-connections 5`,
-        env: { ...process.env as Record<string, string>, PATH: `${nodeBinDir}:${process.env.PATH ?? ""}` },
+        env: { ...envRecord(), PATH: `${nodeBinDir}:${process.env.PATH ?? ""}` },
         extract: (line) => {
           const match = line.match(/"port"\s*:\s*(\d+)/);
           return match ? match[1] : undefined;

@@ -42,7 +42,7 @@ export class SessionManager {
       command: opts.spawn.command,
       args: opts.spawn.args ?? [],
       workspace: opts.cwd,
-      setup: (opts.runtime as { setup?: string }).setup,
+      setup: opts.runtime.setup,
     };
 
     const response = await this.binding.fetchSession(

@@ -1,6 +1,14 @@
 import { dirname, resolve } from "node:path";
 import { Resource, type Context } from "alchemy";
 
+function envRecord(): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value != null) result[key] = value;
+  }
+  return result;
+}
+
 /**
  * Props for the FlamecastRuntime resource.
  */
@@ -52,7 +60,7 @@ export const FlamecastRuntime = Resource(
       const port = await this.scope.spawn("session-router", {
         cmd: `node ${routerEntry}`,
         env: {
-          ...process.env as Record<string, string>,
+          ...envRecord(),
           PATH: `${nodeBinDir}:${process.env.PATH ?? ""}`,
           BRIDGE_ENTRY: bridgeEntry,
         },
