@@ -367,9 +367,9 @@ const httpServer = createServer(async (req, res) => {
     res.writeHead(404);
     res.end("Not Found");
   } catch (error) {
-    jsonResponse(res, 500, {
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[runtime-bridge] request error:", message);
+    jsonResponse(res, 500, { error: message });
   }
 });
 
