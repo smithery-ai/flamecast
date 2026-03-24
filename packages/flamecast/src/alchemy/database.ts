@@ -109,7 +109,10 @@ export const FlamecastDatabase = Resource(
     // Seed builtin agent templates
     await Exec("seed", {
       command: "pnpm --filter @flamecast/storage-psql db:seed",
-      env: { DATABASE_URL: connectionString },
+      env: {
+        DATABASE_URL: connectionString,
+        ...(this.scope.local ? { SEED_LOCAL: "true" } : {}),
+      },
       memoize: false,
     });
 

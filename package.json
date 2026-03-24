@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "lsof -ti :3000,:3001,:3002,:3003 2>/dev/null | xargs kill -9 2>/dev/null; alchemy dev --force",
+    "dev": "lsof -ti :3000,:3001,:3002,:3003 2>/dev/null | xargs kill -9 2>/dev/null; pnpm build && alchemy dev --force",
     "dev:client": "turbo run dev --filter=@flamecast/sdk",
     "dev:server": "turbo run dev --filter=@acp/server",
     "build": "turbo run build",
