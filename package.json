@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "lsof -ti :3000,:3001,:3002,:3003 2>/dev/null | xargs kill -9 2>/dev/null; alchemy dev --force",
     "dev:client": "turbo run dev --filter=@flamecast/sdk",
     "dev:server": "turbo run dev --filter=@acp/server",
     "build": "turbo run build",
@@ -22,7 +22,6 @@
     "test:server": "pnpm --filter @acp/server test",
     "check": "pnpm ci:lint && pnpm build && pnpm test:api:coverage && pnpm test:server && pnpm knip",
     "alchemy:deploy": "alchemy deploy",
-    "alchemy:dev": "alchemy dev --force",
     "alchemy:destroy": "alchemy destroy",
     "clean": "git clean -ffdX"
   },
