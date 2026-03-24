@@ -1,13 +1,4 @@
-import {
-  boolean,
-  index,
-  integer,
-  jsonb,
-  pgSchema,
-  serial,
-  text,
-  timestamp,
-} from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgSchema, text, timestamp } from "drizzle-orm/pg-core";
 import type {
   AgentSpawn,
   AgentTemplateRuntime,
@@ -25,20 +16,6 @@ export const sessions = flamecastSchema.table("sessions", {
   pendingPermission: jsonb("pending_permission").$type<PendingPermission | null>(),
   status: text("status").notNull().default("active"),
 });
-
-export const sessionLogs = flamecastSchema.table(
-  "session_logs",
-  {
-    id: serial("id").primaryKey(),
-    sessionId: text("session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
-    occurredAt: timestamp("occurred_at", { withTimezone: true, mode: "string" }).notNull(),
-    type: text("type").notNull(),
-    data: jsonb("data").$type<Record<string, unknown>>().notNull(),
-  },
-  (t) => [index("idx_session_logs_session").on(t.sessionId, t.id)],
-);
 
 export const agentTemplates = flamecastSchema.table(
   "agent_templates",
