@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "pnpm alchemy:dev",
     "dev:client": "turbo run dev --filter=@flamecast/sdk",
     "dev:server": "turbo run dev --filter=@acp/server",
     "build": "turbo run build",
