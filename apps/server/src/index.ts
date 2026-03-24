@@ -3,10 +3,14 @@ import { Flamecast } from "@flamecast/sdk";
 import { createPsqlStorage } from "@flamecast/storage-psql";
 
 export async function main() {
-  // Pass { url: process.env.POSTGRES_URL } to use an external Postgres instance.
-  // Defaults to embedded PGLite on disk (won't work on serverless platforms like Vercel/CF).
+  const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL or POSTGRES_URL is required. Use 'pnpm alchemy:dev' for local development.",
+    );
+  }
   const flamecast = new Flamecast({
-    storage: await createPsqlStorage(),
+    storage: await createPsqlStorage({ url }),
   });
   await flamecast.listen(3001);
   return flamecast;
