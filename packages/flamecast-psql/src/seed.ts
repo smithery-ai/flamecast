@@ -38,13 +38,11 @@ const allTemplates = [
       setup:
         "apt-get update -qq && apt-get install -y -qq libssl3 >/dev/null && npm install -g @zed-industries/codex-acp",
     },
-    local: true,
+    local: false,
   },
 ];
 
-const templates = allTemplates
-  .filter((t) => !isLocal || t.local)
-  .map(({ local: _, ...t }) => t);
+const templates = allTemplates.filter((t) => !isLocal || t.local).map(({ local: _, ...t }) => t);
 
 const { db, close } = await createDatabase({ url });
 const storage = createStorageFromDb(db);
