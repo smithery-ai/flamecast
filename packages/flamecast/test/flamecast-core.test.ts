@@ -491,14 +491,27 @@ describe("flamecast orchestration internals", () => {
     expect(await storage.getLogs("nonexistent")).toEqual([]);
   });
 
-  test("terminateSession falls through to resolveRuntime when session is active but not in runtimes", async () => {
+  test("terminateSession finalizes storage when active session has no runtime", async () => {
     const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const storage = attachStorage(flamecast);
     await storage.createSession(createMeta("orphaned-active-term"));
 
-    await expect(flamecast.terminateSession("orphaned-active-term")).rejects.toThrow(
-      'Session "orphaned-active-term" not found',
-    );
+    await flamecast.terminateSession("orphaned-active-term");
+
+    const meta = await storage.getSessionMeta("orphaned-active-term");
+    expect(meta?.status).toBe("killed");
+  });
+
+  test("reconciles orphaned active sessions when storage first loads", async () => {
+    const storage = new MemoryFlamecastStorage();
+    await storage.createSession(createMeta("orphan-reconcile"));
+
+    const flamecast = new Flamecast({ storage });
+    const sessions = await flamecast.listSessions();
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].id).toBe("orphan-reconcile");
+    expect(sessions[0].status).toBe("killed");
   });
 
   test("handles unknown providers and initialization failures while creating sessions", async () => {

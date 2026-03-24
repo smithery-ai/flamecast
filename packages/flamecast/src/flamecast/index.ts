@@ -182,13 +182,19 @@ export class Flamecast {
 
   async terminateSession(id: string): Promise<void> {
     await this.ensureReady();
-    if (!this.runtimeClient.hasSession(id)) {
-      const meta = await this.requireStorage().getSessionMeta(id);
-      if (meta?.status === "killed") {
-        throw new Error("Cannot terminate an already-killed session");
-      }
+    const storage = this.requireStorage();
+    const meta = await storage.getSessionMeta(id);
+    if (!meta) {
+      throw new Error(`Session "${id}" not found`);
     }
-    await this.runtimeClient.terminateSession(id);
+    if (meta.status === "killed") {
+      throw new Error("Cannot terminate an already-killed session");
+    }
+    if (this.runtimeClient.hasSession(id)) {
+      await this.runtimeClient.terminateSession(id);
+    } else {
+      await storage.finalizeSession(id, "terminated");
+    }
   }
 
   private registerSignalHandlers(): void {
@@ -271,6 +277,7 @@ export class Flamecast {
         const storage = this.storageConfig ?? new MemoryFlamecastStorage();
         this.storage = storage;
         await storage.seedAgentTemplates(this.initialAgentTemplates);
+        await this.reconcileOrphanedActiveSessions(storage);
       })();
     }
     await this.readyPromise;
@@ -281,6 +288,19 @@ export class Flamecast {
       throw new Error("Flamecast storage is not ready");
     }
     return this.storage;
+  }
+
+  /**
+   * After a process restart, durable rows may still be `active` while no in-memory runtime
+   * exists. Mark those sessions killed so the UI and terminate API match reality.
+   */
+  private async reconcileOrphanedActiveSessions(storage: FlamecastStorage): Promise<void> {
+    const metas = await storage.listAllSessions();
+    for (const meta of metas) {
+      if (meta.status === "active" && !this.runtimeClient.hasSession(meta.id)) {
+        await storage.finalizeSession(meta.id, "terminated");
+      }
+    }
   }
 
   private async resolveSessionDefinition(opts: CreateSessionBody): Promise<{
