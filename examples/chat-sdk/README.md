@@ -1,6 +1,6 @@
-# @flamecast/plugin-chat-sdk
+# @flamecast/example-chat-sdk
 
-External Chat SDK connector for Flamecast.
+Example Chat SDK connector for Flamecast.
 
 This package is meant to run outside Flamecast core. It receives inbound chat
 events through Chat SDK, creates or reuses a dedicated Flamecast agent for each
@@ -61,7 +61,7 @@ import {
   ChatSdkConnector,
   SqlThreadAgentBindingStore,
   createFlamecastAgentClient,
-} from "@flamecast/plugin-chat-sdk";
+} from "@flamecast/example-chat-sdk";
 
 const flamecast = createFlamecastAgentClient({
   baseUrl: "http://127.0.0.1:3001",

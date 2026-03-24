@@ -1,5 +1,5 @@
 {
-  "name": "@flamecast/plugin-chat-sdk",
+  "name": "@flamecast/example-chat-sdk",
   "version": "0.0.0",
   "private": true,
   "type": "module",

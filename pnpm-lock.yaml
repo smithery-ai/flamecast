@@ -74,6 +74,43 @@ importers:
         specifier: workspace:*
         version: link:../../packages/flamecast-psql
 
+  examples/chat-sdk:
+    dependencies:
+      '@agentclientprotocol/sdk':
+        specifier: ^0.16.1
+        version: 0.16.1(zod@4.3.6)
+      '@electric-sql/pglite':
+        specifier: ^0.4.1
+        version: 0.4.1
+      '@flamecast/sdk':
+        specifier: workspace:*
+        version: link:../../packages/flamecast
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.27.1
+        version: 1.27.1(zod@4.3.6)
+      chat:
+        specifier: ^4.20.2
+        version: 4.20.2
+      drizzle-orm:
+        specifier: ^0.45.1
+        version: 0.45.1(@cloudflare/workers-types@4.20260317.1)(@electric-sql/pglite@0.4.1)(@libsql/client@0.17.2)(@types/pg@8.20.0)(pg@8.20.0)
+      hono:
+        specifier: ^4.12.8
+        version: 4.12.8
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^4.1.0
+        version: 4.1.0(vitest@4.1.0(@types/node@20.19.37)(msw@2.12.14(@types/node@20.19.37)(typescript@5.9.3))(vite@8.0.1(@types/node@20.19.37)(esbuild@0.27.4)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)))
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@20.19.37)(msw@2.12.14(@types/node@20.19.37)(typescript@5.9.3))(vite@8.0.1(@types/node@20.19.37)(esbuild@0.27.4)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))
+
   packages/flamecast:
     dependencies:
       '@agentclientprotocol/sdk':
@@ -244,43 +281,6 @@ importers:
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
-
-  plugins/chat-sdk:
-    dependencies:
-      '@agentclientprotocol/sdk':
-        specifier: ^0.16.1
-        version: 0.16.1(zod@4.3.6)
-      '@electric-sql/pglite':
-        specifier: ^0.4.1
-        version: 0.4.1
-      '@flamecast/sdk':
-        specifier: workspace:*
-        version: link:../../packages/flamecast
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.27.1
-        version: 1.27.1(zod@4.3.6)
-      chat:
-        specifier: ^4.20.2
-        version: 4.20.2
-      drizzle-orm:
-        specifier: ^0.45.1
-        version: 0.45.1(@cloudflare/workers-types@4.20260317.1)(@electric-sql/pglite@0.4.1)(@libsql/client@0.17.2)(@types/pg@8.20.0)(pg@8.20.0)
-      hono:
-        specifier: ^4.12.8
-        version: 4.12.8
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@vitest/coverage-v8':
-        specifier: ^4.1.0
-        version: 4.1.0(vitest@4.1.0(@types/node@20.19.37)(msw@2.12.14(@types/node@20.19.37)(typescript@5.9.3))(vite@8.0.1(@types/node@20.19.37)(esbuild@0.27.4)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)))
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.0
-        version: 4.1.0(@types/node@20.19.37)(msw@2.12.14(@types/node@20.19.37)(typescript@5.9.3))(vite@8.0.1(@types/node@20.19.37)(esbuild@0.27.4)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))
 
 packages:
 
