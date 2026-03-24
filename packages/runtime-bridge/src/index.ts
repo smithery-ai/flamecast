@@ -1,17 +1,28 @@
 #!/usr/bin/env node
 /* oxlint-disable no-type-assertion/no-type-assertion */
-import { spawn, execSync, type ChildProcess } from "node:child_process";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import path from "node:path";
+import { spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import { WebSocketServer, WebSocket } from "ws";
 import { startFileWatcher, type FileChange } from "./file-watcher.js";
-import type { BridgeStartRequest, BridgeStartResponse, BridgeHealthResponse } from "./protocol.js";
 
 // ---- Config from environment ----
 
-const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT ?? "8080", 10);
+const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT ?? "0", 10);
+const BRIDGE_WORKSPACE = process.env.BRIDGE_WORKSPACE ?? process.cwd();
+const AGENT_COMMAND = process.env.AGENT_COMMAND ?? "";
+const AGENT_ARGS: string[] = process.env.AGENT_ARGS ? JSON.parse(process.env.AGENT_ARGS) : [];
+const AGENT_CWD = process.env.AGENT_CWD ?? BRIDGE_WORKSPACE;
+const FILE_WATCHER_ENABLED = process.env.FILE_WATCHER_ENABLED !== "false";
+const FILE_WATCHER_IGNORE: string[] = process.env.FILE_WATCHER_IGNORE
+  ? JSON.parse(process.env.FILE_WATCHER_IGNORE)
+  : ["node_modules", ".git"];
+
+if (!AGENT_COMMAND) {
+  console.error("AGENT_COMMAND is required");
+  process.exit(1);
+}
 
 // ---- Types ----
 
@@ -31,16 +42,36 @@ type ControlMessage =
   | { action: "terminate" }
   | { action: "ping" };
 
-// ---- Session state (one session at a time) ----
+// ---- Spawn agent process ----
+
+const agent = spawn(AGENT_COMMAND, AGENT_ARGS, {
+  cwd: AGENT_CWD,
+  stdio: ["pipe", "pipe", "inherit"],
+  env: { ...process.env },
+});
+
+if (!agent.stdin || !agent.stdout) {
+  console.error("Failed to get agent stdio");
+  process.exit(1);
+}
+
+// Convert to Web Streams for ACP SDK
+const agentInput = Writable.toWeb(agent.stdin) as WritableStream<Uint8Array>;
+const agentOutput = new ReadableStream<Uint8Array>({
+  start(controller) {
+    agent.stdout!.on("data", (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+    agent.stdout!.on("end", () => controller.close());
+    agent.stdout!.on("error", (err) => controller.error(err));
+  },
+});
+
+// ---- ACP connection ----
+
+const stream = acp.ndJsonStream(agentInput, agentOutput);
 
 let sessionId = "";
-let agent: ChildProcess | null = null;
-let connection: acp.ClientSideConnection | null = null;
-let fileWatcher: ReturnType<typeof startFileWatcher> | undefined;
 const clients = new Set<WebSocket>();
 const permissionResolvers = new Map<string, (response: acp.RequestPermissionResponse) => void>();
-
-// ---- Broadcast helpers ----
 
 function broadcast(msg: WsMessage): void {
   const data = JSON.stringify(msg);
@@ -71,112 +102,135 @@ function emitRpc(
   emitEvent("rpc", data);
 }
 
-// ---- ACP Client implementation (agent → client calls) ----
+// ACP Client implementation (agent → client calls)
+const acpClient: acp.Client = {
+  sessionUpdate: async (params) => {
+    emitRpc(acp.CLIENT_METHODS.session_update, "agent_to_client", "notification", params);
+  },
 
-function createAcpClient(): acp.Client {
-  return {
-    sessionUpdate: async (params: acp.SessionNotification) => {
-      emitRpc(acp.CLIENT_METHODS.session_update, "agent_to_client", "notification", params);
-    },
+  requestPermission: async (params) => {
+    emitRpc(acp.CLIENT_METHODS.session_request_permission, "agent_to_client", "request", params);
 
-    requestPermission: async (params: acp.RequestPermissionRequest) => {
-      emitRpc(acp.CLIENT_METHODS.session_request_permission, "agent_to_client", "request", params);
+    const requestId = crypto.randomUUID();
+    return new Promise<acp.RequestPermissionResponse>((resolve) => {
+      permissionResolvers.set(requestId, resolve);
 
-      const requestId = crypto.randomUUID();
-      return new Promise<acp.RequestPermissionResponse>((resolve) => {
-        permissionResolvers.set(requestId, resolve);
-
-        emitEvent("permission_request", {
-          requestId,
-          toolCallId: params.toolCall.toolCallId,
-          title: params.toolCall.title ?? "",
-          kind: params.toolCall.kind ?? undefined,
-          options: params.options.map((o: acp.PermissionOption) => ({
-            optionId: o.optionId,
-            name: o.name,
-            kind: String(o.kind),
-          })),
-        });
+      // Emit a structured permission request event
+      emitEvent("permission_request", {
+        requestId,
+        toolCallId: params.toolCall.toolCallId,
+        title: params.toolCall.title ?? "",
+        kind: params.toolCall.kind ?? undefined,
+        options: params.options.map((o: acp.PermissionOption) => ({
+          optionId: o.optionId,
+          name: o.name,
+          kind: String(o.kind),
+        })),
       });
-    },
+    });
+  },
 
-    readTextFile: async (params: acp.ReadTextFileRequest) => {
-      emitRpc(acp.CLIENT_METHODS.fs_read_text_file, "agent_to_client", "request", params);
-      const { readFile } = await import("node:fs/promises");
-      const content = await readFile(params.path, "utf8");
-      const lines = content.split("\n");
-      const startLine = Math.max(params.line ?? 0, 0);
-      const limitedLines =
-        params.limit != null
-          ? lines.slice(startLine, startLine + params.limit)
-          : lines.slice(startLine);
-      const response: acp.ReadTextFileResponse = { content: limitedLines.join("\n") };
-      emitRpc(acp.CLIENT_METHODS.fs_read_text_file, "client_to_agent", "response", response);
-      return response;
-    },
+  readTextFile: async (params) => {
+    emitRpc(acp.CLIENT_METHODS.fs_read_text_file, "agent_to_client", "request", params);
+    const { readFile } = await import("node:fs/promises");
+    const content = await readFile(params.path, "utf8");
+    const lines = content.split("\n");
+    const startLine = Math.max(params.line ?? 0, 0);
+    const limitedLines =
+      params.limit != null
+        ? lines.slice(startLine, startLine + params.limit)
+        : lines.slice(startLine);
+    const response: acp.ReadTextFileResponse = { content: limitedLines.join("\n") };
+    emitRpc(acp.CLIENT_METHODS.fs_read_text_file, "client_to_agent", "response", response);
+    return response;
+  },
 
-    writeTextFile: async (params: acp.WriteTextFileRequest) => {
-      emitRpc(acp.CLIENT_METHODS.fs_write_text_file, "agent_to_client", "request", params);
-      const { writeFile } = await import("node:fs/promises");
-      await writeFile(params.path, params.content, "utf8");
-      const response: acp.WriteTextFileResponse = {};
-      emitRpc(acp.CLIENT_METHODS.fs_write_text_file, "client_to_agent", "response", response);
-      return response;
-    },
+  writeTextFile: async (params) => {
+    emitRpc(acp.CLIENT_METHODS.fs_write_text_file, "agent_to_client", "request", params);
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(params.path, params.content, "utf8");
+    const response: acp.WriteTextFileResponse = {};
+    emitRpc(acp.CLIENT_METHODS.fs_write_text_file, "client_to_agent", "response", response);
+    return response;
+  },
 
-    createTerminal: async (params: acp.CreateTerminalRequest) => {
-      emitRpc(acp.CLIENT_METHODS.terminal_create, "agent_to_client", "request", params);
-      const response = { terminalId: `stub-${crypto.randomUUID()}` };
-      emitRpc(acp.CLIENT_METHODS.terminal_create, "client_to_agent", "response", response);
-      return response;
-    },
+  createTerminal: async (params) => {
+    emitRpc(acp.CLIENT_METHODS.terminal_create, "agent_to_client", "request", params);
+    const response = { terminalId: `stub-${crypto.randomUUID()}` };
+    emitRpc(acp.CLIENT_METHODS.terminal_create, "client_to_agent", "response", response);
+    return response;
+  },
 
-    terminalOutput: async (params: acp.TerminalOutputRequest) => {
-      emitRpc(acp.CLIENT_METHODS.terminal_output, "agent_to_client", "request", params);
-      const response = { output: "", truncated: false };
-      emitRpc(acp.CLIENT_METHODS.terminal_output, "client_to_agent", "response", response);
-      return response;
-    },
+  terminalOutput: async (params) => {
+    emitRpc(acp.CLIENT_METHODS.terminal_output, "agent_to_client", "request", params);
+    const response = { output: "", truncated: false };
+    emitRpc(acp.CLIENT_METHODS.terminal_output, "client_to_agent", "response", response);
+    return response;
+  },
 
-    releaseTerminal: async (params: acp.ReleaseTerminalRequest) => {
-      emitRpc(acp.CLIENT_METHODS.terminal_release, "agent_to_client", "request", params);
-      const response = {};
-      emitRpc(acp.CLIENT_METHODS.terminal_release, "client_to_agent", "response", response);
-      return response;
-    },
+  releaseTerminal: async (params) => {
+    emitRpc(acp.CLIENT_METHODS.terminal_release, "agent_to_client", "request", params);
+    const response = {};
+    emitRpc(acp.CLIENT_METHODS.terminal_release, "client_to_agent", "response", response);
+    return response;
+  },
 
-    waitForTerminalExit: async (params: acp.WaitForTerminalExitRequest) => {
-      emitRpc(acp.CLIENT_METHODS.terminal_wait_for_exit, "agent_to_client", "request", params);
-      const response = { exitCode: 0 };
-      emitRpc(acp.CLIENT_METHODS.terminal_wait_for_exit, "client_to_agent", "response", response);
-      return response;
-    },
+  waitForTerminalExit: async (params) => {
+    emitRpc(acp.CLIENT_METHODS.terminal_wait_for_exit, "agent_to_client", "request", params);
+    const response = { exitCode: 0 };
+    emitRpc(acp.CLIENT_METHODS.terminal_wait_for_exit, "client_to_agent", "response", response);
+    return response;
+  },
 
-    killTerminal: async (params: acp.KillTerminalRequest) => {
-      emitRpc(acp.CLIENT_METHODS.terminal_kill, "agent_to_client", "request", params);
-      const response = {};
-      emitRpc(acp.CLIENT_METHODS.terminal_kill, "client_to_agent", "response", response);
-      return response;
-    },
+  killTerminal: async (params) => {
+    emitRpc(acp.CLIENT_METHODS.terminal_kill, "agent_to_client", "request", params);
+    const response = {};
+    emitRpc(acp.CLIENT_METHODS.terminal_kill, "client_to_agent", "response", response);
+    return response;
+  },
 
-    extMethod: async (method: string, params: Record<string, unknown>) => {
-      emitRpc(method, "agent_to_client", "request", params);
-      throw acp.RequestError.methodNotFound(method);
-    },
+  extMethod: async (method, params) => {
+    emitRpc(method, "agent_to_client", "request", params);
+    throw acp.RequestError.methodNotFound(method);
+  },
 
-    extNotification: async (method: string, params: Record<string, unknown>) => {
-      emitRpc(method, "agent_to_client", "notification", params);
-    },
-  };
-}
+  extNotification: async (method, params) => {
+    emitRpc(method, "agent_to_client", "notification", params);
+  },
+};
 
-// ---- WebSocket control message handler ----
+const connection = new acp.ClientSideConnection((_agent) => acpClient, stream);
+
+// ---- WebSocket server ----
+
+const httpServer = createServer((_req, res) => {
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ status: "ok", sessionId }));
+});
+
+const wss = new WebSocketServer({ server: httpServer });
+
+wss.on("connection", (ws) => {
+  clients.add(ws);
+  ws.send(JSON.stringify({ type: "connected", sessionId } satisfies WsMessage));
+
+  ws.on("message", (data) => {
+    try {
+      const msg = JSON.parse(String(data)) as ControlMessage;
+      void handleControl(msg);
+    } catch {
+      ws.send(JSON.stringify({ type: "error", message: "Invalid message" } satisfies WsMessage));
+    }
+  });
+
+  ws.on("close", () => clients.delete(ws));
+  ws.on("error", () => clients.delete(ws));
+});
 
 async function handleControl(msg: ControlMessage): Promise<void> {
   try {
     switch (msg.action) {
       case "prompt": {
-        if (!connection) throw new Error("No active session");
         const params: acp.PromptRequest = {
           sessionId,
           prompt: [{ type: "text", text: msg.text }],
@@ -204,7 +258,7 @@ async function handleControl(msg: ControlMessage): Promise<void> {
       }
 
       case "terminate": {
-        agent?.kill();
+        agent.kill();
         break;
       }
 
@@ -219,57 +273,25 @@ async function handleControl(msg: ControlMessage): Promise<void> {
   }
 }
 
-// ---- Session lifecycle ----
+// ---- File watcher ----
 
-async function startSession(
-  req: BridgeStartRequest,
-  serverPort: number,
-): Promise<BridgeStartResponse> {
-  if (agent) {
-    throw new Error("Session already running");
-  }
-
-  const workspace = req.workspace ?? process.cwd();
-
-  // SMI-1677: Run optional setup command before spawning agent.
-  // RUNTIME_SETUP_ENABLED is set by the Container class (deployed mode only).
-  if (req.setup && process.env.RUNTIME_SETUP_ENABLED) {
-    execSync(req.setup, { cwd: workspace, stdio: "inherit" });
-  }
-
-  // Spawn agent process
-  // Prepend node binary's directory to PATH so nvm/volta tools (npx, tsx, etc.) resolve
-  const nodeBinDir = path.dirname(process.execPath);
-
-  const agentProcess = spawn(req.command, req.args, {
-    cwd: workspace,
-    stdio: ["pipe", "pipe", "inherit"],
-    env: { ...process.env, PATH: `${nodeBinDir}:${process.env.PATH ?? ""}` },
+if (FILE_WATCHER_ENABLED) {
+  startFileWatcher(BRIDGE_WORKSPACE, FILE_WATCHER_IGNORE, (changes: FileChange[]) => {
+    emitEvent("filesystem.changed", { changes });
   });
+}
 
-  if (!agentProcess.stdin || !agentProcess.stdout) {
-    agentProcess.kill();
-    throw new Error("Failed to get agent stdio");
-  }
+// ---- Agent lifecycle ----
 
-  agent = agentProcess;
+agent.on("exit", (code) => {
+  emitEvent("session.terminated", { exitCode: code });
+  setTimeout(() => process.exit(code ?? 0), 500);
+});
 
-  // Convert to Web Streams for ACP SDK
-  const agentInput = Writable.toWeb(agentProcess.stdin) as WritableStream<Uint8Array>;
-  const agentOutput = new ReadableStream<Uint8Array>({
-    start(controller) {
-      agentProcess.stdout!.on("data", (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
-      agentProcess.stdout!.on("end", () => controller.close());
-      agentProcess.stdout!.on("error", (err) => controller.error(err));
-    },
-  });
+// ---- Initialize ACP and start server ----
 
-  // ACP connection + handshake
-  const stream = acp.ndJsonStream(agentInput, agentOutput);
-  const acpClient = createAcpClient();
-  const conn = new acp.ClientSideConnection((_agent: acp.Agent) => acpClient, stream);
-  connection = conn;
-
+async function main(): Promise<void> {
+  // ACP handshake
   const initParams: acp.InitializeRequest = {
     protocolVersion: acp.PROTOCOL_VERSION,
     clientCapabilities: {
@@ -279,127 +301,34 @@ async function startSession(
   };
 
   emitRpc(acp.AGENT_METHODS.initialize, "client_to_agent", "request", initParams);
-  const initResult = await conn.initialize(initParams);
+  const initResult = await connection.initialize(initParams);
   emitRpc(acp.AGENT_METHODS.initialize, "agent_to_client", "response", initResult);
 
-  const newSessionParams: acp.NewSessionRequest = { cwd: workspace, mcpServers: [] };
+  const newSessionParams: acp.NewSessionRequest = { cwd: AGENT_CWD, mcpServers: [] };
   emitRpc(acp.AGENT_METHODS.session_new, "client_to_agent", "request", newSessionParams);
-  const sessionResult = await conn.newSession(newSessionParams);
+  const sessionResult = await connection.newSession(newSessionParams);
   emitRpc(acp.AGENT_METHODS.session_new, "agent_to_client", "response", sessionResult);
 
   sessionId = sessionResult.sessionId;
 
-  // Start file watcher
-  fileWatcher = startFileWatcher(workspace, ["node_modules", ".git"], (changes: FileChange[]) => {
-    emitEvent("filesystem.changed", { changes });
-  });
+  // Start HTTP+WS server
+  httpServer.listen(BRIDGE_PORT, () => {
+    const addr = httpServer.address();
+    const port = typeof addr === "object" && addr ? addr.port : BRIDGE_PORT;
 
-  // Handle agent exit
-  agentProcess.on("exit", (code) => {
-    emitEvent("session.terminated", { exitCode: code });
-    resetSession();
-  });
-
-  return {
-    sessionId,
-    websocketUrl: `ws://localhost:${serverPort}`,
-    port: serverPort,
-  };
-}
-
-function resetSession(): void {
-  agent = null;
-  connection = null;
-  sessionId = "";
-  permissionResolvers.clear();
-  fileWatcher?.close();
-  fileWatcher = undefined;
-}
-
-function terminateSession(): void {
-  if (agent) {
-    agent.kill();
-    resetSession();
-  }
-}
-
-// ---- HTTP server ----
-
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", (chunk: Buffer) => (body += chunk.toString()));
-    req.on("end", () => resolve(body));
-    req.on("error", reject);
+    // Signal readiness to parent process
+    const readyMessage = JSON.stringify({
+      ready: true,
+      port,
+      sessionId,
+      websocketUrl: `ws://localhost:${port}`,
+    });
+    process.stdout.write(readyMessage + "\n");
   });
 }
 
-function jsonResponse(res: ServerResponse, status: number, data: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(data));
-}
-
-const httpServer = createServer(async (req, res) => {
-  try {
-    if (req.method === "GET" && req.url === "/health") {
-      const health: BridgeHealthResponse = agent
-        ? { status: "running", sessionId }
-        : { status: "idle" };
-      jsonResponse(res, 200, health);
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/start") {
-      const body = JSON.parse(await readBody(req)) as BridgeStartRequest;
-      const addr = httpServer.address();
-      const port = typeof addr === "object" && addr ? addr.port : BRIDGE_PORT;
-      const result = await startSession(body, port);
-      jsonResponse(res, 200, result);
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/terminate") {
-      terminateSession();
-      jsonResponse(res, 200, { ok: true });
-      return;
-    }
-
-    res.writeHead(404);
-    res.end("Not Found");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("[runtime-bridge] request error:", message);
-    jsonResponse(res, 500, { error: message });
-  }
-});
-
-// ---- WebSocket server ----
-
-const wss = new WebSocketServer({ server: httpServer });
-
-wss.on("connection", (ws) => {
-  clients.add(ws);
-  if (sessionId) {
-    ws.send(JSON.stringify({ type: "connected", sessionId } satisfies WsMessage));
-  }
-
-  ws.on("message", (data) => {
-    try {
-      const msg = JSON.parse(String(data)) as ControlMessage;
-      void handleControl(msg);
-    } catch {
-      ws.send(JSON.stringify({ type: "error", message: "Invalid message" } satisfies WsMessage));
-    }
-  });
-
-  ws.on("close", () => clients.delete(ws));
-  ws.on("error", () => clients.delete(ws));
-});
-
-// ---- Start ----
-
-httpServer.listen(BRIDGE_PORT, () => {
-  const addr = httpServer.address();
-  const port = typeof addr === "object" && addr ? addr.port : BRIDGE_PORT;
-  console.log(`[runtime-bridge] listening on port ${port} (idle, waiting for POST /start)`);
+main().catch((error) => {
+  console.error("Runtime bridge failed to start:", error);
+  agent.kill();
+  process.exit(1);
 });

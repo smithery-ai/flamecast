@@ -17,18 +17,12 @@ export default defineConfig({
       reporter: ["text", "lcov"],
       reportsDirectory: "./coverage/api-server",
       include: ["src/flamecast/**/*.ts", "src/server/**/*.ts"],
-      exclude: [
-        "src/flamecast/storage.ts",
-        "src/flamecast/session-manager.ts", // tested via alchemy dev integration, not unit tests
-        "src/flamecast/data-plane.ts", // type-only module, no runtime logic to test
-        "src/flamecast/agent.ts", // example agent — tested via runtime-bridge integration
-        "src/flamecast/client.ts", // example client — tested via runtime-bridge integration
-      ],
+      exclude: ["src/flamecast/storage.ts"],
       thresholds: {
-        branches: 55,
-        functions: 60,
-        lines: 60,
-        statements: 60,
+        branches: 95,
+        functions: 97,
+        lines: 98,
+        statements: 98,
       },
     },
   },

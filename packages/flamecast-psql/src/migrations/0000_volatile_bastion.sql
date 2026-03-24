@@ -1,4 +1,4 @@
-CREATE SCHEMA IF NOT EXISTS "flamecast";
+CREATE SCHEMA "flamecast";
 --> statement-breakpoint
 CREATE TABLE "flamecast"."agent_templates" (
 	"id" text PRIMARY KEY NOT NULL,

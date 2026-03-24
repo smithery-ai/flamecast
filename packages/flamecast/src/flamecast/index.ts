@@ -10,36 +10,27 @@ import type {
   Session,
 } from "../shared/session.js";
 import { createServerApp } from "../server/app.js";
+import { getBuiltinAgentTemplates, localRuntime } from "./agent-templates.js";
 import type { FlamecastStorage } from "./storage.js";
 import { MemoryFlamecastStorage } from "./storage/memory/index.js";
+import type { RuntimeProviderRegistry } from "./runtime-provider.js";
+import { resolveRuntimeProviders } from "./runtime-provider.js";
+import type { RuntimeClient } from "../runtime/client.js";
+import { LocalRuntimeClient } from "../runtime/local.js";
+import { FlamecastWsServer } from "../runtime/ws-server.js";
 
 export type { AgentSpawn, AgentTemplate, PendingPermission, Session } from "../shared/session.js";
 export type { SessionMeta, FlamecastStorage } from "./storage.js";
+export type { RuntimeProvider, RuntimeProviderRegistry } from "./runtime-provider.js";
 export type { AppType } from "./api.js";
+export type { AcpTransport } from "./transport.js";
+export type { RuntimeClient } from "../runtime/client.js";
 
 type ShutdownSignal = "SIGINT" | "SIGTERM";
 
-/**
- * Interface for session runtime management.
- * Implemented by both the legacy LocalRuntimeClient (for tests)
- * and the new SessionManager (for production Worker).
- */
-export interface RuntimeClient {
-  startSession(opts: {
-    agentName: string;
-    spawn: AgentSpawn;
-    cwd: string;
-    runtime: AgentTemplateRuntime;
-    startedAt: string;
-  }): Promise<{ sessionId: string }>;
-  terminateSession(sessionId: string): Promise<void>;
-  hasSession(sessionId: string): boolean;
-  listSessionIds(): string[];
-  getWebsocketUrl?(sessionId: string): string | undefined;
-}
-
 export type FlamecastOptions = {
   storage?: FlamecastStorage;
+  runtimeProviders?: RuntimeProviderRegistry;
   agentTemplates?: AgentTemplate[];
   handleSignals?: boolean;
   runtimeClient?: RuntimeClient;
@@ -47,6 +38,7 @@ export type FlamecastOptions = {
 
 export class Flamecast {
   private readonly initialAgentTemplates: AgentTemplate[];
+  private readonly runtimeProviders: RuntimeProviderRegistry;
   private readonly storageConfig?: FlamecastStorage;
   private readonly handleSignals: boolean;
   private readonly signalHandlers = new Map<ShutdownSignal, () => void>();
@@ -54,6 +46,7 @@ export class Flamecast {
   private storage: FlamecastStorage | null = null;
   private readyPromise: Promise<void> | null = null;
   private server: ServerType | null = null;
+  private wsServer: FlamecastWsServer | null = null;
   private listenPort: number | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private readonly app = createServerApp(this);
@@ -63,22 +56,15 @@ export class Flamecast {
   constructor(opts: FlamecastOptions = {}) {
     this.storageConfig = opts.storage;
     this.handleSignals = opts.handleSignals ?? true;
-    this.initialAgentTemplates = opts.agentTemplates ?? [];
+    this.runtimeProviders = resolveRuntimeProviders(opts.runtimeProviders);
+    this.initialAgentTemplates = opts.agentTemplates ?? getBuiltinAgentTemplates();
 
-    this.runtimeClient = opts.runtimeClient ?? {
-      async startSession() {
-        throw new Error("No runtimeClient configured");
-      },
-      async terminateSession() {
-        throw new Error("No runtimeClient configured");
-      },
-      hasSession() {
-        return false;
-      },
-      listSessionIds() {
-        return [];
-      },
-    };
+    this.runtimeClient =
+      opts.runtimeClient ??
+      new LocalRuntimeClient({
+        runtimeProviders: this.runtimeProviders,
+        getStorage: () => this.requireStorage(),
+      });
 
     this.fetch = async (request: Request) => this.app.fetch(request);
   }
@@ -95,6 +81,13 @@ export class Flamecast {
     });
     this.server = server;
 
+    // Attach WebSocket server for direct session connections
+    const wsServer = new FlamecastWsServer(this.runtimeClient);
+    this.wsServer = wsServer;
+    server.on("upgrade", (request, socket, head) => {
+      wsServer.handleUpgrade(request, socket, head);
+    });
+
     this.registerSignalHandlers();
     return server;
   }
@@ -109,6 +102,11 @@ export class Flamecast {
 
       for (const session of await this.listSessions()) {
         await this.terminateSession(session.id).catch(() => {});
+      }
+
+      if (this.wsServer) {
+        this.wsServer.close();
+        this.wsServer = null;
       }
 
       await this.closeServer();
@@ -139,7 +137,7 @@ export class Flamecast {
         command: body.spawn.command,
         args: [...body.spawn.args],
       },
-      runtime: body.runtime ? { ...body.runtime } : { provider: "container" },
+      runtime: body.runtime ? { ...body.runtime } : localRuntime(),
     };
 
     await this.requireStorage().saveAgentTemplate(template);
@@ -318,7 +316,7 @@ export class Flamecast {
         command: opts.spawn.command,
         args: [...(opts.spawn.args ?? [])],
       },
-      runtime: { provider: "container" },
+      runtime: localRuntime(),
     };
   }
 
@@ -331,12 +329,10 @@ export class Flamecast {
     if (!meta) {
       throw new Error(`Session "${id}" not found`);
     }
-
     const websocketUrl =
-      this.runtimeClient.getWebsocketUrl?.(id) ??
-      (this.listenPort && this.runtimeClient.hasSession(id)
+      this.listenPort && this.runtimeClient.hasSession(id)
         ? `ws://localhost:${this.listenPort}/ws/sessions/${id}`
-        : undefined);
+        : undefined;
 
     return {
       ...meta,

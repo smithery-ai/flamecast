@@ -11,8 +11,6 @@ export const AgentTemplateRuntimeSchema = z.object({
   provider: z.string().min(1),
   image: z.string().optional(),
   dockerfile: z.string().optional(),
-  /** Optional shell command to run before spawning the agent (e.g. "git clone ... && pnpm i"). */
-  setup: z.string().optional(),
 });
 export type AgentTemplateRuntime = z.infer<typeof AgentTemplateRuntimeSchema>;
 

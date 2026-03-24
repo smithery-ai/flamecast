@@ -31,9 +31,9 @@ describe("package contract", () => {
       types: "./dist/flamecast/api.d.ts",
       import: "./dist/flamecast/api.js",
     });
-    expect(packageJson.exports["./session-manager"]).toEqual({
-      types: "./dist/flamecast/session-manager.d.ts",
-      import: "./dist/flamecast/session-manager.js",
+    expect(packageJson.exports["./worker"]).toEqual({
+      types: "./dist/worker.d.ts",
+      import: "./dist/worker.js",
     });
 
     const entry = await import("../../src/index.js");

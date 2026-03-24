@@ -1,8 +1,6 @@
 import { createFlamecastClient } from "../api.js";
 
-const client = createFlamecastClient({
-  baseUrl: import.meta.env.VITE_FLAMECAST_API_URL ?? "/api",
-});
+const client = createFlamecastClient({ baseUrl: "/api" });
 
 export const {
   createSession,

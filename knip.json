@@ -8,6 +8,7 @@
   "workspaces": {
     "packages/flamecast": {
       "entry": [
+        "alchemy.run.ts",
         "src/cli.ts",
         "src/client/main.tsx",
         "src/client/routeTree.gen.ts",
@@ -15,8 +16,7 @@
         "src/flamecast/client.ts",
         "src/flamecast/index.ts",
         "src/index.ts",
-        "src/alchemy/database.ts",
-        "src/alchemy/runtime.ts",
+        "src/worker.ts",
         "test/**/*.test.ts"
       ],
       "ignoreFiles": [
@@ -24,9 +24,6 @@
       ],
       "ignoreBinaries": ["knip", "vitest"],
       "ignoreDependencies": [
-        "@electric-sql/pglite-socket",
-        "@types/ws",
-        "ws",
         "@base-ui/react",
         "cmdk",
         "date-fns",
