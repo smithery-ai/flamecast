@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "turbo run dev",
-    "dev:client": "turbo run dev --filter=@flamecast/sdk",
-    "dev:server": "turbo run dev --filter=@acp/server",
+    "dev": "pnpm dev:client & pnpm dev:server & wait",
+    "dev:client": "pnpm --filter @flamecast/sdk run dev",
+    "dev:server": "tsx watch packages/flamecast/src/cli.ts --cwd .",
     "build": "turbo run build",
     "start": "pnpm dev",
     "knip": "pnpm --filter @flamecast/sdk run generate:routes && knip --config knip.json --workspace packages/flamecast --workspace apps/server --no-config-hints",

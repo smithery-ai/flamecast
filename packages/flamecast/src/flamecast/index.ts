@@ -34,6 +34,8 @@ export type FlamecastOptions = {
   agentTemplates?: AgentTemplate[];
   handleSignals?: boolean;
   runtimeClient?: RuntimeClient;
+  /** Default working directory for new sessions when not specified by the client. Falls back to process.cwd(). */
+  cwd?: string;
 };
 
 export class Flamecast {
@@ -43,6 +45,7 @@ export class Flamecast {
   private readonly handleSignals: boolean;
   private readonly signalHandlers = new Map<ShutdownSignal, () => void>();
   private readonly runtimeClient: RuntimeClient;
+  private readonly defaultCwd: string;
   private storage: FlamecastStorage | null = null;
   private readyPromise: Promise<void> | null = null;
   private server: ServerType | null = null;
@@ -56,6 +59,7 @@ export class Flamecast {
   constructor(opts: FlamecastOptions = {}) {
     this.storageConfig = opts.storage;
     this.handleSignals = opts.handleSignals ?? true;
+    this.defaultCwd = opts.cwd ?? process.cwd();
     this.runtimeProviders = resolveRuntimeProviders(opts.runtimeProviders);
     this.initialAgentTemplates = opts.agentTemplates ?? getBuiltinAgentTemplates();
 
@@ -147,7 +151,7 @@ export class Flamecast {
   async createSession(opts: CreateSessionBody): Promise<Session> {
     await this.ensureReady();
 
-    const cwd = opts.cwd ?? process.cwd();
+    const cwd = opts.cwd ?? this.defaultCwd;
     const { agentName, spawn, runtime } = await this.resolveSessionDefinition(opts);
     const startedAt = new Date().toISOString();
 
