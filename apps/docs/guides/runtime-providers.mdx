@@ -1,0 +1,50 @@
+---
+title: "Runtime providers"
+description: "Start agents locally, in Docker, or with custom providers"
+---
+
+Runtime providers are responsible for starting the actual agent runtime and returning a live ACP transport.
+
+## Built-in providers
+
+| Provider | How it works |
+|---|---|
+| `local` | Uses `child_process.spawn()` and stdio |
+| `docker` | Uses Alchemy/Docker, waits for ACP readiness, then connects over TCP |
+
+## Custom providers
+
+Add your own providers through the `runtimeProviders` option:
+
+```typescript
+import { Flamecast } from "@flamecast/sdk";
+
+const flamecast = new Flamecast({
+  runtimeProviders: {
+    remote: {
+      async start() {
+        const transport = await openRemoteTransportSomehow();
+        return {
+          transport,
+          terminate: async () => {
+            await transport.dispose?.();
+          },
+        };
+      },
+    },
+  },
+  agentTemplates: [
+    {
+      id: "remote-agent",
+      name: "Remote agent",
+      spawn: { command: "remote-agent", args: [] },
+      runtime: { provider: "remote" },
+    },
+  ],
+});
+```
+
+A runtime provider must implement a `start()` method that returns:
+
+- `transport` — an ACP-compatible transport (stdio or TCP)
+- `terminate` — an async function to shut down the agent

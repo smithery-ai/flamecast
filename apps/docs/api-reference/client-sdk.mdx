@@ -1,0 +1,83 @@
+---
+title: "Client SDK"
+description: "TypeScript client with auto-reconnecting WebSocket and React hooks"
+---
+
+The `@flamecast/sdk/client` package provides a typed client for interacting with Flamecast from the browser or Node.js.
+
+## FlamecastSession
+
+`FlamecastSession` is an auto-reconnecting WebSocket wrapper for a single session.
+
+```typescript
+import { FlamecastSession } from "@flamecast/sdk/client";
+
+const session = new FlamecastSession({
+  websocketUrl: "ws://localhost:3001/ws/sessions/abc-123",
+  sessionId: "abc-123",
+});
+
+session.connect();
+```
+
+### Listen for events
+
+```typescript
+session.on((event) => {
+  console.log("Event:", event.type, event.data);
+});
+```
+
+### Send commands
+
+```typescript
+// Send a prompt
+session.prompt("Hello, agent!");
+
+// Respond to a permission request
+session.respondToPermission(requestId, { optionId: "allow" });
+
+// Cancel a queued prompt
+session.cancel();
+
+// Terminate the session
+session.terminate();
+
+// Disconnect the WebSocket
+session.disconnect();
+```
+
+### Read files
+
+```typescript
+const content = await session.readFile("/path/to/file.ts");
+```
+
+### Connection state
+
+The `connectionState` property reflects the current WebSocket status:
+
+| State | Description |
+|---|---|
+| `disconnected` | Not connected |
+| `connecting` | Initial connection in progress |
+| `connected` | Active connection |
+| `reconnecting` | Attempting to reconnect after a drop |
+
+### Options
+
+| Option | Default | Description |
+|---|---|---|
+| `websocketUrl` | Required | WebSocket URL for the session |
+| `sessionId` | Required | Session identifier |
+| `maxReconnectAttempts` | `5` | Number of reconnection attempts before giving up |
+
+## React hooks
+
+The SDK includes React hooks for use with TanStack Query:
+
+```typescript
+import { useFlamecastSession } from "@flamecast/sdk/client";
+```
+
+These hooks manage connection lifecycle, event buffering, and state synchronization automatically.

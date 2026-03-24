@@ -1,0 +1,85 @@
+---
+title: "Development"
+description: "Set up the Flamecast monorepo for local development"
+---
+
+<Info>
+  **Prerequisites**: Node.js 20+, pnpm 10+
+</Info>
+
+## Running locally
+
+<Steps>
+<Step title="Install dependencies">
+
+```bash
+pnpm install
+```
+
+</Step>
+
+<Step title="Start everything">
+
+```bash
+pnpm dev
+```
+
+This runs both `apps/server` (API on port 3001) and the Vite frontend dev server concurrently via Turbo.
+
+</Step>
+</Steps>
+
+## Individual services
+
+Run the API or UI independently:
+
+```bash
+# API server only
+pnpm dev:server
+
+# Vite frontend only
+pnpm dev:client
+```
+
+## Scripts
+
+| Script | Description |
+|---|---|
+| `pnpm dev` | Start API and frontend dev servers |
+| `pnpm dev:server` | API only |
+| `pnpm dev:client` | Vite only |
+| `pnpm test` | Run integration tests |
+| `pnpm check` | Lint + format + build + API coverage |
+| `pnpm fmt` | ESLint fix + format |
+| `pnpm psql:generate` | Generate Drizzle migrations |
+
+## Testing
+
+```bash
+pnpm test
+```
+
+Tests create isolated Flamecast instances and exercise the API surface end-to-end.
+
+For API coverage:
+
+```bash
+pnpm test:api:coverage
+```
+
+## Repository layout
+
+```text
+apps/
+  server/
+    src/index.ts            # Node entry point; constructs Flamecast and listens
+packages/
+  flamecast/                # @flamecast/sdk — core SDK
+    src/
+      flamecast/            # Flamecast class, API routes, storage, providers
+      runtime/              # AcpBridge, RuntimeClient, WebSocket server
+      client/               # FlamecastSession client, React hooks, routes
+      shared/               # Zod schemas, shared types
+  flamecast-psql/           # @flamecast/storage-psql — SQL storage backend
+  runtime-bridge/           # @acp/runtime-bridge — standalone sidecar process
+```

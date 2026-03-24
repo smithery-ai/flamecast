@@ -1,0 +1,69 @@
+---
+title: "Quickstart"
+description: "Get Flamecast running and launch your first agent session"
+---
+
+<Info>
+  **Prerequisites**: Node.js 20+ and pnpm installed.
+</Info>
+
+<Steps>
+<Step title="Clone and install">
+
+```bash
+git clone https://github.com/anthropics/flamecast.git
+cd flamecast
+pnpm install
+```
+
+</Step>
+
+<Step title="Start the dev server">
+
+```bash
+pnpm dev
+```
+
+This starts both the API server on port 3001 and the React UI dev server.
+
+</Step>
+
+<Step title="Open the UI">
+
+Go to **http://localhost:3000**. The home page lists registered agent templates. Click **Start session** to launch one.
+
+</Step>
+</Steps>
+
+## Use the SDK directly
+
+You can also create a Flamecast instance programmatically:
+
+```typescript
+import { Flamecast } from "@flamecast/sdk";
+
+const flamecast = new Flamecast({
+  storage: "pglite",
+});
+
+await flamecast.listen(3001);
+```
+
+The `Flamecast` constructor accepts options for [storage](/guides/storage), [runtime providers](/guides/runtime-providers), and [agent templates](/guides/agent-templates).
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/guides/architecture">
+    Understand how the pieces fit together.
+  </Card>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Customize storage, providers, and templates.
+  </Card>
+  <Card title="REST API" icon="code" href="/api-reference/introduction">
+    Explore the HTTP endpoints.
+  </Card>
+  <Card title="Client SDK" icon="window" href="/api-reference/client-sdk">
+    Connect to sessions from your own frontend.
+  </Card>
+</CardGroup>

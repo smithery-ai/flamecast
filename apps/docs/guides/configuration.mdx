@@ -1,0 +1,55 @@
+---
+title: "Configuration"
+description: "All Flamecast constructor options and environment variables"
+---
+
+Flamecast is configured through TypeScript via the `Flamecast` constructor. There are no JSON config files.
+
+## Constructor options
+
+```typescript
+import { Flamecast } from "@flamecast/sdk";
+
+const flamecast = new Flamecast({
+  storage: "pglite",
+  handleSignals: true,
+});
+
+await flamecast.listen(3001);
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `storage` | `string \| FlamecastStorage` | `"memory"` | Persistence backend |
+| `runtimeProviders` | `Record<string, RuntimeProvider>` | Built-in `local` + `docker` | Registry of runtime providers |
+| `agentTemplates` | `AgentTemplate[]` | Built-in templates | Initial template list. Replaces defaults when provided |
+| `handleSignals` | `boolean` | `true` | Auto shutdown on SIGINT/SIGTERM |
+| `runtimeClient` | `RuntimeClient` | `LocalRuntimeClient` | Custom runtime client implementation |
+
+## Fetch handler
+
+The same instance also exposes a standard `fetch` handler for serverless or custom HTTP setups:
+
+```typescript
+import { Flamecast } from "@flamecast/sdk";
+
+const flamecast = new Flamecast({
+  storage: { type: "postgres", url: process.env.DATABASE_URL! },
+});
+
+export default flamecast.fetch;
+```
+
+## Environment variables
+
+| Variable | Description |
+|---|---|
+| `FLAMECAST_PGLITE_DIR` | Override PGLite data directory (default: `<cwd>/.flamecast/pglite`) |
+| `DATABASE_URL` | Postgres connection string (when using Postgres storage) |
+
+## Current limitations
+
+- No auth or multi-tenancy
+- Single-process control plane; no distributed coordination
+- Worker deployment needs non-local runtime providers
+- Runtime reconnection across process restarts is not implemented yet

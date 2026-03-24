@@ -1,0 +1,101 @@
+---
+title: "REST endpoints"
+description: "HTTP API for managing agents and templates"
+---
+
+All endpoints are prefixed with `/api`.
+
+## Health
+
+<ParamField path="GET /health" type="endpoint">
+  Returns server health and active session count.
+</ParamField>
+
+**Response**
+
+```json
+{
+  "status": "ok",
+  "sessions": 3
+}
+```
+
+## Agent templates
+
+### List templates
+
+<ParamField path="GET /agent-templates" type="endpoint">
+  Returns all registered agent templates.
+</ParamField>
+
+### Register a template
+
+<ParamField path="POST /agent-templates" type="endpoint">
+  Register a custom agent template. Templates registered via the API persist as long as the storage backend is durable.
+</ParamField>
+
+**Request body**
+
+```json
+{
+  "id": "my-agent",
+  "name": "My custom agent",
+  "spawn": {
+    "command": "node",
+    "args": ["agent.js"]
+  },
+  "runtime": {
+    "provider": "local"
+  }
+}
+```
+
+## Agents
+
+### List agents
+
+<ParamField path="GET /agents" type="endpoint">
+  Returns all active managed agents.
+</ParamField>
+
+### Create an agent
+
+<ParamField path="POST /agents" type="endpoint">
+  Creates a managed agent runtime and session. Provide either `agentTemplateId` to use a registered template, or `spawn` for a one-off session.
+</ParamField>
+
+**Request body (template)**
+
+```json
+{
+  "agentTemplateId": "example"
+}
+```
+
+**Request body (ad-hoc)**
+
+```json
+{
+  "spawn": {
+    "command": "node",
+    "args": ["agent.js"]
+  },
+  "name": "Scratch agent"
+}
+```
+
+**Response**
+
+The response includes a `websocketUrl` for active sessions, which clients use to establish a WebSocket connection.
+
+### Get an agent
+
+<ParamField path="GET /agents/:agentId" type="endpoint">
+  Returns the current agent snapshot, including `websocketUrl` for live sessions.
+</ParamField>
+
+### Terminate an agent
+
+<ParamField path="DELETE /agents/:agentId" type="endpoint">
+  Terminates a managed agent runtime.
+</ParamField>
