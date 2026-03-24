@@ -100,4 +100,9 @@ export class SessionManager {
   getWebsocketUrl(sessionId: string): string | undefined {
     return this.sessions.get(sessionId)?.websocketUrl;
   }
+
+  /** Proxy a WebSocket upgrade request to the container bridge. */
+  async proxyWebSocket(sessionId: string, request: Request): Promise<Response> {
+    return this.binding.fetchSession(sessionId, request);
+  }
 }

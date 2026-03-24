@@ -31,7 +31,8 @@ export const server = await Worker("flamecast-api", {
     // Local: URL string to session router. Deployed: CF Container DO binding.
     ...(runtime.url ? { RUNTIME_URL: runtime.url } : {}),
     ...(runtime.container ? { RUNTIME: runtime.container } : {}),
-    WORKSPACE_ROOT: process.cwd(),
+    // Local: host repo root. Deployed: container working directory.
+    WORKSPACE_ROOT: runtime.url ? process.cwd() : "/app",
   },
   url: true,
   dev: {

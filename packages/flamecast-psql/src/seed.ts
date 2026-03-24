@@ -20,13 +20,21 @@ await storage.seedAgentTemplates([
     id: "example",
     name: "Example agent",
     spawn: { command: "npx", args: ["tsx", "packages/flamecast/src/flamecast/agent.ts"] },
-    runtime: { provider: "container" },
+    runtime: {
+      provider: "container",
+      setup:
+        "mkdir -p packages/flamecast/src/flamecast && npm install tsx @agentclientprotocol/sdk && curl -sf -o packages/flamecast/src/flamecast/agent.ts https://raw.githubusercontent.com/smithery-ai/flamecast/main/packages/flamecast/src/flamecast/agent.ts",
+    },
   },
   {
     id: "codex",
     name: "Codex ACP",
-    spawn: { command: "npx", args: ["@zed-industries/codex-acp"] },
-    runtime: { provider: "container" },
+    spawn: { command: "codex-acp", args: [] },
+    runtime: {
+      provider: "container",
+      setup:
+        "apt-get update -qq && apt-get install -y -qq libssl3 >/dev/null && npm install -g @zed-industries/codex-acp",
+    },
   },
 ]);
 

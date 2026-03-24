@@ -231,8 +231,9 @@ async function startSession(
 
   const workspace = req.workspace ?? process.cwd();
 
-  // SMI-1677: Run optional setup command before spawning agent
-  if (req.setup) {
+  // SMI-1677: Run optional setup command before spawning agent.
+  // RUNTIME_SETUP_ENABLED is set by the Container class (deployed mode only).
+  if (req.setup && process.env.RUNTIME_SETUP_ENABLED) {
     execSync(req.setup, { cwd: workspace, stdio: "inherit" });
   }
 

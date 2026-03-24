@@ -1,5 +1,6 @@
 import { dirname, resolve } from "node:path";
 import { Resource, type Context } from "alchemy";
+import type { Container as AlchemyContainer } from "alchemy/cloudflare";
 
 function envRecord(): Record<string, string> {
   const result: Record<string, string> = {};
@@ -26,7 +27,7 @@ export interface FlamecastRuntime extends FlamecastRuntimeProps {
   /** URL where the session router can be reached (local mode). */
   url?: string;
   /** CF Container binding (deployed mode) — pass as Worker binding. */
-  container?: unknown;
+  container?: AlchemyContainer;
 }
 
 /**

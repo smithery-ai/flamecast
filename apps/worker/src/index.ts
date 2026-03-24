@@ -5,6 +5,7 @@
  * Uses SessionManager for data plane provisioning and per-request
  * postgres.js storage via Hyperdrive.
  */
+import { getContainer } from "@cloudflare/containers";
 import { createServerApp } from "@flamecast/sdk/server/app";
 import { SessionManager } from "@flamecast/sdk/session-manager";
 import { createPsqlStorage } from "@flamecast/storage-psql";
@@ -18,16 +19,18 @@ import type {
   Session,
   AgentTemplateRuntime,
 } from "@flamecast/sdk/shared/session";
+import type { FlamecastRuntime } from "./container.ts";
+
+// Re-export the Container class — required by CF Containers so Cloudflare
+// can route Durable Object requests to container instances.
+export { FlamecastRuntime } from "./container.ts";
 
 type Env = {
   DATABASE: { connectionString: string };
   /** Local mode: URL string to session router */
   RUNTIME_URL?: string;
   /** Deployed mode: CF Container DurableObjectNamespace */
-  RUNTIME?: {
-    idFromName(name: string): { toString(): string };
-    get(id: unknown): { fetch(request: Request | string, init?: RequestInit): Promise<Response> };
-  };
+  RUNTIME?: DurableObjectNamespace<FlamecastRuntime>;
   WORKSPACE_ROOT?: string;
 };
 
@@ -44,12 +47,13 @@ function createBindingFromUrl(runtimeUrl: string): DataPlaneBinding {
   };
 }
 
-function createBindingFromContainer(container: NonNullable<Env["RUNTIME"]>): DataPlaneBinding {
+function createBindingFromContainer(
+  binding: DurableObjectNamespace<FlamecastRuntime>,
+): DataPlaneBinding {
   return {
     async fetchSession(sessionId: string, request: Request): Promise<Response> {
-      const id = container.idFromName(sessionId);
-      const stub = container.get(id);
-      return stub.fetch(request);
+      const container = getContainer(binding, sessionId);
+      return container.fetch(request);
     },
   };
 }
@@ -58,6 +62,7 @@ function createWorkerApi(
   storage: FlamecastStorage,
   sessionManager: SessionManager,
   defaultCwd: string,
+  requestUrl?: string,
 ): FlamecastApi {
   async function resolveSessionDefinition(opts: CreateSessionBody): Promise<{
     agentName: string;
@@ -86,6 +91,15 @@ function createWorkerApi(
   async function snapshotSession(id: string): Promise<Session> {
     const meta = await storage.getSessionMeta(id);
     if (!meta) throw new Error(`Session "${id}" not found`);
+
+    // In deployed mode, override the bridge's internal ws://localhost URL
+    // with the Worker's public WebSocket proxy endpoint.
+    let websocketUrl = sessionManager.getWebsocketUrl(id);
+    if (requestUrl) {
+      const origin = new URL(requestUrl).origin.replace(/^http/, "ws");
+      websocketUrl = `${origin}/api/agents/${id}/ws`;
+    }
+
     return {
       ...meta,
       logs: [],
@@ -97,7 +111,7 @@ function createWorkerApi(
         : null,
       fileSystem: null,
       promptQueue: null,
-      websocketUrl: sessionManager.getWebsocketUrl(id),
+      websocketUrl,
     };
   }
 
@@ -153,8 +167,6 @@ let sessionManager: SessionManager | null = null;
 
 export default {
   async fetch(request: Request, env: Env) {
-    const storage = await createPsqlStorage({ url: env.DATABASE.connectionString });
-
     if (!sessionManager) {
       const binding = env.RUNTIME
         ? createBindingFromContainer(env.RUNTIME)
@@ -162,8 +174,25 @@ export default {
       sessionManager = new SessionManager(binding);
     }
 
+    // WebSocket proxy: /api/agents/:id/ws → container bridge
+    const url = new URL(request.url);
+    const wsMatch = url.pathname.match(/^\/api\/agents\/([^/]+)\/ws$/);
+    if (wsMatch && request.headers.get("Upgrade") === "websocket") {
+      const id = wsMatch[1];
+      return sessionManager.proxyWebSocket(id, request);
+    }
+
+    const storage = await createPsqlStorage({ url: env.DATABASE.connectionString });
     const defaultCwd = env.WORKSPACE_ROOT ?? "/workspace";
-    const app = createServerApp(createWorkerApi(storage, sessionManager, defaultCwd));
+    // Only pass requestUrl in deployed mode — used to rewrite websocketUrl
+    // from the container's internal ws://localhost:8080 to the Worker's proxy.
+    const api = createWorkerApi(
+      storage,
+      sessionManager,
+      defaultCwd,
+      env.RUNTIME ? request.url : undefined,
+    );
+    const app = createServerApp(api);
     return app.fetch(request);
   },
 };
