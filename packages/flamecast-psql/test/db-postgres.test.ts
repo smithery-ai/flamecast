@@ -24,7 +24,7 @@ describe("database client postgres branch", () => {
   test("connects using postgres.js when url is provided", async () => {
     const bundle = await createDatabase({ url: "postgres://db/flamecast" });
 
-    expect(mocks.postgresClient).toHaveBeenCalledWith("postgres://db/flamecast");
+    expect(mocks.postgresClient).toHaveBeenCalledWith("postgres://db/flamecast", { prepare: false, max: 1 });
     expect(mocks.drizzlePostgresJs).toHaveBeenCalledWith(
       expect.any(Function),
       expect.objectContaining({
