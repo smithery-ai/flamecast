@@ -83,7 +83,7 @@ export const FlamecastRuntime = Resource(
       className: "FlamecastRuntime",
       build: {
         context: props.dockerfile.replace(/\/Dockerfile$/, ""),
-        dockerfile: props.dockerfile,
+        dockerfile: "Dockerfile",
       },
       maxInstances: 50,
     });
