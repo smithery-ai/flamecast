@@ -17,52 +17,37 @@ export type CreateDatabaseOptions = {
 };
 
 /**
- * Connect to Postgres when a URL is provided; otherwise fall back to
- * embedded PGLite on disk.
- *
- * The PGLite path uses dynamic imports so it's never bundled into
- * edge runtimes (Workers) that always provide a URL.
+ * Connect to Postgres via postgres.js.
+ * Edge-safe — no dynamic imports, no Node-only deps.
  */
-export async function createDatabase(options: CreateDatabaseOptions = {}): Promise<DatabaseBundle> {
-  if (options.url) {
-    const client = postgres(options.url, {
-      prepare: false,
-      max: 1,
-    });
-    const db = drizzle(client, { schema });
-    return {
-      db,
-      close: async () => {
-        await client.end();
-      },
-    };
-  }
-
-  // PGLite fallback — dynamic import so it's never bundled for edge runtimes
-  const path = await import("node:path");
-  const { mkdir } = await import("node:fs/promises");
-  const { PGlite } = await import("@electric-sql/pglite");
-  const { drizzle: drizzlePgLite } = await import("drizzle-orm/pglite");
-  const { migrate } = await import("drizzle-orm/pglite/migrator");
-  const { getMigrationsFolder } = await import("./migrations-path.js");
-
-  const dataDir = path.resolve(
-    options.dataDir ??
-      process.env.FLAMECAST_PGLITE_DIR ??
-      path.join(process.cwd(), ".flamecast", "pglite"),
-  );
-  await mkdir(dataDir, { recursive: true });
-
-  const client = await PGlite.create(dataDir);
-  // oxlint-disable-next-line no-type-assertion/no-type-assertion -- PgliteDatabase and PostgresJsDatabase share the same query interface
-  const db: PsqlAppDb = drizzlePgLite({ client, schema }) as unknown as PsqlAppDb;
-  // oxlint-disable-next-line no-type-assertion/no-type-assertion, typescript-eslint/no-explicit-any -- migrate() types don't accept the union
-  await migrate(db as any, { migrationsFolder: getMigrationsFolder() });
-
+export function createPostgresDatabase(url: string): DatabaseBundle {
+  const client = postgres(url, {
+    prepare: false,
+    max: 1,
+  });
+  const db = drizzle(client, { schema });
   return {
     db,
     close: async () => {
-      await client.close();
+      await client.end();
     },
   };
+}
+
+/**
+ * Connect to Postgres when a URL is provided; otherwise fall back to
+ * embedded PGLite on disk.
+ *
+ * PGLite path uses dynamic imports so it's never bundled into
+ * edge runtimes (Workers) that always provide a URL. If you only
+ * need Postgres, use createPostgresDatabase() directly.
+ */
+export async function createDatabase(options: CreateDatabaseOptions = {}): Promise<DatabaseBundle> {
+  if (options.url) {
+    return createPostgresDatabase(options.url);
+  }
+
+  // Lazy import — keeps PGLite out of edge bundles
+  const { createPgliteDatabase } = await import("./db-pglite.js");
+  return createPgliteDatabase(options.dataDir);
 }
