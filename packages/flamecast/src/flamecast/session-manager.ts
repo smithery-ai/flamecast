@@ -1,10 +1,6 @@
 import type { AgentSpawn, AgentTemplateRuntime } from "../shared/session.js";
 import type { FlamecastStorage } from "./storage.js";
-import type {
-  DataPlaneBinding,
-  BridgeStartRequest,
-  BridgeStartResponse,
-} from "./data-plane.js";
+import type { DataPlaneBinding, BridgeStartRequest, BridgeStartResponse } from "./data-plane.js";
 
 interface ManagedSession {
   id: string;

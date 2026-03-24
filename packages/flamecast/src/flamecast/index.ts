@@ -66,10 +66,18 @@ export class Flamecast {
     this.initialAgentTemplates = opts.agentTemplates ?? [];
 
     this.runtimeClient = opts.runtimeClient ?? {
-      async startSession() { throw new Error("No runtimeClient configured"); },
-      async terminateSession() { throw new Error("No runtimeClient configured"); },
-      hasSession() { return false; },
-      listSessionIds() { return []; },
+      async startSession() {
+        throw new Error("No runtimeClient configured");
+      },
+      async terminateSession() {
+        throw new Error("No runtimeClient configured");
+      },
+      hasSession() {
+        return false;
+      },
+      listSessionIds() {
+        return [];
+      },
     };
 
     this.fetch = async (request: Request) => this.app.fetch(request);

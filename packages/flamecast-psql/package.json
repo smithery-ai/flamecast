@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.package.json && cp -r src/migrations dist/migrations",
     "test": "vitest run",
-    "db:migrate": "drizzle-kit migrate --config src/drizzle.config.ts",
+    "db:migrate": "tsx src/migrate.ts",
     "db:seed": "tsx src/seed.ts",
     "db:generate": "drizzle-kit generate --config src/drizzle.config.ts"
   },
@@ -28,6 +28,7 @@
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.8",
+    "pg": "^8.20.0",
     "vitest": "^4.1.0"
   }
 }

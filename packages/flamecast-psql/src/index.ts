@@ -20,9 +20,7 @@ export type PsqlStorageOptions = {
  * });
  * ```
  */
-export async function createPsqlStorage(
-  options: PsqlStorageOptions,
-): Promise<FlamecastStorage> {
+export async function createPsqlStorage(options: PsqlStorageOptions): Promise<FlamecastStorage> {
   const { db } = await createDatabase(options);
   return createStorageFromDb(db);
 }

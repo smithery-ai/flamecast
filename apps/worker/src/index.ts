@@ -1,16 +1,23 @@
-import { createServerApp } from "./server/app.js";
-import { SessionManager } from "./flamecast/session-manager.js";
+/**
+ * Flamecast Worker — edge runtime entry point.
+ *
+ * Serverless-compatible: no child_process, no Node fs, no Docker.
+ * Uses SessionManager for data plane provisioning and per-request
+ * postgres.js storage via Hyperdrive.
+ */
+import { createServerApp } from "@flamecast/sdk/server/app";
+import { SessionManager } from "@flamecast/sdk/session-manager";
 import { createPsqlStorage } from "@flamecast/storage-psql";
-import type { FlamecastApi } from "./flamecast/api.js";
-import type { DataPlaneBinding } from "./flamecast/data-plane.js";
-import type { FlamecastStorage } from "./flamecast/storage.js";
+import type { FlamecastApi } from "@flamecast/sdk/api";
+import type { DataPlaneBinding } from "@flamecast/sdk/data-plane";
+import type { FlamecastStorage } from "@flamecast/sdk/storage";
 import type {
   AgentTemplate,
   CreateSessionBody,
   RegisterAgentTemplateBody,
   Session,
   AgentTemplateRuntime,
-} from "./shared/session.js";
+} from "@flamecast/sdk/shared/session";
 
 type Env = {
   DATABASE: { connectionString: string };
@@ -126,7 +133,6 @@ function createWorkerApi(
 // SessionManager is cached across requests (stateful — tracks sessions in memory).
 // Storage + Hono app are created per-request because Workers requires I/O objects
 // (like postgres connections) to be scoped to the request that created them.
-// Hyperdrive handles connection pooling — per-request clients are the correct pattern.
 let sessionManager: SessionManager | null = null;
 
 export default {

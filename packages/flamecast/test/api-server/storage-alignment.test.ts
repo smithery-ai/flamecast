@@ -3,10 +3,16 @@ import { Flamecast, type RuntimeClient } from "../../src/flamecast/index.js";
 import { MemoryFlamecastStorage } from "../../src/flamecast/storage/memory/index.js";
 
 const noopClient: RuntimeClient = {
-  async startSession() { throw new Error("not implemented"); },
+  async startSession() {
+    throw new Error("not implemented");
+  },
   async terminateSession() {},
-  hasSession() { return false; },
-  listSessionIds() { return []; },
+  hasSession() {
+    return false;
+  },
+  listSessionIds() {
+    return [];
+  },
 };
 
 describe("storage alignment", () => {

@@ -45,8 +45,14 @@ function waitForBridgePort(proc: ChildProcess, timeoutMs = 30_000): Promise<numb
 
     proc.stdout?.on("data", check);
     proc.stderr?.on("data", check);
-    proc.on("error", (err) => { clearTimeout(timeout); reject(err); });
-    proc.on("exit", (code) => { clearTimeout(timeout); reject(new Error(`Bridge exited with code ${code}`)); });
+    proc.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+    proc.on("exit", (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`Bridge exited with code ${code}`));
+    });
   });
 }
 

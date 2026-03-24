@@ -17,7 +17,7 @@ const runtime = await FlamecastRuntime("flamecast-runtime", {
 
 export const server = await Worker("flamecast-api", {
   name: `flamecast-api-${app.stage}`,
-  entrypoint: "./packages/flamecast/src/worker.ts",
+  entrypoint: "./apps/worker/src/index.ts",
   format: "esm",
   compatibility: "node",
   bindings: {

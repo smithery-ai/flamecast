@@ -1,0 +1,10 @@
+{
+  "name": "@acp/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@flamecast/sdk": "workspace:*",
+    "@flamecast/storage-psql": "workspace:*"
+  }
+}

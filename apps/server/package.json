@@ -1,0 +1,15 @@
+{
+  "name": "@acp/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc --project tsconfig.json --noEmit",
+    "start": "tsx src/index.ts",
+    "test": "echo 'no tests'"
+  },
+  "dependencies": {
+    "@flamecast/sdk": "workspace:*",
+    "@flamecast/storage-psql": "workspace:*"
+  }
+}

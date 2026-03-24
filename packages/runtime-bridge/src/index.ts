@@ -80,12 +80,7 @@ function createAcpClient(): acp.Client {
     },
 
     requestPermission: async (params: acp.RequestPermissionRequest) => {
-      emitRpc(
-        acp.CLIENT_METHODS.session_request_permission,
-        "agent_to_client",
-        "request",
-        params,
-      );
+      emitRpc(acp.CLIENT_METHODS.session_request_permission, "agent_to_client", "request", params);
 
       const requestId = crypto.randomUUID();
       return new Promise<acp.RequestPermissionResponse>((resolve) => {
@@ -262,9 +257,7 @@ async function startSession(
   const agentInput = Writable.toWeb(agentProcess.stdin) as WritableStream<Uint8Array>;
   const agentOutput = new ReadableStream<Uint8Array>({
     start(controller) {
-      agentProcess.stdout!.on("data", (chunk: Buffer) =>
-        controller.enqueue(new Uint8Array(chunk)),
-      );
+      agentProcess.stdout!.on("data", (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
       agentProcess.stdout!.on("end", () => controller.close());
       agentProcess.stdout!.on("error", (err) => controller.error(err));
     },

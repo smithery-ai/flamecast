@@ -31,9 +31,17 @@
       "types": "./dist/client/api.d.ts",
       "import": "./dist/client/api.js"
     },
-    "./worker": {
-      "types": "./dist/worker.d.ts",
-      "import": "./dist/worker.js"
+    "./session-manager": {
+      "types": "./dist/flamecast/session-manager.d.ts",
+      "import": "./dist/flamecast/session-manager.js"
+    },
+    "./data-plane": {
+      "types": "./dist/flamecast/data-plane.d.ts",
+      "import": "./dist/flamecast/data-plane.js"
+    },
+    "./storage": {
+      "types": "./dist/flamecast/storage.d.ts",
+      "import": "./dist/flamecast/storage.js"
     },
     "./package.json": "./package.json"
   },
@@ -91,7 +99,6 @@
   },
   "devDependencies": {
     "@electric-sql/pglite-socket": "^0.1.1",
-    "@flamecast/storage-psql": "workspace:*",
     "@tanstack/router-generator": "1.166.15",
     "@tanstack/router-plugin": "^1.166.14",
     "@types/ws": "^8.18.1",
