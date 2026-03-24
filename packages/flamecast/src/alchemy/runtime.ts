@@ -23,22 +23,21 @@ export interface FlamecastRuntimeProps {
  * Output of the FlamecastRuntime resource.
  */
 export interface FlamecastRuntime extends FlamecastRuntimeProps {
-  /** URL where the session router can be reached. */
-  url: string;
+  /** URL where the session router can be reached (local mode). */
+  url?: string;
+  /** CF Container binding (deployed mode) — pass as Worker binding. */
+  container?: unknown;
 }
 
 /**
  * Flamecast runtime resource.
  *
- * Returns a `url` string that the Worker receives as a binding.
- * The Worker constructs a DataPlaneBinding from this URL.
- *
- * - **Local** (`alchemy dev`): Spawns a session router via scope.spawn
- *   (idempotent, PID-tracked, auto-cleanup). The router spawns per-session
- *   bridge child processes. Returns `http://localhost:<port>`.
+ * - **Local** (`alchemy dev`): Spawns a session router via scope.spawn.
+ *   Returns `{ url: "http://localhost:<port>" }`.
  *
  * - **Deployed** (`alchemy deploy`): Creates a CF Container resource.
- *   Returns the container's public URL.
+ *   Returns `{ container }` — pass as a Worker binding (DurableObjectNamespace).
+ *   The Worker uses `getContainer(env.RUNTIME, sessionId)` to route requests.
  */
 export const FlamecastRuntime = Resource(
   "flamecast::Runtime",
@@ -55,7 +54,6 @@ export const FlamecastRuntime = Resource(
       const bridgeEntry = resolve(props.bridgeEntry);
       const routerEntry = resolve(props.bridgeEntry, "../router.js");
 
-      // Spawn session router via scope.spawn — idempotent, PID-tracked, auto-cleanup
       const nodeBinDir = dirname(process.execPath);
       const port = await this.scope.spawn("session-router", {
         cmd: `node ${routerEntry}`,
@@ -79,7 +77,7 @@ export const FlamecastRuntime = Resource(
     // Deployed mode: CF Container
     const { Container } = await import("alchemy/cloudflare");
 
-    await Container("container", {
+    const container = await Container("container", {
       className: "FlamecastRuntime",
       build: {
         context: props.dockerfile.replace(/\/Dockerfile$/, ""),
@@ -90,7 +88,7 @@ export const FlamecastRuntime = Resource(
 
     return {
       ...props,
-      url: "https://placeholder.container.url",
+      container,
     };
   },
 );

@@ -28,7 +28,9 @@ export const server = await Worker("flamecast-api", {
   compatibility: "node",
   bindings: {
     DATABASE: db.binding,
-    RUNTIME_URL: runtime.url,
+    // Local: URL string to session router. Deployed: CF Container DO binding.
+    ...(runtime.url ? { RUNTIME_URL: runtime.url } : {}),
+    ...(runtime.container ? { RUNTIME: runtime.container } : {}),
     WORKSPACE_ROOT: process.cwd(),
   },
   url: true,

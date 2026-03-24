@@ -21,11 +21,17 @@ import type {
 
 type Env = {
   DATABASE: { connectionString: string };
-  RUNTIME_URL: string;
+  /** Local mode: URL string to session router */
+  RUNTIME_URL?: string;
+  /** Deployed mode: CF Container DurableObjectNamespace */
+  RUNTIME?: {
+    idFromName(name: string): { toString(): string };
+    get(id: unknown): { fetch(request: Request | string, init?: RequestInit): Promise<Response> };
+  };
   WORKSPACE_ROOT?: string;
 };
 
-function createBinding(runtimeUrl: string): DataPlaneBinding {
+function createBindingFromUrl(runtimeUrl: string): DataPlaneBinding {
   return {
     async fetchSession(sessionId: string, request: Request): Promise<Response> {
       const url = new URL(request.url);
@@ -34,6 +40,16 @@ function createBinding(runtimeUrl: string): DataPlaneBinding {
         headers: request.headers,
         body: request.method !== "GET" ? request.body : undefined,
       });
+    },
+  };
+}
+
+function createBindingFromContainer(container: NonNullable<Env["RUNTIME"]>): DataPlaneBinding {
+  return {
+    async fetchSession(sessionId: string, request: Request): Promise<Response> {
+      const id = container.idFromName(sessionId);
+      const stub = container.get(id);
+      return stub.fetch(request);
     },
   };
 }
@@ -138,9 +154,11 @@ let sessionManager: SessionManager | null = null;
 export default {
   async fetch(request: Request, env: Env) {
     const storage = await createPsqlStorage({ url: env.DATABASE.connectionString });
-    const binding = createBinding(env.RUNTIME_URL);
 
     if (!sessionManager) {
+      const binding = env.RUNTIME
+        ? createBindingFromContainer(env.RUNTIME)
+        : createBindingFromUrl(env.RUNTIME_URL ?? "");
       sessionManager = new SessionManager(binding);
     }
 
