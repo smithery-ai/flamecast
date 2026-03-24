@@ -74,46 +74,55 @@ export function SessionsSidebar() {
                   No active sessions. Open the home page to create one.
                 </p>
               ) : (
-                sessions.map((session) => (
-                  <SidebarMenuItem key={session.id}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={session.id === activeSessionId}
-                      tooltip={`${session.agentName} · ${session.id.slice(0, 8)}…`}
-                      className="!h-auto min-h-8 items-start py-2 pr-10"
-                    >
-                      <Link to="/sessions/$id" params={{ id: session.id }}>
-                        <span className="grid min-w-0 flex-1 gap-1 leading-snug">
-                          <span className="truncate font-medium">{session.agentName}</span>
-                          <span className="truncate text-xs text-sidebar-foreground/65">
-                            {session.id.slice(0, 10)}… · {session.logs.length} entries
+                sessions.map((session) => {
+                  const isActiveSession = session.status === "active";
+                  return (
+                    <SidebarMenuItem key={session.id}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={session.id === activeSessionId}
+                        tooltip={`${session.agentName} · ${session.id.slice(0, 8)}…`}
+                        className={cn(
+                          "!h-auto min-h-8 items-start py-2",
+                          isActiveSession ? "pr-10" : "pr-2",
+                        )}
+                      >
+                        <Link to="/sessions/$id" params={{ id: session.id }}>
+                          <span className="grid min-w-0 flex-1 gap-1 leading-snug">
+                            <span className="truncate font-medium">{session.agentName}</span>
+                            <span className="truncate text-xs text-sidebar-foreground/65">
+                              {session.id.slice(0, 10)}… · {session.logs.length} entries
+                              {session.status === "killed" ? " · ended" : ""}
+                            </span>
                           </span>
-                        </span>
-                      </Link>
-                    </SidebarMenuButton>
-                    <SidebarMenuAction
-                      showOnHover
-                      title="Terminate session"
-                      disabled={terminateMutation.isPending}
-                      className={cn(
-                        "z-10 !top-1/2 right-1 !-translate-y-1/2 size-8 cursor-pointer rounded-md",
-                        "text-destructive/90 transition-[opacity,transform,colors] duration-150",
-                        "hover:bg-destructive/15 hover:text-destructive active:scale-95",
-                        "focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-                        "md:pointer-events-none md:group-hover/menu-item:pointer-events-auto md:group-focus-within/menu-item:pointer-events-auto",
-                        "disabled:pointer-events-none disabled:opacity-40",
-                      )}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        terminateMutation.mutate(session.id);
-                      }}
-                    >
-                      <Trash2Icon className="size-4 shrink-0" />
-                      <span className="sr-only">Terminate session</span>
-                    </SidebarMenuAction>
-                  </SidebarMenuItem>
-                ))
+                        </Link>
+                      </SidebarMenuButton>
+                      {isActiveSession ? (
+                        <SidebarMenuAction
+                          showOnHover
+                          title="Terminate session"
+                          disabled={terminateMutation.isPending}
+                          className={cn(
+                            "z-10 !top-1/2 right-1 !-translate-y-1/2 size-8 cursor-pointer rounded-md",
+                            "text-destructive/90 transition-[opacity,transform,colors] duration-150",
+                            "hover:bg-destructive/15 hover:text-destructive active:scale-95",
+                            "focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                            "md:pointer-events-none md:group-hover/menu-item:pointer-events-auto md:group-focus-within/menu-item:pointer-events-auto",
+                            "disabled:pointer-events-none disabled:opacity-40",
+                          )}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            terminateMutation.mutate(session.id);
+                          }}
+                        >
+                          <Trash2Icon className="size-4 shrink-0" />
+                          <span className="sr-only">Terminate session</span>
+                        </SidebarMenuAction>
+                      ) : null}
+                    </SidebarMenuItem>
+                  );
+                })
               )}
             </SidebarMenu>
           </SidebarGroupContent>
