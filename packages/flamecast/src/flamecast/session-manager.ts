@@ -58,12 +58,12 @@ export class SessionManager {
     const result: BridgeStartResponse = await response.json();
 
     const session: ManagedSession = {
-      id: result.sessionId,
+      id: sessionId, // Use control-plane UUID, not ACP session ID — router maps by this ID
       websocketUrl: result.websocketUrl,
     };
 
     await storage.createSession({
-      id: session.id,
+      id: sessionId,
       agentName: opts.agentName,
       spawn: opts.spawn,
       startedAt: opts.startedAt,
