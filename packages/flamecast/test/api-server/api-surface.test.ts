@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AgentTemplate,
   CreateSessionBody,
+  McpServer,
+  PromptBody,
+  QueuedPromptResponse,
   RegisterAgentTemplateBody,
   Session,
 } from "../../src/shared/session.js";
@@ -30,6 +33,13 @@ const sampleSession: Session = {
 
 const sampleAgentId = sampleSession.id;
 
+const sampleMcpServer: McpServer = {
+  type: "http",
+  name: "chat-sdk",
+  url: "https://connector.test/mcp",
+  headers: [{ name: "x-flamecast-chat-token", value: "secret" }],
+};
+
 function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastApi {
   return {
     terminateSession: vi.fn(async () => undefined),
@@ -40,6 +50,9 @@ function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastAp
     ),
     listSessions: vi.fn(async () => [sampleSession]),
     listAgentTemplates: vi.fn(async () => [sampleAgentTemplate]),
+    promptSession: vi.fn(async (_id: string, _text: string) => ({
+      stopReason: "end_turn" as const,
+    })),
     registerAgentTemplate: vi.fn(async (body: RegisterAgentTemplateBody) => ({
       id: "registered-template",
       name: body.name,
@@ -156,18 +169,21 @@ describe("API server surface", () => {
   it("creates agents via the current session runtime flow", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
+    const body = {
+      agentTemplateId: sampleAgentTemplate.id,
+      cwd: "/tmp/flamecast",
+      mcpServers: [sampleMcpServer],
+    } satisfies CreateSessionBody;
 
     const response = await app.request("/api/agents", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        agentTemplateId: sampleAgentTemplate.id,
-        cwd: "/tmp/flamecast",
-      } satisfies CreateSessionBody),
+      body: JSON.stringify(body),
     });
 
     expect(response.status).toBe(201);
     expect(await readJson(response)).toEqual(sampleSession);
+    expect(flamecast.createSession).toHaveBeenCalledWith(body);
   });
 
   it("rejects invalid agent payloads", async () => {
@@ -178,6 +194,29 @@ describe("API server surface", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ cwd: "/tmp/flamecast" }),
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects non-http MCP server payloads", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/agents", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        agentTemplateId: sampleAgentTemplate.id,
+        mcpServers: [
+          {
+            type: "sse",
+            name: "chat-sdk",
+            url: "https://connector.test/sse",
+            headers: [],
+          },
+        ],
+      }),
     });
 
     expect(response.status).toBe(400);
@@ -345,17 +384,94 @@ describe("API server surface", () => {
     expect(flamecast.getSession).not.toHaveBeenCalled();
   });
 
-  it("does not expose the removed prompt route", async () => {
+  it("sends prompts", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
     const response = await app.request(`/api/agents/${sampleAgentId}/prompt`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: "hello" }),
+      body: JSON.stringify({ text: "hello" } satisfies PromptBody),
     });
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual({ stopReason: "end_turn" });
+  });
+
+  it("returns 202 for queued prompts", async () => {
+    const flamecast = createFlamecastStub({
+      promptSession: vi.fn(
+        async () =>
+          ({
+            queued: true,
+            queueId: "queue-1",
+            position: 1,
+          }) satisfies QueuedPromptResponse,
+      ),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/${sampleAgentId}/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "hello" } satisfies PromptBody),
+    });
+
+    expect(response.status).toBe(202);
+    expect(await readJson(response)).toEqual({
+      queued: true,
+      queueId: "queue-1",
+      position: 1,
+    });
+  });
+
+  it("rejects invalid prompt payloads", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/${sampleAgentId}/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  it("returns prompt errors from Error values", async () => {
+    const flamecast = createFlamecastStub({
+      promptSession: vi.fn(async () => {
+        throw new Error("prompt blocked");
+      }),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/${sampleAgentId}/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "hello" } satisfies PromptBody),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await readJson(response)).toEqual({ error: "prompt blocked" });
+  });
+
+  it("returns prompt errors from non-Error values", async () => {
+    const flamecast = createFlamecastStub({
+      promptSession: vi.fn(async () => {
+        throw "prompt failed";
+      }),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/${sampleAgentId}/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "hello" } satisfies PromptBody),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await readJson(response)).toEqual({ error: "Unknown error" });
   });
 
   it("does not expose the removed events route", async () => {

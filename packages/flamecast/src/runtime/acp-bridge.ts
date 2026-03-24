@@ -54,6 +54,7 @@ type PermissionResolver = (response: acp.RequestPermissionResponse) => void;
  */
 type QueuedPrompt = {
   id: string;
+  enqueuedAt: string;
   params: acp.PromptRequest;
   resolve: (result: acp.PromptResponse) => void;
   reject: (error: unknown) => void;
@@ -71,6 +72,10 @@ export class AcpBridge extends EventEmitter<AcpBridgeEvents> {
     private readonly workspaceRoot: string,
   ) {
     super();
+  }
+
+  get isTurnActive(): boolean {
+    return this.turnActive;
   }
 
   /** Initialize the ACP connection and return the init result. */
@@ -101,13 +106,20 @@ export class AcpBridge extends EventEmitter<AcpBridgeEvents> {
     if (this.turnActive) {
       // Queue it and return a promise that resolves when this prompt's turn completes
       return new Promise<acp.PromptResponse>((resolve, reject) => {
-        const queued: QueuedPrompt = { id: randomUUID(), params, resolve, reject };
+        const queued: QueuedPrompt = {
+          id: randomUUID(),
+          enqueuedAt: new Date().toISOString(),
+          params,
+          resolve,
+          reject,
+        };
         this.promptQueue.push(queued);
         this.emit("log", {
           type: "queue_updated",
           data: {
             queue: this.promptQueue.map((q) => ({
               id: q.id,
+              enqueuedAt: q.enqueuedAt,
               text: this.extractPromptText(q.params),
             })),
           },
@@ -127,15 +139,23 @@ export class AcpBridge extends EventEmitter<AcpBridgeEvents> {
     this.emit("log", {
       type: "queue_updated",
       data: {
-        queue: this.promptQueue.map((q) => ({ id: q.id, text: this.extractPromptText(q.params) })),
+        queue: this.promptQueue.map((q) => ({
+          id: q.id,
+          enqueuedAt: q.enqueuedAt,
+          text: this.extractPromptText(q.params),
+        })),
       },
     });
     return true;
   }
 
   /** Get the current prompt queue. */
-  getPromptQueue(): Array<{ id: string; text: string }> {
-    return this.promptQueue.map((q) => ({ id: q.id, text: this.extractPromptText(q.params) }));
+  getPromptQueue(): Array<{ id: string; enqueuedAt: string; text: string }> {
+    return this.promptQueue.map((q) => ({
+      id: q.id,
+      enqueuedAt: q.enqueuedAt,
+      text: this.extractPromptText(q.params),
+    }));
   }
 
   private async executePrompt(params: acp.PromptRequest): Promise<acp.PromptResponse> {
@@ -165,6 +185,7 @@ export class AcpBridge extends EventEmitter<AcpBridgeEvents> {
         data: {
           queue: this.promptQueue.map((q) => ({
             id: q.id,
+            enqueuedAt: q.enqueuedAt,
             text: this.extractPromptText(q.params),
           })),
         },

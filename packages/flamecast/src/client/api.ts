@@ -1,10 +1,17 @@
 import { hc } from "hono/client";
 import { z } from "zod";
 import type { AppType } from "../flamecast/api.js";
-import { AgentTemplateSchema, SessionSchema } from "../shared/session.js";
+import {
+  AgentTemplateSchema,
+  PromptResultSchema,
+  QueuedPromptResponseSchema,
+  SessionSchema,
+} from "../shared/session.js";
 import type {
   AgentTemplate,
   CreateSessionBody,
+  PromptResult,
+  QueuedPromptResponse,
   RegisterAgentTemplateBody,
   Session,
 } from "../shared/session.js";
@@ -35,6 +42,7 @@ export type FlamecastClient = {
     opts?: { includeFileSystem?: boolean; showAllFiles?: boolean },
   ): Promise<Session>;
   createSession(body: CreateSessionBody): Promise<Session>;
+  sendPrompt(id: string, text: string): Promise<PromptResult | QueuedPromptResponse>;
   terminateSession(id: string): Promise<void>;
 };
 
@@ -83,6 +91,17 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
     async createSession(body) {
       const response = await rpc.agents.$post({ json: body });
       return parseOkJson(response, SessionSchema, "Failed to create session");
+    },
+    async sendPrompt(id, text) {
+      const response = await rpc.agents[":agentId"].prompt.$post({
+        param: { agentId: id },
+        json: { text },
+      });
+      return parseOkJson(
+        response,
+        z.union([PromptResultSchema, QueuedPromptResponseSchema]),
+        "Failed to send prompt",
+      );
     },
     async terminateSession(id) {
       const response = await rpc.agents[":agentId"].$delete({ param: { agentId: id } });

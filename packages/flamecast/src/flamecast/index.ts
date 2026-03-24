@@ -6,6 +6,7 @@ import type {
   AgentTemplate,
   AgentTemplateRuntime,
   CreateSessionBody,
+  QueuedPromptResponse,
   RegisterAgentTemplateBody,
   Session,
 } from "../shared/session.js";
@@ -19,7 +20,13 @@ import type { RuntimeClient } from "../runtime/client.js";
 import { LocalRuntimeClient } from "../runtime/local.js";
 import { FlamecastWsServer } from "../runtime/ws-server.js";
 
-export type { AgentSpawn, AgentTemplate, PendingPermission, Session } from "../shared/session.js";
+export type {
+  AgentSpawn,
+  AgentTemplate,
+  PendingPermission,
+  QueuedPromptResponse,
+  Session,
+} from "../shared/session.js";
 export type { SessionMeta, FlamecastStorage } from "./storage.js";
 export type { RuntimeProvider, RuntimeProviderRegistry } from "./runtime-provider.js";
 export type { AppType } from "./api.js";
@@ -157,6 +164,7 @@ export class Flamecast {
       cwd,
       runtime,
       startedAt,
+      mcpServers: opts.mcpServers,
     });
 
     return this.snapshotSession(sessionId);
@@ -178,6 +186,20 @@ export class Flamecast {
       if (!meta) throw new Error(`Session "${id}" not found`);
     }
     return this.snapshotSession(id, opts);
+  }
+
+  async promptSession(
+    id: string,
+    text: string,
+  ): Promise<import("@agentclientprotocol/sdk").PromptResponse | QueuedPromptResponse> {
+    await this.ensureReady();
+    if (!this.runtimeClient.hasSession(id)) {
+      const meta = await this.requireStorage().getSessionMeta(id);
+      if (meta?.status === "killed") {
+        throw new Error("Cannot prompt a terminated session");
+      }
+    }
+    return this.runtimeClient.promptSession(id, text);
   }
 
   async terminateSession(id: string): Promise<void> {

@@ -13,8 +13,9 @@
     "src/index.ts",
     "src/worker.ts",
     "src/server/**/*.ts",
+    "src/client/api.ts",
     "src/flamecast/**/*.ts",
     "src/shared/**/*.ts"
   ],
-  "exclude": ["src/client/**/*"]
+  "exclude": []
 }

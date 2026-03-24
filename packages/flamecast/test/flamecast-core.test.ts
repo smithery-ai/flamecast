@@ -1,5 +1,7 @@
 /* oxlint-disable no-type-assertion/no-type-assertion */
 import { EventEmitter } from "node:events";
+import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { getBuiltinAgentTemplates } from "../src/flamecast/agent-templates.js";
 import { Flamecast } from "../src/flamecast/index.js";
@@ -222,6 +224,56 @@ describe("flamecast orchestration internals", () => {
     await expect(closeServer()).rejects.toThrow("close threw");
   });
 
+  test("forwards server upgrade events to the websocket server", async () => {
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
+    const server = await flamecast.listen(0);
+    const wsServer = Reflect.get(flamecast, "wsServer") as {
+      handleUpgrade: (request: IncomingMessage, socket: Duplex, head: Buffer) => void;
+    };
+    const handleUpgrade = vi.spyOn(wsServer, "handleUpgrade").mockImplementation(() => {});
+
+    server.emit(
+      "upgrade",
+      {
+        url: "/ws/sessions/session-1",
+        headers: { host: "localhost" },
+      } as IncomingMessage,
+      {} as Duplex,
+      Buffer.alloc(0),
+    );
+
+    expect(handleUpgrade).toHaveBeenCalledOnce();
+    await flamecast.shutdown();
+  });
+
+  test("promptSession rejects killed stored sessions and forwards active ones", async () => {
+    const storage = new MemoryFlamecastStorage();
+    const promptSession = vi.fn(async () => ({ stopReason: "end_turn" as const }));
+    const flamecast = new Flamecast({
+      storage,
+      runtimeClient: {
+        startSession: vi.fn(),
+        promptSession,
+        terminateSession: vi.fn(),
+        hasSession: vi.fn(() => false),
+        listSessionIds: vi.fn(() => []),
+      },
+    });
+
+    await storage.createSession(createMeta("active-session"));
+    await expect(flamecast.promptSession("active-session", "hello")).resolves.toEqual({
+      stopReason: "end_turn",
+    });
+
+    await storage.createSession(createMeta("killed-session"));
+    await storage.finalizeSession("killed-session", "terminated");
+
+    await expect(flamecast.promptSession("killed-session", "hello")).rejects.toThrow(
+      "Cannot prompt a terminated session",
+    );
+    expect(promptSession).toHaveBeenCalledWith("active-session", "hello");
+  });
+
   test("preserves a newer shutdown promise when an older shutdown finishes", async () => {
     const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const storage = attachStorage(flamecast);
@@ -358,6 +410,34 @@ describe("flamecast orchestration internals", () => {
     const snapshot = await snapshotSession("session-1");
     expect(snapshot.pendingPermission).toBeNull();
     await expect(snapshotSession("missing")).rejects.toThrow('Session "missing" not found');
+
+    await storage.createSession({
+      ...createMeta("session-pending"),
+      pendingPermission: {
+        requestId: "request-1",
+        toolCallId: "tool-1",
+        title: "Allow file write?",
+        kind: "tool",
+        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+      },
+    });
+    const pendingSnapshot = await snapshotSession("session-pending");
+    expect(pendingSnapshot.pendingPermission).toEqual({
+      requestId: "request-1",
+      toolCallId: "tool-1",
+      title: "Allow file write?",
+      kind: "tool",
+      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+    });
+
+    if (!pendingSnapshot.pendingPermission) {
+      throw new Error("Expected pending permission snapshot");
+    }
+
+    pendingSnapshot.pendingPermission.options[0]!.name = "Mutated";
+    expect(
+      (await storage.getSessionMeta("session-pending"))?.pendingPermission?.options[0]?.name,
+    ).toBe("Allow");
 
     // Test stopRuntime swallows errors
     await stopRuntime({

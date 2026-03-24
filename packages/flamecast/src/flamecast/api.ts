@@ -1,7 +1,12 @@
 import { Hono, type Context } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import type { Flamecast } from "./index.js";
-import { CreateSessionBodySchema, RegisterAgentTemplateBodySchema } from "../shared/session.js";
+import {
+  AgentSnapshotQuerySchema,
+  CreateSessionBodySchema,
+  PromptBodySchema,
+  RegisterAgentTemplateBodySchema,
+} from "../shared/session.js";
 
 export type FlamecastApi = Pick<
   Flamecast,
@@ -9,6 +14,7 @@ export type FlamecastApi = Pick<
   | "getSession"
   | "listAgentTemplates"
   | "listSessions"
+  | "promptSession"
   | "registerAgentTemplate"
   | "terminateSession"
 >;
@@ -22,7 +28,6 @@ function toStringMessage(error: unknown): string {
 }
 
 export function createApi(flamecast: FlamecastApi) {
-  // The agent routes are public API sugar over the current single-session runtime model.
   const getAgentSnapshot = async (c: Context, agentId: string) => {
     try {
       const includeFileSystem = c.req.query("includeFileSystem") === "true";
@@ -67,8 +72,24 @@ export function createApi(flamecast: FlamecastApi) {
         return c.json({ error: toStringMessage(error) }, 400);
       }
     })
-    .get("/agents/:agentId", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
-    .get("/agents/:agentId/", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
+    .get("/agents/:agentId", zValidator("query", AgentSnapshotQuerySchema), async (c) =>
+      getAgentSnapshot(c, c.req.param("agentId")),
+    )
+    .get("/agents/:agentId/", zValidator("query", AgentSnapshotQuerySchema), async (c) =>
+      getAgentSnapshot(c, c.req.param("agentId")),
+    )
+    .post("/agents/:agentId/prompt", zValidator("json", PromptBodySchema), async (c) => {
+      const { text } = c.req.valid("json");
+      try {
+        const result = await flamecast.promptSession(c.req.param("agentId"), text);
+        if ("queued" in result && result.queued) {
+          return c.json(result, 202);
+        }
+        return c.json(result);
+      } catch (error) {
+        return c.json({ error: toErrorMessage(error) }, 400);
+      }
+    })
     .delete("/agents/:agentId", async (c) => {
       try {
         await flamecast.terminateSession(c.req.param("agentId"));

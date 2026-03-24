@@ -91,7 +91,10 @@ jobs:
       - name: Build
         run: pnpm run build
 
-      - name: Run tests
+      - name: Run Chat SDK example tests
+        run: pnpm --filter @flamecast/example-chat-sdk test
+
+      - name: Run Flamecast coverage
         run: pnpm run test:api:coverage
         env:
           ALCHEMY_CI_STATE_STORE_CHECK: "false"

@@ -1,11 +1,25 @@
+import type * as acp from "@agentclientprotocol/sdk";
+import type {
+  AgentSpawn,
+  AgentTemplateRuntime,
+  McpServer,
+  QueuedPromptResponse,
+} from "../shared/session.js";
+
 export interface RuntimeClient {
   startSession(opts: {
     agentName: string;
-    spawn: import("../shared/session.js").AgentSpawn;
+    spawn: AgentSpawn;
     cwd: string;
-    runtime: import("../shared/session.js").AgentTemplateRuntime;
+    runtime: AgentTemplateRuntime;
     startedAt: string;
+    mcpServers?: McpServer[];
   }): Promise<{ sessionId: string }>;
+
+  promptSession(
+    sessionId: string,
+    text: string,
+  ): Promise<acp.PromptResponse | QueuedPromptResponse>;
 
   terminateSession(sessionId: string): Promise<void>;
 

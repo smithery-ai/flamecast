@@ -8,6 +8,9 @@ import {
   type AgentSpawn,
   type AgentTemplateRuntime,
   type FileSystemSnapshot,
+  type McpServer,
+  type PermissionResponseBody,
+  type QueuedPromptResponse,
   type SessionLog,
 } from "../shared/session.js";
 import type { FlamecastStorage } from "../flamecast/storage.js";
@@ -48,6 +51,7 @@ export class LocalRuntimeClient implements RuntimeClient, WsSessionHandler {
     cwd: string;
     runtime: AgentTemplateRuntime;
     startedAt: string;
+    mcpServers?: McpServer[];
   }): Promise<{ sessionId: string }> {
     const cwd = await realpath(resolve(opts.cwd));
     const provider = this.runtimeProviders[opts.runtime.provider];
@@ -87,7 +91,10 @@ export class LocalRuntimeClient implements RuntimeClient, WsSessionHandler {
       await bridge.initialize(initParams);
 
       const agentCwd = startedRuntime.agentCwd ?? cwd;
-      const newSessionParams: acp.NewSessionRequest = { cwd: agentCwd, mcpServers: [] };
+      const newSessionParams: acp.NewSessionRequest = {
+        cwd: agentCwd,
+        mcpServers: opts.mcpServers ?? [],
+      };
       const sessionResult = await bridge.newSession(newSessionParams);
 
       managed.id = sessionResult.sessionId;
@@ -167,7 +174,10 @@ export class LocalRuntimeClient implements RuntimeClient, WsSessionHandler {
     };
   }
 
-  async promptSession(sessionId: string, text: string): Promise<unknown> {
+  async promptSession(
+    sessionId: string,
+    text: string,
+  ): Promise<acp.PromptResponse | QueuedPromptResponse> {
     const managed = this.resolveRuntime(sessionId);
     return managed.bridge.prompt({
       sessionId: managed.id,
@@ -183,7 +193,7 @@ export class LocalRuntimeClient implements RuntimeClient, WsSessionHandler {
   async resolvePermission(
     sessionId: string,
     requestId: string,
-    body: { optionId: string } | { outcome: "cancelled" },
+    body: PermissionResponseBody,
   ): Promise<void> {
     const managed = this.resolveRuntime(sessionId);
     if ("optionId" in body) {
