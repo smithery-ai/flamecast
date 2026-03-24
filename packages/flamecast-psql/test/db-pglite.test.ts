@@ -24,7 +24,7 @@ vi.mock("@electric-sql/pglite", () => ({
 vi.mock("drizzle-orm/pglite", () => ({ drizzle: mocks.drizzlePgLite }));
 vi.mock("drizzle-orm/pglite/migrator", () => ({ migrate: mocks.migratePgLite }));
 
-import { createDatabase } from "../src/storage/db/client.js";
+import { createDatabase } from "../src/db.js";
 
 function resetPgliteMocks() {
   mocks.mkdir.mockReset().mockImplementation(async () => {});
@@ -37,7 +37,6 @@ function resetPgliteMocks() {
 resetPgliteMocks();
 
 afterEach(() => {
-  delete process.env.FLAMECAST_POSTGRES_URL;
   delete process.env.FLAMECAST_PGLITE_DIR;
   resetPgliteMocks();
   vi.restoreAllMocks();
@@ -45,15 +44,12 @@ afterEach(() => {
 
 describe("database client pglite branch", () => {
   test("falls back to pglite with explicit data dir, FLAMECAST_PGLITE_DIR, and the default cwd path", async () => {
-    process.env.FLAMECAST_POSTGRES_URL = "   ";
     process.env.FLAMECAST_PGLITE_DIR = "/tmp/flamecast-env-pglite";
-    process.env.ACP_PGLITE_DIR = "/tmp/ignored-acp-env-pglite";
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const explicit = await createDatabase({ pgliteDataDir: "/tmp/explicit-pglite" });
-    const flamecastEnvBundle = await createDatabase();
+    const explicit = await createDatabase({ dataDir: "/tmp/explicit-pglite" });
+    const flamecastEnvBundle = await createDatabase({});
     delete process.env.FLAMECAST_PGLITE_DIR;
-    const defaultBundle = await createDatabase();
+    const defaultBundle = await createDatabase({});
 
     expect(mocks.createPGlite).toHaveBeenNthCalledWith(1, path.resolve("/tmp/explicit-pglite"));
     expect(mocks.createPGlite).toHaveBeenNthCalledWith(
@@ -72,7 +68,6 @@ describe("database client pglite branch", () => {
         client: expect.any(Object),
       }),
     );
-    expect(warn).toHaveBeenCalledTimes(3);
     expect(explicit.db).toEqual({ kind: "pglite" });
     expect(flamecastEnvBundle.db).toEqual({ kind: "pglite" });
     expect(defaultBundle.db).toEqual({ kind: "pglite" });
@@ -84,9 +79,8 @@ describe("database client pglite branch", () => {
   });
 
   test("rewrites locked-directory startup failures to a friendlier message", async () => {
-    process.env.FLAMECAST_POSTGRES_URL = "   ";
     mocks.createPGlite.mockRejectedValueOnce(new Error("sqlite backend: Aborted()"));
-    const startup = createDatabase({ pgliteDataDir: "/tmp/locked-pglite" });
+    const startup = createDatabase({ dataDir: "/tmp/locked-pglite" });
 
     await expect(startup).rejects.toThrow(
       'Failed to open the local PGlite database at "/tmp/locked-pglite".',
@@ -95,17 +89,15 @@ describe("database client pglite branch", () => {
   });
 
   test("preserves non-lock startup Error values", async () => {
-    process.env.FLAMECAST_POSTGRES_URL = "   ";
     const failure = new Error("disk offline");
     mocks.createPGlite.mockRejectedValueOnce(failure);
 
-    await expect(createDatabase({ pgliteDataDir: "/tmp/broken-pglite" })).rejects.toBe(failure);
+    await expect(createDatabase({ dataDir: "/tmp/broken-pglite" })).rejects.toBe(failure);
   });
 
   test("wraps non-Error startup failures", async () => {
-    process.env.FLAMECAST_POSTGRES_URL = "   ";
     mocks.createPGlite.mockRejectedValueOnce("boom");
 
-    await expect(createDatabase({ pgliteDataDir: "/tmp/broken-pglite" })).rejects.toThrow("boom");
+    await expect(createDatabase({ dataDir: "/tmp/broken-pglite" })).rejects.toThrow("boom");
   });
 });

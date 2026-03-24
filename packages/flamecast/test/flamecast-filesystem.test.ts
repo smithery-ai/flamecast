@@ -2,75 +2,10 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
-import { Flamecast } from "../src/flamecast/index.js";
 import { buildFileSystemSnapshot } from "../src/flamecast/runtime-provider.js";
-import { LocalRuntimeClient } from "../src/runtime/local.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
+import { AcpBridge } from "../src/runtime/acp-bridge.js";
 
-type ManagedSessionLike = {
-  id: string;
-  workspaceRoot: string;
-  transport: {
-    input: WritableStream<Uint8Array>;
-    output: ReadableStream<Uint8Array>;
-    dispose?: () => Promise<void>;
-  };
-  terminate: () => Promise<void>;
-  inFlightPromptId: string | null;
-  promptQueue: Array<{ queueId: string; text: string; enqueuedAt: string }>;
-  runtime: {
-    connection: null;
-    sessionTextChunkLogBuffer: null;
-  };
-};
-
-function createMeta(id: string) {
-  return {
-    id,
-    agentName: "Example agent",
-    spawn: { command: "node", args: ["agent.js"] },
-    startedAt: "2024-01-01T00:00:00.000Z",
-    lastUpdatedAt: "2024-01-01T00:00:00.000Z",
-    status: "active" as const,
-    pendingPermission: null,
-  };
-}
-
-function createManagedSession(id: string, workspaceRoot: string): ManagedSessionLike {
-  const passthrough = new TransformStream<Uint8Array, Uint8Array>();
-  return {
-    id,
-    workspaceRoot,
-    transport: {
-      input: passthrough.writable,
-      output: passthrough.readable,
-    },
-    terminate: vi.fn(async () => {}),
-    lastFileSystemSnapshot: null,
-    inFlightPromptId: null,
-    promptQueue: [],
-    runtime: {
-      connection: null,
-      sessionTextChunkLogBuffer: null,
-    },
-  };
-}
-
-function attachStorage(flamecast: Flamecast, storage = new MemoryFlamecastStorage()) {
-  Reflect.set(flamecast, "storage", storage);
-  Reflect.set(flamecast, "readyPromise", Promise.resolve());
-  return storage;
-}
-
-function getRuntimeClient(flamecast: Flamecast): LocalRuntimeClient {
-  // oxlint-disable-next-line no-type-assertion/no-type-assertion
-  return Reflect.get(flamecast, "runtimeClient") as LocalRuntimeClient;
-}
-
-function getRuntimeMap(flamecast: Flamecast) {
-  // oxlint-disable-next-line no-type-assertion/no-type-assertion
-  return Reflect.get(getRuntimeClient(flamecast), "runtimes") as Map<string, ManagedSessionLike>;
-}
+/* oxlint-disable no-type-assertion/no-type-assertion */
 
 function getMethod<Args extends unknown[], Result>(
   target: object,
@@ -80,7 +15,6 @@ function getMethod<Args extends unknown[], Result>(
   if (typeof method !== "function") {
     throw new Error(`Expected ${name} to be a function`);
   }
-  // oxlint-disable-next-line no-type-assertion/no-type-assertion
   return method.bind(target) as (...args: Args) => Result;
 }
 
@@ -146,16 +80,9 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
     await writeFile(outsideFile, "outside");
     await symlink(outsideFile, path.join(workspaceRoot, "linked-outside.txt"));
 
-    const flamecast = new Flamecast({});
-    const storage = attachStorage(flamecast);
-    const rc = getRuntimeClient(flamecast);
-    const managed = createManagedSession("session-1", workspaceRoot);
-    await storage.createSession(createMeta("session-1"));
-    await storage.createSession(createMeta("session-2"));
-    getRuntimeMap(flamecast).set("session-1", managed);
-
-    const session = await flamecast.getSession("session-1", { includeFileSystem: true });
-    const fileSystemEntries = session.fileSystem?.entries.map((entry) => entry.path) ?? [];
+    // Test buildFileSystemSnapshot directly (no longer via Flamecast.getSession)
+    const snapshot = await buildFileSystemSnapshot(workspaceRoot);
+    const fileSystemEntries = snapshot.entries.map((entry) => entry.path);
 
     expect(fileSystemEntries).toContain("visible.txt");
     expect(fileSystemEntries).toContain("keep.log");
@@ -176,11 +103,8 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
     expect(fileSystemEntries).not.toContain("nested/ignored-subdir");
     expect(fileSystemEntries).not.toContain("nested/secret.txt");
 
-    const allFilesSession = await flamecast.getSession("session-1", {
-      includeFileSystem: true,
-      showAllFiles: true,
-    });
-    const allEntries = allFilesSession.fileSystem?.entries.map((entry) => entry.path) ?? [];
+    const allFilesSnapshot = await buildFileSystemSnapshot(workspaceRoot, { showAllFiles: true });
+    const allEntries = allFilesSnapshot.entries.map((entry) => entry.path);
     expect(allEntries).toContain(".git");
     expect(allEntries).toContain("ignored.txt");
     expect(allEntries).toContain("#literal.txt");
@@ -193,58 +117,37 @@ test("builds filesystem snapshots, previews files, and enforces workspace file a
     expect(allEntries).toContain("nested/ignored-subdir");
     expect(allEntries).toContain("nested/secret.txt");
 
-    const snapshotSession = getMethod<
-      [string, { includeFileSystem?: boolean; showAllFiles?: boolean }?],
-      Promise<{ fileSystem: { entries: Array<{ path: string }> } | null }>
-    >(flamecast, "snapshotSession");
-    const missingRuntimeSession = await snapshotSession("session-2", {
-      includeFileSystem: true,
-    });
-    expect(missingRuntimeSession.fileSystem).toBeNull();
-
-    const preview = await flamecast.getFilePreview("session-1", "preview.txt");
-    expect(preview.path).toBe("preview.txt");
-    expect(preview.content).toHaveLength(20_000);
-    expect(preview.truncated).toBe(true);
-
-    const resolvePreviewPath = getMethod<[string, string], Promise<string>>(
-      rc,
-      "resolvePreviewPath",
+    const realBridge = new AcpBridge(
+      {
+        input: new TransformStream<Uint8Array, Uint8Array>().writable,
+        output: new TransformStream<Uint8Array, Uint8Array>().readable,
+      },
+      workspaceRoot,
     );
-    await expect(resolvePreviewPath(workspaceRoot, outsideFile)).rejects.toThrow(
-      `File preview paths must be relative: "${outsideFile}"`,
+    const resolveAbsoluteReadPath = getMethod<[string], Promise<string>>(
+      realBridge,
+      "resolveAbsoluteReadPath",
     );
-    await expect(resolvePreviewPath(workspaceRoot, "linked-outside.txt")).rejects.toThrow(
-      'Path "linked-outside.txt" is outside workspace root',
-    );
-
-    const resolveSessionFilePath = getMethod<[string, string], Promise<string>>(
-      rc,
-      "resolveSessionFilePath",
-    );
-    await expect(resolveSessionFilePath(workspaceRoot, "visible.txt")).rejects.toThrow(
+    await expect(resolveAbsoluteReadPath("visible.txt")).rejects.toThrow(
       'File paths must be absolute: "visible.txt"',
     );
-    await expect(resolveSessionFilePath(workspaceRoot, outsideFile)).rejects.toThrow(
+    await expect(resolveAbsoluteReadPath(outsideFile)).rejects.toThrow(
       `Path "${outsideFile}" is outside workspace root`,
     );
 
-    const resolveSessionWritePath = getMethod<[string, string], Promise<string>>(
-      rc,
-      "resolveSessionWritePath",
+    const resolveAbsoluteWritePath = getMethod<[string], Promise<string>>(
+      realBridge,
+      "resolveAbsoluteWritePath",
     );
-    await expect(resolveSessionWritePath(workspaceRoot, "visible.txt")).rejects.toThrow(
+    await expect(resolveAbsoluteWritePath("visible.txt")).rejects.toThrow(
       'File paths must be absolute: "visible.txt"',
     );
-    await expect(resolveSessionWritePath(workspaceRoot, outsideFile)).rejects.toThrow(
+    await expect(resolveAbsoluteWritePath(outsideFile)).rejects.toThrow(
       `Path "${outsideFile}" is outside workspace root`,
     );
 
-    const createClient = getMethod<[ManagedSessionLike], ReturnType<typeof getMethod>>(
-      rc,
-      "createClient",
-    );
-    const client = createClient(managed);
+    const createClient = getMethod<[], ReturnType<typeof getMethod>>(realBridge, "createClient");
+    const client = createClient();
     const readResponse = await client.readTextFile({
       path: path.join(workspaceRoot, "preview.txt"),
       line: 0,

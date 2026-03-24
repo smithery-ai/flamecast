@@ -99,8 +99,8 @@ jobs:
         env:
           ALCHEMY_CI_STATE_STORE_CHECK: "false"
 
-      - name: Run server storage tests
-        run: pnpm --filter @acp/server test
+      - name: Run server tests
+        run: pnpm run test:server
 
   check:
     runs-on: ubuntu-latest

@@ -6,12 +6,9 @@ import type {
   AgentTemplate,
   AgentTemplateRuntime,
   CreateSessionBody,
-  FilePreview,
-  PromptQueueState,
   QueuedPromptResponse,
   RegisterAgentTemplateBody,
   Session,
-  SessionLog,
 } from "../shared/session.js";
 import { createServerApp } from "../server/app.js";
 import { getBuiltinAgentTemplates, localRuntime } from "./agent-templates.js";
@@ -21,12 +18,12 @@ import type { RuntimeProviderRegistry } from "./runtime-provider.js";
 import { resolveRuntimeProviders } from "./runtime-provider.js";
 import type { RuntimeClient } from "../runtime/client.js";
 import { LocalRuntimeClient } from "../runtime/local.js";
+import { FlamecastWsServer } from "../runtime/ws-server.js";
 
 export type {
   AgentSpawn,
   AgentTemplate,
   PendingPermission,
-  PromptQueueState,
   QueuedPromptResponse,
   Session,
 } from "../shared/session.js";
@@ -43,7 +40,6 @@ export type FlamecastOptions = {
   runtimeProviders?: RuntimeProviderRegistry;
   agentTemplates?: AgentTemplate[];
   handleSignals?: boolean;
-  onSessionEvent?: (sessionId: string, event: SessionLog) => void;
   runtimeClient?: RuntimeClient;
 };
 
@@ -57,6 +53,8 @@ export class Flamecast {
   private storage: FlamecastStorage | null = null;
   private readyPromise: Promise<void> | null = null;
   private server: ServerType | null = null;
+  private wsServer: FlamecastWsServer | null = null;
+  private listenPort: number | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private readonly app = createServerApp(this);
 
@@ -73,7 +71,6 @@ export class Flamecast {
       new LocalRuntimeClient({
         runtimeProviders: this.runtimeProviders,
         getStorage: () => this.requireStorage(),
-        onSessionEvent: opts.onSessionEvent,
       });
 
     this.fetch = async (request: Request) => this.app.fetch(request);
@@ -86,9 +83,18 @@ export class Flamecast {
 
     await this.ensureReady();
     const server = serve({ fetch: this.fetch, port }, (info) => {
+      this.listenPort = info.port;
       console.log(`Flamecast running on http://localhost:${info.port}`);
     });
     this.server = server;
+
+    // Attach WebSocket server for direct session connections
+    const wsServer = new FlamecastWsServer(this.runtimeClient);
+    this.wsServer = wsServer;
+    server.on("upgrade", (request, socket, head) => {
+      wsServer.handleUpgrade(request, socket, head);
+    });
+
     this.registerSignalHandlers();
     return server;
   }
@@ -103,6 +109,11 @@ export class Flamecast {
 
       for (const session of await this.listSessions()) {
         await this.terminateSession(session.id).catch(() => {});
+      }
+
+      if (this.wsServer) {
+        this.wsServer.close();
+        this.wsServer = null;
       }
 
       await this.closeServer();
@@ -177,11 +188,6 @@ export class Flamecast {
     return this.snapshotSession(id, opts);
   }
 
-  async getFilePreview(id: string, path: string): Promise<FilePreview> {
-    await this.ensureReady();
-    return this.runtimeClient.getFilePreview(id, path);
-  }
-
   async promptSession(
     id: string,
     text: string,
@@ -196,16 +202,6 @@ export class Flamecast {
     return this.runtimeClient.promptSession(id, text);
   }
 
-  async getQueueState(id: string): Promise<PromptQueueState> {
-    await this.ensureReady();
-    return this.runtimeClient.getQueueState(id);
-  }
-
-  async cancelQueuedPrompt(id: string, queueId: string): Promise<void> {
-    await this.ensureReady();
-    return this.runtimeClient.cancelQueuedPrompt(id, queueId);
-  }
-
   async terminateSession(id: string): Promise<void> {
     await this.ensureReady();
     if (!this.runtimeClient.hasSession(id)) {
@@ -215,19 +211,6 @@ export class Flamecast {
       }
     }
     await this.runtimeClient.terminateSession(id);
-  }
-
-  subscribe(sessionId: string, callback: (event: SessionLog) => void): () => void {
-    return this.runtimeClient.subscribe(sessionId, callback);
-  }
-
-  async respondToPermission(
-    id: string,
-    requestId: string,
-    body: import("../shared/session.js").PermissionResponseBody,
-  ): Promise<void> {
-    await this.ensureReady();
-    await this.runtimeClient.resolvePermission(id, requestId, body);
   }
 
   private registerSignalHandlers(): void {
@@ -361,31 +344,30 @@ export class Flamecast {
 
   private async snapshotSession(
     id: string,
-    opts: { includeFileSystem?: boolean; showAllFiles?: boolean } = {},
+    _opts: { includeFileSystem?: boolean; showAllFiles?: boolean } = {},
   ): Promise<Session> {
     const storage = this.requireStorage();
     const meta = await storage.getSessionMeta(id);
     if (!meta) {
       throw new Error(`Session "${id}" not found`);
     }
-    const logs = await storage.getLogs(id);
-    let fileSystem = null;
-    if (opts.includeFileSystem) {
-      fileSystem = await this.runtimeClient.getFileSystemSnapshot(id, {
-        showAllFiles: opts.showAllFiles,
-      });
-    }
+    const websocketUrl =
+      this.listenPort && this.runtimeClient.hasSession(id)
+        ? `ws://localhost:${this.listenPort}/ws/sessions/${id}`
+        : undefined;
+
     return {
       ...meta,
-      logs: [...logs],
+      logs: [],
       pendingPermission: meta.pendingPermission
         ? {
             ...meta.pendingPermission,
             options: meta.pendingPermission.options.map((option) => ({ ...option })),
           }
         : null,
-      fileSystem,
-      promptQueue: this.runtimeClient.hasSession(id) ? this.runtimeClient.getQueueState(id) : null,
+      fileSystem: null,
+      promptQueue: null,
+      websocketUrl,
     };
   }
 }

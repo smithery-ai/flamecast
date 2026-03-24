@@ -6,17 +6,10 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc --project tsconfig.json --noEmit",
     "start": "tsx src/index.ts",
-    "test": "vitest run --config vitest.config.ts",
-    "psql:generate": "drizzle-kit generate --config src/storage/psql/drizzle.config.ts"
+    "test": "echo 'no tests'"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.4.1",
     "@flamecast/sdk": "workspace:*",
-    "drizzle-orm": "^0.45.1",
-    "pg": "^8.20.0"
-  },
-  "devDependencies": {
-    "drizzle-kit": "^0.31.8",
-    "vitest": "^4.1.0"
+    "@flamecast/storage-psql": "workspace:*"
   }
 }

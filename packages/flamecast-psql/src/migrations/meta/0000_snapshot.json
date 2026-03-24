@@ -1,12 +1,12 @@
 {
-  "id": "b8fe3953-0664-43a1-a2d0-c2bb9891375d",
-  "prevId": "34a216b8-1f83-4276-a476-9cc2d166ce32",
+  "id": "b64441c3-4a24-4057-a78d-b9f1c011cb93",
+  "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.agent_templates": {
+    "flamecast.agent_templates": {
       "name": "agent_templates",
-      "schema": "",
+      "schema": "flamecast",
       "columns": {
         "id": {
           "name": "id",
@@ -37,14 +37,14 @@
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
-          "default": "false"
+          "default": false
         },
         "sort_order": {
           "name": "sort_order",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": "0"
+          "default": 0
         },
         "created_at": {
           "name": "created_at",
@@ -96,84 +96,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.session_logs": {
-      "name": "session_logs",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "serial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "occurred_at": {
-          "name": "occurred_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "type": {
-          "name": "type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "data": {
-          "name": "data",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "idx_session_logs_session": {
-          "name": "idx_session_logs_session",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "session_logs_session_id_sessions_id_fk": {
-          "name": "session_logs_session_id_sessions_id_fk",
-          "tableFrom": "session_logs",
-          "tableTo": "sessions",
-          "columnsFrom": ["session_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.sessions": {
+    "flamecast.sessions": {
       "name": "sessions",
-      "schema": "",
+      "schema": "flamecast",
       "columns": {
         "id": {
           "name": "id",
@@ -229,7 +154,9 @@
     }
   },
   "enums": {},
-  "schemas": {},
+  "schemas": {
+    "flamecast": "flamecast"
+  },
   "sequences": {},
   "roles": {},
   "policies": {},

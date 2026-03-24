@@ -1,30 +1,21 @@
 import { Hono, type Context } from "hono";
-import { streamSSE } from "hono/streaming";
 import { zValidator } from "@hono/zod-validator";
 import type { Flamecast } from "./index.js";
 import {
   AgentSnapshotQuerySchema,
   CreateSessionBodySchema,
-  FilePreviewQuerySchema,
-  PermissionResponseBodySchema,
   PromptBodySchema,
   RegisterAgentTemplateBodySchema,
 } from "../shared/session.js";
-import type { SessionLog } from "../shared/session.js";
 
 export type FlamecastApi = Pick<
   Flamecast,
-  | "cancelQueuedPrompt"
   | "createSession"
-  | "getFilePreview"
-  | "getQueueState"
   | "getSession"
   | "listAgentTemplates"
   | "listSessions"
   | "promptSession"
   | "registerAgentTemplate"
-  | "respondToPermission"
-  | "subscribe"
   | "terminateSession"
 >;
 
@@ -37,15 +28,10 @@ function toStringMessage(error: unknown): string {
 }
 
 export function createApi(flamecast: FlamecastApi) {
-  // The agent routes are public API sugar over the current single-session runtime model.
-  const getAgentSnapshot = async (
-    c: Context,
-    agentId: string,
-    query: { includeFileSystem?: "true" | "false"; showAllFiles?: "true" | "false" },
-  ) => {
+  const getAgentSnapshot = async (c: Context, agentId: string) => {
     try {
-      const includeFileSystem = query.includeFileSystem === "true";
-      const showAllFiles = query.showAllFiles === "true";
+      const includeFileSystem = c.req.query("includeFileSystem") === "true";
+      const showAllFiles = c.req.query("showAllFiles") === "true";
       const session = await flamecast.getSession(agentId, {
         ...(includeFileSystem ? { includeFileSystem: true } : {}),
         ...(showAllFiles ? { showAllFiles: true } : {}),
@@ -86,59 +72,12 @@ export function createApi(flamecast: FlamecastApi) {
         return c.json({ error: toStringMessage(error) }, 400);
       }
     })
-    .get("/agents/:agentId", zValidator("query", AgentSnapshotQuerySchema), async (c) => {
-      const query = c.req.valid("query");
-      return getAgentSnapshot(c, c.req.param("agentId"), query);
-    })
-    .get("/agents/:agentId/", zValidator("query", AgentSnapshotQuerySchema), async (c) => {
-      const query = c.req.valid("query");
-      return getAgentSnapshot(c, c.req.param("agentId"), query);
-    })
-    .get("/agents/:agentId/events", async (c) => {
-      const agentId = c.req.param("agentId");
-      try {
-        await flamecast.getSession(agentId);
-      } catch {
-        return c.json({ error: "Agent not found" }, 404);
-      }
-
-      return streamSSE(c, async (stream) => {
-        await stream.writeSSE({
-          event: "connected",
-          data: JSON.stringify({ sessionId: agentId }),
-        });
-
-        const callback = (event: SessionLog) => {
-          void stream.writeSSE({
-            event: event.type,
-            data: JSON.stringify(event),
-            id: event.timestamp,
-          });
-        };
-
-        const unsubscribe = flamecast.subscribe(agentId, callback);
-
-        try {
-          await new Promise<void>((resolve) => {
-            c.req.raw.signal.addEventListener("abort", () => resolve());
-          });
-        } finally {
-          unsubscribe();
-        }
-      });
-    })
-    .get("/agents/:agentId/file", zValidator("query", FilePreviewQuerySchema), async (c) => {
-      const { path } = c.req.valid("query");
-      if (!path) {
-        return c.json({ error: "Missing path" }, 400);
-      }
-      try {
-        const preview = await flamecast.getFilePreview(c.req.param("agentId"), path);
-        return c.json(preview);
-      } catch (error) {
-        return c.json({ error: toErrorMessage(error) }, 400);
-      }
-    })
+    .get("/agents/:agentId", zValidator("query", AgentSnapshotQuerySchema), async (c) =>
+      getAgentSnapshot(c, c.req.param("agentId")),
+    )
+    .get("/agents/:agentId/", zValidator("query", AgentSnapshotQuerySchema), async (c) =>
+      getAgentSnapshot(c, c.req.param("agentId")),
+    )
     .post("/agents/:agentId/prompt", zValidator("json", PromptBodySchema), async (c) => {
       const { text } = c.req.valid("json");
       try {
@@ -151,39 +90,6 @@ export function createApi(flamecast: FlamecastApi) {
         return c.json({ error: toErrorMessage(error) }, 400);
       }
     })
-    .get("/agents/:agentId/queue", async (c) => {
-      try {
-        const state = await flamecast.getQueueState(c.req.param("agentId"));
-        return c.json(state);
-      } catch {
-        return c.json({ error: "Agent not found" }, 404);
-      }
-    })
-    .delete("/agents/:agentId/queue/:queueId", async (c) => {
-      try {
-        await flamecast.cancelQueuedPrompt(c.req.param("agentId"), c.req.param("queueId"));
-        return c.json({ ok: true });
-      } catch (error) {
-        return c.json({ error: toErrorMessage(error) }, 400);
-      }
-    })
-    .post(
-      "/agents/:agentId/permissions/:requestId",
-      zValidator("json", PermissionResponseBodySchema),
-      async (c) => {
-        const body = c.req.valid("json");
-        try {
-          await flamecast.respondToPermission(
-            c.req.param("agentId"),
-            c.req.param("requestId"),
-            body,
-          );
-          return c.json({ ok: true });
-        } catch (error) {
-          return c.json({ error: toErrorMessage(error) }, 400);
-        }
-      },
-    )
     .delete("/agents/:agentId", async (c) => {
       try {
         await flamecast.terminateSession(c.req.param("agentId"));

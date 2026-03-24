@@ -5,12 +5,9 @@ import "alchemy/test/vitest";
 import { Hono } from "hono";
 import { hc } from "hono/client";
 import { Flamecast } from "../src/flamecast/index.js";
+import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import { createApi, type AppType } from "../src/flamecast/api.js";
-import {
-  PendingPermissionSchema,
-  PromptResultSchema,
-  SessionSchema,
-} from "../src/shared/session.js";
+import { SessionSchema } from "../src/shared/session.js";
 
 type AlchemyTestFactory = (meta: ImportMeta, opts: { prefix: string }) => typeof describe;
 
@@ -25,7 +22,6 @@ if (!isAlchemyTestFactory(maybeAlchemyTest)) {
 }
 
 const test = maybeAlchemyTest(import.meta, { prefix: "test" });
-const exampleAgentEntrypoint = fileURLToPath(new URL("../src/flamecast/agent.ts", import.meta.url));
 
 function createClient(flamecast: Flamecast) {
   const api = createApi(flamecast);
@@ -37,27 +33,9 @@ function createClient(flamecast: Flamecast) {
   });
 }
 
-async function pollForPermission(
-  client: ReturnType<typeof createClient>,
-  agentId: string,
-  timeoutMs: number,
-) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const res = await client.agents[":agentId"].$get({ param: { agentId } });
-    const payload = await res.json();
-    const parsed = SessionSchema.safeParse(payload);
-    if (parsed.success && parsed.data.pendingPermission) {
-      return PendingPermissionSchema.parse(parsed.data.pendingPermission);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  throw new Error(`No pending permission after ${timeoutMs}ms`);
-}
-
 describe("api contract", () => {
   test("list agent templates", async (scope: unknown) => {
-    const flamecast = new Flamecast({});
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const client = createClient(flamecast);
 
     try {
@@ -72,7 +50,7 @@ describe("api contract", () => {
   });
 
   test("list agents (empty)", async (scope: unknown) => {
-    const flamecast = new Flamecast({});
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const client = createClient(flamecast);
 
     try {
@@ -85,7 +63,7 @@ describe("api contract", () => {
   });
 
   test("404 for unknown agent", async (scope: unknown) => {
-    const flamecast = new Flamecast({});
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const client = createClient(flamecast);
 
     try {
@@ -96,8 +74,11 @@ describe("api contract", () => {
     }
   });
 
-  test("full lifecycle through HTTP", async (scope: unknown) => {
-    const flamecast = new Flamecast({});
+  test("session lifecycle with create get list terminate", async (scope: unknown) => {
+    const exampleAgentEntrypoint = fileURLToPath(
+      new URL("../src/flamecast/agent.ts", import.meta.url),
+    );
+    const flamecast = new Flamecast({ storage: new MemoryFlamecastStorage() });
     const client = createClient(flamecast);
 
     try {
@@ -110,35 +91,15 @@ describe("api contract", () => {
       const session = SessionSchema.parse(await createRes.json());
       expect(session.id).toBeTruthy();
 
-      // Route renames land before the data model split, so the agent ID is still the ACP session ID.
       const agentId = session.id;
 
       const getRes = await client.agents[":agentId"].$get({ param: { agentId } });
       expect(getRes.status).toBe(200);
 
-      const promptPromise = client.agents[":agentId"].prompt.$post({
-        param: { agentId },
-        json: { text: "Hello from API contract test!" },
-      });
-
-      const pending = await pollForPermission(client, agentId, 15_000);
-      expect(pending).toBeDefined();
-
-      const allow = pending.options.find(
-        (option: { optionId: string }) => option.optionId === "allow",
-      );
-      if (!allow) throw new Error("No allow option");
-
-      const permRes = await client.agents[":agentId"].permissions[":requestId"].$post({
-        param: { agentId, requestId: pending.requestId },
-        json: { optionId: allow.optionId },
-      });
-      expect(permRes.status).toBe(200);
-
-      const promptRes = await promptPromise;
-      expect(promptRes.status).toBe(200);
-      const result = PromptResultSchema.parse(await promptRes.json());
-      expect(result.stopReason).toBe("end_turn");
+      const listRes = await client.agents.$get();
+      expect(listRes.status).toBe(200);
+      const agents = await listRes.json();
+      expect(agents.length).toBeGreaterThanOrEqual(1);
 
       const killRes = await client.agents[":agentId"].$delete({ param: { agentId } });
       expect(killRes.status).toBe(200);

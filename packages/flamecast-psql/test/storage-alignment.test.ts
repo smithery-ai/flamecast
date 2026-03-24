@@ -2,14 +2,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createDatabase } from "../src/storage/db/client.js";
-import { createPsqlStorage } from "../src/storage/psql/index.js";
+import { createDatabase } from "../src/db.js";
+import { createStorageFromDb } from "../src/storage.js";
 
 describe("storage alignment", () => {
   it("stores managed and user templates in pglite-backed storage", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "flamecast-storage-"));
-    const { db, close } = await createDatabase({ pgliteDataDir: dataDir });
-    const storage = createPsqlStorage(db);
+    const { db, close } = await createDatabase({ dataDir });
+    const storage = createStorageFromDb(db);
 
     try {
       await storage.seedAgentTemplates([
@@ -70,10 +70,10 @@ describe("storage alignment", () => {
     }
   });
 
-  it("stores sessions and logs in the renamed pglite schema", async () => {
+  it("stores sessions in pglite-backed storage", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "flamecast-sessions-"));
-    const { db, close } = await createDatabase({ pgliteDataDir: dataDir });
-    const storage = createPsqlStorage(db);
+    const { db, close } = await createDatabase({ dataDir });
+    const storage = createStorageFromDb(db);
 
     try {
       await storage.createSession({
@@ -86,11 +86,6 @@ describe("storage alignment", () => {
         pendingPermission: null,
       });
 
-      await storage.appendLog("session-1", {
-        timestamp: "2026-03-21T00:00:01.000Z",
-        type: "rpc",
-        data: { method: "session/new" },
-      });
       await storage.updateSession("session-1", {});
       await storage.updateSession("session-1", {
         lastUpdatedAt: "2026-03-21T00:00:02.000Z",
@@ -103,15 +98,10 @@ describe("storage alignment", () => {
       });
 
       const session = await storage.getSessionMeta("session-1");
-      const logs = await storage.getLogs("session-1");
 
       expect(session?.agentName).toBe("Example agent");
       expect(new Date(session?.lastUpdatedAt ?? "").toISOString()).toBe("2026-03-21T00:00:02.000Z");
       expect(session?.pendingPermission?.requestId).toBe("request-1");
-      expect(logs).toHaveLength(1);
-      expect(logs[0]?.type).toBe("rpc");
-      expect(logs[0]?.data).toEqual({ method: "session/new" });
-      expect(logs[0]?.timestamp).toBeTruthy();
 
       expect(await storage.getSessionMeta("nonexistent")).toBeNull();
 

@@ -9,6 +9,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Flamecast } from "../src/flamecast/index.js";
+import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import type { RuntimeProvider } from "../src/flamecast/runtime-provider.js";
 
 type AlchemyTestFactory = (meta: ImportMeta, opts: { prefix: string }) => typeof describe;
@@ -25,16 +26,6 @@ if (!isAlchemyTestFactory(maybeAlchemyTest)) {
 
 const test = maybeAlchemyTest(import.meta, { prefix: "test" });
 const exampleAgentEntrypoint = fileURLToPath(new URL("../src/flamecast/agent.ts", import.meta.url));
-
-async function pollForPermission(flamecast: Flamecast, sessionId: string, timeoutMs: number) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const session = await flamecast.getSession(sessionId);
-    if (session.pendingPermission) return session.pendingPermission;
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  throw new Error(`No pending permission after ${timeoutMs}ms`);
-}
 
 // oxlint-disable-next-line eslint/no-unused-vars -- re-enable when docker test is unskipped
 function hasDockerDaemon(): boolean {
@@ -61,32 +52,19 @@ async function runSessionLifecycle(
   const sessionId = session.id;
 
   try {
-    const promptPromise = flamecast.promptSession(sessionId, "Hello from integration test!");
-
-    const pending = await pollForPermission(flamecast, sessionId, 15_000);
-    expect(pending).toBeDefined();
-    expect(pending.options.length).toBeGreaterThanOrEqual(2);
-
-    const allow = pending.options.find((option) => option.optionId === "allow");
-    if (!allow) throw new Error("No allow option found");
-
-    await flamecast.respondToPermission(sessionId, pending.requestId, {
-      optionId: allow.optionId,
-    });
-
-    const result = await promptPromise;
-    expect(result.stopReason).toBe("end_turn");
-
     const state = await flamecast.getSession(sessionId);
-    expect(state.logs.length).toBeGreaterThan(0);
+    expect(state.id).toBe(sessionId);
+    expect(state.status).toBe("active");
   } finally {
     await flamecast.terminateSession(sessionId);
   }
 }
 
 describe("flamecast", () => {
-  test("local - full session lifecycle", async (scope: unknown) => {
-    const flamecast = new Flamecast({});
+  test("local full session lifecycle", async (scope: unknown) => {
+    const flamecast = new Flamecast({
+      storage: new MemoryFlamecastStorage(),
+    });
 
     try {
       await runSessionLifecycle(flamecast, {
@@ -97,8 +75,10 @@ describe("flamecast", () => {
     }
   });
 
-  test("local - preset agent template", async (scope: unknown) => {
-    const flamecast = new Flamecast({});
+  test("local preset agent template", async (scope: unknown) => {
+    const flamecast = new Flamecast({
+      storage: new MemoryFlamecastStorage(),
+    });
 
     try {
       const templates = await flamecast.listAgentTemplates();
@@ -111,8 +91,10 @@ describe("flamecast", () => {
     }
   });
 
-  test("local - session management", async (scope: unknown) => {
-    const flamecast = new Flamecast({});
+  test("local session management", async (scope: unknown) => {
+    const flamecast = new Flamecast({
+      storage: new MemoryFlamecastStorage(),
+    });
 
     try {
       const sessions = await flamecast.listSessions();
@@ -124,7 +106,7 @@ describe("flamecast", () => {
     }
   });
 
-  test("custom runtime provider - creates a resource", async (scope: unknown) => {
+  test("custom runtime provider creates a resource", async (scope: unknown) => {
     const testFilePath = `.alchemy-test-${Date.now()}.txt`;
 
     const fixtureProvider: RuntimeProvider = {
@@ -139,6 +121,7 @@ describe("flamecast", () => {
     };
 
     const flamecast = new Flamecast({
+      storage: new MemoryFlamecastStorage(),
       runtimeProviders: { fixture: fixtureProvider },
       agentTemplates: [
         {
@@ -160,7 +143,7 @@ describe("flamecast", () => {
     }
   });
 
-  test.skip("docker runtime provider - container lifecycle wiring", async (_scope: unknown) => {
+  test.skip("docker runtime provider container lifecycle wiring", async (_scope: unknown) => {
     let containerCreated = false;
     let containerId = "";
 
@@ -179,6 +162,7 @@ describe("flamecast", () => {
     };
 
     const flamecast = new Flamecast({
+      storage: new MemoryFlamecastStorage(),
       runtimeProviders: { fixture: dockerProvider },
       agentTemplates: [
         {

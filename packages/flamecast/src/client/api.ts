@@ -3,7 +3,6 @@ import { z } from "zod";
 import type { AppType } from "../flamecast/api.js";
 import {
   AgentTemplateSchema,
-  FilePreviewSchema,
   PromptResultSchema,
   QueuedPromptResponseSchema,
   SessionSchema,
@@ -11,8 +10,6 @@ import {
 import type {
   AgentTemplate,
   CreateSessionBody,
-  FilePreview,
-  PermissionResponseBody,
   PromptResult,
   QueuedPromptResponse,
   RegisterAgentTemplateBody,
@@ -44,15 +41,9 @@ export type FlamecastClient = {
     id: string,
     opts?: { includeFileSystem?: boolean; showAllFiles?: boolean },
   ): Promise<Session>;
-  fetchFilePreview(id: string, path: string): Promise<FilePreview>;
   createSession(body: CreateSessionBody): Promise<Session>;
   sendPrompt(id: string, text: string): Promise<PromptResult | QueuedPromptResponse>;
   terminateSession(id: string): Promise<void>;
-  respondToPermission(
-    sessionId: string,
-    requestId: string,
-    body: PermissionResponseBody,
-  ): Promise<void>;
 };
 
 async function assertOk(response: Response, message: string): Promise<void> {
@@ -97,13 +88,6 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
       });
       return parseOkJson(response, SessionSchema, "Session not found");
     },
-    async fetchFilePreview(id, path) {
-      const response = await rpc.agents[":agentId"].file.$get({
-        param: { agentId: id },
-        query: { path },
-      });
-      return parseOkJson(response, FilePreviewSchema, "Failed to fetch file preview");
-    },
     async createSession(body) {
       const response = await rpc.agents.$post({ json: body });
       return parseOkJson(response, SessionSchema, "Failed to create session");
@@ -122,13 +106,6 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
     async terminateSession(id) {
       const response = await rpc.agents[":agentId"].$delete({ param: { agentId: id } });
       await assertOk(response, "Failed to terminate session");
-    },
-    async respondToPermission(sessionId, requestId, body) {
-      const response = await rpc.agents[":agentId"].permissions[":requestId"].$post({
-        param: { agentId: sessionId, requestId },
-        json: body,
-      });
-      await assertOk(response, "Failed to respond to permission");
     },
   };
 }

@@ -547,6 +547,9 @@ describe("bootstrap entrypoints", () => {
     vi.doMock("@flamecast/sdk", () => ({
       Flamecast: FlamecastMock,
     }));
+    vi.doMock("@flamecast/storage-psql", () => ({
+      createPsqlStorage: vi.fn(async () => ({})),
+    }));
 
     try {
       vi.resetModules();
@@ -565,17 +568,16 @@ describe("bootstrap entrypoints", () => {
     const listen = vi.fn(async () => ({
       close: vi.fn(),
     }));
-    const createServerStorage = vi.fn(async () => ({ kind: "server-storage" }));
 
     class FlamecastMock {
       readonly listen = listen;
     }
 
-    vi.doMock("../../../apps/server/src/storage/index.ts", () => ({
-      createServerStorage,
-    }));
     vi.doMock("@flamecast/sdk", () => ({
       Flamecast: FlamecastMock,
+    }));
+    vi.doMock("@flamecast/storage-psql", () => ({
+      createPsqlStorage: vi.fn(async () => ({})),
     }));
 
     const serverModule = await import("../../../apps/server/src/index.ts?server");
@@ -586,36 +588,36 @@ describe("bootstrap entrypoints", () => {
     expect(secondStart).toBeInstanceOf(FlamecastMock);
     expect(listen).toHaveBeenCalledTimes(2);
     expect(listen).toHaveBeenCalledWith(3001);
-    expect(createServerStorage).toHaveBeenCalledTimes(2);
   });
 
   test("runs server main automatically when imported as the entry module", async () => {
     const serverPath = new URL("../../../apps/server/src/index.ts", import.meta.url);
     const listen = vi.fn(async () => ({ close: vi.fn() }));
-    const createServerStorage = vi.fn(async () => ({ kind: "server-storage" }));
     const originalArgv1 = process.argv[1];
 
     class FlamecastMock {
       readonly listen = listen;
     }
 
-    vi.doMock("../../../apps/server/src/storage/index.ts", () => ({
-      createServerStorage,
-    }));
-    vi.doMock("@flamecast/sdk", () => ({
-      Flamecast: FlamecastMock,
-    }));
-
     try {
       vi.resetModules();
+
+      vi.doMock("@flamecast/sdk", () => ({
+        Flamecast: FlamecastMock,
+      }));
+      vi.doMock("@flamecast/storage-psql", () => ({
+        createPsqlStorage: vi.fn(async () => ({})),
+      }));
+
       process.argv[1] = fileURLToPath(serverPath);
-      await import("../../../apps/server/src/index.ts");
-      await Promise.resolve();
+      const serverModule = await import("../../../apps/server/src/index.ts");
+      // main() is called via void (fire-and-forget) in the module body;
+      // await the exported main() to ensure the listen mock is invoked.
+      await serverModule.main();
     } finally {
       process.argv[1] = originalArgv1;
     }
 
     expect(listen).toHaveBeenCalledWith(3001);
-    expect(createServerStorage).toHaveBeenCalledTimes(1);
   });
 });

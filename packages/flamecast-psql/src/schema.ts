@@ -1,20 +1,13 @@
-import {
-  boolean,
-  index,
-  integer,
-  jsonb,
-  pgTable,
-  serial,
-  text,
-  timestamp,
-} from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgSchema, text, timestamp } from "drizzle-orm/pg-core";
 import type {
   AgentSpawn,
   AgentTemplateRuntime,
   PendingPermission,
 } from "@flamecast/sdk/shared/session";
 
-export const sessions = pgTable("sessions", {
+export const flamecastSchema = pgSchema("flamecast");
+
+export const sessions = flamecastSchema.table("sessions", {
   id: text("id").primaryKey(),
   agentName: text("agent_name").notNull(),
   spawn: jsonb("spawn").$type<AgentSpawn>().notNull(),
@@ -24,21 +17,7 @@ export const sessions = pgTable("sessions", {
   status: text("status").notNull().default("active"),
 });
 
-export const sessionLogs = pgTable(
-  "session_logs",
-  {
-    id: serial("id").primaryKey(),
-    sessionId: text("session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
-    occurredAt: timestamp("occurred_at", { withTimezone: true, mode: "string" }).notNull(),
-    type: text("type").notNull(),
-    data: jsonb("data").$type<Record<string, unknown>>().notNull(),
-  },
-  (t) => [index("idx_session_logs_session").on(t.sessionId, t.id)],
-);
-
-export const agentTemplates = pgTable(
+export const agentTemplates = flamecastSchema.table(
   "agent_templates",
   {
     id: text("id").primaryKey(),

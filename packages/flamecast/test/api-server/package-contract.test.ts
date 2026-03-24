@@ -31,10 +31,6 @@ describe("package contract", () => {
       types: "./dist/flamecast/api.d.ts",
       import: "./dist/flamecast/api.js",
     });
-    expect(packageJson.exports["./client"]).toEqual({
-      types: "./dist/client/api.d.ts",
-      import: "./dist/client/api.js",
-    });
     expect(packageJson.exports["./worker"]).toEqual({
       types: "./dist/worker.d.ts",
       import: "./dist/worker.js",

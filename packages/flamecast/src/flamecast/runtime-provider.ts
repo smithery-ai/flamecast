@@ -15,6 +15,8 @@ export type StartedRuntime = {
   events?: ReadableStream<SessionLog>;
   /** The working directory the agent sees (e.g. /workspace in Docker). Defaults to the host cwd. */
   agentCwd?: string;
+  /** Direct WebSocket URL to the runtime bridge sidecar (if running as separate process). */
+  websocketUrl?: string;
 };
 
 export type RuntimeProviderStartRequest = {
@@ -347,6 +349,16 @@ export function createFileSystemEventStream(
   try {
     return new ReadableStream<SessionLog>({
       start(controller) {
+        // Emit initial snapshot immediately
+        void buildFileSystemSnapshot(workspaceRoot).then((snapshot) => {
+          if (cancelled) return;
+          controller.enqueue({
+            timestamp: new Date().toISOString(),
+            type: SESSION_EVENT_TYPES.FILESYSTEM_SNAPSHOT,
+            data: { snapshot },
+          });
+        });
+
         watcher = watch(workspaceRoot, { recursive: true }, () => {
           if (cancelled) return;
 

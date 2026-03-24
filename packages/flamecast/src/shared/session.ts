@@ -107,6 +107,7 @@ export const SessionSchema = z.object({
   pendingPermission: PendingPermissionSchema.nullable(),
   fileSystem: FileSystemSnapshotSchema.nullable(),
   promptQueue: PromptQueueStateSchema.nullable(),
+  websocketUrl: z.string().optional(),
 });
 export type Session = z.infer<typeof SessionSchema>;
 
@@ -158,11 +159,6 @@ export const AgentSnapshotQuerySchema = z.object({
   showAllFiles: z.enum(["true", "false"]).optional(),
 });
 export type AgentSnapshotQuery = z.infer<typeof AgentSnapshotQuerySchema>;
-
-export const FilePreviewQuerySchema = z.object({
-  path: z.string().optional(),
-});
-export type FilePreviewQuery = z.infer<typeof FilePreviewQuerySchema>;
 
 export const PermissionResponseBodySchema = z.union([
   z.object({ optionId: z.string() }),

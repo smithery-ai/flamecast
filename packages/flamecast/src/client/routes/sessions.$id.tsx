@@ -1,12 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  fetchFilePreview,
-  fetchSession,
-  respondToPermission,
-  sendPrompt,
-  subscribeToSessionEvents,
-} from "@/client/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { fetchSession } from "@/client/lib/api";
 import { FileTree, FileTreeFile, FileTreeFolder } from "@/components/ai-elements/file-tree";
 import { sessionLogsToSegments } from "@/client/lib/logs-markdown";
 import { Fragment, useEffect, useMemo, useState } from "react";
@@ -33,7 +27,9 @@ import {
   FolderTreeIcon,
   SendIcon,
 } from "lucide-react";
-import type { FileSystemEntry } from "../../shared/session";
+/* oxlint-disable no-type-assertion/no-type-assertion */
+import type { FileSystemEntry, PendingPermission, SessionLog } from "../../shared/session";
+import { useFlamecastSession } from "@/client/hooks/use-flamecast-session";
 
 export const Route = createFileRoute("/sessions/$id")({
   component: SessionDetailPage,
@@ -52,51 +48,89 @@ function SessionDetailPage() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [showAllFiles, setShowAllFiles] = useState(false);
-  const queryClient = useQueryClient();
+  const [isSending, setIsSending] = useState(false);
 
+  // WebSocket-based session events and control
+  const {
+    events: wsEvents,
+    isConnected,
+    prompt: wsPrompt,
+    respondToPermission: wsRespondToPermission,
+    requestFilePreview,
+  } = useFlamecastSession(id);
+
+  // REST for initial session metadata and file system
   const { data: session, isLoading } = useQuery({
     queryKey: ["session", id, showAllFiles],
     queryFn: () => fetchSession(id, { includeFileSystem: true, showAllFiles }),
-    refetchInterval: 10_000, // Fallback polling; SSE handles real-time updates
+    staleTime: Infinity, // WS handles real-time updates
   });
 
-  useEffect(() => {
-    const unsubscribe = subscribeToSessionEvents(id, () => {
-      queryClient.invalidateQueries({ queryKey: ["session", id] });
-    });
-    return unsubscribe;
-  }, [id, queryClient]);
+  // Merge: use WS events if available, fall back to REST logs
+  const logs: SessionLog[] = useMemo(() => {
+    if (wsEvents.length > 0) return [...wsEvents];
+    return session?.logs ?? [];
+  }, [wsEvents, session?.logs]);
 
-  const promptMutation = useMutation({
-    mutationFn: (text: string) => sendPrompt(id, text),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["session", id] });
-    },
-  });
+  // Derive pending permission from WS events
+  const pendingPermission = useMemo(() => {
+    for (let i = wsEvents.length - 1; i >= 0; i--) {
+      const event = wsEvents[i];
+      // Permission was resolved
+      if (
+        event.type === "permission_approved" ||
+        event.type === "permission_rejected" ||
+        event.type === "permission_cancelled" ||
+        event.type === "permission_responded"
+      ) {
+        return null;
+      }
+      // Permission request from bridge event
+      if (event.type === "permission_request" && event.data.pendingPermission) {
+        return event.data.pendingPermission as PendingPermission;
+      }
+      // Permission request from RPC passthrough
+      if (
+        event.type === "rpc" &&
+        event.data.method === "session/request_permission" &&
+        event.data.direction === "agent_to_client" &&
+        event.data.phase === "request"
+      ) {
+        // The bridge also emits a permission_request event with structured data,
+        // so this is a fallback — extract what we can from the RPC payload
+        const payload = event.data.payload as Record<string, unknown> | undefined;
+        if (payload) {
+          return (payload as { pendingPermission?: PendingPermission }).pendingPermission ?? null;
+        }
+      }
+    }
+    return session?.pendingPermission ?? null;
+  }, [wsEvents, session?.pendingPermission]);
 
-  const permissionMutation = useMutation({
-    mutationFn: ({
-      requestId,
-      body,
-    }: {
-      requestId: string;
-      body: { optionId: string } | { outcome: "cancelled" };
-    }) => respondToPermission(id, requestId, body),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["session", id] });
-    },
-  });
-
-  const fileEntries = session?.fileSystem?.entries ?? [];
+  // Derive file system data from WS filesystem events, fall back to REST
+  const { fileEntries, workspaceRoot } = useMemo(() => {
+    // Walk backwards to find latest filesystem.snapshot
+    for (let i = wsEvents.length - 1; i >= 0; i--) {
+      const event = wsEvents[i];
+      if (event.type === "filesystem.snapshot" && event.data.snapshot) {
+        const snapshot = event.data.snapshot as { root?: string; entries?: FileSystemEntry[] };
+        return {
+          fileEntries: snapshot.entries ?? [],
+          workspaceRoot: snapshot.root ?? null,
+        };
+      }
+    }
+    return {
+      fileEntries: session?.fileSystem?.entries ?? [],
+      workspaceRoot: session?.fileSystem?.root ?? null,
+    };
+  }, [wsEvents, session?.fileSystem?.entries, session?.fileSystem?.root]);
   const fileEntryMap = useMemo(
     () => new Map(fileEntries.map((entry) => [entry.path, entry])),
     [fileEntries],
   );
   const fileTree = useMemo(() => buildTree(fileEntries), [fileEntries]);
-  const markdownSegments = useMemo(
-    () => sessionLogsToSegments(session?.logs ?? []),
-    [session?.logs],
-  );
+  const markdownSegments = useMemo(() => sessionLogsToSegments(logs), [logs]);
 
   useEffect(() => {
     setExpandedPaths((current) => (current.size > 0 ? current : getInitialExpandedPaths(fileTree)));
@@ -113,28 +147,52 @@ function SessionDetailPage() {
 
   const selectedEntry = selectedPath ? (fileEntryMap.get(selectedPath) ?? null) : null;
 
-  const previewQuery = useQuery({
-    queryKey: ["session-file-preview", id, selectedPath],
-    queryFn: () => {
-      if (!selectedPath) {
-        throw new Error("No file selected");
-      }
-      return fetchFilePreview(id, selectedPath);
-    },
-    enabled: Boolean(selectedPath && selectedEntry?.type === "file"),
-  });
+  // File preview via WebSocket
+  const [filePreview, setFilePreview] = useState<{ content: string; truncated: boolean } | null>(
+    null,
+  );
+  const [filePreviewLoading, setFilePreviewLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedPath || !selectedEntry || selectedEntry.type !== "file" || !isConnected) {
+      setFilePreview(null);
+      return;
+    }
+    let cancelled = false;
+    setFilePreviewLoading(true);
+    requestFilePreview(selectedPath)
+      .then((result) => {
+        if (!cancelled) {
+          setFilePreview({ content: result.content, truncated: result.truncated });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFilePreview(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setFilePreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPath, selectedEntry, isConnected, requestFilePreview]);
 
   const handlePermission = (
     requestId: string,
     body: { optionId: string } | { outcome: "cancelled" },
   ) => {
-    permissionMutation.mutate({ requestId, body });
+    wsRespondToPermission(requestId, body);
   };
 
   const handleSend = () => {
     if (!prompt.trim()) return;
-    promptMutation.mutate(prompt);
+    setIsSending(true);
+    wsPrompt(prompt);
     setPrompt("");
+    // Reset sending state after a short delay (the WS is fire-and-forget)
+    setTimeout(() => setIsSending(false), 500);
   };
 
   const handleTreeSelect = (path: string) => {
@@ -188,6 +246,15 @@ function SessionDetailPage() {
           >
             {session.id}
           </code>
+          {isConnected ? (
+            <Badge variant="outline" className="text-green-600">
+              WS
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-muted-foreground">
+              SSE
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -216,7 +283,7 @@ function SessionDetailPage() {
                   markdownSegments.map((seg, index) => {
                     const isLiveAssistant =
                       seg.kind === "assistant" &&
-                      promptMutation.isPending &&
+                      isSending &&
                       index === markdownSegments.length - 1;
                     if (seg.kind === "user") {
                       return (
@@ -254,22 +321,22 @@ function SessionDetailPage() {
                     return null;
                   })
                 )}
-                {session.pendingPermission ? (
+                {pendingPermission ? (
                   <Card className="max-w-2xl border-primary/50 bg-primary/5">
                     <CardHeader>
                       <CardTitle className="text-base">Permission required</CardTitle>
                       <CardDescription>
-                        {session.pendingPermission.title}
-                        {session.pendingPermission.kind ? (
+                        {pendingPermission.title}
+                        {pendingPermission.kind ? (
                           <Badge variant="outline" className="ml-2">
-                            {session.pendingPermission.kind}
+                            {pendingPermission.kind}
                           </Badge>
                         ) : null}
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="flex flex-wrap gap-2">
                       {(() => {
-                        const pending = session.pendingPermission;
+                        const pending = pendingPermission;
                         return (
                           <>
                             {pending.options.map((opt) => (
@@ -277,7 +344,6 @@ function SessionDetailPage() {
                                 key={opt.optionId}
                                 variant={opt.kind === "allow_once" ? "default" : "secondary"}
                                 size="sm"
-                                disabled={permissionMutation.isPending}
                                 onClick={() =>
                                   handlePermission(pending.requestId, {
                                     optionId: opt.optionId,
@@ -290,7 +356,6 @@ function SessionDetailPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              disabled={permissionMutation.isPending}
                               onClick={() =>
                                 handlePermission(pending.requestId, {
                                   outcome: "cancelled",
@@ -319,12 +384,12 @@ function SessionDetailPage() {
               initial="smooth"
             >
               <StickToBottom.Content className="flex flex-col gap-3 p-4">
-                {session.logs.length === 0 ? (
+                {logs.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
                     No logs yet. Send a prompt to get started.
                   </p>
                 ) : (
-                  session.logs.map((log, index) => (
+                  logs.map((log, index) => (
                     <Fragment key={index}>
                       {index > 0 ? <Separator /> : null}
                       <div className="flex items-start gap-3 text-sm">
@@ -357,7 +422,7 @@ function SessionDetailPage() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium">Files</p>
                   <p className="truncate text-xs text-muted-foreground">
-                    {session.fileSystem?.root ?? "No workspace root"}
+                    {workspaceRoot ?? "No workspace root"}
                   </p>
                 </div>
                 <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
@@ -371,7 +436,7 @@ function SessionDetailPage() {
                 </label>
               </div>
               <div className="min-h-0 flex-1 overflow-auto p-3">
-                {!session.fileSystem || fileTree.length === 0 ? (
+                {fileTree.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
                     No filesystem entries returned.
                   </p>
@@ -408,25 +473,17 @@ function SessionDetailPage() {
                   <EmptyPreview message="No file selected." />
                 ) : selectedEntry.type !== "file" ? (
                   <EmptyPreview message="Select a file to preview its contents." />
-                ) : previewQuery.isLoading ? (
-                  <div className="space-y-3 p-4">
-                    <Skeleton className="h-5 w-48" />
-                    <Skeleton className="h-64 w-full" />
-                  </div>
-                ) : previewQuery.isError ? (
-                  <EmptyPreview message="Failed to load file preview." />
+                ) : filePreviewLoading ? (
+                  <EmptyPreview message="Loading..." />
+                ) : filePreview ? (
+                  <pre className="whitespace-pre-wrap break-all p-4 text-xs font-mono">
+                    {filePreview.content}
+                    {filePreview.truncated && (
+                      <span className="text-muted-foreground">{"\n\n--- File truncated ---"}</span>
+                    )}
+                  </pre>
                 ) : (
-                  <div className="flex min-h-full flex-col">
-                    <pre className="min-h-full overflow-auto whitespace-pre-wrap break-words bg-muted/30 p-4 font-mono text-xs leading-6 text-foreground">
-                      {previewQuery.data?.content ?? ""}
-                    </pre>
-                    {previewQuery.data?.truncated ? (
-                      <div className="border-t px-4 py-2 text-xs text-muted-foreground">
-                        Preview truncated at {previewQuery.data.maxChars.toLocaleString()}{" "}
-                        characters.
-                      </div>
-                    ) : null}
-                  </div>
+                  <EmptyPreview message="Could not load file preview." />
                 )}
               </div>
             </section>
@@ -441,18 +498,14 @@ function SessionDetailPage() {
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={(event) => event.key === "Enter" && handleSend()}
             placeholder="Send a prompt to the agent..."
-            disabled={promptMutation.isPending || !!session.pendingPermission}
+            disabled={isSending || !!pendingPermission}
           />
           <Button
             onClick={handleSend}
-            disabled={promptMutation.isPending || !!session.pendingPermission || !prompt.trim()}
+            disabled={isSending || !!pendingPermission || !prompt.trim()}
           >
             <SendIcon data-icon="inline-start" />
-            {session.pendingPermission
-              ? "Permission required"
-              : promptMutation.isPending
-                ? "Sending…"
-                : "Send"}
+            {pendingPermission ? "Permission required" : isSending ? "Sending…" : "Send"}
           </Button>
         </div>
       </div>

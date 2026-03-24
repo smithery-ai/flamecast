@@ -6,32 +6,14 @@ import { migrate as migratePgLite } from "drizzle-orm/pglite/migrator";
 import { drizzle as drizzleNodePg } from "drizzle-orm/node-postgres";
 import { migrate as migrateNodePg } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
-import type { PsqlAppDb } from "../psql/types.js";
-import { PSQL_MIGRATIONS_FOLDER } from "../psql/migrations-path.js";
-import * as schema from "../psql/schema.js";
-
-export type AppDb = PsqlAppDb;
+import type { PsqlAppDb } from "./types.js";
+import { PSQL_MIGRATIONS_FOLDER } from "./migrations-path.js";
+import * as schema from "./schema.js";
 
 export type DatabaseBundle = {
-  db: AppDb;
+  db: PsqlAppDb;
   /** Postgres pool end, or PGlite close. */
   close: () => Promise<void>;
-};
-
-export { schema as psqlSchema };
-
-function postgresConnectionString(): string | undefined {
-  const url = process.env.FLAMECAST_POSTGRES_URL;
-  const t = url?.trim();
-  return t || undefined;
-}
-
-export type CreateDatabaseOptions = {
-  /**
-   * PGLite data directory when no Postgres URL is set.
-   * Default: `FLAMECAST_PGLITE_DIR` or `<cwd>/.flamecast/pglite`.
-   */
-  pgliteDataDir?: string;
 };
 
 function toPgliteStartupError(dataDir: string, error: unknown): Error {
@@ -49,16 +31,15 @@ function toPgliteStartupError(dataDir: string, error: unknown): Error {
   return error instanceof Error ? error : new Error(message);
 }
 
-/**
- * Connects to **Postgres** when `FLAMECAST_POSTGRES_URL` is set; otherwise **PGLite** on disk.
- * Applies Drizzle migrations from `apps/server/src/storage/psql/migrations`.
- */
-export async function createDatabase(options: CreateDatabaseOptions = {}): Promise<DatabaseBundle> {
-  const dbUrl = postgresConnectionString();
+/** Connect to **Postgres** when a URL is provided; otherwise **PGLite** on disk. */
+export async function createDatabase(options: {
+  url?: string;
+  dataDir?: string;
+}): Promise<DatabaseBundle> {
   const migrationsFolder = PSQL_MIGRATIONS_FOLDER;
 
-  if (dbUrl) {
-    const pool = new Pool({ connectionString: dbUrl });
+  if (options.url) {
+    const pool = new Pool({ connectionString: options.url });
     const db = drizzleNodePg({ client: pool, schema });
     await migrateNodePg(db, { migrationsFolder });
     return {
@@ -69,10 +50,8 @@ export async function createDatabase(options: CreateDatabaseOptions = {}): Promi
     };
   }
 
-  console.warn("postgres url not found, falling back to pglite");
-
   const dataDir = path.resolve(
-    options.pgliteDataDir ??
+    options.dataDir ??
       process.env.FLAMECAST_PGLITE_DIR ??
       path.join(process.cwd(), ".flamecast", "pglite"),
   );

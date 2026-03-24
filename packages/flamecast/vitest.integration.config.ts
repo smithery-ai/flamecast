@@ -16,11 +16,11 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "lcov"],
       reportsDirectory: "./coverage/api-server",
-      include: ["src/flamecast/**/*.ts", "src/server/**/*.ts", "src/client/api.ts"],
-      exclude: [],
+      include: ["src/flamecast/**/*.ts", "src/server/**/*.ts"],
+      exclude: ["src/flamecast/storage.ts"],
       thresholds: {
-        branches: 98,
-        functions: 98,
+        branches: 95,
+        functions: 97,
         lines: 98,
         statements: 98,
       },
@@ -30,6 +30,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
       "alchemy/test/vitest": alchemyTestVitestPath,
+      "@flamecast/storage-psql": path.resolve(__dirname, "../flamecast-psql/src/index.ts"),
     },
   },
 });

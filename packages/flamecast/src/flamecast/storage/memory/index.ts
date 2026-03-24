@@ -1,4 +1,4 @@
-import type { AgentTemplate, SessionLog } from "../../../shared/session.js";
+import type { AgentTemplate } from "../../../shared/session.js";
 import type { FlamecastStorage, SessionMeta } from "../../storage.js";
 
 type StoredAgentTemplate = {
@@ -22,7 +22,6 @@ export class MemoryFlamecastStorage implements FlamecastStorage {
   private templates = new Map<string, StoredAgentTemplate>();
   private managedTemplateIds: string[] = [];
   private sessions = new Map<string, SessionMeta>();
-  private logs = new Map<string, SessionLog[]>();
 
   async seedAgentTemplates(templates: AgentTemplate[]): Promise<void> {
     const nextManagedIds = templates.map((template) => template.id);
@@ -74,7 +73,6 @@ export class MemoryFlamecastStorage implements FlamecastStorage {
 
   async createSession(meta: SessionMeta): Promise<void> {
     this.sessions.set(meta.id, { ...meta });
-    this.logs.set(meta.id, []);
   }
 
   async updateSession(
@@ -91,19 +89,9 @@ export class MemoryFlamecastStorage implements FlamecastStorage {
     });
   }
 
-  async appendLog(sessionId: string, log: SessionLog): Promise<void> {
-    const list = this.logs.get(sessionId);
-    if (!list) throw new Error(`Session "${sessionId}" has no log stream`);
-    list.push(log);
-  }
-
   async getSessionMeta(id: string): Promise<SessionMeta | null> {
     const row = this.sessions.get(id);
     return row ? { ...row } : null;
-  }
-
-  async getLogs(sessionId: string): Promise<SessionLog[]> {
-    return [...(this.logs.get(sessionId) ?? [])];
   }
 
   async listAllSessions(): Promise<SessionMeta[]> {
