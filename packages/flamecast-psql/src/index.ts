@@ -3,8 +3,10 @@ import { createDatabase } from "./db.js";
 import { createStorageFromDb } from "./storage.js";
 
 export type PsqlStorageOptions = {
-  /** Postgres connection URL (required). */
-  url: string;
+  /** Postgres connection URL. If omitted, falls back to embedded PGLite. */
+  url?: string;
+  /** PGLite data directory (only used when no URL is provided). */
+  dataDir?: string;
 };
 
 /**
@@ -20,7 +22,9 @@ export type PsqlStorageOptions = {
  * });
  * ```
  */
-export async function createPsqlStorage(options: PsqlStorageOptions): Promise<FlamecastStorage> {
+export async function createPsqlStorage(
+  options: PsqlStorageOptions = {},
+): Promise<FlamecastStorage> {
   const { db } = await createDatabase(options);
   return createStorageFromDb(db);
 }

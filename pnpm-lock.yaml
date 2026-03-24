@@ -227,6 +227,9 @@ importers:
 
   packages/flamecast-psql:
     dependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.4.1
+        version: 0.4.1
       '@flamecast/sdk':
         specifier: workspace:*
         version: link:../flamecast
