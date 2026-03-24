@@ -11,9 +11,8 @@ description: "Get Flamecast running and launch your first agent session"
 <Step title="Clone and install">
 
 ```bash
-git clone https://github.com/anthropics/flamecast.git
-cd flamecast
-pnpm install
+npm create flamecast@latest my-app
+cd my-app
 ```
 
 </Step>
@@ -21,7 +20,8 @@ pnpm install
 <Step title="Start the dev server">
 
 ```bash
-pnpm dev
+npm install
+npm run dev
 ```
 
 This starts both the API server on port 3001 and the React UI dev server.
