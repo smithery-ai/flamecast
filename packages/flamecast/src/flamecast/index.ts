@@ -164,9 +164,7 @@ export class Flamecast<
 
     // Validate provider against registered runtimes
     if (!this.runtimesMap[provider]) {
-      throw new Error(
-        `Unknown runtime: "${provider}". Available: ${this.runtimeNames.join(", ")}`,
-      );
+      throw new Error(`Unknown runtime: "${provider}". Available: ${this.runtimeNames.join(", ")}`);
     }
 
     const template: AgentTemplate = {
