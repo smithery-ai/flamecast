@@ -247,9 +247,6 @@ importers:
       '@flamecast/protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@flamecast/sdk':
-        specifier: workspace:*
-        version: link:../flamecast
       dockerode:
         specifier: ^4.0.6
         version: 4.0.10
@@ -269,9 +266,6 @@ importers:
       '@flamecast/protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@flamecast/sdk':
-        specifier: workspace:*
-        version: link:../flamecast
 
   packages/session-host:
     dependencies:
