@@ -7,13 +7,13 @@
  * catch contract drift.
  */
 
-import type { Runtime } from "../../src/flamecast/runtime.js";
+import type { Runtime } from "@flamecast/protocol/runtime";
 import type {
   SessionHostStartRequest,
   SessionHostStartResponse,
   PermissionRequestEvent,
   FilesystemSnapshotEvent,
-} from "../../src/shared/session-host-protocol.js";
+} from "@flamecast/protocol/session-host";
 
 // ---------------------------------------------------------------------------
 // Types

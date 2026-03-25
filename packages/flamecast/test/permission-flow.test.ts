@@ -10,9 +10,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
-import type { Runtime } from "../src/flamecast/runtime.js";
+import type { Runtime } from "@flamecast/protocol/runtime";
 import type { PermissionRequestContext } from "../src/flamecast/index.js";
-import type { PermissionRequestEvent } from "../src/shared/session-host-protocol.js";
+import type { PermissionRequestEvent } from "@flamecast/protocol/session-host";
 import { InProcessSessionHost } from "./fixtures/in-process-session-host.js";
 
 // ===========================================================================
