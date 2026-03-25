@@ -90,11 +90,16 @@ jobs:
 
       - name: Build
         run: pnpm run build
+        env:
+          # Turbo OTEL for per-task build timing breakdown
+          TURBO_EXPERIMENTAL_OTEL_ENABLED: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT != '' && '1' || '' }}
+          TURBO_EXPERIMENTAL_OTEL_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}/v1/metrics
+          TURBO_EXPERIMENTAL_OTEL_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+          TURBO_EXPERIMENTAL_OTEL_PROTOCOL: http-protobuf
+          TURBO_EXPERIMENTAL_OTEL_METRICS_TASK_DETAILS: "1"
 
       - name: Run tests
         run: pnpm run test:api:coverage
-        env:
-          ALCHEMY_CI_STATE_STORE_CHECK: "false"
 
       - name: Run server tests
         run: pnpm run test:server
@@ -114,3 +119,26 @@ jobs:
           echo "knip: ${{ needs.knip.result }}"
           echo "test: ${{ needs.test.result }}"
           [ "${{ needs.lint.result }}" = "success" ] && [ "${{ needs.knip.result }}" = "success" ] && [ "${{ needs.test.result }}" = "success" ]
+
+  ci-telemetry:
+    name: Export CI Telemetry
+    if: always()
+    needs: [lint, knip, test]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      checks: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Export workflow traces
+        if: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT != '' }}
+        uses: foxglove/otel-cicd-action@e230ee082175332d849fc5a78e6a917fcfd1e048
+        with:
+          otlpEndpoint: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}/v1/traces
+          otlpHeaders: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+          otelServiceName: flamecast-ci
+          githubToken: ${{ github.token }}
