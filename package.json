@@ -45,6 +45,9 @@
   },
   "packageManager": "pnpm@10.26.2",
   "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
     "packageExtensions": {
       "eslint-plugin-no-type-assertion@*": {
         "peerDependenciesMeta": {

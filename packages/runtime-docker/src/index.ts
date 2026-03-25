@@ -1,55 +1,100 @@
-import { createHash } from "node:crypto";
-import { cp, mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+/* oxlint-disable no-type-assertion/no-type-assertion */
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import Docker from "dockerode";
 import type { Runtime } from "@flamecast/sdk/runtime";
 
-/** Resolve the @flamecast/session-host package directory (contains dist/ + package.json). */
-function resolveSessionHostDir(): string {
-  const resolved = import.meta.resolve("@flamecast/session-host");
-  // resolved points to the package's main entry (dist/index.js) — go up to the package root.
-  return dirname(dirname(fileURLToPath(resolved)));
-}
+// ---------------------------------------------------------------------------
+// Session-host binary resolution
+// ---------------------------------------------------------------------------
 
 /**
- * Copy session-host's dist/ and package.json into a build context subdirectory.
- * This avoids bind-mounting pnpm's symlinked node_modules into the container.
+ * Resolve the path to the session-host static binary on the host filesystem.
+ *
+ * Lookup order:
+ *   1. `SESSION_HOST_BINARY` env var (explicit override)
+ *   2. Pre-built SEA binary next to the session-host package
+ *      (`@flamecast/session-host/dist/session-host-linux-x64`)
+ *   3. The self-contained esbuild bundle
+ *      (`@flamecast/session-host/dist/session-host.bundle.cjs`)
+ *
+ * Returns `{ path, needsNode }` — `needsNode` is true when the resolved
+ * artifact is a JS bundle (not a compiled binary) and requires `node` inside
+ * the container to execute.
  */
-async function copySessionHostToBuildContext(tmpDir: string): Promise<void> {
-  const shDir = resolveSessionHostDir();
-  const dest = join(tmpDir, "session-host");
-  await mkdir(dest, { recursive: true });
-  await cp(join(shDir, "dist"), join(dest, "dist"), { recursive: true });
-  await cp(join(shDir, "package.json"), join(dest, "package.json"));
+function resolveSessionHostArtifact(): { path: string; needsNode: boolean } {
+  // 1. Explicit env var
+  if (process.env.SESSION_HOST_BINARY) {
+    const p = process.env.SESSION_HOST_BINARY;
+    if (!existsSync(p)) {
+      throw new Error(`SESSION_HOST_BINARY points to "${p}" which does not exist`);
+    }
+    // Heuristic: .cjs/.mjs/.js files need node; everything else is a binary
+    return { path: p, needsNode: /\.(c|m)?js$/u.test(p) };
+  }
+
+  // Resolve the @flamecast/session-host package root
+  const resolved = import.meta.resolve("@flamecast/session-host");
+  const pkgDir = dirname(dirname(fileURLToPath(resolved)));
+  const distDir = join(pkgDir, "dist");
+
+  // 2. Pre-built SEA binary (e.g. session-host-linux-x64)
+  const arch = process.arch; // x64, arm64
+  const binaryPath = join(distDir, `session-host-linux-${arch}`);
+  if (existsSync(binaryPath)) {
+    return { path: binaryPath, needsNode: false };
+  }
+
+  // 3. Self-contained esbuild bundle (fallback — requires node in the container)
+  const bundlePath = join(distDir, "session-host.bundle.cjs");
+  if (existsSync(bundlePath)) {
+    return { path: bundlePath, needsNode: true };
+  }
+
+  throw new Error(
+    "No session-host artifact found. Run `pnpm --filter @flamecast/session-host build:binary` " +
+      "or `pnpm --filter @flamecast/session-host build:bundle` first.",
+  );
 }
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
 const CONTAINER_PORT = "8080";
+const CONTAINER_BIN_PATH = "/usr/local/bin/session-host";
+const CONTAINER_BUNDLE_PATH = "/usr/local/lib/session-host.bundle.cjs";
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 }
 
+// ---------------------------------------------------------------------------
+// DockerRuntime
+// ---------------------------------------------------------------------------
+
 /**
  * DockerRuntime — spawns a new container per session.
  *
- * The container is built from `baseImage` + the optional `setup` script
- * provided in the start request. Session-host is baked into the image
- * (copied from the @flamecast/session-host package) and used as the entrypoint.
+ * Instead of generating a Dockerfile and building a custom image, this runtime
+ * bind-mounts the session-host static binary (or JS bundle) into any
+ * user-provided base image. This avoids:
+ *
+ *   - Dockerfile generation overhead
+ *   - CMD/entrypoint conflicts with user images
+ *   - Requiring Node.js in the base image (when using the SEA binary)
+ *
+ * The user's optional `setup` script runs inside the container before the
+ * agent is spawned, allowing full control over the environment.
  */
 export class DockerRuntime implements Runtime {
   private readonly baseImage: string;
   private readonly docker: Docker;
   private readonly containers = new Map<string, { containerId: string; port: number }>();
-  /** Cache of images already built in this runtime's lifetime (keyed by content hash). */
-  private readonly builtImages = new Map<string, string>();
 
-  constructor(opts?: {
-    baseImage?: string;
-    docker?: Docker;
-  }) {
+  constructor(opts?: { baseImage?: string; docker?: Docker }) {
     this.baseImage = opts?.baseImage ?? "node:22-slim";
     this.docker = opts?.docker ?? new Docker();
   }
@@ -90,19 +135,29 @@ export class DockerRuntime implements Runtime {
 
     try {
       const parsed = JSON.parse(await request.text()) as Record<string, unknown>;
-
       const setup = parsed.setup as string | undefined;
-      const image = await this.resolveImage(setup);
-      console.log(`[DockerRuntime] Creating container from image: ${image}`);
+      const artifact = resolveSessionHostArtifact();
+
+      console.log(
+        `[DockerRuntime] Starting container (image=${this.baseImage}, ` +
+          `binary=${artifact.path}, needsNode=${artifact.needsNode})`,
+      );
+
+      // Bind-mount the session-host artifact into the container as read-only.
+      const containerArtifactPath = artifact.needsNode ? CONTAINER_BUNDLE_PATH : CONTAINER_BIN_PATH;
+      const cmd = artifact.needsNode ? ["node", CONTAINER_BUNDLE_PATH] : [CONTAINER_BIN_PATH];
 
       const container = await this.docker.createContainer({
-        Image: image,
+        Image: this.baseImage,
+        Cmd: cmd,
         ExposedPorts: { [`${CONTAINER_PORT}/tcp`]: {} },
+        Env: [`SESSION_HOST_PORT=${CONTAINER_PORT}`, "RUNTIME_SETUP_ENABLED=1"],
         HostConfig: {
+          Binds: [`${artifact.path}:${containerArtifactPath}:ro`],
           PortBindings: { [`${CONTAINER_PORT}/tcp`]: [{ HostPort: "0" }] },
           AutoRemove: true,
         },
-        Env: ["RUNTIME_SETUP_ENABLED=1"],
+        WorkingDir: "/workspace",
       });
 
       await container.start();
@@ -119,8 +174,11 @@ export class DockerRuntime implements Runtime {
       this.containers.set(sessionId, { containerId: container.id, port });
       await this.waitForReady(port);
 
-      // Override workspace to the container's agent workspace — host path doesn't exist inside.
+      // Override workspace to the container's agent workspace.
       parsed.workspace = "/workspace";
+      if (setup) {
+        parsed.setup = setup;
+      }
 
       const resp = await fetch(`http://localhost:${port}/start`, {
         method: "POST",
@@ -148,7 +206,6 @@ export class DockerRuntime implements Runtime {
         headers: JSON_HEADERS,
       });
     } catch (err) {
-      // Clean up the container if it was started but /start failed
       const leaked = this.containers.get(sessionId);
       this.containers.delete(sessionId);
       if (leaked) {
@@ -207,93 +264,8 @@ export class DockerRuntime implements Runtime {
   }
 
   // ---------------------------------------------------------------------------
-  // Image resolution
+  // Readiness check
   // ---------------------------------------------------------------------------
-
-  /**
-   * Build (or reuse) a Docker image from `baseImage` + optional `setup` script.
-   * Images are cached by a content hash of the generated Dockerfile.
-   */
-  private async resolveImage(setup?: string): Promise<string> {
-    const dockerfileLines = [
-      `FROM ${this.baseImage}`,
-      `RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates git && rm -rf /var/lib/apt/lists/*`,
-      // Bake session-host into the image
-      `COPY session-host/ /session-host/`,
-      `RUN cd /session-host && npm install --omit=dev`,
-      // Agent workspace
-      `WORKDIR /workspace`,
-    ];
-
-    if (setup) {
-      dockerfileLines.push(`COPY setup.sh /tmp/setup.sh`);
-      dockerfileLines.push(`RUN sh /tmp/setup.sh && rm /tmp/setup.sh`);
-    }
-
-    // Entrypoint + port
-    dockerfileLines.push(`ENV SESSION_HOST_PORT=${CONTAINER_PORT}`);
-    dockerfileLines.push(`EXPOSE ${CONTAINER_PORT}`);
-    dockerfileLines.push(`CMD ["node", "/session-host/dist/index.js"]`);
-
-    const dockerfileContent = dockerfileLines.join("\n") + "\n";
-    // Hash includes setup content so different scripts produce different images
-    const hashInput = dockerfileContent + (setup ?? "");
-    const hash = createHash("sha256").update(hashInput).digest("hex").slice(0, 12);
-    const tag = `flamecast-session-${hash}:latest`;
-
-    // Return cached image if it still exists
-    const cached = this.builtImages.get(hash);
-    if (cached) {
-      try {
-        await this.docker.getImage(cached).inspect();
-        return cached;
-      } catch {
-        this.builtImages.delete(hash);
-      }
-    }
-
-    console.log(`[DockerRuntime] Building image ${tag}`);
-
-    const tmpDir = await mkdtemp(join(tmpdir(), "flamecast-build-"));
-    try {
-      await writeFile(join(tmpDir, "Dockerfile"), dockerfileContent);
-      await copySessionHostToBuildContext(tmpDir);
-      if (setup) {
-        await writeFile(join(tmpDir, "setup.sh"), setup);
-      }
-
-      const buildStream = await this.docker.buildImage(
-        { context: tmpDir, src: ["."] },
-        { t: tag, dockerfile: "Dockerfile" },
-      );
-
-      await new Promise<void>((resolve, reject) => {
-        this.docker.modem.followProgress(
-          buildStream,
-          (err: Error | null) => (err ? reject(err) : resolve()),
-          (event: { stream?: string; error?: string }) => {
-            if (event.error) {
-              process.stderr.write(`[DockerRuntime] ${event.error}\n`);
-            } else if (event.stream) {
-              process.stdout.write(event.stream);
-            }
-          },
-        );
-      });
-    } finally {
-      await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-    }
-
-    // Verify the image was actually created
-    try {
-      await this.docker.getImage(tag).inspect();
-    } catch {
-      throw new Error(`Docker build completed but image "${tag}" was not created`);
-    }
-
-    this.builtImages.set(hash, tag);
-    return tag;
-  }
 
   private async waitForReady(port: number, timeoutMs = 30_000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
