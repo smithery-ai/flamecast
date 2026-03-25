@@ -1,7 +1,7 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
-  "experimentalObservability": { "otel": true },
+  "futureFlags": { "experimentalObservability": true },
   "tasks": {
     "dev": {
       "cache": false,
