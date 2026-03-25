@@ -31,11 +31,9 @@ describe("package contract", () => {
       types: "./dist/flamecast/api.d.ts",
       import: "./dist/flamecast/api.js",
     });
-    expect(packageJson.exports["./shared/session"]).toEqual({
-      types: "./dist/shared/session.d.ts",
-      import: "./dist/shared/session.js",
-    });
-    // Runtime and session-service exports moved to @flamecast/protocol
+    // Internal sub-paths removed — types live in @flamecast/protocol,
+    // user-facing types re-exported from the main entrypoint
+    expect(packageJson.exports["./shared/session"]).toBeUndefined();
     expect(packageJson.exports["./runtime"]).toBeUndefined();
     expect(packageJson.exports["./session-service"]).toBeUndefined();
     expect(packageJson.exports["./runtimes/node"]).toBeUndefined();

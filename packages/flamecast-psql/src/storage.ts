@@ -1,6 +1,5 @@
 import { and, asc, desc, eq, inArray, not } from "drizzle-orm";
-import type { AgentTemplate } from "@flamecast/sdk/shared/session";
-import type { FlamecastStorage, SessionMeta } from "@flamecast/sdk";
+import type { AgentTemplate, FlamecastStorage, SessionMeta } from "@flamecast/sdk";
 import { agentTemplates, sessions } from "./schema.js";
 import type { PsqlAppDb } from "./types.js";
 

@@ -18,7 +18,21 @@ import type {
   SessionEndReason,
 } from "@flamecast/protocol/runtime";
 
-export type { AgentSpawn, AgentTemplate, PendingPermission, Session } from "../shared/session.js";
+// Public API types — all sourced from @flamecast/protocol
+export type {
+  AgentSpawn,
+  AgentTemplate,
+  AgentTemplateRuntime,
+  Session,
+  SessionLog,
+  PendingPermission,
+  FileSystemSnapshot,
+  PermissionResponseBody,
+  CreateSessionBody,
+  RegisterAgentTemplateBody,
+} from "@flamecast/protocol/session";
+export type { FileSystemEntry } from "@flamecast/protocol/session-host";
+
 export type { SessionMeta, FlamecastStorage } from "./storage.js";
 export { NodeRuntime } from "./runtimes/node.js";
 

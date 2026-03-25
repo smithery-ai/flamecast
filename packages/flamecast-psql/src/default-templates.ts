@@ -1,6 +1,6 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentTemplate } from "@flamecast/sdk/shared/session";
+import type { AgentTemplate } from "@flamecast/sdk";
 
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const exampleAgentPath = resolve(thisDir, "../../flamecast/src/flamecast/agent.ts");
