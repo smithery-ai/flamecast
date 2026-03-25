@@ -9,7 +9,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { startFileWatcher, type FileChange } from "./file-watcher.js";
-import { readBody, jsonResponse } from "./http-utils.js";
+import { readBody, jsonResponse, handleCors } from "./http-utils.js";
 import { walkDirectory } from "./walk-directory.js";
 import type {
   SessionHostStartRequest,
@@ -379,6 +379,8 @@ function terminateSession(): void {
 
 const httpServer = createServer(async (req, res) => {
   try {
+    if (handleCors(req, res)) return;
+
     if (req.method === "GET" && req.url === "/health") {
       const health: SessionHostHealthResponse = agent
         ? { status: "running", sessionId }
