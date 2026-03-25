@@ -1,24 +1,23 @@
-import { pathToFileURL } from "node:url";
-import { Flamecast } from "@flamecast/sdk";
+import { serve } from "@hono/node-server";
+import { Flamecast, NodeRuntime } from "@flamecast/sdk";
 import { createPsqlStorage } from "@flamecast/storage-psql";
 
-export async function main() {
-  // Pass { url: process.env.POSTGRES_URL } to use an external Postgres instance.
-  // Defaults to embedded PGLite on disk (won't work on serverless platforms like Vercel/CF).
-  const flamecast = new Flamecast({
-    storage: await createPsqlStorage(),
-  });
-  await flamecast.listen(3001);
-  return flamecast;
-}
+const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
 
-function isMainModule(): boolean {
-  if (!process.argv[1]) {
-    return false;
-  }
-  return import.meta.url === pathToFileURL(process.argv[1]).href;
-}
+const flamecast = new Flamecast({
+  storage: await createPsqlStorage(url ? { url } : undefined),
+  runtimes: {
+    default: new NodeRuntime(),
+  },
+});
 
-if (isMainModule()) {
-  void main();
-}
+serve({ fetch: flamecast.app.fetch, port: 3001 }, (info) => {
+  console.log(`Flamecast running on http://localhost:${info.port}`);
+});
+
+process.on("SIGINT", () => {
+  flamecast.shutdown().then(() => process.exit(0));
+});
+process.on("SIGTERM", () => {
+  flamecast.shutdown().then(() => process.exit(0));
+});

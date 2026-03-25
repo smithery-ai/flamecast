@@ -1,25 +1,27 @@
 #!/usr/bin/env node
 
-import { Flamecast } from "./index.js";
+import { serve } from "@hono/node-server";
+import { Flamecast, NodeRuntime } from "./index.js";
 
 function parsePort(value: string | undefined): number {
-  if (!value) {
-    return 3001;
-  }
-
+  if (!value) return 3001;
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new Error(`Invalid port "${value}"`);
   }
-
   return parsed;
 }
 
 const port = parsePort(process.env.FLAMECAST_PORT ?? process.env.PORT);
-const flamecast = new Flamecast();
-const server = await flamecast.listen(port);
 
-console.log(`API: http://localhost:${port}/api`);
+const flamecast = new Flamecast({
+  runtimes: { default: new NodeRuntime() },
+});
+
+const server = serve({ fetch: flamecast.app.fetch, port }, () => {
+  console.log(`Flamecast running on http://localhost:${port}`);
+  console.log(`API: http://localhost:${port}/api`);
+});
 
 async function shutdown() {
   console.log("\nShutting down...");

@@ -12,7 +12,7 @@ const sampleAgentTemplate: AgentTemplate = {
   id: "codex",
   name: "Codex ACP",
   spawn: { command: "pnpm", args: ["dlx", "@zed-industries/codex-acp"] },
-  runtime: { provider: "local" },
+  runtime: { provider: "default" },
 };
 
 const sampleSession: Session = {
@@ -44,8 +44,9 @@ function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastAp
       id: "registered-template",
       name: body.name,
       spawn: body.spawn,
-      runtime: body.runtime ?? { provider: "local" },
+      runtime: body.runtime ?? { provider: "default" },
     })),
+    runtimeNames: ["default"],
     ...overrides,
   };
 }
@@ -126,7 +127,7 @@ describe("API server surface", () => {
       id: "registered-template",
       name: "Custom agent",
       spawn: { command: "node", args: ["agent.js"] },
-      runtime: { provider: "local" },
+      runtime: { provider: "default" },
     });
   });
 
@@ -183,7 +184,7 @@ describe("API server surface", () => {
     expect(response.status).toBe(400);
   });
 
-  it("returns agent creation errors from Error values", async () => {
+  it("returns 500 for server-side session creation errors", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const flamecast = createFlamecastStub({
       createSession: vi.fn(async () => {
@@ -200,12 +201,12 @@ describe("API server surface", () => {
       } satisfies CreateSessionBody),
     });
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(500);
     expect(await readJson(response)).toEqual({ error: "failed to start session" });
     expect(consoleError).toHaveBeenCalledOnce();
   });
 
-  it("returns agent creation errors from non-Error values", async () => {
+  it("returns 500 for non-Error thrown values", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const flamecast = createFlamecastStub({
       createSession: vi.fn(async () => {
@@ -222,8 +223,8 @@ describe("API server surface", () => {
       } satisfies CreateSessionBody),
     });
 
-    expect(response.status).toBe(400);
-    expect(await readJson(response)).toEqual({ error: "[object Object]" });
+    expect(response.status).toBe(500);
+    expect(await readJson(response)).toEqual({ error: "Unknown error" });
   });
 
   it("fetches an agent snapshot", async () => {
@@ -312,7 +313,7 @@ describe("API server surface", () => {
   it("returns 404 when terminating an unknown agent", async () => {
     const flamecast = createFlamecastStub({
       terminateSession: vi.fn(async () => {
-        throw new Error("missing");
+        throw new Error('Session "missing" not found');
       }),
     });
     const app = createServerApp(flamecast);
@@ -322,7 +323,7 @@ describe("API server surface", () => {
     });
 
     expect(response.status).toBe(404);
-    expect(await readJson(response)).toEqual({ error: "Agent not found" });
+    expect(await readJson(response)).toEqual({ error: 'Session "missing" not found' });
   });
 
   it("does not expose the old session collection route", async () => {

@@ -28,7 +28,8 @@ import {
   SendIcon,
 } from "lucide-react";
 /* oxlint-disable no-type-assertion/no-type-assertion */
-import type { FileSystemEntry, PendingPermission, SessionLog } from "../../shared/session";
+import type { FileSystemEntry, SessionLog } from "../../shared/session";
+import type { PermissionRequestEvent } from "../../shared/session-host-protocol";
 import { useFlamecastSession } from "@/client/hooks/use-flamecast-session";
 
 export const Route = createFileRoute("/sessions/$id")({
@@ -85,23 +86,9 @@ function SessionDetailPage() {
       ) {
         return null;
       }
-      // Permission request from bridge event
-      if (event.type === "permission_request" && event.data.pendingPermission) {
-        return event.data.pendingPermission as PendingPermission;
-      }
-      // Permission request from RPC passthrough
-      if (
-        event.type === "rpc" &&
-        event.data.method === "session/request_permission" &&
-        event.data.direction === "agent_to_client" &&
-        event.data.phase === "request"
-      ) {
-        // The bridge also emits a permission_request event with structured data,
-        // so this is a fallback — extract what we can from the RPC payload
-        const payload = event.data.payload as Record<string, unknown> | undefined;
-        if (payload) {
-          return (payload as { pendingPermission?: PendingPermission }).pendingPermission ?? null;
-        }
+      // Permission request from session host (flat shape with requestId)
+      if (event.type === "permission_request" && event.data.requestId) {
+        return event.data as PermissionRequestEvent;
       }
     }
     return session?.pendingPermission ?? null;
