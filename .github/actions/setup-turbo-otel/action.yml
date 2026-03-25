@@ -1,0 +1,27 @@
+name: Set up Turbo OTEL
+description: Export turbo build metrics to OTEL endpoint when secrets are configured
+
+inputs:
+  endpoint:
+    description: OTEL exporter OTLP endpoint
+    required: false
+  headers:
+    description: OTEL exporter OTLP headers
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - name: Configure Turbo OTEL env vars
+      shell: bash
+      run: |
+        ENDPOINT="${{ inputs.endpoint }}"
+        HEADERS="${{ inputs.headers }}"
+        if [ -n "$ENDPOINT" ]; then
+          echo "::add-mask::$HEADERS"
+          echo "TURBO_EXPERIMENTAL_OTEL_ENABLED=1" >> $GITHUB_ENV
+          echo "TURBO_EXPERIMENTAL_OTEL_ENDPOINT=${ENDPOINT}/v1/metrics" >> $GITHUB_ENV
+          echo "TURBO_EXPERIMENTAL_OTEL_HEADERS=$HEADERS" >> $GITHUB_ENV
+          echo "TURBO_EXPERIMENTAL_OTEL_PROTOCOL=http-protobuf" >> $GITHUB_ENV
+          echo "TURBO_EXPERIMENTAL_OTEL_METRICS_TASK_DETAILS=1" >> $GITHUB_ENV
+        fi

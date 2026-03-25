@@ -88,15 +88,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - uses: ./.github/actions/setup-turbo-otel
+        with:
+          endpoint: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          headers: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+
       - name: Build
         run: pnpm run build
-        env:
-          # Turbo OTEL for per-task build timing breakdown
-          TURBO_EXPERIMENTAL_OTEL_ENABLED: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT != '' && '1' || '' }}
-          TURBO_EXPERIMENTAL_OTEL_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}/v1/metrics
-          TURBO_EXPERIMENTAL_OTEL_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
-          TURBO_EXPERIMENTAL_OTEL_PROTOCOL: http-protobuf
-          TURBO_EXPERIMENTAL_OTEL_METRICS_TASK_DETAILS: "1"
 
       - name: Run tests
         run: pnpm run test:api:coverage
