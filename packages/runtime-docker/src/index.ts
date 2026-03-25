@@ -117,9 +117,7 @@ export class DockerRuntime implements Runtime {
       }
 
       if (!resp.ok) {
-        throw new Error(
-          `SessionHost /start failed (${resp.status}): ${result.error ?? text}`,
-        );
+        throw new Error(`SessionHost /start failed (${resp.status}): ${result.error ?? text}`);
       }
 
       result.hostUrl = `http://localhost:${port}`;
