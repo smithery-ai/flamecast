@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.16.1",
+    "@flamecast/protocol": "workspace:*",
     "ws": "^8.18.0"
   },
   "devDependencies": {

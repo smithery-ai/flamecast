@@ -43,12 +43,7 @@ export const WsFsSnapshotResponseSchema = z.object({
   maxEntries: z.number(),
 });
 
-export type WsServerMessage =
-  | z.infer<typeof WsEventMessageSchema>
-  | z.infer<typeof WsConnectedMessageSchema>
-  | z.infer<typeof WsErrorMessageSchema>
-  | z.infer<typeof WsFilePreviewResponseSchema>
-  | z.infer<typeof WsFsSnapshotResponseSchema>;
+export type { WsServerMessage } from "@flamecast/protocol/ws";
 
 // ---- Client → Server messages ----
 
@@ -99,4 +94,4 @@ export const WsControlMessageSchema = z.union([
   WsFsSnapshotActionSchema,
 ]);
 
-export type WsControlMessage = z.infer<typeof WsControlMessageSchema>;
+export type { WsControlMessage } from "@flamecast/protocol/ws";

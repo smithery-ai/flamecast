@@ -11,25 +11,12 @@ import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { startFileWatcher, type FileChange } from "./file-watcher.js";
 import { readBody, jsonResponse } from "./http-utils.js";
-// Matches SessionHostStartRequest / SessionHostStartResponse from @flamecast shared types
-interface BridgeStartRequest {
-  command: string;
-  args: string[];
-  workspace: string;
-  setup?: string;
-}
-
-interface BridgeStartResponse {
-  acpSessionId: string;
-  hostUrl: string;
-  websocketUrl: string;
-}
-
-interface BridgeHealthResponse {
-  status: "idle" | "running";
-  sessionId?: string;
-}
 import { walkDirectory } from "./walk-directory.js";
+import type {
+  SessionHostStartRequest,
+  SessionHostStartResponse,
+  SessionHostHealthResponse,
+} from "@flamecast/protocol/session-host";
 
 // ---- Config from environment ----
 
@@ -310,9 +297,9 @@ async function handleControl(ws: WebSocket, msg: ControlMessage): Promise<void> 
 // ---- Session lifecycle ----
 
 async function startSession(
-  req: BridgeStartRequest,
+  req: SessionHostStartRequest,
   serverPort: number,
-): Promise<BridgeStartResponse> {
+): Promise<SessionHostStartResponse> {
   if (agent) {
     throw new Error("Session already running");
   }
@@ -330,10 +317,10 @@ async function startSession(
 }
 
 async function doStartSession(
-  req: BridgeStartRequest,
+  req: SessionHostStartRequest,
   workspace: string,
   serverPort: number,
-): Promise<BridgeStartResponse> {
+): Promise<SessionHostStartResponse> {
   // SMI-1677: Run optional setup command before spawning agent.
   // RUNTIME_SETUP_ENABLED is set by the Container class (deployed mode only).
   if (req.setup && process.env.RUNTIME_SETUP_ENABLED) {
@@ -466,7 +453,7 @@ function terminateSession(): void {
 const httpServer = createServer(async (req, res) => {
   try {
     if (req.method === "GET" && req.url === "/health") {
-      const health: BridgeHealthResponse = agent
+      const health: SessionHostHealthResponse = agent
         ? { status: "running", sessionId }
         : { status: "idle" };
       jsonResponse(res, 200, health);
@@ -474,7 +461,7 @@ const httpServer = createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && req.url === "/start") {
-      const body = JSON.parse(await readBody(req)) as BridgeStartRequest;
+      const body = JSON.parse(await readBody(req)) as SessionHostStartRequest;
       const addr = httpServer.address();
       const port = typeof addr === "object" && addr ? addr.port : SESSION_HOST_PORT;
       const result = await startSession(body, port);

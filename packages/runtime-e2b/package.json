@@ -15,6 +15,6 @@
   },
   "dependencies": {
     "@e2b/code-interpreter": "^2.4.0",
-    "@flamecast/sdk": "workspace:*"
+    "@flamecast/protocol": "workspace:*"
   }
 }

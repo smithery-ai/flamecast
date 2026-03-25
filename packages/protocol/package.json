@@ -1,0 +1,30 @@
+{
+  "name": "@flamecast/protocol",
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
+    },
+    "./session-host": {
+      "types": "./dist/session-host.d.ts",
+      "import": "./dist/session-host.js"
+    },
+    "./ws": {
+      "types": "./dist/ws.d.ts",
+      "import": "./dist/ws.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:package": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

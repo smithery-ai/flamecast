@@ -14,7 +14,7 @@
     "build:package": "tsc"
   },
   "dependencies": {
-    "@flamecast/sdk": "workspace:*",
+    "@flamecast/protocol": "workspace:*",
     "dockerode": "^4.0.6"
   },
   "devDependencies": {
