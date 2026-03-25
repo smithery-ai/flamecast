@@ -130,15 +130,18 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
+    env:
+      OTEL_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+      OTEL_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Export workflow traces
-        if: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT != '' }}
+        if: env.OTEL_ENDPOINT != ''
         uses: foxglove/otel-cicd-action@e230ee082175332d849fc5a78e6a917fcfd1e048
         with:
-          otlpEndpoint: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}/v1/traces
-          otlpHeaders: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+          otlpEndpoint: ${{ env.OTEL_ENDPOINT }}/v1/traces
+          otlpHeaders: ${{ env.OTEL_HEADERS }}
           otelServiceName: flamecast-ci
           githubToken: ${{ github.token }}
