@@ -44,13 +44,9 @@ export type {
   WsEventMessage,
   WsConnectedMessage,
   WsErrorMessage,
-  WsFilePreviewResponse,
-  WsFsSnapshotResponse,
   WsPromptAction,
   WsPermissionRespondAction,
   WsCancelAction,
   WsTerminateAction,
   WsPingAction,
-  WsFilePreviewAction,
-  WsFsSnapshotAction,
 } from "./ws.js";

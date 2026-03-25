@@ -164,29 +164,6 @@ function createAcpClient(): acp.Client {
 
 // ---- WebSocket control message handler ----
 
-/** Send a filesystem snapshot to a single WebSocket client. */
-async function sendFsSnapshot(ws: WebSocket, workspace: string): Promise<void> {
-  const entries = await walkDirectory(workspace);
-  const data = JSON.stringify({
-    type: "event",
-    timestamp: new Date().toISOString(),
-    event: {
-      type: "filesystem.snapshot",
-      data: { snapshot: { root: workspace, entries } },
-      timestamp: new Date().toISOString(),
-    },
-  });
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(data);
-  }
-}
-
-/** Broadcast a filesystem snapshot to all connected clients. */
-async function broadcastFsSnapshot(workspace: string): Promise<void> {
-  const entries = await walkDirectory(workspace);
-  emitEvent("filesystem.snapshot", { snapshot: { root: workspace, entries } });
-}
-
 async function handleControl(ws: WebSocket, msg: WsControlMessage): Promise<void> {
   try {
     switch (msg.action) {
@@ -235,38 +212,6 @@ async function handleControl(ws: WebSocket, msg: WsControlMessage): Promise<void
 
       case "ping":
         break;
-
-      case "fs.snapshot": {
-        if (!sessionWorkspace) throw new Error("No active session");
-        await sendFsSnapshot(ws, sessionWorkspace);
-        break;
-      }
-
-      case "file.preview": {
-        if (!sessionWorkspace) throw new Error("No active session");
-        try {
-          const raw = await readFile(resolve(sessionWorkspace, msg.path), "utf8");
-          const maxChars = 100_000;
-          const truncated = raw.length > maxChars;
-          const content = truncated ? raw.slice(0, maxChars) : raw;
-          const response: WsServerMessage = {
-            type: "file.preview",
-            path: msg.path,
-            content,
-            truncated,
-            maxChars,
-          };
-          ws.send(JSON.stringify(response));
-        } catch {
-          ws.send(
-            JSON.stringify({
-              type: "error",
-              message: `Cannot read: ${msg.path}`,
-            } satisfies WsServerMessage),
-          );
-        }
-        break;
-      }
     }
   } catch (error) {
     broadcast({
@@ -398,8 +343,6 @@ async function doStartSession(
   // Start file watcher
   fileWatcher = startFileWatcher(workspace, ["node_modules", ".git"], (changes: FileChange[]) => {
     emitEvent("filesystem.changed", { changes });
-    // Also emit a full filesystem snapshot after each change batch
-    void broadcastFsSnapshot(workspace);
   });
 
   // Handle agent exit (post-startup)
@@ -464,6 +407,42 @@ const httpServer = createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "GET" && req.url?.startsWith("/files")) {
+      if (!sessionWorkspace) {
+        jsonResponse(res, 400, { error: "No active session" });
+        return;
+      }
+      const fileUrl = new URL(req.url, "http://localhost");
+      const filePath = fileUrl.searchParams.get("path");
+      if (!filePath) {
+        jsonResponse(res, 400, { error: "Missing ?path= parameter" });
+        return;
+      }
+      try {
+        const raw = await readFile(resolve(sessionWorkspace, filePath), "utf8");
+        const maxChars = 100_000;
+        const truncated = raw.length > maxChars;
+        const content = truncated ? raw.slice(0, maxChars) : raw;
+        jsonResponse(res, 200, { path: filePath, content, truncated, maxChars });
+      } catch {
+        jsonResponse(res, 404, { error: `Cannot read: ${filePath}` });
+      }
+      return;
+    }
+
+    if (req.method === "GET" && req.url?.startsWith("/fs/snapshot")) {
+      if (!sessionWorkspace) {
+        jsonResponse(res, 400, { error: "No active session" });
+        return;
+      }
+      const entries = await walkDirectory(sessionWorkspace);
+      const maxEntries = 10_000;
+      const truncated = entries.length > maxEntries;
+      const limited = truncated ? entries.slice(0, maxEntries) : entries;
+      jsonResponse(res, 200, { root: sessionWorkspace, entries: limited, truncated, maxEntries });
+      return;
+    }
+
     res.writeHead(404);
     res.end("Not Found");
   } catch (error) {
@@ -482,9 +461,6 @@ wss.on("connection", (ws) => {
   if (sessionId) {
     ws.send(JSON.stringify({ type: "connected", sessionId } satisfies WsServerMessage));
     // Send initial filesystem snapshot to the newly connected client
-    if (sessionWorkspace) {
-      void sendFsSnapshot(ws, sessionWorkspace);
-    }
   }
 
   ws.on("message", (data) => {

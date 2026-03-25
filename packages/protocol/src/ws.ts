@@ -1,7 +1,5 @@
-import type { FileSystemEntry } from "./session-host.js";
-
 // ---------------------------------------------------------------------------
-// Server → Client messages
+// Server → Client messages (WebSocket only — real-time events)
 // ---------------------------------------------------------------------------
 
 export interface WsEventMessage {
@@ -20,31 +18,10 @@ export interface WsErrorMessage {
   message: string;
 }
 
-export interface WsFilePreviewResponse {
-  type: "file.preview";
-  path: string;
-  content: string;
-  truncated: boolean;
-  maxChars: number;
-}
-
-export interface WsFsSnapshotResponse {
-  type: "fs.snapshot";
-  root: string;
-  entries: FileSystemEntry[];
-  truncated: boolean;
-  maxEntries: number;
-}
-
-export type WsServerMessage =
-  | WsEventMessage
-  | WsConnectedMessage
-  | WsErrorMessage
-  | WsFilePreviewResponse
-  | WsFsSnapshotResponse;
+export type WsServerMessage = WsEventMessage | WsConnectedMessage | WsErrorMessage;
 
 // ---------------------------------------------------------------------------
-// Client → Server messages
+// Client → Server messages (WebSocket only — commands)
 // ---------------------------------------------------------------------------
 
 export interface WsPromptAction {
@@ -71,21 +48,9 @@ export interface WsPingAction {
   action: "ping";
 }
 
-export interface WsFilePreviewAction {
-  action: "file.preview";
-  path: string;
-}
-
-export interface WsFsSnapshotAction {
-  action: "fs.snapshot";
-  showAllFiles?: boolean;
-}
-
 export type WsControlMessage =
   | WsPromptAction
   | WsPermissionRespondAction
   | WsCancelAction
   | WsTerminateAction
-  | WsPingAction
-  | WsFilePreviewAction
-  | WsFsSnapshotAction;
+  | WsPingAction;
