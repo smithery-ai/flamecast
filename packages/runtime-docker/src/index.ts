@@ -3,6 +3,12 @@ import { dirname, basename } from "node:path";
 import { readFile } from "node:fs/promises";
 import Docker from "dockerode";
 import type { Runtime } from "@flamecast/sdk/runtime";
+import type { SessionHostStartRequest } from "@flamecast/sdk/shared/session-host-protocol";
+
+type DockerStartBody = SessionHostStartRequest & {
+  image?: string;
+  dockerfile?: string;
+};
 
 const CONTAINER_PORT = "8080";
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -67,9 +73,7 @@ export class DockerRuntime implements Runtime {
     }
 
     try {
-      const body = await request.text();
-      // oxlint-disable-next-line no-type-assertion/no-type-assertion
-      const parsed = JSON.parse(body) as Record<string, unknown>;
+      const parsed: DockerStartBody = JSON.parse(await request.text());
 
       const image = await this.resolveImage(parsed);
       console.log(`[DockerRuntime] Creating container from image: ${image}`);
@@ -110,8 +114,7 @@ export class DockerRuntime implements Runtime {
       const text = await resp.text();
       let result: Record<string, unknown>;
       try {
-        // oxlint-disable-next-line no-type-assertion/no-type-assertion
-        result = JSON.parse(text) as Record<string, unknown>;
+        result = JSON.parse(text);
       } catch {
         throw new Error(`SessionHost /start failed (${resp.status}): ${text}`);
       }
@@ -198,11 +201,8 @@ export class DockerRuntime implements Runtime {
    *   2. Build from `dockerfile` path in the request body
    *   3. Fall back to the constructor-provided image
    */
-  private async resolveImage(body: Record<string, unknown>): Promise<string> {
-    // oxlint-disable-next-line no-type-assertion/no-type-assertion
-    const image = body.image as string | undefined;
-    // oxlint-disable-next-line no-type-assertion/no-type-assertion
-    const dockerfile = body.dockerfile as string | undefined;
+  private async resolveImage(body: DockerStartBody): Promise<string> {
+    const { image, dockerfile } = body;
 
     if (image) {
       try {
