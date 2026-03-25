@@ -1,7 +1,12 @@
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
 import { DockerRuntime } from "@flamecast/runtime-docker";
 import { createPsqlStorage } from "@flamecast/storage-psql";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const sessionHostDockerfile = resolve(__dirname, "../../../packages/session-host/Dockerfile");
 
 const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
 
@@ -9,7 +14,10 @@ const flamecast = new Flamecast({
   storage: await createPsqlStorage(url ? { url } : undefined),
   runtimes: {
     default: new NodeRuntime(),
-    docker: new DockerRuntime(),
+    docker: new DockerRuntime({
+      image: "flamecast-session-host",
+      dockerfile: sessionHostDockerfile,
+    }),
   },
 });
 

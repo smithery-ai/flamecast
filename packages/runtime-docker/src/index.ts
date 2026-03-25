@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { dirname, basename } from "node:path";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import Docker from "dockerode";
 import type { Runtime } from "@flamecast/sdk/runtime";
 
@@ -22,13 +22,15 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
  */
 export class DockerRuntime implements Runtime {
   private readonly fallbackImage: string;
+  private readonly fallbackDockerfile: string | undefined;
   private readonly docker: Docker;
   private readonly containers = new Map<string, { containerId: string; port: number }>();
   /** Cache of images already built from dockerfiles in this runtime's lifetime. */
   private readonly builtImages = new Map<string, string>();
 
-  constructor(opts?: { image?: string; docker?: Docker }) {
+  constructor(opts?: { image?: string; dockerfile?: string; docker?: Docker }) {
     this.fallbackImage = opts?.image ?? "flamecast-session-host";
+    this.fallbackDockerfile = opts?.dockerfile;
     this.docker = opts?.docker ?? new Docker();
   }
 
@@ -190,7 +192,7 @@ export class DockerRuntime implements Runtime {
     // oxlint-disable-next-line no-type-assertion/no-type-assertion
     const image = body.image as string | undefined;
     // oxlint-disable-next-line no-type-assertion/no-type-assertion
-    const dockerfile = body.dockerfile as string | undefined;
+    const dockerfile = (body.dockerfile as string | undefined) ?? this.fallbackDockerfile;
 
     if (image) {
       try {
@@ -207,6 +209,18 @@ export class DockerRuntime implements Runtime {
     if (dockerfile) {
       const tag = await this.dockerfileTag(dockerfile);
       return this.buildImage(dockerfile, tag);
+    }
+
+    // Verify the fallback image exists before returning it
+    try {
+      await this.docker.getImage(this.fallbackImage).inspect();
+    } catch {
+      throw new Error(
+        `Docker image "${this.fallbackImage}" not found locally. Either:\n` +
+          `  - Build it: docker build -t ${this.fallbackImage} .\n` +
+          `  - Pass a dockerfile: new DockerRuntime({ dockerfile: "./Dockerfile" })\n` +
+          `  - Set image/dockerfile on the agent template's runtime config`,
+      );
     }
 
     return this.fallbackImage;
@@ -229,30 +243,54 @@ export class DockerRuntime implements Runtime {
    */
   private async buildImage(dockerfilePath: string, tag: string): Promise<string> {
     const cached = this.builtImages.get(dockerfilePath);
-    if (cached) return cached;
+    if (cached) {
+      try {
+        await this.docker.getImage(cached).inspect();
+        return cached;
+      } catch {
+        // Cached tag no longer exists — rebuild
+        this.builtImages.delete(dockerfilePath);
+      }
+    }
+
+    // Ensure the tag includes a version so Docker doesn't try to pull from a registry
+    const fullTag = tag.includes(":") ? tag : `${tag}:latest`;
 
     const context = dirname(dockerfilePath);
     const dockerfileName = basename(dockerfilePath);
 
-    console.log(`[DockerRuntime] Building image ${tag} from ${dockerfilePath}`);
+    console.log(`[DockerRuntime] Building image ${fullTag} from ${dockerfilePath}`);
 
+    // List all top-level entries so dockerode's tar packer includes the full context
+    const entries = await readdir(context);
     const stream = await this.docker.buildImage(
-      { context, src: [dockerfileName] },
-      { t: tag, dockerfile: dockerfileName },
+      { context, src: entries },
+      { t: fullTag, dockerfile: dockerfileName },
     );
 
     await new Promise<void>((resolve, reject) => {
       this.docker.modem.followProgress(
         stream,
         (err: Error | null) => (err ? reject(err) : resolve()),
-        (event: { stream?: string }) => {
-          if (event.stream) process.stdout.write(event.stream);
+        (event: { stream?: string; error?: string }) => {
+          if (event.error) {
+            process.stderr.write(`[DockerRuntime] ${event.error}\n`);
+          } else if (event.stream) {
+            process.stdout.write(event.stream);
+          }
         },
       );
     });
 
-    this.builtImages.set(dockerfilePath, tag);
-    return tag;
+    // Verify the image was actually created — builds can silently fail
+    try {
+      await this.docker.getImage(fullTag).inspect();
+    } catch {
+      throw new Error(`Docker build completed but image "${fullTag}" was not created`);
+    }
+
+    this.builtImages.set(dockerfilePath, fullTag);
+    return fullTag;
   }
 
   private async waitForReady(port: number, timeoutMs = 30_000): Promise<void> {
