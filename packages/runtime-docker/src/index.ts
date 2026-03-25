@@ -107,7 +107,20 @@ export class DockerRuntime implements Runtime {
         body: JSON.stringify(parsed),
       });
 
-      const result = await resp.json();
+      const text = await resp.text();
+      let result: Record<string, unknown>;
+      try {
+        result = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        throw new Error(`SessionHost /start failed (${resp.status}): ${text}`);
+      }
+
+      if (!resp.ok) {
+        throw new Error(
+          `SessionHost /start failed (${resp.status}): ${result.error ?? text}`,
+        );
+      }
+
       result.hostUrl = `http://localhost:${port}`;
       result.websocketUrl = `ws://localhost:${port}`;
 
@@ -209,6 +222,15 @@ export class DockerRuntime implements Runtime {
       return this.buildImage(dockerfile, tag);
     }
 
+    // Validate the fallback image exists before returning it.
+    try {
+      await this.docker.getImage(this.fallbackImage).inspect();
+    } catch {
+      throw new Error(
+        `Docker image "${this.fallbackImage}" not found. ` +
+          `Build it first with: cd packages/session-host && pnpm docker:build`,
+      );
+    }
     return this.fallbackImage;
   }
 
