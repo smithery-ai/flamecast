@@ -1,35 +1,73 @@
 import { z } from "zod";
+import type {
+  AgentSpawn,
+  AgentTemplate,
+  AgentTemplateRuntime,
+  FileSystemSnapshot,
+  PendingPermission,
+  PendingPermissionOption,
+  PermissionResponseBody,
+  PromptBody,
+  PromptQueueState,
+  RegisterAgentTemplateBody,
+  Session,
+  SessionLog,
+} from "@flamecast/protocol/session";
+import type { FileSystemEntry } from "@flamecast/protocol/session-host";
 
-/** How the server spawns an ACP agent child process (maps to `child_process.spawn`). */
+// ---------------------------------------------------------------------------
+// Re-export all types from protocol (single source of truth)
+// ---------------------------------------------------------------------------
+
+export type {
+  AgentSpawn,
+  AgentTemplate,
+  AgentTemplateRuntime,
+  FileSystemSnapshot,
+  PendingPermission,
+  PendingPermissionOption,
+  PermissionResponseBody,
+  PromptBody,
+  PromptQueueState,
+  RegisterAgentTemplateBody,
+  Session,
+  SessionLog,
+} from "@flamecast/protocol/session";
+export type { FileSystemEntry } from "@flamecast/protocol/session-host";
+// CreateSessionBody re-exported below (after the refined schema definition)
+
+// ---------------------------------------------------------------------------
+// Zod schemas for API boundary validation
+//
+// These schemas validate user input at API endpoints. The `satisfies`
+// constraint ensures they stay in sync with the protocol interfaces —
+// if the protocol type changes and the schema doesn't match, tsc fails.
+// ---------------------------------------------------------------------------
+
 export const AgentSpawnSchema = z.object({
   command: z.string().min(1),
   args: z.array(z.string()).default([]),
-});
-export type AgentSpawn = z.infer<typeof AgentSpawnSchema>;
+}) satisfies z.ZodType<AgentSpawn>;
 
 export const AgentTemplateRuntimeSchema = z.object({
   provider: z.string().min(1),
   image: z.string().optional(),
   dockerfile: z.string().optional(),
-  /** Optional shell command to run before spawning the agent (e.g. "git clone ... && pnpm i"). */
   setup: z.string().optional(),
-});
-export type AgentTemplateRuntime = z.infer<typeof AgentTemplateRuntimeSchema>;
+}) satisfies z.ZodType<AgentTemplateRuntime>;
 
 export const AgentTemplateSchema = z.object({
   id: z.string(),
   name: z.string(),
   spawn: AgentSpawnSchema,
   runtime: AgentTemplateRuntimeSchema,
-});
-export type AgentTemplate = z.infer<typeof AgentTemplateSchema>;
+}) satisfies z.ZodType<AgentTemplate>;
 
 export const RegisterAgentTemplateBodySchema = z.object({
   name: z.string().min(1),
   spawn: AgentSpawnSchema,
   runtime: AgentTemplateRuntimeSchema.optional(),
-});
-export type RegisterAgentTemplateBody = z.infer<typeof RegisterAgentTemplateBodySchema>;
+}) satisfies z.ZodType<RegisterAgentTemplateBody>;
 
 /**
  * Create a RegisterAgentTemplateBodySchema with runtime.provider constrained
@@ -54,15 +92,13 @@ export const SessionLogSchema = z.object({
   timestamp: z.string(),
   type: z.string(),
   data: z.record(z.string(), z.unknown()),
-});
-export type SessionLog = z.infer<typeof SessionLogSchema>;
+}) satisfies z.ZodType<SessionLog>;
 
-export const PendingPermissionOptionSchema = z.object({
+const PendingPermissionOptionSchema = z.object({
   optionId: z.string(),
   name: z.string(),
   kind: z.string(),
-});
-export type PendingPermissionOption = z.infer<typeof PendingPermissionOptionSchema>;
+}) satisfies z.ZodType<PendingPermissionOption>;
 
 export const PendingPermissionSchema = z.object({
   requestId: z.string(),
@@ -70,51 +106,32 @@ export const PendingPermissionSchema = z.object({
   title: z.string(),
   kind: z.string().optional(),
   options: z.array(PendingPermissionOptionSchema),
-});
-export type PendingPermission = z.infer<typeof PendingPermissionSchema>;
+}) satisfies z.ZodType<PendingPermission>;
 
-export const FileSystemEntrySchema = z.object({
+const FileSystemEntrySchema = z.object({
   path: z.string(),
   type: z.enum(["file", "directory", "symlink", "other"]),
-});
-export type FileSystemEntry = z.infer<typeof FileSystemEntrySchema>;
+}) satisfies z.ZodType<FileSystemEntry>;
 
-export const FileSystemSnapshotSchema = z.object({
+const FileSystemSnapshotSchema = z.object({
   root: z.string(),
   entries: z.array(FileSystemEntrySchema),
   truncated: z.boolean(),
   maxEntries: z.number().int().nonnegative(),
-});
-export type FileSystemSnapshot = z.infer<typeof FileSystemSnapshotSchema>;
+}) satisfies z.ZodType<FileSystemSnapshot>;
 
-export const FilePreviewSchema = z.object({
-  path: z.string(),
-  content: z.string(),
-  truncated: z.boolean(),
-  maxChars: z.number().int().positive(),
-});
-export type FilePreview = z.infer<typeof FilePreviewSchema>;
-
-export const QueuedPromptResponseSchema = z.object({
-  queued: z.literal(true),
-  queueId: z.string(),
-  position: z.number().int().positive(),
-});
-export type QueuedPromptResponse = z.infer<typeof QueuedPromptResponseSchema>;
-
-export const PromptQueueItemSchema = z.object({
+const PromptQueueItemSchema = z.object({
   queueId: z.string(),
   text: z.string(),
   enqueuedAt: z.string(),
   position: z.number().int().nonnegative(),
 });
 
-export const PromptQueueStateSchema = z.object({
+const PromptQueueStateSchema = z.object({
   processing: z.boolean(),
   items: z.array(PromptQueueItemSchema),
   size: z.number().int().nonnegative(),
-});
-export type PromptQueueState = z.infer<typeof PromptQueueStateSchema>;
+}) satisfies z.ZodType<PromptQueueState>;
 
 export const SessionSchema = z.object({
   id: z.string(),
@@ -128,34 +145,29 @@ export const SessionSchema = z.object({
   fileSystem: FileSystemSnapshotSchema.nullable(),
   promptQueue: PromptQueueStateSchema.nullable(),
   websocketUrl: z.string().optional(),
-});
-export type Session = z.infer<typeof SessionSchema>;
+}) satisfies z.ZodType<Session>;
+
+export type { CreateSessionBody } from "@flamecast/protocol/session";
 
 export const CreateSessionBodySchema = z
   .object({
     cwd: z.string().optional(),
-    /** Use a reusable template definition from `GET /agent-templates`. */
     agentTemplateId: z.string().optional(),
-    /** Spawn a one-off process without registering it. */
     spawn: AgentSpawnSchema.optional(),
-    /** Display name when using `spawn` (defaults to `command` + `args`). */
     name: z.string().optional(),
   })
   .refine((b) => Boolean(b.agentTemplateId) !== Boolean(b.spawn), {
     message: "Provide exactly one of agentTemplateId or spawn",
   });
-export type CreateSessionBody = z.infer<typeof CreateSessionBodySchema>;
 
 export const PromptBodySchema = z.object({
   text: z.string(),
-});
-export type PromptBody = z.infer<typeof PromptBodySchema>;
+}) satisfies z.ZodType<PromptBody>;
 
 export const PermissionResponseBodySchema = z.union([
   z.object({ optionId: z.string() }),
   z.object({ outcome: z.literal("cancelled") }),
-]);
-export type PermissionResponseBody = z.infer<typeof PermissionResponseBodySchema>;
+]) satisfies z.ZodType<PermissionResponseBody>;
 
 export const SESSION_EVENT_TYPES = {
   FILESYSTEM_SNAPSHOT: "filesystem.snapshot",

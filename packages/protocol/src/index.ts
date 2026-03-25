@@ -20,6 +20,25 @@ export type {
 } from "./session-host.js";
 
 export type {
+  AgentSpawn,
+  AgentTemplate,
+  AgentTemplateRuntime,
+  Session,
+  SessionLog,
+  PendingPermission,
+  PendingPermissionOption,
+  FileSystemSnapshot,
+  FilePreview,
+  QueuedPromptResponse,
+  PromptQueueItem,
+  PromptQueueState,
+  CreateSessionBody,
+  RegisterAgentTemplateBody,
+  PromptBody,
+  PermissionResponseBody,
+} from "./session.js";
+
+export type {
   WsServerMessage,
   WsControlMessage,
   WsEventMessage,
