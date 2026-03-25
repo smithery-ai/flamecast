@@ -1,0 +1,1 @@
+ALTER TABLE "flamecast"."agent_templates" ADD COLUMN "setup" text;

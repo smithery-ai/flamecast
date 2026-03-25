@@ -167,6 +167,7 @@ export class Flamecast<
     const template: AgentTemplate = {
       id: randomUUID(),
       name: body.name,
+      ...(body.setup ? { setup: body.setup } : {}),
       spawn: {
         command: body.spawn.command,
         args: [...body.spawn.args],
@@ -182,7 +183,7 @@ export class Flamecast<
     await this.ensureReady();
 
     const cwd = opts.cwd ?? process.cwd();
-    const { agentName, spawn, runtime } = await this.resolveSessionDefinition(opts);
+    const { agentName, spawn, setup, runtime } = await this.resolveSessionDefinition(opts);
     const startedAt = new Date().toISOString();
 
     const { sessionId } = await this.sessionService.startSession(this.requireStorage(), {
@@ -190,6 +191,7 @@ export class Flamecast<
       spawn,
       cwd,
       runtime,
+      setup,
       startedAt,
     });
 
@@ -340,6 +342,7 @@ export class Flamecast<
   private async resolveSessionDefinition(opts: CreateSessionBody): Promise<{
     agentName: string;
     spawn: AgentSpawn;
+    setup?: string;
     runtime: AgentTemplateRuntime;
   }> {
     if (opts.agentTemplateId) {
@@ -354,6 +357,7 @@ export class Flamecast<
           command: template.spawn.command,
           args: [...template.spawn.args],
         },
+        setup: template.setup,
         runtime: { ...template.runtime },
       };
     }

@@ -22,25 +22,19 @@ export const defaultAgentTemplates: AgentTemplate[] = [
   {
     id: "example-docker",
     name: "Example agent (Docker)",
+    setup:
+      "npm install tsx @agentclientprotocol/sdk && " +
+      "curl -sf -o agent.ts https://raw.githubusercontent.com/smithery-ai/flamecast/main/packages/flamecast/src/flamecast/agent.ts",
     spawn: { command: "npx", args: ["tsx", "agent.ts"] },
-    runtime: {
-      provider: "docker",
-      // No image/dockerfile — uses the default flamecast-session-host image.
-      // Setup installs agent deps and downloads the agent script at startup.
-      setup:
-        "npm install tsx @agentclientprotocol/sdk && " +
-        "curl -sf -o agent.ts https://raw.githubusercontent.com/smithery-ai/flamecast/main/packages/flamecast/src/flamecast/agent.ts",
-    },
+    runtime: { provider: "docker" },
   },
   {
     id: "example-docker-2",
     name: "Example agent (Docker 2)",
+    setup:
+      "npm install tsx @agentclientprotocol/sdk && " +
+      "curl -sf -o agent.ts https://raw.githubusercontent.com/smithery-ai/flamecast/main/packages/flamecast/src/flamecast/agent.ts",
     spawn: { command: "npx", args: ["tsx", "agent.ts"] },
-    runtime: {
-      provider: "docker",
-      setup:
-        "npm install tsx @agentclientprotocol/sdk && " +
-        "curl -sf -o agent.ts https://raw.githubusercontent.com/smithery-ai/flamecast/main/packages/flamecast/src/flamecast/agent.ts",
-    },
+    runtime: { provider: "docker" },
   },
 ];
