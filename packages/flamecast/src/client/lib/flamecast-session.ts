@@ -1,5 +1,5 @@
 import type { SessionLog, PermissionResponseBody } from "../../shared/session.js";
-import type { WsServerMessage, WsControlMessage } from "../../shared/ws-protocol.js";
+import type { WsServerMessage, WsControlMessage } from "@flamecast/protocol/ws";
 
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
 

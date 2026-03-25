@@ -27,10 +27,6 @@
       "types": "./dist/shared/session.d.ts",
       "import": "./dist/shared/session.js"
     },
-    "./shared/session-host-protocol": {
-      "types": "./dist/shared/session-host-protocol.d.ts",
-      "import": "./dist/shared/session-host-protocol.js"
-    },
     "./client": {
       "types": "./dist/client/api.d.ts",
       "import": "./dist/client/api.js"

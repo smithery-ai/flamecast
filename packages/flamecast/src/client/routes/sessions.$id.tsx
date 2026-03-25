@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 /* oxlint-disable no-type-assertion/no-type-assertion */
 import type { FileSystemEntry, SessionLog } from "../../shared/session";
-import type { PermissionRequestEvent } from "../../shared/session-host-protocol";
+import type { PermissionRequestEvent } from "@flamecast/protocol/session-host";
 import { useFlamecastSession } from "@/client/hooks/use-flamecast-session";
 
 export const Route = createFileRoute("/sessions/$id")({

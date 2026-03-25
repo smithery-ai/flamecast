@@ -11,7 +11,7 @@ import { createServerApp } from "../server/app.js";
 import type { FlamecastStorage } from "./storage.js";
 import { MemoryFlamecastStorage } from "./storage/memory/index.js";
 import { SessionService } from "./session-service.js";
-import type { Runtime, RuntimeNames, SessionContext, SessionEndReason } from "./runtime.js";
+import type { Runtime, RuntimeNames, SessionContext, SessionEndReason } from "@flamecast/protocol/runtime";
 
 export type { AgentSpawn, AgentTemplate, PendingPermission, Session } from "../shared/session.js";
 export type { SessionMeta, FlamecastStorage } from "./storage.js";
@@ -22,7 +22,7 @@ export type {
   RuntimeConfigFor,
   SessionContext,
   SessionEndReason,
-} from "./runtime.js";
+} from "@flamecast/protocol/runtime";
 export { SessionService } from "./session-service.js";
 export { NodeRuntime } from "./runtimes/node.js";
 
