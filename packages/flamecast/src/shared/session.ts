@@ -9,16 +9,14 @@ export type AgentSpawn = z.infer<typeof AgentSpawnSchema>;
 
 export const AgentTemplateRuntimeSchema = z.object({
   provider: z.string().min(1),
-  image: z.string().optional(),
-  dockerfile: z.string().optional(),
-  /** Optional shell command to run before spawning the agent (e.g. "git clone ... && pnpm i"). */
-  setup: z.string().optional(),
 });
 export type AgentTemplateRuntime = z.infer<typeof AgentTemplateRuntimeSchema>;
 
 export const AgentTemplateSchema = z.object({
   id: z.string(),
   name: z.string(),
+  /** Optional shell command to run before spawning the agent (e.g. "npm install -g @anthropic/claude-code"). */
+  setup: z.string().optional(),
   spawn: AgentSpawnSchema,
   runtime: AgentTemplateRuntimeSchema,
 });
@@ -26,6 +24,7 @@ export type AgentTemplate = z.infer<typeof AgentTemplateSchema>;
 
 export const RegisterAgentTemplateBodySchema = z.object({
   name: z.string().min(1),
+  setup: z.string().optional(),
   spawn: AgentSpawnSchema,
   runtime: AgentTemplateRuntimeSchema.optional(),
 });
@@ -38,13 +37,11 @@ export type RegisterAgentTemplateBody = z.infer<typeof RegisterAgentTemplateBody
 export function createRegisterAgentTemplateBodySchema(runtimeNames: [string, ...string[]]) {
   return z.object({
     name: z.string().min(1),
+    setup: z.string().optional(),
     spawn: AgentSpawnSchema,
     runtime: z
       .object({
         provider: z.enum(runtimeNames),
-        image: z.string().optional(),
-        dockerfile: z.string().optional(),
-        setup: z.string().optional(),
       })
       .optional(),
   });

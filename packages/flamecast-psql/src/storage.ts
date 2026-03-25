@@ -22,6 +22,7 @@ function rowToTemplate(row: typeof agentTemplates.$inferSelect): AgentTemplate {
   return {
     id: row.id,
     name: row.name,
+    ...(row.setup ? { setup: row.setup } : {}),
     spawn: row.spawn,
     runtime: row.runtime,
   };
@@ -52,6 +53,7 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
           .values({
             id: template.id,
             name: template.name,
+            setup: template.setup ?? null,
             spawn: template.spawn,
             runtime: template.runtime,
             managed: true,
@@ -61,6 +63,7 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
             target: agentTemplates.id,
             set: {
               name: template.name,
+              setup: template.setup ?? null,
               spawn: template.spawn,
               runtime: template.runtime,
               managed: true,
@@ -95,6 +98,7 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
         .values({
           id: template.id,
           name: template.name,
+          setup: template.setup ?? null,
           spawn: template.spawn,
           runtime: template.runtime,
           managed: false,
@@ -104,6 +108,7 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
           target: agentTemplates.id,
           set: {
             name: template.name,
+            setup: template.setup ?? null,
             spawn: template.spawn,
             runtime: template.runtime,
             managed: false,

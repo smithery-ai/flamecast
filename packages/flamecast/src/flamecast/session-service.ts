@@ -28,6 +28,7 @@ export class SessionService {
       spawn: AgentSpawn;
       cwd: string;
       runtime: AgentTemplateRuntime;
+      setup?: string;
       startedAt: string;
     },
   ): Promise<{ sessionId: string }> {
@@ -44,10 +45,7 @@ export class SessionService {
       command: opts.spawn.command,
       args: opts.spawn.args ?? [],
       workspace: opts.cwd,
-      setup: opts.runtime.setup,
-      // Pass through the full runtime config so the Runtime implementation
-      // can read provider-specific fields (e.g. DockerRuntime reads image/dockerfile)
-      ...opts.runtime,
+      setup: opts.setup,
     } satisfies SessionHostStartRequest & Record<string, unknown>;
 
     let response: Response;

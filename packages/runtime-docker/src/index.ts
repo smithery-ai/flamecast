@@ -1,14 +1,29 @@
 import { createHash } from "node:crypto";
-import { dirname, basename } from "node:path";
-import { readFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import Docker from "dockerode";
 import type { Runtime } from "@flamecast/sdk/runtime";
-import type { SessionHostStartRequest } from "@flamecast/sdk/shared/session-host-protocol";
 
-type DockerStartBody = SessionHostStartRequest & {
-  image?: string;
-  dockerfile?: string;
-};
+/** Resolve the @flamecast/session-host package directory (contains dist/ + package.json). */
+function resolveSessionHostDir(): string {
+  const resolved = import.meta.resolve("@flamecast/session-host");
+  // resolved points to the package's main entry (dist/index.js) — go up to the package root.
+  return dirname(dirname(fileURLToPath(resolved)));
+}
+
+/**
+ * Copy session-host's dist/ and package.json into a build context subdirectory.
+ * This avoids bind-mounting pnpm's symlinked node_modules into the container.
+ */
+async function copySessionHostToBuildContext(tmpDir: string): Promise<void> {
+  const shDir = resolveSessionHostDir();
+  const dest = join(tmpDir, "session-host");
+  await mkdir(dest, { recursive: true });
+  await cp(join(shDir, "dist"), join(dest, "dist"), { recursive: true });
+  await cp(join(shDir, "package.json"), join(dest, "package.json"));
+}
 
 const CONTAINER_PORT = "8080";
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -18,23 +33,24 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 }
 
 /**
- * DockerRuntime — spawns a new SessionHost container per session.
+ * DockerRuntime — spawns a new container per session.
  *
- * Each session gets its own container on a random host port.
- * The container image is determined (in priority order):
- *   1. `image` field from the agent template's runtime config (in the /start body)
- *   2. `dockerfile` field → built on-the-fly with `docker build`
- *   3. The fallback image passed to the constructor (default: "flamecast-session-host")
+ * The container is built from `baseImage` + the optional `setup` script
+ * provided in the start request. Session-host is baked into the image
+ * (copied from the @flamecast/session-host package) and used as the entrypoint.
  */
 export class DockerRuntime implements Runtime {
-  private readonly fallbackImage: string;
+  private readonly baseImage: string;
   private readonly docker: Docker;
   private readonly containers = new Map<string, { containerId: string; port: number }>();
-  /** Cache of images already built from dockerfiles in this runtime's lifetime. */
+  /** Cache of images already built in this runtime's lifetime (keyed by content hash). */
   private readonly builtImages = new Map<string, string>();
 
-  constructor(opts?: { image?: string; docker?: Docker }) {
-    this.fallbackImage = opts?.image ?? "flamecast-session-host";
+  constructor(opts?: {
+    baseImage?: string;
+    docker?: Docker;
+  }) {
+    this.baseImage = opts?.baseImage ?? "node:22-slim";
     this.docker = opts?.docker ?? new Docker();
   }
 
@@ -73,9 +89,10 @@ export class DockerRuntime implements Runtime {
     }
 
     try {
-      const parsed: DockerStartBody = JSON.parse(await request.text());
+      const parsed = JSON.parse(await request.text()) as Record<string, unknown>;
 
-      const image = await this.resolveImage(parsed);
+      const setup = parsed.setup as string | undefined;
+      const image = await this.resolveImage(setup);
       console.log(`[DockerRuntime] Creating container from image: ${image}`);
 
       const container = await this.docker.createContainer({
@@ -85,7 +102,7 @@ export class DockerRuntime implements Runtime {
           PortBindings: { [`${CONTAINER_PORT}/tcp`]: [{ HostPort: "0" }] },
           AutoRemove: true,
         },
-        Env: [`SESSION_HOST_PORT=${CONTAINER_PORT}`, "RUNTIME_SETUP_ENABLED=1"],
+        Env: ["RUNTIME_SETUP_ENABLED=1"],
       });
 
       await container.start();
@@ -102,8 +119,8 @@ export class DockerRuntime implements Runtime {
       this.containers.set(sessionId, { containerId: container.id, port });
       await this.waitForReady(port);
 
-      // Override workspace to container's WORKDIR — host path doesn't exist inside.
-      parsed.workspace = "/app";
+      // Override workspace to the container's agent workspace — host path doesn't exist inside.
+      parsed.workspace = "/workspace";
 
       const resp = await fetch(`http://localhost:${port}/start`, {
         method: "POST",
@@ -194,85 +211,87 @@ export class DockerRuntime implements Runtime {
   // ---------------------------------------------------------------------------
 
   /**
-   * Determine which Docker image to use for the container.
-   *
-   * Priority:
-   *   1. Explicit `image` in the request body (template runtime config)
-   *   2. Build from `dockerfile` path in the request body
-   *   3. Fall back to the constructor-provided image
+   * Build (or reuse) a Docker image from `baseImage` + optional `setup` script.
+   * Images are cached by a content hash of the generated Dockerfile.
    */
-  private async resolveImage(body: DockerStartBody): Promise<string> {
-    const { image, dockerfile } = body;
+  private async resolveImage(setup?: string): Promise<string> {
+    const dockerfileLines = [
+      `FROM ${this.baseImage}`,
+      `RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates git && rm -rf /var/lib/apt/lists/*`,
+      // Bake session-host into the image
+      `COPY session-host/ /session-host/`,
+      `RUN cd /session-host && npm install --omit=dev`,
+      // Agent workspace
+      `WORKDIR /workspace`,
+    ];
 
-    if (image) {
+    if (setup) {
+      dockerfileLines.push(`COPY setup.sh /tmp/setup.sh`);
+      dockerfileLines.push(`RUN sh /tmp/setup.sh && rm /tmp/setup.sh`);
+    }
+
+    // Entrypoint + port
+    dockerfileLines.push(`ENV SESSION_HOST_PORT=${CONTAINER_PORT}`);
+    dockerfileLines.push(`EXPOSE ${CONTAINER_PORT}`);
+    dockerfileLines.push(`CMD ["node", "/session-host/dist/index.js"]`);
+
+    const dockerfileContent = dockerfileLines.join("\n") + "\n";
+    // Hash includes setup content so different scripts produce different images
+    const hashInput = dockerfileContent + (setup ?? "");
+    const hash = createHash("sha256").update(hashInput).digest("hex").slice(0, 12);
+    const tag = `flamecast-session-${hash}:latest`;
+
+    // Return cached image if it still exists
+    const cached = this.builtImages.get(hash);
+    if (cached) {
       try {
-        await this.docker.getImage(image).inspect();
-        return image;
+        await this.docker.getImage(cached).inspect();
+        return cached;
       } catch {
-        if (dockerfile) return this.buildImage(dockerfile, image);
-        throw new Error(
-          `Docker image "${image}" not found locally. Build it first or provide a dockerfile.`,
-        );
+        this.builtImages.delete(hash);
       }
     }
 
-    if (dockerfile) {
-      const tag = await this.dockerfileTag(dockerfile);
-      return this.buildImage(dockerfile, tag);
-    }
+    console.log(`[DockerRuntime] Building image ${tag}`);
 
-    // Validate the fallback image exists before returning it.
+    const tmpDir = await mkdtemp(join(tmpdir(), "flamecast-build-"));
     try {
-      await this.docker.getImage(this.fallbackImage).inspect();
-    } catch {
-      throw new Error(
-        `Docker image "${this.fallbackImage}" not found. ` +
-          `Build it first with: cd packages/session-host && pnpm docker:build`,
-      );
-    }
-    return this.fallbackImage;
-  }
+      await writeFile(join(tmpDir, "Dockerfile"), dockerfileContent);
+      await copySessionHostToBuildContext(tmpDir);
+      if (setup) {
+        await writeFile(join(tmpDir, "setup.sh"), setup);
+      }
 
-  /** Deterministic tag from dockerfile content hash (avoids stale image accumulation). */
-  private async dockerfileTag(dockerfilePath: string): Promise<string> {
+      const buildStream = await this.docker.buildImage(
+        { context: tmpDir, src: ["."] },
+        { t: tag, dockerfile: "Dockerfile" },
+      );
+
+      await new Promise<void>((resolve, reject) => {
+        this.docker.modem.followProgress(
+          buildStream,
+          (err: Error | null) => (err ? reject(err) : resolve()),
+          (event: { stream?: string; error?: string }) => {
+            if (event.error) {
+              process.stderr.write(`[DockerRuntime] ${event.error}\n`);
+            } else if (event.stream) {
+              process.stdout.write(event.stream);
+            }
+          },
+        );
+      });
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    }
+
+    // Verify the image was actually created
     try {
-      const content = await readFile(dockerfilePath, "utf8");
-      const hash = createHash("sha256").update(content).digest("hex").slice(0, 12);
-      return `flamecast-session-${hash}`;
+      await this.docker.getImage(tag).inspect();
     } catch {
-      return `flamecast-session-fallback`;
+      throw new Error(`Docker build completed but image "${tag}" was not created`);
     }
-  }
 
-  /**
-   * Build a Docker image from a Dockerfile path. Caches by dockerfile path
-   * so repeated session starts don't rebuild.
-   */
-  private async buildImage(dockerfilePath: string, tag: string): Promise<string> {
-    const cached = this.builtImages.get(dockerfilePath);
-    if (cached) return cached;
-
-    const context = dirname(dockerfilePath);
-    const dockerfileName = basename(dockerfilePath);
-
-    console.log(`[DockerRuntime] Building image ${tag} from ${dockerfilePath}`);
-
-    const stream = await this.docker.buildImage(
-      { context, src: [dockerfileName] },
-      { t: tag, dockerfile: dockerfileName },
-    );
-
-    await new Promise<void>((resolve, reject) => {
-      this.docker.modem.followProgress(
-        stream,
-        (err: Error | null) => (err ? reject(err) : resolve()),
-        (event: { stream?: string }) => {
-          if (event.stream) process.stdout.write(event.stream);
-        },
-      );
-    });
-
-    this.builtImages.set(dockerfilePath, tag);
+    this.builtImages.set(hash, tag);
     return tag;
   }
 

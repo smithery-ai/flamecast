@@ -9,6 +9,7 @@
     "test": "echo 'no tests'"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^0.16.1",
     "@flamecast/runtime-docker": "workspace:*",
     "@flamecast/sdk": "workspace:*",
     "@flamecast/storage-psql": "workspace:*"

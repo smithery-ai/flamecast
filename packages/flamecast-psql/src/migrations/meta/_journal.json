@@ -8,6 +8,13 @@
       "when": 1774302395391,
       "tag": "0000_volatile_bastion",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1774470884025,
+      "tag": "0001_majestic_ken_ellis",
+      "breakpoints": true
     }
   ]
 }
