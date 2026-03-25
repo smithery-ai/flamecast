@@ -25,7 +25,6 @@ export type {
 } from "./runtime.js";
 export { SessionService } from "./session-service.js";
 export { NodeRuntime } from "./runtimes/node.js";
-export { E2BRuntime } from "./runtimes/e2b.js";
 
 // ---------------------------------------------------------------------------
 // Event handler context types

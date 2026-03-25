@@ -51,10 +51,6 @@
       "types": "./dist/flamecast/runtimes/node.d.ts",
       "import": "./dist/flamecast/runtimes/node.js"
     },
-    "./runtimes/e2b": {
-      "types": "./dist/flamecast/runtimes/e2b.d.ts",
-      "import": "./dist/flamecast/runtimes/e2b.js"
-    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -73,7 +69,6 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.16.1",
     "@base-ui/react": "^1.3.0",
-    "@e2b/code-interpreter": "^2.4.0",
     "@fontsource-variable/geist": "^5.2.8",
     "@hono/node-server": "^1.19.11",
     "@hono/zod-validator": "^0.7.6",

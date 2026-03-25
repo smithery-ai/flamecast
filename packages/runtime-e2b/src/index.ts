@@ -1,60 +1,26 @@
-import type { Runtime } from "../runtime.js";
-
-/** Shape of an E2B sandbox instance (subset used by this module). */
-interface E2BSandboxInstance {
-  sandboxId: string;
-  commands: { run(cmd: string, opts?: { background?: boolean }): Promise<unknown> };
-  getHost(port: number): string;
-  kill(): Promise<void>;
-}
-
-/** Shape of the E2B Sandbox class (static methods used by this module). */
-interface E2BSandboxClass {
-  create(opts: {
-    template: string;
-    apiKey: string;
-    timeoutMs: number;
-  }): Promise<E2BSandboxInstance>;
-  connect(sandboxId: string, opts: { apiKey: string }): Promise<E2BSandboxInstance>;
-}
+import { Sandbox } from "@e2b/code-interpreter";
+import type { Runtime } from "@flamecast/sdk/runtime";
 
 /**
  * E2BRuntime — provisions SessionHosts in E2B sandboxes.
  *
  * Each session gets its own sandbox. The SessionHost runs inside the sandbox
  * and is reachable via E2B's port forwarding (https://{PORT}-{SANDBOX_ID}.e2b.app).
- *
- * Requires:
- * - An E2B template with the SessionHost image pre-installed
- * - E2B API key
  */
 export class E2BRuntime implements Runtime {
   private readonly apiKey: string;
   private readonly template: string;
   private readonly sandboxes = new Map<string, { sandboxId: string; hostUrl: string }>();
 
-  // Lazily imported E2B SDK (avoid top-level import for tree-shaking)
-  private SandboxClass: E2BSandboxClass | null = null;
-
   constructor(opts: { apiKey: string; template?: string }) {
     this.apiKey = opts.apiKey;
     this.template = opts.template ?? "flamecast-session-host";
-  }
-
-  private async getSandboxClass(): Promise<E2BSandboxClass> {
-    if (!this.SandboxClass) {
-      const mod = await import("@e2b/code-interpreter");
-      // oxlint-disable-next-line no-type-assertion/no-type-assertion
-      this.SandboxClass = mod.Sandbox as E2BSandboxClass;
-    }
-    return this.SandboxClass;
   }
 
   async fetchSession(sessionId: string, request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // Provision sandbox on /start
     if (path.endsWith("/start") && request.method === "POST") {
       if (this.sandboxes.has(sessionId)) {
         return new Response(JSON.stringify({ error: "Session already exists" }), {
@@ -64,20 +30,16 @@ export class E2BRuntime implements Runtime {
       }
 
       try {
-        const Sandbox = await this.getSandboxClass();
-        const sandbox = await Sandbox.create({
-          template: this.template,
+        const sandbox = await Sandbox.create(this.template, {
           apiKey: this.apiKey,
-          timeoutMs: 60 * 60 * 1000, // 1 hour
+          timeoutMs: 60 * 60 * 1000,
         });
 
-        // Start the session host inside the sandbox
         const port = 8080;
         await sandbox.commands.run(`SESSION_HOST_PORT=${port} node /app/dist/index.js`, {
           background: true,
         });
 
-        // Wait for session host to be ready
         await this.waitForReady(sandbox, port);
 
         const host = sandbox.getHost(port);
@@ -85,7 +47,6 @@ export class E2BRuntime implements Runtime {
 
         this.sandboxes.set(sessionId, { sandboxId: sandbox.sandboxId, hostUrl });
 
-        // Forward the /start request to the session host
         const body = await request.text();
         const resp = await fetch(`${hostUrl}/start`, {
           method: "POST",
@@ -94,7 +55,6 @@ export class E2BRuntime implements Runtime {
         });
 
         const result = await resp.json();
-        // Override hostUrl/websocketUrl with the E2B-reachable URLs
         result.hostUrl = hostUrl;
         result.websocketUrl = `wss://${host}`;
 
@@ -104,15 +64,12 @@ export class E2BRuntime implements Runtime {
         });
       } catch (err) {
         return new Response(
-          JSON.stringify({
-            error: err instanceof Error ? err.message : "Failed to create sandbox",
-          }),
+          JSON.stringify({ error: err instanceof Error ? err.message : "Failed to create sandbox" }),
           { status: 500, headers: { "Content-Type": "application/json" } },
         );
       }
     }
 
-    // Forward to existing sandbox
     const entry = this.sandboxes.get(sessionId);
     if (!entry) {
       return new Response(JSON.stringify({ error: `Session ${sessionId} not found` }), {
@@ -128,10 +85,8 @@ export class E2BRuntime implements Runtime {
       body,
     });
 
-    // Clean up sandbox on terminate
     if (path.endsWith("/terminate") && request.method === "POST") {
       try {
-        const Sandbox = await this.getSandboxClass();
         const sandbox = await Sandbox.connect(entry.sandboxId, { apiKey: this.apiKey });
         await sandbox.kill();
       } catch {
@@ -147,9 +102,6 @@ export class E2BRuntime implements Runtime {
   }
 
   async dispose(): Promise<void> {
-    const Sandbox = await this.getSandboxClass().catch(() => null);
-    if (!Sandbox) return;
-
     for (const [, entry] of this.sandboxes) {
       try {
         const sandbox = await Sandbox.connect(entry.sandboxId, { apiKey: this.apiKey });
@@ -161,18 +113,14 @@ export class E2BRuntime implements Runtime {
     this.sandboxes.clear();
   }
 
-  private async waitForReady(
-    sandbox: { getHost(port: number): string },
-    port: number,
-    timeoutMs = 30_000,
-  ): Promise<void> {
+  private async waitForReady(sandbox: { getHost(port: number): string }, port: number, timeoutMs = 30_000): Promise<void> {
     const host = sandbox.getHost(port);
-    const url = `https://${host}/health`;
+    const healthUrl = `https://${host}/health`;
     const deadline = Date.now() + timeoutMs;
 
     while (Date.now() < deadline) {
       try {
-        const resp = await fetch(url);
+        const resp = await fetch(healthUrl);
         if (resp.ok) return;
       } catch {
         // Not ready yet
