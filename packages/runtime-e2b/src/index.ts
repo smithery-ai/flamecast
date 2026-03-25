@@ -1,5 +1,5 @@
 import { Sandbox } from "@e2b/code-interpreter";
-import type { Runtime } from "@flamecast/sdk/runtime";
+import type { Runtime } from "@flamecast/protocol/runtime";
 
 /**
  * E2BRuntime — provisions SessionHosts in E2B sandboxes.

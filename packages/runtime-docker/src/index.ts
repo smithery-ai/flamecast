@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import { dirname, basename } from "node:path";
 import { readFile } from "node:fs/promises";
 import Docker from "dockerode";
-import type { Runtime } from "@flamecast/sdk/runtime";
-import type { SessionHostStartRequest } from "@flamecast/sdk/shared/session-host-protocol";
+import type { Runtime } from "@flamecast/protocol/runtime";
+import type { SessionHostStartRequest } from "@flamecast/protocol/session-host";
 
 type DockerStartBody = SessionHostStartRequest & {
   image?: string;
