@@ -8,6 +8,8 @@ import { E2BRuntime } from "@flamecast/runtime-e2b";
 import { createPsqlStorage } from "@flamecast/storage-psql";
 import type { Runtime } from "@flamecast/sdk/runtime";
 import type { AgentTemplate } from "@flamecast/sdk";
+import dotenv from "dotenv";
+dotenv.config();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const agentSource = readFileSync(resolve(__dirname, "../agent.ts"), "utf8");
@@ -45,8 +47,8 @@ const agentTemplates: AgentTemplate[] = [
 
 const e2bApiKey = process.env.E2B_API_KEY;
 if (e2bApiKey) {
-  // E2B base template defaults to "base" (generic Node sandbox). Override with:
-  //   new E2BRuntime({ apiKey, baseTemplate: "my-custom-template" })
+  // E2B base image defaults to "node:22-slim". Override with:
+  //   new E2BRuntime({ apiKey, baseImage: "node:20-slim" })
   runtimes.e2b = new E2BRuntime({ apiKey: e2bApiKey });
   agentTemplates.push({
     id: "e2b-agent",
@@ -55,6 +57,9 @@ if (e2bApiKey) {
     spawn: { command: "npx", args: ["tsx", "agent.ts"] },
     runtime: { provider: "e2b" },
   });
+}
+else {
+  console.warn("E2B_API_KEY is not set, skipping E2B runtime");
 }
 
 const flamecast = new Flamecast({

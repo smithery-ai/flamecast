@@ -1,7 +1,13 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { createHash } from "node:crypto";
+import { dirname, join } from "node:path";
+import { readdirSync, statSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { Sandbox } from "@e2b/code-interpreter";
+import {
+  Sandbox,
+  Template,
+  defaultBuildLogger,
+} from "@e2b/code-interpreter";
 import type { Runtime } from "@flamecast/sdk/runtime";
 
 const SESSION_HOST_PORT = 8080;
@@ -17,41 +23,54 @@ function resolveSessionHostDir(): string {
   return dirname(dirname(fileURLToPath(resolved)));
 }
 
-/** Recursively collect all files under a directory as { relativePath, absolutePath } pairs. */
-function collectFiles(dir: string, base = dir): { rel: string; abs: string }[] {
-  const results: { rel: string; abs: string }[] = [];
-  for (const entry of readdirSync(dir)) {
-    const abs = join(dir, entry);
-    if (statSync(abs).isDirectory()) {
-      // Skip node_modules — we npm install inside the sandbox
-      if (entry === "node_modules") continue;
-      results.push(...collectFiles(abs, base));
-    } else {
-      results.push({ rel: relative(base, abs), abs });
-    }
+/**
+ * Generate a Dockerfile that mirrors DockerRuntime's pattern:
+ * base image → system deps → session-host → optional setup → entrypoint.
+ */
+function generateDockerfile(baseImage: string, setup?: string): string {
+  const lines = [
+    `FROM ${baseImage}`,
+    `RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates git && rm -rf /var/lib/apt/lists/*`,
+    // Bake session-host into the image
+    `COPY session-host/ /session-host/`,
+    `RUN cd /session-host && npm install --omit=dev`,
+    // Agent workspace
+    `WORKDIR /workspace`,
+  ];
+
+  if (setup) {
+    lines.push(`COPY setup.sh /tmp/setup.sh`);
+    lines.push(`RUN sh /tmp/setup.sh && rm /tmp/setup.sh`);
   }
-  return results;
+
+  lines.push(`ENV SESSION_HOST_PORT=${SESSION_HOST_PORT}`);
+  lines.push(`EXPOSE ${SESSION_HOST_PORT}`);
+  lines.push(`CMD ["node", "/session-host/dist/index.js"]`);
+
+  return lines.join("\n") + "\n";
 }
 
 /**
  * E2BRuntime — provisions SessionHosts in E2B sandboxes.
  *
- * Each session gets its own sandbox. Session-host is uploaded and installed
- * dynamically from the @flamecast/session-host package. An optional `setup`
- * script (from the agent template) runs before the agent spawns.
+ * Mirrors DockerRuntime's approach: constructs a Dockerfile from `baseImage` +
+ * session-host + optional `setup` script, builds it as an E2B template, then
+ * creates sandboxes from that template.
  */
 export class E2BRuntime implements Runtime {
   private readonly apiKey: string;
-  private readonly baseTemplate: string;
+  private readonly baseImage: string;
   private readonly sandboxes = new Map<string, { sandboxId: string; hostUrl: string }>();
+  /** Cache of E2B template names keyed by content hash. */
+  private readonly builtTemplates = new Map<string, string>();
 
   constructor(opts: {
     apiKey: string;
-    /** E2B sandbox template to use as the base (default: Node.js sandbox). */
-    baseTemplate?: string;
+    /** Base Docker image (default: "node:22-slim"). */
+    baseImage?: string;
   }) {
     this.apiKey = opts.apiKey;
-    this.baseTemplate = opts.baseTemplate ?? "base";
+    this.baseImage = opts.baseImage ?? "node:22-slim";
   }
 
   async fetchSession(sessionId: string, request: Request): Promise<Response> {
@@ -92,34 +111,17 @@ export class E2BRuntime implements Runtime {
 
     try {
       const parsed = JSON.parse(await request.text()) as Record<string, unknown>;
+      const setup = parsed.setup as string | undefined;
 
-      const sandbox = await Sandbox.create(this.baseTemplate, {
+      // Build (or reuse) an E2B template from the Dockerfile
+      const templateName = await this.resolveTemplate(setup);
+
+      const sandbox = await Sandbox.create(templateName, {
         apiKey: this.apiKey,
         timeoutMs: 60 * 60 * 1000,
       });
 
       try {
-        // Upload and install session-host
-        await this.installSessionHost(sandbox);
-
-        // Run the user's setup script if provided
-        const setup = parsed.setup as string | undefined;
-        if (setup) {
-          console.log(`[E2BRuntime] Running setup script in sandbox ${sandbox.sandboxId}`);
-          const result = await sandbox.commands.run(`cd /workspace && sh -c ${shellQuote(setup)}`, {
-            timeoutMs: 5 * 60 * 1000,
-          });
-          if (result.exitCode !== 0) {
-            throw new Error(`Setup script failed (exit ${result.exitCode}): ${result.stderr}`);
-          }
-        }
-
-        // Start session-host in the background
-        await sandbox.commands.run(
-          `SESSION_HOST_PORT=${SESSION_HOST_PORT} RUNTIME_SETUP_ENABLED=1 node /session-host/dist/index.js`,
-          { background: true },
-        );
-
         const host = sandbox.getHost(SESSION_HOST_PORT);
         const hostUrl = `https://${host}`;
 
@@ -156,7 +158,6 @@ export class E2BRuntime implements Runtime {
           headers: JSON_HEADERS,
         });
       } catch (err) {
-        // Clean up sandbox on failure
         this.sandboxes.delete(sessionId);
         await sandbox.kill().catch(() => {});
         throw err;
@@ -218,29 +219,63 @@ export class E2BRuntime implements Runtime {
   }
 
   // ---------------------------------------------------------------------------
-  // Session-host provisioning
+  // Template resolution (mirrors DockerRuntime's image resolution)
   // ---------------------------------------------------------------------------
 
   /**
-   * Upload session-host's dist/ and package.json to the sandbox, then npm install.
+   * Build (or reuse) an E2B template from a generated Dockerfile.
+   * Uses the same Dockerfile pattern as DockerRuntime.
    */
-  private async installSessionHost(sandbox: Sandbox): Promise<void> {
+  private async resolveTemplate(setup?: string): Promise<string> {
+    const dockerfileContent = generateDockerfile(this.baseImage, setup);
+    const hashInput = dockerfileContent + (setup ?? "");
+    const hash = createHash("sha256").update(hashInput).digest("hex").slice(0, 12);
+    const templateName = `flamecast-session-${hash}`;
+
+    // Return cached template if it exists
+    const cached = this.builtTemplates.get(hash);
+    if (cached) {
+      const exists = await Template.exists(cached, { apiKey: this.apiKey });
+      if (exists) return cached;
+      this.builtTemplates.delete(hash);
+    }
+
+    // Check if template already exists on E2B from a previous runtime instance
+    const alreadyExists = await Template.exists(templateName, { apiKey: this.apiKey });
+    if (alreadyExists) {
+      this.builtTemplates.set(hash, templateName);
+      return templateName;
+    }
+
+    console.log(`[E2BRuntime] Building template ${templateName}`);
+
+    // Build the template using E2B's fromDockerfile with local session-host files
     const shDir = resolveSessionHostDir();
-    const files = collectFiles(shDir);
+    const copyItems = collectSessionHostCopyItems(shDir);
 
-    // Upload all files (dist/ + package.json, excluding node_modules)
-    for (const file of files) {
-      const content = readFileSync(file.abs, "utf8");
-      await sandbox.files.write(`/session-host/${file.rel}`, content);
+    let tmpDir: string | undefined;
+    if (setup) {
+      tmpDir = mkdtempSync(join(tmpdir(), "flamecast-e2b-"));
+      const setupPath = join(tmpDir, "setup.sh");
+      writeFileSync(setupPath, setup);
+      copyItems.push({ src: setupPath, dest: "/tmp/setup.sh" });
     }
 
-    console.log(`[E2BRuntime] Installing session-host dependencies in sandbox ${sandbox.sandboxId}`);
-    const result = await sandbox.commands.run("cd /session-host && npm install --omit=dev", {
-      timeoutMs: 2 * 60 * 1000,
-    });
-    if (result.exitCode !== 0) {
-      throw new Error(`Failed to install session-host: ${result.stderr}`);
+    try {
+      const template = Template()
+        .fromDockerfile(dockerfileContent)
+        .copyItems(copyItems);
+
+      await Template.build(template, templateName, {
+        apiKey: this.apiKey,
+        onBuildLogs: defaultBuildLogger(),
+      });
+    } finally {
+      if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
     }
+
+    this.builtTemplates.set(hash, templateName);
+    return templateName;
   }
 
   private async waitForReady(
@@ -265,7 +300,37 @@ export class E2BRuntime implements Runtime {
   }
 }
 
-/** Shell-quote a string for use in sh -c. */
-function shellQuote(s: string): string {
-  return "'" + s.replace(/'/g, "'\\''") + "'";
+/**
+ * Collect session-host files as CopyItems for the E2B template builder.
+ * Copies dist/ and package.json (skipping node_modules).
+ */
+function collectSessionHostCopyItems(
+  shDir: string,
+): { src: string; dest: string }[] {
+  const items: { src: string; dest: string }[] = [];
+
+  // package.json
+  items.push({ src: join(shDir, "package.json"), dest: "/session-host/package.json" });
+
+  // dist/ recursively
+  const distDir = join(shDir, "dist");
+  collectDir(distDir, "/session-host/dist", items);
+
+  return items;
+}
+
+function collectDir(
+  dir: string,
+  destBase: string,
+  items: { src: string; dest: string }[],
+): void {
+  for (const entry of readdirSync(dir)) {
+    const abs = join(dir, entry);
+    const dest = `${destBase}/${entry}`;
+    if (statSync(abs).isDirectory()) {
+      collectDir(abs, dest, items);
+    } else {
+      items.push({ src: abs, dest });
+    }
+  }
 }
