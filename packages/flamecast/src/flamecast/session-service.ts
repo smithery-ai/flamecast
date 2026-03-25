@@ -14,10 +14,10 @@ interface ManagedSession {
 }
 
 export class SessionService {
-  private readonly runtimes: Record<string, Runtime>;
+  private readonly runtimes: Record<string, Runtime<Record<string, unknown>>>;
   private readonly sessions = new Map<string, ManagedSession>();
 
-  constructor(runtimes: Record<string, Runtime>) {
+  constructor(runtimes: Record<string, Runtime<Record<string, unknown>>>) {
     this.runtimes = runtimes;
   }
 

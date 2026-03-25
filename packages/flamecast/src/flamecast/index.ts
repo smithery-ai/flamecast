@@ -105,7 +105,7 @@ export class Flamecast<
   private readonly initialAgentTemplates: AgentTemplate[] | undefined;
   private readonly storageConfig?: FlamecastStorage;
   private readonly sessionService: SessionService;
-  private readonly runtimesMap: Record<string, Runtime>;
+  private readonly runtimesMap: Record<string, Runtime<Record<string, unknown>>>;
 
   /** Registered event handlers. */
   readonly handlers: Readonly<FlamecastEventHandlers<R>>;
@@ -119,10 +119,8 @@ export class Flamecast<
   constructor(opts: FlamecastOptions<R>) {
     this.storageConfig = opts.storage;
     this.initialAgentTemplates = opts.agentTemplates;
-    // oxlint-disable-next-line no-type-assertion/no-type-assertion
-    this.runtimesMap = opts.runtimes as Record<string, Runtime>;
-    // oxlint-disable-next-line no-type-assertion/no-type-assertion
-    this.sessionService = new SessionService(opts.runtimes as Record<string, Runtime>);
+    this.runtimesMap = opts.runtimes;
+    this.sessionService = new SessionService(opts.runtimes);
     this.app = createServerApp(this);
     this.handlers = {
       onPermissionRequest: opts.onPermissionRequest,
@@ -311,7 +309,7 @@ export class Flamecast<
     return {
       id: meta.id,
       agentName: meta.agentName,
-      // oxlint-disable-next-line no-type-assertion/no-type-assertion
+      // oxlint-disable-next-line no-type-assertion/no-type-assertion -- generic boundary: TS can't narrow string to keyof R
       runtime: runtimeName as RuntimeNames<R>,
       spawn: { command: meta.spawn.command, args: [...meta.spawn.args] },
       startedAt: meta.startedAt,

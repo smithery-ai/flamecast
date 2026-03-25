@@ -19,13 +19,12 @@ export class NodeRuntime implements Runtime {
     const targetUrl = new URL(this.url);
     targetUrl.pathname = `/sessions/${sessionId}${originalUrl.pathname}`;
 
-    // oxlint-disable-next-line no-type-assertion/no-type-assertion
-    const init = {
+    const init: RequestInit & { duplex?: string } = {
       method: request.method,
       headers: request.headers,
       body: request.body,
       duplex: request.body ? "half" : undefined,
-    } as RequestInit;
+    };
     return fetch(targetUrl.toString(), init);
   }
 }
