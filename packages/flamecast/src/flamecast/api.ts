@@ -36,11 +36,10 @@ function isClientError(error: unknown): boolean {
 
 export function createApi(flamecast: FlamecastApi) {
   // Build a runtime-aware schema that validates provider against registered names.
-  const names = flamecast.runtimeNames;
-  const registerSchema =
-    names.length > 0
-      ? createRegisterAgentTemplateBodySchema(names as [string, ...string[]])
-      : RegisterAgentTemplateBodySchema;
+  const [first, ...rest] = flamecast.runtimeNames;
+  const registerSchema = first
+    ? createRegisterAgentTemplateBodySchema([first, ...rest])
+    : RegisterAgentTemplateBodySchema;
 
   // The agent routes are public API sugar over the current single-session runtime model.
   const getAgentSnapshot = async (c: Context, agentId: string) => {
