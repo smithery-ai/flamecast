@@ -15,15 +15,6 @@ import type { Runtime, RuntimeNames, SessionContext, SessionEndReason } from "@f
 
 export type { AgentSpawn, AgentTemplate, PendingPermission, Session } from "../shared/session.js";
 export type { SessionMeta, FlamecastStorage } from "./storage.js";
-export type { AppType } from "./api.js";
-export type {
-  Runtime,
-  RuntimeNames,
-  RuntimeConfigFor,
-  SessionContext,
-  SessionEndReason,
-} from "@flamecast/protocol/runtime";
-export { SessionService } from "./session-service.js";
 export { NodeRuntime } from "./runtimes/node.js";
 
 // ---------------------------------------------------------------------------
