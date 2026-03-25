@@ -6,13 +6,12 @@ import type {
   FileSystemSnapshot,
   PendingPermission,
   PendingPermissionOption,
-  PermissionResponseBody,
-  PromptBody,
   PromptQueueState,
   RegisterAgentTemplateBody,
   Session,
   SessionLog,
 } from "@flamecast/protocol/session";
+// Some types above are only used by zod `satisfies` constraints, not re-exported
 import type { FileSystemEntry } from "@flamecast/protocol/session-host";
 
 // ---------------------------------------------------------------------------
@@ -25,10 +24,7 @@ export type {
   AgentTemplateRuntime,
   FileSystemSnapshot,
   PendingPermission,
-  PendingPermissionOption,
   PermissionResponseBody,
-  PromptBody,
-  PromptQueueState,
   RegisterAgentTemplateBody,
   Session,
   SessionLog,
@@ -44,12 +40,12 @@ export type { FileSystemEntry } from "@flamecast/protocol/session-host";
 // if the protocol type changes and the schema doesn't match, tsc fails.
 // ---------------------------------------------------------------------------
 
-export const AgentSpawnSchema = z.object({
+const AgentSpawnSchema = z.object({
   command: z.string().min(1),
   args: z.array(z.string()).default([]),
 }) satisfies z.ZodType<AgentSpawn>;
 
-export const AgentTemplateRuntimeSchema = z.object({
+const AgentTemplateRuntimeSchema = z.object({
   provider: z.string().min(1),
   image: z.string().optional(),
   dockerfile: z.string().optional(),
@@ -88,7 +84,7 @@ export function createRegisterAgentTemplateBodySchema(runtimeNames: [string, ...
   });
 }
 
-export const SessionLogSchema = z.object({
+const SessionLogSchema = z.object({
   timestamp: z.string(),
   type: z.string(),
   data: z.record(z.string(), z.unknown()),
@@ -100,7 +96,7 @@ const PendingPermissionOptionSchema = z.object({
   kind: z.string(),
 }) satisfies z.ZodType<PendingPermissionOption>;
 
-export const PendingPermissionSchema = z.object({
+const PendingPermissionSchema = z.object({
   requestId: z.string(),
   toolCallId: z.string(),
   title: z.string(),
@@ -160,16 +156,5 @@ export const CreateSessionBodySchema = z
     message: "Provide exactly one of agentTemplateId or spawn",
   });
 
-export const PromptBodySchema = z.object({
-  text: z.string(),
-}) satisfies z.ZodType<PromptBody>;
 
-export const PermissionResponseBodySchema = z.union([
-  z.object({ optionId: z.string() }),
-  z.object({ outcome: z.literal("cancelled") }),
-]) satisfies z.ZodType<PermissionResponseBody>;
 
-export const SESSION_EVENT_TYPES = {
-  FILESYSTEM_SNAPSHOT: "filesystem.snapshot",
-  SESSION_TERMINATED: "session.terminated",
-} as const;

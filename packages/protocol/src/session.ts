@@ -115,6 +115,4 @@ export interface PromptBody {
   text: string;
 }
 
-export type PermissionResponseBody =
-  | { optionId: string }
-  | { outcome: "cancelled" };
+export type PermissionResponseBody = { optionId: string } | { outcome: "cancelled" };
