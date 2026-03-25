@@ -64,7 +64,9 @@ export class E2BRuntime implements Runtime {
         });
       } catch (err) {
         return new Response(
-          JSON.stringify({ error: err instanceof Error ? err.message : "Failed to create sandbox" }),
+          JSON.stringify({
+            error: err instanceof Error ? err.message : "Failed to create sandbox",
+          }),
           { status: 500, headers: { "Content-Type": "application/json" } },
         );
       }
@@ -113,7 +115,11 @@ export class E2BRuntime implements Runtime {
     this.sandboxes.clear();
   }
 
-  private async waitForReady(sandbox: { getHost(port: number): string }, port: number, timeoutMs = 30_000): Promise<void> {
+  private async waitForReady(
+    sandbox: { getHost(port: number): string },
+    port: number,
+    timeoutMs = 30_000,
+  ): Promise<void> {
     const host = sandbox.getHost(port);
     const healthUrl = `https://${host}/health`;
     const deadline = Date.now() + timeoutMs;
