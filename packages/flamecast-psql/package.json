@@ -17,7 +17,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.package.json && cp -r src/migrations dist/migrations",
     "test": "vitest run",
-    "psql:generate": "drizzle-kit generate --config src/drizzle.config.ts"
+    "psql:generate": "drizzle-kit generate --config src/drizzle.config.ts",
+    "build:package": "tsc -p tsconfig.package.json && cp -r src/migrations dist/migrations"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.4.1",

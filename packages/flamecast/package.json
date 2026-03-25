@@ -61,10 +61,7 @@
     "generate:routes": "tsx scripts/generate-route-tree.ts",
     "start": "node dist/cli.js",
     "test": "vitest run --config vitest.integration.config.ts",
-    "test:api:coverage": "vitest run --coverage --config vitest.integration.config.ts",
-    "alchemy:deploy": "alchemy deploy",
-    "alchemy:dev": "alchemy dev",
-    "alchemy:destroy": "alchemy destroy"
+    "test:api:coverage": "vitest run --coverage --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.16.1",
@@ -76,7 +73,6 @@
     "@tanstack/react-query": "^5.91.0",
     "@tanstack/react-router": "^1.167.5",
     "@vitejs/plugin-react": "^6.0.1",
-    "alchemy": "^0.89.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

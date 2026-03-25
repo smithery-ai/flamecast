@@ -1,32 +1,16 @@
 /* oxlint-disable no-type-assertion/no-type-assertion */
-import { describe, expect } from "vitest";
-import alchemy from "alchemy";
-import "alchemy/test/vitest";
+import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
-import { hc } from "hono/client";
 import { Flamecast } from "../src/flamecast/index.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
-import { createApi, type AppType } from "../src/flamecast/api.js";
+import { createApi } from "../src/flamecast/api.js";
+import { createClient } from "./fixtures/test-helpers.js";
 import type { Runtime } from "../src/flamecast/runtime.js";
 import type { AgentTemplate, PendingPermission } from "../src/shared/session.js";
 import type {
   SessionHostStartResponse,
   PermissionRequestEvent,
 } from "../src/shared/session-host-protocol.js";
-
-type AlchemyTestFactory = (meta: ImportMeta, opts: { prefix: string }) => typeof describe;
-
-function isAlchemyTestFactory(value: unknown): value is AlchemyTestFactory {
-  return typeof value === "function";
-}
-
-const maybeAlchemyTest = Reflect.get(alchemy, "test");
-
-if (!isAlchemyTestFactory(maybeAlchemyTest)) {
-  throw new Error("alchemy.test is unavailable");
-}
-
-const test = maybeAlchemyTest(import.meta, { prefix: "phase1" });
 
 // ---------------------------------------------------------------------------
 // Mock Runtime — implements Runtime interface for unit/integration tests
@@ -82,20 +66,6 @@ function createMockRuntime(): Runtime {
 }
 
 // ---------------------------------------------------------------------------
-// Helper — build an hc client from a Flamecast instance
-// ---------------------------------------------------------------------------
-
-function createClient(flamecast: Flamecast) {
-  const api = createApi(flamecast);
-  const app = new Hono().route("/api", api);
-  return hc<AppType>("http://localhost/api", {
-    fetch(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
-      return app.fetch(new Request(String(input), init));
-    },
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Sample agent templates matching the "Example agent" and "Codex ACP" shape
 // ---------------------------------------------------------------------------
 
@@ -118,7 +88,7 @@ const codexTemplate: AgentTemplate = {
 // ===========================================================================
 
 describe("template seeding", () => {
-  test("returns seeded templates via GET /api/agent-templates", async (scope: unknown) => {
+  it("returns seeded templates via GET /api/agent-templates", async () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
@@ -152,11 +122,10 @@ describe("template seeding", () => {
       expect(codex!.runtime).toEqual({ provider: "local" });
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("returns empty templates when none are seeded", async (scope: unknown) => {
+  it("returns empty templates when none are seeded", async () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
@@ -170,7 +139,6 @@ describe("template seeding", () => {
       expect(await res.json()).toEqual([]);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });
@@ -180,7 +148,7 @@ describe("template seeding", () => {
 // ===========================================================================
 
 describe("start from template", () => {
-  test("creates a session via POST /api/agents with agentTemplateId", async (scope: unknown) => {
+  it("creates a session via POST /api/agents with agentTemplateId", async () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
@@ -203,11 +171,10 @@ describe("start from template", () => {
       expect(session.websocketUrl).toBeTruthy();
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("rejects unknown template id", async (scope: unknown) => {
+  it("rejects unknown template id", async () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
@@ -226,7 +193,6 @@ describe("start from template", () => {
       expect(body.error).toMatch(/nonexistent/i);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });
@@ -236,7 +202,7 @@ describe("start from template", () => {
 // ===========================================================================
 
 describe("permission event shape", () => {
-  test("PendingPermission schema has flat shape with requestId, toolCallId, title, kind, options", async (scope: unknown) => {
+  it("PendingPermission schema has flat shape with requestId, toolCallId, title, kind, options", async () => {
     // Verify the PendingPermission type has the correct flat shape
     // (not wrapped in a nested `pendingPermission` key).
     // This is the critical contract the frontend relies on.
@@ -265,11 +231,9 @@ describe("permission event shape", () => {
       name: "Allow",
       kind: "approve",
     });
-
-    await alchemy.destroy(scope);
   });
 
-  test("PermissionRequestEvent shape matches PendingPermission for frontend derivation", async (scope: unknown) => {
+  it("PermissionRequestEvent shape matches PendingPermission for frontend derivation", async () => {
     // The frontend derives pendingPermission from WS events like:
     //   if (event.type === "permission_request" && event.data.requestId) {
     //     return event.data as PermissionRequestEvent;
@@ -307,11 +271,9 @@ describe("permission event shape", () => {
     // Verify the frontend derivation logic works: when a permission_request
     // event arrives via WS, event.data.requestId must be truthy
     expect(wsEvent.requestId).toBeTruthy();
-
-    await alchemy.destroy(scope);
   });
 
-  test("snapshotSession returns flat pendingPermission in session response", async (scope: unknown) => {
+  it("snapshotSession returns flat pendingPermission in session response", async () => {
     // Create a Flamecast instance, create a session, then manually
     // inject a pendingPermission into storage and verify the GET response
     // returns it at the top level (not nested).
@@ -371,7 +333,6 @@ describe("permission event shape", () => {
       });
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });
@@ -381,7 +342,7 @@ describe("permission event shape", () => {
 // ===========================================================================
 
 describe("API contract with runtimes option", () => {
-  test("list agents (empty)", async (scope: unknown) => {
+  it("list agents (empty)", async () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
@@ -395,11 +356,10 @@ describe("API contract with runtimes option", () => {
       expect(await res.json()).toEqual([]);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("404 for unknown agent", async (scope: unknown) => {
+  it("404 for unknown agent", async () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
@@ -414,11 +374,10 @@ describe("API contract with runtimes option", () => {
       expect(res.status).toBe(404);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("session lifecycle with create get list terminate", async (scope: unknown) => {
+  it("session lifecycle with create get list terminate", async () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
@@ -463,11 +422,10 @@ describe("API contract with runtimes option", () => {
       expect(killRes.status).toBe(200);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("health endpoint works with runtimes", async (scope: unknown) => {
+  it("health endpoint works with runtimes", async () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
@@ -484,11 +442,10 @@ describe("API contract with runtimes option", () => {
       expect(body).toEqual({ status: "ok", sessions: 0 });
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("session uses template runtime provider", async (scope: unknown) => {
+  it("session uses template runtime provider", async () => {
     const storage = new MemoryFlamecastStorage();
     const localRuntime = createMockRuntime();
     const flamecast = new Flamecast({
@@ -510,11 +467,10 @@ describe("API contract with runtimes option", () => {
       expect(session.agentName).toBe("Example agent");
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("rejects session when runtime provider is missing", async (scope: unknown) => {
+  it("rejects session when runtime provider is missing", async () => {
     const storage = new MemoryFlamecastStorage();
     // Only register a "cloud" runtime, but template references "local"
     const flamecast = new Flamecast({
@@ -534,11 +490,10 @@ describe("API contract with runtimes option", () => {
       expect(body.error).toMatch(/local/i);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("register and list user templates alongside seeded templates", async (scope: unknown) => {
+  it("register and list user templates alongside seeded templates", async () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
@@ -568,7 +523,6 @@ describe("API contract with runtimes option", () => {
       expect(templates[1].name).toBe("Custom agent");
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });

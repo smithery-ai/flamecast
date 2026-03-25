@@ -2,14 +2,15 @@
 /* oxlint-disable no-type-assertion/no-type-assertion */
 import { spawn, exec, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer } from "node:http";
 import path from "node:path";
 import { Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import { WebSocketServer, WebSocket } from "ws";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { startFileWatcher, type FileChange } from "./file-watcher.js";
+import { readBody, jsonResponse } from "./http-utils.js";
 // Matches SessionHostStartRequest / SessionHostStartResponse from @flamecast shared types
 interface BridgeStartRequest {
   command: string;
@@ -32,7 +33,7 @@ import { walkDirectory } from "./walk-directory.js";
 
 // ---- Config from environment ----
 
-const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT ?? "8080", 10);
+const SESSION_HOST_PORT = parseInt(process.env.SESSION_HOST_PORT ?? "8787", 10);
 
 // ---- Types ----
 
@@ -126,7 +127,6 @@ function createAcpClient(): acp.Client {
 
     readTextFile: async (params: acp.ReadTextFileRequest) => {
       emitRpc(acp.CLIENT_METHODS.fs_read_text_file, "agent_to_client", "request", params);
-      const { readFile } = await import("node:fs/promises");
       const content = await readFile(params.path, "utf8");
       const lines = content.split("\n");
       const startLine = Math.max(params.line ?? 0, 0);
@@ -141,7 +141,6 @@ function createAcpClient(): acp.Client {
 
     writeTextFile: async (params: acp.WriteTextFileRequest) => {
       emitRpc(acp.CLIENT_METHODS.fs_write_text_file, "agent_to_client", "request", params);
-      const { writeFile } = await import("node:fs/promises");
       await writeFile(params.path, params.content, "utf8");
       const response: acp.WriteTextFileResponse = {};
       emitRpc(acp.CLIENT_METHODS.fs_write_text_file, "client_to_agent", "response", response);
@@ -238,7 +237,11 @@ async function handleControl(ws: WebSocket, msg: ControlMessage): Promise<void> 
         const resolver = permissionResolvers.get(msg.requestId);
         if (resolver) {
           permissionResolvers.delete(msg.requestId);
-          const response = msg.body as unknown as acp.RequestPermissionResponse;
+          // ACP SDK expects { outcome: { outcome: "selected", optionId } } or { outcome: { outcome: "cancelled" } }
+          const body = msg.body as Record<string, unknown>;
+          const response: acp.RequestPermissionResponse = body.optionId
+            ? { outcome: { outcome: "selected", optionId: body.optionId as string } }
+            : { outcome: { outcome: "cancelled" } };
           emitRpc(
             acp.CLIENT_METHODS.session_request_permission,
             "client_to_agent",
@@ -246,6 +249,12 @@ async function handleControl(ws: WebSocket, msg: ControlMessage): Promise<void> 
             response,
           );
           resolver(response);
+          // Notify all clients that the permission was resolved
+          const outcome = response.outcome.outcome === "selected" ? "approved" : "rejected";
+          emitEvent(`permission_${outcome}`, {
+            requestId: msg.requestId,
+            response,
+          });
         }
         break;
       }
@@ -311,6 +320,20 @@ async function startSession(
   const workspace = req.workspace ?? process.cwd();
   sessionWorkspace = workspace;
 
+  try {
+    return await doStartSession(req, workspace, serverPort);
+  } catch (err) {
+    // Clean up partial state if handshake or spawn failed
+    resetSession();
+    throw err;
+  }
+}
+
+async function doStartSession(
+  req: BridgeStartRequest,
+  workspace: string,
+  serverPort: number,
+): Promise<BridgeStartResponse> {
   // SMI-1677: Run optional setup command before spawning agent.
   // RUNTIME_SETUP_ENABLED is set by the Container class (deployed mode only).
   if (req.setup && process.env.RUNTIME_SETUP_ENABLED) {
@@ -334,6 +357,30 @@ async function startSession(
   }
 
   agent = agentProcess;
+
+  // Race the ACP handshake against the agent process exiting early.
+  // If the process dies (e.g. command not found), reject immediately
+  // instead of hanging forever waiting for ACP responses on a dead pipe.
+  let rejectEarlyExit: ((err: Error) => void) | null = null;
+  const earlyExit = new Promise<never>((_, reject) => {
+    rejectEarlyExit = reject;
+  });
+  // Prevent unhandled rejection if earlyExit loses the race
+  earlyExit.catch(() => {});
+
+  const onSpawnError = (err: Error) => {
+    rejectEarlyExit?.(new Error(`Agent process failed to start: ${err.message}`));
+  };
+  const onEarlyExit = (code: number | null, signal: string | null) => {
+    rejectEarlyExit?.(
+      new Error(
+        `Agent process exited during startup (code=${code}, signal=${signal}). ` +
+          `Is "${req.command}" available in this environment?`,
+      ),
+    );
+  };
+  agentProcess.on("error", onSpawnError);
+  agentProcess.on("exit", onEarlyExit);
 
   // Convert to Web Streams for ACP SDK
   const agentInput = Writable.toWeb(agentProcess.stdin) as WritableStream<Uint8Array>;
@@ -359,16 +406,23 @@ async function startSession(
     },
   };
 
+  // Race handshake against early exit — if the process dies, we get a clear error
   emitRpc(acp.AGENT_METHODS.initialize, "client_to_agent", "request", initParams);
-  const initResult = await conn.initialize(initParams);
+  const initResult = await Promise.race([conn.initialize(initParams), earlyExit]);
   emitRpc(acp.AGENT_METHODS.initialize, "agent_to_client", "response", initResult);
 
   const newSessionParams: acp.NewSessionRequest = { cwd: workspace, mcpServers: [] };
   emitRpc(acp.AGENT_METHODS.session_new, "client_to_agent", "request", newSessionParams);
-  const sessionResult = await conn.newSession(newSessionParams);
+  const sessionResult = await Promise.race([conn.newSession(newSessionParams), earlyExit]);
   emitRpc(acp.AGENT_METHODS.session_new, "agent_to_client", "response", sessionResult);
 
   sessionId = sessionResult.sessionId;
+
+  // Handshake succeeded — remove the startup-phase listeners and install
+  // the normal exit handler for the remainder of the session's lifetime.
+  agentProcess.removeListener("error", onSpawnError);
+  agentProcess.removeListener("exit", onEarlyExit);
+  rejectEarlyExit = null;
 
   // Start file watcher
   fileWatcher = startFileWatcher(workspace, ["node_modules", ".git"], (changes: FileChange[]) => {
@@ -377,7 +431,7 @@ async function startSession(
     void broadcastFsSnapshot(workspace);
   });
 
-  // Handle agent exit
+  // Handle agent exit (post-startup)
   agentProcess.on("exit", (code) => {
     emitEvent("session.terminated", { exitCode: code });
     resetSession();
@@ -409,20 +463,6 @@ function terminateSession(): void {
 
 // ---- HTTP server ----
 
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", (chunk: Buffer) => (body += chunk.toString()));
-    req.on("end", () => resolve(body));
-    req.on("error", reject);
-  });
-}
-
-function jsonResponse(res: ServerResponse, status: number, data: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(data));
-}
-
 const httpServer = createServer(async (req, res) => {
   try {
     if (req.method === "GET" && req.url === "/health") {
@@ -436,7 +476,7 @@ const httpServer = createServer(async (req, res) => {
     if (req.method === "POST" && req.url === "/start") {
       const body = JSON.parse(await readBody(req)) as BridgeStartRequest;
       const addr = httpServer.address();
-      const port = typeof addr === "object" && addr ? addr.port : BRIDGE_PORT;
+      const port = typeof addr === "object" && addr ? addr.port : SESSION_HOST_PORT;
       const result = await startSession(body, port);
       jsonResponse(res, 200, result);
       return;
@@ -486,8 +526,8 @@ wss.on("connection", (ws) => {
 
 // ---- Start ----
 
-httpServer.listen(BRIDGE_PORT, () => {
+httpServer.listen(SESSION_HOST_PORT, () => {
   const addr = httpServer.address();
-  const port = typeof addr === "object" && addr ? addr.port : BRIDGE_PORT;
+  const port = typeof addr === "object" && addr ? addr.port : SESSION_HOST_PORT;
   console.log(`[session-host] listening on port ${port} (idle, waiting for POST /start)`);
 });

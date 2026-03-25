@@ -21,9 +21,6 @@
     "test:api:coverage": "turbo run test:api:coverage --filter=@flamecast/sdk",
     "test:server": "pnpm --filter @acp/server test",
     "check": "pnpm ci:lint && pnpm build && pnpm test:api:coverage && pnpm test:server && pnpm knip",
-    "alchemy:deploy": "turbo run alchemy:deploy --filter=@flamecast/sdk",
-    "alchemy:dev": "turbo run alchemy:dev --filter=@flamecast/sdk",
-    "alchemy:destroy": "turbo run alchemy:destroy --filter=@flamecast/sdk",
     "clean": "git clean -ffdX"
   },
   "devDependencies": {

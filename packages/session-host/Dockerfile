@@ -1,7 +1,8 @@
 FROM node:22-slim
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY packages/session-host/dist/ ./dist/
-COPY packages/session-host/package.json ./
+COPY dist/ ./dist/
+COPY package.json ./
 RUN npm install --omit=dev
 ENV SESSION_HOST_PORT=8080
 EXPOSE 8080

@@ -9,6 +9,7 @@
     "test": "echo 'no tests'"
   },
   "dependencies": {
+    "@flamecast/runtime-docker": "workspace:*",
     "@flamecast/sdk": "workspace:*",
     "@flamecast/storage-psql": "workspace:*"
   },
