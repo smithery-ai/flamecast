@@ -1,3 +1,4 @@
+import { dirname, basename } from "node:path";
 import Docker from "dockerode";
 import type { Runtime } from "@flamecast/sdk/runtime";
 
@@ -94,7 +95,13 @@ export class DockerRuntime implements Runtime {
           headers: { "Content-Type": "application/json" },
         });
       } catch (err) {
+        // Clean up the container if it was started but /start failed
+        const leaked = this.containers.get(sessionId);
         this.containers.delete(sessionId);
+        if (leaked) {
+          const c = this.docker.getContainer(leaked.containerId);
+          await c.kill().catch(() => {});
+        }
         return new Response(
           JSON.stringify({
             error: err instanceof Error ? err.message : "Failed to start container",
@@ -193,7 +200,6 @@ export class DockerRuntime implements Runtime {
     const cached = this.builtImages.get(dockerfilePath);
     if (cached) return cached;
 
-    const { dirname, basename } = await import("node:path");
     const context = dirname(dockerfilePath);
     const dockerfileName = basename(dockerfilePath);
 

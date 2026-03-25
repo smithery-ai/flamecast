@@ -13,6 +13,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readBody } from "./http-utils.js";
 
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const ROUTER_PORT = parseInt(process.env.ROUTER_PORT ?? "8787", 10);
@@ -51,15 +52,6 @@ function waitForPort(proc: ChildProcess, timeoutMs = 30_000): Promise<number> {
       clearTimeout(timeout);
       reject(new Error(`Session host exited with code ${code}`));
     });
-  });
-}
-
-function readBody(req: import("node:http").IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", (chunk: Buffer) => (body += chunk.toString()));
-    req.on("end", () => resolve(body));
-    req.on("error", reject);
   });
 }
 

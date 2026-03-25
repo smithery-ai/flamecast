@@ -2,14 +2,15 @@
 /* oxlint-disable no-type-assertion/no-type-assertion */
 import { spawn, exec, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer } from "node:http";
 import path from "node:path";
 import { Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import { WebSocketServer, WebSocket } from "ws";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { startFileWatcher, type FileChange } from "./file-watcher.js";
+import { readBody, jsonResponse } from "./http-utils.js";
 // Matches SessionHostStartRequest / SessionHostStartResponse from @flamecast shared types
 interface BridgeStartRequest {
   command: string;
@@ -126,7 +127,6 @@ function createAcpClient(): acp.Client {
 
     readTextFile: async (params: acp.ReadTextFileRequest) => {
       emitRpc(acp.CLIENT_METHODS.fs_read_text_file, "agent_to_client", "request", params);
-      const { readFile } = await import("node:fs/promises");
       const content = await readFile(params.path, "utf8");
       const lines = content.split("\n");
       const startLine = Math.max(params.line ?? 0, 0);
@@ -141,7 +141,6 @@ function createAcpClient(): acp.Client {
 
     writeTextFile: async (params: acp.WriteTextFileRequest) => {
       emitRpc(acp.CLIENT_METHODS.fs_write_text_file, "agent_to_client", "request", params);
-      const { writeFile } = await import("node:fs/promises");
       await writeFile(params.path, params.content, "utf8");
       const response: acp.WriteTextFileResponse = {};
       emitRpc(acp.CLIENT_METHODS.fs_write_text_file, "client_to_agent", "response", response);
@@ -463,20 +462,6 @@ function terminateSession(): void {
 }
 
 // ---- HTTP server ----
-
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", (chunk: Buffer) => (body += chunk.toString()));
-    req.on("end", () => resolve(body));
-    req.on("error", reject);
-  });
-}
-
-function jsonResponse(res: ServerResponse, status: number, data: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(data));
-}
 
 const httpServer = createServer(async (req, res) => {
   try {
