@@ -115,7 +115,7 @@ export class Flamecast<
   private readyPromise: Promise<void> | null = null;
 
   /** The Hono app. Use with any runtime: Node, CF Workers, Vercel, etc. */
-  readonly app = createServerApp(this);
+  readonly app;
 
   constructor(opts: FlamecastOptions<R>) {
     this.storageConfig = opts.storage;
@@ -124,12 +124,18 @@ export class Flamecast<
     this.runtimesMap = opts.runtimes as Record<string, Runtime>;
     // oxlint-disable-next-line no-type-assertion/no-type-assertion
     this.sessionService = new SessionService(opts.runtimes as Record<string, Runtime>);
+    this.app = createServerApp(this);
     this.handlers = {
       onPermissionRequest: opts.onPermissionRequest,
       onSessionEnd: opts.onSessionEnd,
       onAgentMessage: opts.onAgentMessage,
       onError: opts.onError,
     };
+  }
+
+  /** Names of registered runtimes (used for API validation). */
+  get runtimeNames(): string[] {
+    return Object.keys(this.runtimesMap);
   }
 
   /** Terminate all sessions and dispose all runtimes. */
@@ -147,8 +153,21 @@ export class Flamecast<
     return this.requireStorage().listAgentTemplates();
   }
 
-  async registerAgentTemplate(body: RegisterAgentTemplateBody): Promise<AgentTemplate> {
+  async registerAgentTemplate(
+    body: RegisterAgentTemplateBody & {
+      runtime?: { provider: RuntimeNames<R> } & Record<string, unknown>;
+    },
+  ): Promise<AgentTemplate> {
     await this.ensureReady();
+
+    const provider = body.runtime?.provider ?? this.runtimeNames[0] ?? "default";
+
+    // Validate provider against registered runtimes
+    if (!this.runtimesMap[provider]) {
+      throw new Error(
+        `Unknown runtime: "${provider}". Available: ${this.runtimeNames.join(", ")}`,
+      );
+    }
 
     const template: AgentTemplate = {
       id: randomUUID(),
@@ -157,7 +176,7 @@ export class Flamecast<
         command: body.spawn.command,
         args: [...body.spawn.args],
       },
-      runtime: body.runtime ? { ...body.runtime } : { provider: "local" },
+      runtime: body.runtime ? { ...body.runtime } : { provider },
     };
 
     await this.requireStorage().saveAgentTemplate(template);

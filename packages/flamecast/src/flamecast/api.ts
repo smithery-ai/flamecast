@@ -1,7 +1,11 @@
 import { Hono, type Context } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import type { Flamecast } from "./index.js";
-import { CreateSessionBodySchema, RegisterAgentTemplateBodySchema } from "../shared/session.js";
+import {
+  CreateSessionBodySchema,
+  RegisterAgentTemplateBodySchema,
+  createRegisterAgentTemplateBodySchema,
+} from "../shared/session.js";
 
 export type FlamecastApi = Pick<
   Flamecast,
@@ -11,6 +15,7 @@ export type FlamecastApi = Pick<
   | "listSessions"
   | "registerAgentTemplate"
   | "terminateSession"
+  | "runtimeNames"
 >;
 
 function toErrorMessage(error: unknown, fallback = "Unknown error"): string {
@@ -30,6 +35,13 @@ function isClientError(error: unknown): boolean {
 }
 
 export function createApi(flamecast: FlamecastApi) {
+  // Build a runtime-aware schema that validates provider against registered names.
+  const names = flamecast.runtimeNames;
+  const registerSchema =
+    names.length > 0
+      ? createRegisterAgentTemplateBodySchema(names as [string, ...string[]])
+      : RegisterAgentTemplateBodySchema;
+
   // The agent routes are public API sugar over the current single-session runtime model.
   const getAgentSnapshot = async (c: Context, agentId: string) => {
     try {
@@ -62,7 +74,7 @@ export function createApi(flamecast: FlamecastApi) {
         return c.json({ error: toErrorMessage(error) }, 500);
       }
     })
-    .post("/agent-templates", zValidator("json", RegisterAgentTemplateBodySchema), async (c) => {
+    .post("/agent-templates", zValidator("json", registerSchema), async (c) => {
       try {
         const body = c.req.valid("json");
         const template = await flamecast.registerAgentTemplate(body);

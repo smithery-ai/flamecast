@@ -12,7 +12,7 @@ const sampleAgentTemplate: AgentTemplate = {
   id: "codex",
   name: "Codex ACP",
   spawn: { command: "pnpm", args: ["dlx", "@zed-industries/codex-acp"] },
-  runtime: { provider: "local" },
+  runtime: { provider: "default" },
 };
 
 const sampleSession: Session = {
@@ -44,8 +44,9 @@ function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastAp
       id: "registered-template",
       name: body.name,
       spawn: body.spawn,
-      runtime: body.runtime ?? { provider: "local" },
+      runtime: body.runtime ?? { provider: "default" },
     })),
+    runtimeNames: ["default"],
     ...overrides,
   };
 }
@@ -126,7 +127,7 @@ describe("API server surface", () => {
       id: "registered-template",
       name: "Custom agent",
       spawn: { command: "node", args: ["agent.js"] },
-      runtime: { provider: "local" },
+      runtime: { provider: "default" },
     });
   });
 

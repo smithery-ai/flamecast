@@ -31,6 +31,25 @@ export const RegisterAgentTemplateBodySchema = z.object({
 });
 export type RegisterAgentTemplateBody = z.infer<typeof RegisterAgentTemplateBodySchema>;
 
+/**
+ * Create a RegisterAgentTemplateBodySchema with runtime.provider constrained
+ * to a known set of runtime names. Use at the API boundary for runtime validation.
+ */
+export function createRegisterAgentTemplateBodySchema(runtimeNames: [string, ...string[]]) {
+  return z.object({
+    name: z.string().min(1),
+    spawn: AgentSpawnSchema,
+    runtime: z
+      .object({
+        provider: z.enum(runtimeNames),
+        image: z.string().optional(),
+        dockerfile: z.string().optional(),
+        setup: z.string().optional(),
+      })
+      .optional(),
+  });
+}
+
 export const SessionLogSchema = z.object({
   timestamp: z.string(),
   type: z.string(),
