@@ -7,9 +7,7 @@
  */
 
 /* oxlint-disable no-type-assertion/no-type-assertion */
-import { describe, expect, vi } from "vitest";
-import alchemy from "alchemy";
-import "alchemy/test/vitest";
+import { describe, it, expect, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import type { Runtime } from "../src/flamecast/runtime.js";
@@ -17,26 +15,12 @@ import type { PermissionRequestContext } from "../src/flamecast/index.js";
 import type { PermissionRequestEvent } from "../src/shared/session-host-protocol.js";
 import { InProcessSessionHost } from "./fixtures/in-process-session-host.js";
 
-type AlchemyTestFactory = (meta: ImportMeta, opts: { prefix: string }) => typeof describe;
-
-function isAlchemyTestFactory(value: unknown): value is AlchemyTestFactory {
-  return typeof value === "function";
-}
-
-const maybeAlchemyTest = Reflect.get(alchemy, "test");
-
-if (!isAlchemyTestFactory(maybeAlchemyTest)) {
-  throw new Error("alchemy.test is unavailable");
-}
-
-const test = maybeAlchemyTest(import.meta, { prefix: "permission-flow" });
-
 // ===========================================================================
 // 1. Permission event shape validation
 // ===========================================================================
 
 describe("permission event shape", () => {
-  test("injected permission request matches PermissionRequestEvent shape", async (scope: unknown) => {
+  it("injected permission request matches PermissionRequestEvent shape", async () => {
     const runtime = new InProcessSessionHost();
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
@@ -79,7 +63,6 @@ describe("permission event shape", () => {
       expect(lastPermEvent.requestId).toBe("req-shape-test");
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });
@@ -89,7 +72,7 @@ describe("permission event shape", () => {
 // ===========================================================================
 
 describe("permission approve flow", () => {
-  test("approve via handlePermissionRequest with c.allow()", async (scope: unknown) => {
+  it("approve via handlePermissionRequest with c.allow()", async () => {
     const onPermissionRequest = vi.fn(async (c: PermissionRequestContext<{ local: Runtime }>) => {
       return c.allow();
     });
@@ -133,7 +116,6 @@ describe("permission approve flow", () => {
       expect(ctx.options).toHaveLength(2);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });
@@ -143,7 +125,7 @@ describe("permission approve flow", () => {
 // ===========================================================================
 
 describe("permission reject flow", () => {
-  test("reject via handlePermissionRequest with c.deny()", async (scope: unknown) => {
+  it("reject via handlePermissionRequest with c.deny()", async () => {
     const onPermissionRequest = vi.fn(async (c: PermissionRequestContext<{ local: Runtime }>) => {
       return c.deny();
     });
@@ -176,11 +158,10 @@ describe("permission reject flow", () => {
       expect(response).toEqual({ optionId: "no" });
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("reject flow - handler returns explicit optionId", async (scope: unknown) => {
+  it("reject flow - handler returns explicit optionId", async () => {
     const onPermissionRequest = vi.fn(async () => {
       return { optionId: "custom-reject" };
     });
@@ -212,7 +193,6 @@ describe("permission reject flow", () => {
       expect(response).toEqual({ optionId: "custom-reject" });
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });
@@ -222,7 +202,7 @@ describe("permission reject flow", () => {
 // ===========================================================================
 
 describe("onPermissionRequest handler", () => {
-  test("handler is called when registered", async (scope: unknown) => {
+  it("handler is called when registered", async () => {
     const handlerCalls: Array<{
       requestId: string;
       title: string;
@@ -265,11 +245,10 @@ describe("onPermissionRequest handler", () => {
       expect(handlerCalls[0].sessionId).toBe(session.id);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("returning undefined defers (no handler registered)", async (scope: unknown) => {
+  it("returning undefined defers (no handler registered)", async () => {
     const runtime = new InProcessSessionHost();
     const storage = new MemoryFlamecastStorage();
     // No onPermissionRequest handler registered
@@ -294,11 +273,10 @@ describe("onPermissionRequest handler", () => {
       expect(response).toBeUndefined();
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("handler returning undefined explicitly defers to WS", async (scope: unknown) => {
+  it("handler returning undefined explicitly defers to WS", async () => {
     const onPermissionRequest = vi.fn(async () => {
       // Explicitly defer — let the WebSocket handle it
       return undefined;
@@ -328,7 +306,6 @@ describe("onPermissionRequest handler", () => {
       expect(response).toBeUndefined();
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });
@@ -338,7 +315,7 @@ describe("onPermissionRequest handler", () => {
 // ===========================================================================
 
 describe("InProcessSessionHost permission management", () => {
-  test("inject, list, and resolve permissions", async (scope: unknown) => {
+  it("inject, list, and resolve permissions", async () => {
     const runtime = new InProcessSessionHost();
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
@@ -376,11 +353,10 @@ describe("InProcessSessionHost permission management", () => {
       expect(resolvedEvents).toHaveLength(1);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("cancel permission resolves with cancelled outcome", async (scope: unknown) => {
+  it("cancel permission resolves with cancelled outcome", async () => {
     const runtime = new InProcessSessionHost();
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
@@ -410,11 +386,10 @@ describe("InProcessSessionHost permission management", () => {
       expect(data.response).toEqual({ outcome: "cancelled" });
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("permissions auto-emitted with permissionBehavior config", async (scope: unknown) => {
+  it("permissions auto-emitted with permissionBehavior config", async () => {
     const runtime = new InProcessSessionHost({ permissionBehavior: "approve" });
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
@@ -434,7 +409,6 @@ describe("InProcessSessionHost permission management", () => {
       expect(permEvents.length).toBeGreaterThanOrEqual(1);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });

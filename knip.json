@@ -8,7 +8,6 @@
   "workspaces": {
     "packages/flamecast": {
       "entry": [
-        "alchemy.run.ts",
         "src/cli.ts",
         "src/client/main.tsx",
         "src/client/routeTree.gen.ts",
@@ -16,7 +15,6 @@
         "src/flamecast/client.ts",
         "src/flamecast/index.ts",
         "src/index.ts",
-        "src/worker.ts",
         "test/**/*.test.ts"
       ],
       "ignoreFiles": [

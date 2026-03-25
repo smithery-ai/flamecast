@@ -1,25 +1,9 @@
-import { describe, expect, vi } from "vitest";
-import alchemy from "alchemy";
-import "alchemy/test/vitest";
+import { describe, it, expect, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import type { Runtime } from "../src/flamecast/runtime.js";
 import type { PermissionRequestContext, SessionEndContext } from "../src/flamecast/index.js";
 import type { SessionHostStartResponse } from "../src/shared/session-host-protocol.js";
-
-type AlchemyTestFactory = (meta: ImportMeta, opts: { prefix: string }) => typeof describe;
-
-function isAlchemyTestFactory(value: unknown): value is AlchemyTestFactory {
-  return typeof value === "function";
-}
-
-const maybeAlchemyTest = Reflect.get(alchemy, "test");
-
-if (!isAlchemyTestFactory(maybeAlchemyTest)) {
-  throw new Error("alchemy.test is unavailable");
-}
-
-const test = maybeAlchemyTest(import.meta, { prefix: "event-handlers" });
 
 // ---------------------------------------------------------------------------
 // Mock Runtime
@@ -71,7 +55,7 @@ function createMockRuntime(): Runtime {
 // ===========================================================================
 
 describe("generic Flamecast<R> type safety", () => {
-  test("infers runtime names from runtimes map", async (scope: unknown) => {
+  it("infers runtime names from runtimes map", async () => {
     // This test primarily verifies compile-time correctness.
     // If it compiles, the generics work.
     const flamecast = new Flamecast({
@@ -87,11 +71,10 @@ describe("generic Flamecast<R> type safety", () => {
       expect(templates).toEqual([]);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("accepts event handlers with generic context", async (scope: unknown) => {
+  it("accepts event handlers with generic context", async () => {
     const onSessionEnd = vi.fn<[SessionEndContext<{ local: Runtime }>]>();
 
     const flamecast = new Flamecast({
@@ -104,11 +87,10 @@ describe("generic Flamecast<R> type safety", () => {
       expect(flamecast.handlers.onSessionEnd).toBe(onSessionEnd);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("defaults to Record<string, Runtime> when no generic specified", async (scope: unknown) => {
+  it("defaults to Record<string, Runtime> when no generic specified", async () => {
     // Unparameterized Flamecast should still work (backward compatible)
     const flamecast: Flamecast = new Flamecast({
       runtimes: { local: createMockRuntime() },
@@ -119,7 +101,6 @@ describe("generic Flamecast<R> type safety", () => {
       expect(templates).toEqual([]);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });
@@ -129,7 +110,7 @@ describe("generic Flamecast<R> type safety", () => {
 // ===========================================================================
 
 describe("onSessionEnd handler", () => {
-  test("is called when a session is terminated", async (scope: unknown) => {
+  it("is called when a session is terminated", async () => {
     const onSessionEnd = vi.fn<[SessionEndContext<{ local: Runtime }>]>();
 
     const storage = new MemoryFlamecastStorage();
@@ -159,11 +140,10 @@ describe("onSessionEnd handler", () => {
       expect(ctx.session.startedAt).toBeTruthy();
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("is not called when no handler is registered", async (scope: unknown) => {
+  it("is not called when no handler is registered", async () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
@@ -180,11 +160,10 @@ describe("onSessionEnd handler", () => {
       expect(flamecast.handlers.onSessionEnd).toBeUndefined();
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("handler errors are caught and do not break termination", async (scope: unknown) => {
+  it("handler errors are caught and do not break termination", async () => {
     const onSessionEnd = vi.fn().mockRejectedValue(new Error("handler boom"));
 
     const storage = new MemoryFlamecastStorage();
@@ -209,7 +188,6 @@ describe("onSessionEnd handler", () => {
       expect(meta?.status).toBe("killed");
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });
@@ -219,7 +197,7 @@ describe("onSessionEnd handler", () => {
 // ===========================================================================
 
 describe("onPermissionRequest handler", () => {
-  test("is invoked via handlePermissionRequest and returns handler response", async (scope: unknown) => {
+  it("is invoked via handlePermissionRequest and returns handler response", async () => {
     const onPermissionRequest = vi.fn(async (c: PermissionRequestContext<{ local: Runtime }>) => {
       return c.allow();
     });
@@ -260,11 +238,10 @@ describe("onPermissionRequest handler", () => {
       expect(ctx.options).toHaveLength(2);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("deny() convenience returns first reject option", async (scope: unknown) => {
+  it("deny() convenience returns first reject option", async () => {
     const onPermissionRequest = vi.fn(async (c: PermissionRequestContext<{ local: Runtime }>) => {
       return c.deny();
     });
@@ -295,11 +272,10 @@ describe("onPermissionRequest handler", () => {
       expect(response).toEqual({ optionId: "no" });
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("returns undefined when no handler is registered", async (scope: unknown) => {
+  it("returns undefined when no handler is registered", async () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
@@ -321,11 +297,10 @@ describe("onPermissionRequest handler", () => {
       expect(response).toBeUndefined();
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("handler errors are caught and return undefined", async (scope: unknown) => {
+  it("handler errors are caught and return undefined", async () => {
     const onPermissionRequest = vi.fn().mockRejectedValue(new Error("handler boom"));
 
     const storage = new MemoryFlamecastStorage();
@@ -351,11 +326,10 @@ describe("onPermissionRequest handler", () => {
       expect(onPermissionRequest).toHaveBeenCalledTimes(1);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("allow() returns cancelled when no approve option exists", async (scope: unknown) => {
+  it("allow() returns cancelled when no approve option exists", async () => {
     const onPermissionRequest = vi.fn(async (c: PermissionRequestContext<{ local: Runtime }>) => {
       return c.allow();
     });
@@ -383,7 +357,6 @@ describe("onPermissionRequest handler", () => {
       expect(response).toEqual({ outcome: "cancelled" });
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });
@@ -393,7 +366,7 @@ describe("onPermissionRequest handler", () => {
 // ===========================================================================
 
 describe("handlers property", () => {
-  test("exposes all registered handlers", async (scope: unknown) => {
+  it("exposes all registered handlers", async () => {
     const onPermissionRequest = vi.fn();
     const onSessionEnd = vi.fn();
 
@@ -410,7 +383,6 @@ describe("handlers property", () => {
       expect(flamecast.handlers.onError).toBeUndefined();
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });

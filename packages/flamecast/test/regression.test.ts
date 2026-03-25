@@ -2,36 +2,12 @@
  * Regression tests for bugs found during the PR #61 rollout.
  * Each test corresponds to a specific production failure.
  */
-import { describe, expect } from "vitest";
-import alchemy from "alchemy";
-import "alchemy/test/vitest";
-import { Hono } from "hono";
-import { hc } from "hono/client";
+import { describe, it, expect } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
-import { createApi, type AppType } from "../src/flamecast/api.js";
 import { InProcessSessionHost } from "./fixtures/in-process-session-host.js";
+import { createClient } from "./fixtures/test-helpers.js";
 import type { Runtime } from "../src/flamecast/runtime.js";
-
-type AlchemyTestFactory = (meta: ImportMeta, opts: { prefix: string }) => typeof describe;
-function isAlchemyTestFactory(value: unknown): value is AlchemyTestFactory {
-  return typeof value === "function";
-}
-const maybeAlchemyTest = Reflect.get(alchemy, "test");
-if (!isAlchemyTestFactory(maybeAlchemyTest)) {
-  throw new Error("alchemy.test is unavailable");
-}
-const test = maybeAlchemyTest(import.meta, { prefix: "regression" });
-
-function createClient(flamecast: Flamecast) {
-  const api = createApi(flamecast);
-  const app = new Hono().route("/api", api);
-  return hc<AppType>("http://localhost/api", {
-    fetch(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
-      return app.fetch(new Request(String(input), init));
-    },
-  });
-}
 
 /**
  * 1. ACP permission response shape
@@ -41,7 +17,7 @@ function createClient(flamecast: Flamecast) {
  * Agent errored with "Cannot read properties of undefined (reading 'outcome')".
  */
 describe("ACP permission response shape", () => {
-  test("c.allow() returns optionId matching first allow_once option", async (scope: unknown) => {
+  it("c.allow() returns optionId matching first allow_once option", async () => {
     const runtime = new InProcessSessionHost();
     const storage = new MemoryFlamecastStorage();
 
@@ -63,34 +39,30 @@ describe("ACP permission response shape", () => {
       },
     });
 
-    try {
-      const client = createClient(flamecast);
-      const res = await client.agents.$post({ json: { agentTemplateId: "test" } });
-      expect(res.status).toBe(201);
-      const session = await res.json();
+    const client = createClient(flamecast);
+    const res = await client.agents.$post({ json: { agentTemplateId: "test" } });
+    expect(res.status).toBe(201);
+    const session = await res.json();
 
-      const permissionEvent = {
-        requestId: "perm-1",
-        toolCallId: "tool-1",
-        title: "Edit config.json",
-        kind: "edit",
-        options: [
-          { optionId: "allow", name: "Allow", kind: "allow_once" },
-          { optionId: "reject", name: "Reject", kind: "reject_once" },
-        ],
-      };
+    const permissionEvent = {
+      requestId: "perm-1",
+      toolCallId: "tool-1",
+      title: "Edit config.json",
+      kind: "edit",
+      options: [
+        { optionId: "allow", name: "Allow", kind: "allow_once" },
+        { optionId: "reject", name: "Reject", kind: "reject_once" },
+      ],
+    };
 
-      const result = await flamecast.handlePermissionRequest(session.id, permissionEvent);
+    const result = await flamecast.handlePermissionRequest(session.id, permissionEvent);
 
-      // Handler was called and allow() returned the right optionId
-      expect(result).toBeDefined();
-      expect(result).toHaveProperty("optionId", "allow");
+    // Handler was called and allow() returned the right optionId
+    expect(result).toBeDefined();
+    expect(result).toHaveProperty("optionId", "allow");
 
-      // Verify allow() matched the allow_once option, not some other shape
-      expect(handlerResult).toEqual({ optionId: "allow" });
-    } finally {
-      await alchemy.destroy(scope);
-    }
+    // Verify allow() matched the allow_once option, not some other shape
+    expect(handlerResult).toEqual({ optionId: "allow" });
   });
 });
 
@@ -102,7 +74,7 @@ describe("ACP permission response shape", () => {
  * session-host only supports one session.
  */
 describe("multi-session isolation", () => {
-  test("two sessions on same runtime do not collide", async (scope: unknown) => {
+  it("two sessions on same runtime do not collide", async () => {
     const runtime = new InProcessSessionHost();
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
@@ -118,37 +90,33 @@ describe("multi-session isolation", () => {
       ],
     });
 
-    try {
-      const client = createClient(flamecast);
+    const client = createClient(flamecast);
 
-      // Create two sessions
-      const res1 = await client.agents.$post({ json: { agentTemplateId: "test" } });
-      expect(res1.status).toBe(201);
-      const session1 = await res1.json();
+    // Create two sessions
+    const res1 = await client.agents.$post({ json: { agentTemplateId: "test" } });
+    expect(res1.status).toBe(201);
+    const session1 = await res1.json();
 
-      const res2 = await client.agents.$post({ json: { agentTemplateId: "test" } });
-      expect(res2.status).toBe(201);
-      const session2 = await res2.json();
+    const res2 = await client.agents.$post({ json: { agentTemplateId: "test" } });
+    expect(res2.status).toBe(201);
+    const session2 = await res2.json();
 
-      // Both should be active with different IDs
-      expect(session1.id).not.toBe(session2.id);
-      expect(session1.status).toBe("active");
-      expect(session2.status).toBe("active");
+    // Both should be active with different IDs
+    expect(session1.id).not.toBe(session2.id);
+    expect(session1.status).toBe("active");
+    expect(session2.status).toBe("active");
 
-      // Terminate one — the other should still be active
-      const delRes = await client.agents[":agentId"].$delete({ param: { agentId: session1.id } });
-      expect(delRes.status).toBe(200);
+    // Terminate one — the other should still be active
+    const delRes = await client.agents[":agentId"].$delete({ param: { agentId: session1.id } });
+    expect(delRes.status).toBe(200);
 
-      const getRes = await client.agents[":agentId"].$get({ param: { agentId: session2.id } });
-      expect(getRes.status).toBe(200);
-      const s2 = await getRes.json();
-      expect(s2.status).toBe("active");
-    } finally {
-      await alchemy.destroy(scope);
-    }
+    const getRes = await client.agents[":agentId"].$get({ param: { agentId: session2.id } });
+    expect(getRes.status).toBe(200);
+    const s2 = await getRes.json();
+    expect(s2.status).toBe("active");
   });
 
-  test("three concurrent sessions all tracked independently", async (scope: unknown) => {
+  it("three concurrent sessions all tracked independently", async () => {
     const runtime = new InProcessSessionHost();
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
@@ -164,30 +132,26 @@ describe("multi-session isolation", () => {
       ],
     });
 
-    try {
-      const client = createClient(flamecast);
+    const client = createClient(flamecast);
 
-      const sessions = await Promise.all(
-        [1, 2, 3].map(async () => {
-          const res = await client.agents.$post({ json: { agentTemplateId: "test" } });
-          return res.json();
-        }),
-      );
+    const sessions = await Promise.all(
+      [1, 2, 3].map(async () => {
+        const res = await client.agents.$post({ json: { agentTemplateId: "test" } });
+        return res.json();
+      }),
+    );
 
-      // All different IDs
-      const ids = new Set(sessions.map((s) => s.id));
-      expect(ids.size).toBe(3);
+    // All different IDs
+    const ids = new Set(sessions.map((s) => s.id));
+    expect(ids.size).toBe(3);
 
-      // List shows all 3
-      const listRes = await client.agents.$get();
-      const list = await listRes.json();
-      expect(list.length).toBe(3);
+    // List shows all 3
+    const listRes = await client.agents.$get();
+    const list = await listRes.json();
+    expect(list.length).toBe(3);
 
-      // Runtime has all 3
-      expect(runtime.getSessionIds().length).toBe(3);
-    } finally {
-      await alchemy.destroy(scope);
-    }
+    // Runtime has all 3
+    expect(runtime.getSessionIds().length).toBe(3);
   });
 });
 
@@ -198,7 +162,7 @@ describe("multi-session isolation", () => {
  * because the provider name wasn't matched correctly.
  */
 describe("template provider dispatch", () => {
-  test("template with provider 'docker' dispatches to docker runtime, not default", async (scope: unknown) => {
+  it("template with provider 'docker' dispatches to docker runtime, not default", async () => {
     const defaultRuntime = new InProcessSessionHost();
     const dockerRuntime = new InProcessSessionHost();
     const storage = new MemoryFlamecastStorage();
@@ -224,31 +188,27 @@ describe("template provider dispatch", () => {
       ],
     });
 
-    try {
-      const client = createClient(flamecast);
+    const client = createClient(flamecast);
 
-      // Start local agent
-      const localRes = await client.agents.$post({ json: { agentTemplateId: "local-agent" } });
-      expect(localRes.status).toBe(201);
+    // Start local agent
+    const localRes = await client.agents.$post({ json: { agentTemplateId: "local-agent" } });
+    expect(localRes.status).toBe(201);
 
-      // Start docker agent
-      const dockerRes = await client.agents.$post({ json: { agentTemplateId: "docker-agent" } });
-      expect(dockerRes.status).toBe(201);
+    // Start docker agent
+    const dockerRes = await client.agents.$post({ json: { agentTemplateId: "docker-agent" } });
+    expect(dockerRes.status).toBe(201);
 
-      // Default runtime should have 1 session, docker runtime should have 1
-      expect(defaultRuntime.getSessionIds().length).toBe(1);
-      expect(dockerRuntime.getSessionIds().length).toBe(1);
+    // Default runtime should have 1 session, docker runtime should have 1
+    expect(defaultRuntime.getSessionIds().length).toBe(1);
+    expect(dockerRuntime.getSessionIds().length).toBe(1);
 
-      // They should not be mixed
-      const localSession = defaultRuntime.getSessionIds()[0];
-      const dockerSession = dockerRuntime.getSessionIds()[0];
-      expect(localSession).not.toBe(dockerSession);
-    } finally {
-      await alchemy.destroy(scope);
-    }
+    // They should not be mixed
+    const localSession = defaultRuntime.getSessionIds()[0];
+    const dockerSession = dockerRuntime.getSessionIds()[0];
+    expect(localSession).not.toBe(dockerSession);
   });
 
-  test("unknown provider returns clear error listing available runtimes", async (scope: unknown) => {
+  it("unknown provider returns clear error listing available runtimes", async () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
@@ -263,18 +223,14 @@ describe("template provider dispatch", () => {
       ],
     });
 
-    try {
-      const client = createClient(flamecast);
-      const res = await client.agents.$post({ json: { agentTemplateId: "bad" } });
-      expect(res.status).toBe(400);
-      const body = await res.json();
-      // oxlint-disable-next-line no-type-assertion/no-type-assertion
-      const errorBody = body as { error: string };
-      expect(errorBody.error).toMatch(/nonexistent/);
-      expect(errorBody.error).toMatch(/default/);
-    } finally {
-      await alchemy.destroy(scope);
-    }
+    const client = createClient(flamecast);
+    const res = await client.agents.$post({ json: { agentTemplateId: "bad" } });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    // oxlint-disable-next-line no-type-assertion/no-type-assertion
+    const errorBody = body as { error: string };
+    expect(errorBody.error).toMatch(/nonexistent/);
+    expect(errorBody.error).toMatch(/default/);
   });
 });
 
@@ -286,7 +242,7 @@ describe("template provider dispatch", () => {
  * apps/server/packages/flamecast/... which doesn't exist.
  */
 describe("workspace cwd propagation", () => {
-  test("workspace from createSession body reaches the runtime /start request", async (scope: unknown) => {
+  it("workspace from createSession body reaches the runtime /start request", async () => {
     let capturedWorkspace: string | undefined;
 
     const spyRuntime: Runtime = {
@@ -325,21 +281,17 @@ describe("workspace cwd propagation", () => {
       ],
     });
 
-    try {
-      const client = createClient(flamecast);
-      const res = await client.agents.$post({
-        json: { agentTemplateId: "test", cwd: "/my/custom/workspace" },
-      });
-      expect(res.status).toBe(201);
+    const client = createClient(flamecast);
+    const res = await client.agents.$post({
+      json: { agentTemplateId: "test", cwd: "/my/custom/workspace" },
+    });
+    expect(res.status).toBe(201);
 
-      // The workspace should be what we passed, not process.cwd()
-      expect(capturedWorkspace).toBe("/my/custom/workspace");
-    } finally {
-      await alchemy.destroy(scope);
-    }
+    // The workspace should be what we passed, not process.cwd()
+    expect(capturedWorkspace).toBe("/my/custom/workspace");
   });
 
-  test("default workspace is process.cwd() when not specified", async (scope: unknown) => {
+  it("default workspace is process.cwd() when not specified", async () => {
     let capturedWorkspace: string | undefined;
 
     const spyRuntime: Runtime = {
@@ -378,17 +330,13 @@ describe("workspace cwd propagation", () => {
       ],
     });
 
-    try {
-      const client = createClient(flamecast);
-      const res = await client.agents.$post({ json: { agentTemplateId: "test" } });
-      expect(res.status).toBe(201);
+    const client = createClient(flamecast);
+    const res = await client.agents.$post({ json: { agentTemplateId: "test" } });
+    expect(res.status).toBe(201);
 
-      // Should be process.cwd(), not "." or empty
-      expect(capturedWorkspace).toBe(process.cwd());
-      expect(capturedWorkspace).not.toBe(".");
-      expect(capturedWorkspace).toBeTruthy();
-    } finally {
-      await alchemy.destroy(scope);
-    }
+    // Should be process.cwd(), not "." or empty
+    expect(capturedWorkspace).toBe(process.cwd());
+    expect(capturedWorkspace).not.toBe(".");
+    expect(capturedWorkspace).toBeTruthy();
   });
 });

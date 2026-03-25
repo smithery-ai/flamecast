@@ -1,8 +1,15 @@
+import { createHash } from "node:crypto";
 import { dirname, basename } from "node:path";
+import { readFile } from "node:fs/promises";
 import Docker from "dockerode";
 import type { Runtime } from "@flamecast/sdk/runtime";
 
 const CONTAINER_PORT = "8080";
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+function jsonResponse(body: Record<string, unknown>, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
+}
 
 /**
  * DockerRuntime — spawns a new SessionHost container per session.
@@ -30,129 +37,153 @@ export class DockerRuntime implements Runtime {
     const path = url.pathname;
 
     if (path.endsWith("/start") && request.method === "POST") {
-      if (this.containers.has(sessionId)) {
-        return new Response(JSON.stringify({ error: "Session already exists" }), {
-          status: 409,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      try {
-        const body = await request.text();
-        // oxlint-disable-next-line no-type-assertion/no-type-assertion
-        const parsed = JSON.parse(body) as Record<string, unknown>;
-
-        const image = await this.resolveImage(parsed);
-        console.log(`[DockerRuntime] Creating container from image: ${image}`);
-
-        const container = await this.docker.createContainer({
-          Image: image,
-          ExposedPorts: { [`${CONTAINER_PORT}/tcp`]: {} },
-          HostConfig: {
-            PortBindings: { [`${CONTAINER_PORT}/tcp`]: [{ HostPort: "0" }] },
-            AutoRemove: true,
-          },
-          Env: [
-            `SESSION_HOST_PORT=${CONTAINER_PORT}`,
-            // Enable setup script execution inside the container
-            "RUNTIME_SETUP_ENABLED=1",
-          ],
-        });
-
-        await container.start();
-
-        const info = await container.inspect();
-        const portBindings = info.NetworkSettings.Ports[`${CONTAINER_PORT}/tcp`];
-        const port = parseInt(portBindings?.[0]?.HostPort ?? "0", 10);
-
-        if (!port) {
-          await container.kill().catch(() => {});
-          throw new Error("Failed to get container port");
-        }
-
-        this.containers.set(sessionId, { containerId: container.id, port });
-        await this.waitForReady(port);
-
-        // Override workspace to the container's WORKDIR — the host path doesn't
-        // exist inside the container and causes exec/spawn ENOENT.
-        parsed.workspace = "/app";
-
-        // Forward the /start request to the session-host inside the container
-        const containerBody = JSON.stringify(parsed);
-        const resp = await fetch(`http://localhost:${port}/start`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: containerBody,
-        });
-
-        const result = await resp.json();
-        // Override URLs to point to the host-mapped port
-        result.hostUrl = `http://localhost:${port}`;
-        result.websocketUrl = `ws://localhost:${port}`;
-
-        return new Response(JSON.stringify(result), {
-          status: resp.status,
-          headers: { "Content-Type": "application/json" },
-        });
-      } catch (err) {
-        // Clean up the container if it was started but /start failed
-        const leaked = this.containers.get(sessionId);
-        this.containers.delete(sessionId);
-        if (leaked) {
-          const c = this.docker.getContainer(leaked.containerId);
-          await c.kill().catch(() => {});
-        }
-        return new Response(
-          JSON.stringify({
-            error: err instanceof Error ? err.message : "Failed to start container",
-          }),
-          { status: 500, headers: { "Content-Type": "application/json" } },
-        );
-      }
+      return this.handleStart(sessionId, request);
     }
 
+    if (path.endsWith("/terminate") && request.method === "POST") {
+      return this.handleTerminate(sessionId, path);
+    }
+
+    return this.proxyRequest(sessionId, path, request);
+  }
+
+  async dispose(): Promise<void> {
+    await Promise.allSettled(
+      [...this.containers.values()].map(async (entry) => {
+        const c = this.docker.getContainer(entry.containerId);
+        await c.kill();
+      }),
+    );
+    this.containers.clear();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Request handlers
+  // ---------------------------------------------------------------------------
+
+  private async handleStart(sessionId: string, request: Request): Promise<Response> {
+    if (this.containers.has(sessionId)) {
+      return jsonResponse({ error: `Session "${sessionId}" already exists` }, 409);
+    }
+
+    try {
+      const body = await request.text();
+      // oxlint-disable-next-line no-type-assertion/no-type-assertion
+      const parsed = JSON.parse(body) as Record<string, unknown>;
+
+      const image = await this.resolveImage(parsed);
+      console.log(`[DockerRuntime] Creating container from image: ${image}`);
+
+      const container = await this.docker.createContainer({
+        Image: image,
+        ExposedPorts: { [`${CONTAINER_PORT}/tcp`]: {} },
+        HostConfig: {
+          PortBindings: { [`${CONTAINER_PORT}/tcp`]: [{ HostPort: "0" }] },
+          AutoRemove: true,
+        },
+        Env: [
+          `SESSION_HOST_PORT=${CONTAINER_PORT}`,
+          "RUNTIME_SETUP_ENABLED=1",
+        ],
+      });
+
+      await container.start();
+
+      const info = await container.inspect();
+      const portBindings = info.NetworkSettings.Ports[`${CONTAINER_PORT}/tcp`];
+      const port = parseInt(portBindings?.[0]?.HostPort ?? "0", 10);
+
+      if (!port) {
+        await container.kill().catch(() => {});
+        throw new Error("Failed to get container port");
+      }
+
+      this.containers.set(sessionId, { containerId: container.id, port });
+      await this.waitForReady(port);
+
+      // Override workspace to container's WORKDIR — host path doesn't exist inside.
+      parsed.workspace = "/app";
+
+      const resp = await fetch(`http://localhost:${port}/start`, {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify(parsed),
+      });
+
+      const result = await resp.json();
+      result.hostUrl = `http://localhost:${port}`;
+      result.websocketUrl = `ws://localhost:${port}`;
+
+      return new Response(JSON.stringify(result), {
+        status: resp.status,
+        headers: JSON_HEADERS,
+      });
+    } catch (err) {
+      // Clean up the container if it was started but /start failed
+      const leaked = this.containers.get(sessionId);
+      this.containers.delete(sessionId);
+      if (leaked) {
+        const c = this.docker.getContainer(leaked.containerId);
+        await c.kill().catch(() => {});
+      }
+      return jsonResponse(
+        { error: err instanceof Error ? err.message : "Failed to start container" },
+        500,
+      );
+    }
+  }
+
+  private async handleTerminate(sessionId: string, path: string): Promise<Response> {
     const entry = this.containers.get(sessionId);
     if (!entry) {
-      return new Response(JSON.stringify({ error: `Session ${sessionId} not found` }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: `Session "${sessionId}" not found` }, 404);
+    }
+
+    const resp = await fetch(`http://localhost:${entry.port}${path}`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+    });
+
+    try {
+      const c = this.docker.getContainer(entry.containerId);
+      await c.kill();
+    } catch {
+      // Container may already be stopped (AutoRemove)
+    }
+    this.containers.delete(sessionId);
+
+    return new Response(await resp.text(), {
+      status: resp.status,
+      headers: JSON_HEADERS,
+    });
+  }
+
+  private async proxyRequest(
+    sessionId: string,
+    path: string,
+    request: Request,
+  ): Promise<Response> {
+    const entry = this.containers.get(sessionId);
+    if (!entry) {
+      return jsonResponse({ error: `Session "${sessionId}" not found` }, 404);
     }
 
     const body = request.method !== "GET" ? await request.text() : undefined;
     const resp = await fetch(`http://localhost:${entry.port}${path}`, {
       method: request.method,
-      headers: { "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
       body,
     });
 
-    if (path.endsWith("/terminate") && request.method === "POST") {
-      try {
-        const c = this.docker.getContainer(entry.containerId);
-        await c.kill();
-      } catch {
-        // Container may already be stopped (AutoRemove)
-      }
-      this.containers.delete(sessionId);
-    }
-
     return new Response(await resp.text(), {
       status: resp.status,
-      headers: { "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
     });
   }
 
-  async dispose(): Promise<void> {
-    for (const [, entry] of this.containers) {
-      try {
-        const c = this.docker.getContainer(entry.containerId);
-        await c.kill();
-      } catch {
-        // Best-effort
-      }
-    }
-    this.containers.clear();
-  }
+  // ---------------------------------------------------------------------------
+  // Image resolution
+  // ---------------------------------------------------------------------------
 
   /**
    * Determine which Docker image to use for the container.
@@ -169,15 +200,11 @@ export class DockerRuntime implements Runtime {
     const dockerfile = body.dockerfile as string | undefined;
 
     if (image) {
-      // Check if the image exists locally
       try {
         await this.docker.getImage(image).inspect();
         return image;
       } catch {
-        // Image doesn't exist locally — if we also have a dockerfile, build it
-        if (dockerfile) {
-          return this.buildImage(dockerfile, image);
-        }
+        if (dockerfile) return this.buildImage(dockerfile, image);
         throw new Error(
           `Docker image "${image}" not found locally. Build it first or provide a dockerfile.`,
         );
@@ -185,11 +212,22 @@ export class DockerRuntime implements Runtime {
     }
 
     if (dockerfile) {
-      const tag = `flamecast-session-${Date.now()}`;
+      const tag = await this.dockerfileTag(dockerfile);
       return this.buildImage(dockerfile, tag);
     }
 
     return this.fallbackImage;
+  }
+
+  /** Deterministic tag from dockerfile content hash (avoids stale image accumulation). */
+  private async dockerfileTag(dockerfilePath: string): Promise<string> {
+    try {
+      const content = await readFile(dockerfilePath, "utf8");
+      const hash = createHash("sha256").update(content).digest("hex").slice(0, 12);
+      return `flamecast-session-${hash}`;
+    } catch {
+      return `flamecast-session-fallback`;
+    }
   }
 
   /**
@@ -210,7 +248,6 @@ export class DockerRuntime implements Runtime {
       { t: tag, dockerfile: dockerfileName },
     );
 
-    // Wait for build to complete
     await new Promise<void>((resolve, reject) => {
       this.docker.modem.followProgress(
         stream,
@@ -228,9 +265,6 @@ export class DockerRuntime implements Runtime {
   private async waitForReady(port: number, timeoutMs = 30_000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
 
-    // Poll HTTP health endpoint — Docker's port-forwarding proxy accepts TCP
-    // connections before the app inside is listening, so TCP checks alone
-    // are unreliable. Just retry the HTTP health check.
     while (Date.now() < deadline) {
       try {
         const resp = await fetch(`http://localhost:${port}/health`);

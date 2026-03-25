@@ -6,29 +6,13 @@
  */
 
 /* oxlint-disable no-type-assertion/no-type-assertion */
-import { describe, expect, vi } from "vitest";
-import alchemy from "alchemy";
-import "alchemy/test/vitest";
+import { describe, it, expect, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
 import { SessionService } from "../src/flamecast/session-service.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import type { Runtime } from "../src/flamecast/runtime.js";
 import type { PermissionRequestContext, SessionEndContext } from "../src/flamecast/index.js";
 import { InProcessSessionHost } from "./fixtures/in-process-session-host.js";
-
-type AlchemyTestFactory = (meta: ImportMeta, opts: { prefix: string }) => typeof describe;
-
-function isAlchemyTestFactory(value: unknown): value is AlchemyTestFactory {
-  return typeof value === "function";
-}
-
-const maybeAlchemyTest = Reflect.get(alchemy, "test");
-
-if (!isAlchemyTestFactory(maybeAlchemyTest)) {
-  throw new Error("alchemy.test is unavailable");
-}
-
-const test = maybeAlchemyTest(import.meta, { prefix: "session-service-ext" });
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -49,72 +33,60 @@ function defaultStartOpts(provider: string) {
 // ===========================================================================
 
 describe("runtime dispatch with InProcessSessionHost", () => {
-  test("dispatches to InProcessSessionHost and creates session", async (scope: unknown) => {
+  it("dispatches to InProcessSessionHost and creates session", async () => {
     const runtime = new InProcessSessionHost();
     const service = new SessionService({ local: runtime });
     const storage = new MemoryFlamecastStorage();
 
-    try {
-      const { sessionId } = await service.startSession(storage, defaultStartOpts("local"));
+    const { sessionId } = await service.startSession(storage, defaultStartOpts("local"));
 
-      // Verify session exists in both service and runtime
-      expect(service.hasSession(sessionId)).toBe(true);
-      expect(runtime.getSessionIds()).toContain(sessionId);
+    // Verify session exists in both service and runtime
+    expect(service.hasSession(sessionId)).toBe(true);
+    expect(runtime.getSessionIds()).toContain(sessionId);
 
-      // Verify the session in the runtime has correct command
-      const internalSession = runtime.getSession(sessionId);
-      expect(internalSession).toBeDefined();
-      expect(internalSession!.command).toBe("echo");
-      expect(internalSession!.args).toEqual(["hello"]);
-      expect(internalSession!.status).toBe("running");
+    // Verify the session in the runtime has correct command
+    const internalSession = runtime.getSession(sessionId);
+    expect(internalSession).toBeDefined();
+    expect(internalSession!.command).toBe("echo");
+    expect(internalSession!.args).toEqual(["hello"]);
+    expect(internalSession!.status).toBe("running");
 
-      // Verify storage was updated
-      const meta = await storage.getSessionMeta(sessionId);
-      expect(meta).toBeDefined();
-      expect(meta!.status).toBe("active");
-      expect(meta!.agentName).toBe("test-agent");
-    } finally {
-      await alchemy.destroy(scope);
-    }
+    // Verify storage was updated
+    const meta = await storage.getSessionMeta(sessionId);
+    expect(meta).toBeDefined();
+    expect(meta!.status).toBe("active");
+    expect(meta!.agentName).toBe("test-agent");
   });
 
-  test("terminate cleans up both service and runtime", async (scope: unknown) => {
+  it("terminate cleans up both service and runtime", async () => {
     const runtime = new InProcessSessionHost();
     const service = new SessionService({ local: runtime });
     const storage = new MemoryFlamecastStorage();
 
-    try {
-      const { sessionId } = await service.startSession(storage, defaultStartOpts("local"));
-      expect(runtime.getSessionIds()).toContain(sessionId);
+    const { sessionId } = await service.startSession(storage, defaultStartOpts("local"));
+    expect(runtime.getSessionIds()).toContain(sessionId);
 
-      await service.terminateSession(storage, sessionId);
+    await service.terminateSession(storage, sessionId);
 
-      expect(service.hasSession(sessionId)).toBe(false);
-      expect(runtime.getSessionIds()).not.toContain(sessionId);
+    expect(service.hasSession(sessionId)).toBe(false);
+    expect(runtime.getSessionIds()).not.toContain(sessionId);
 
-      // Storage should show killed
-      const meta = await storage.getSessionMeta(sessionId);
-      expect(meta!.status).toBe("killed");
-    } finally {
-      await alchemy.destroy(scope);
-    }
+    // Storage should show killed
+    const meta = await storage.getSessionMeta(sessionId);
+    expect(meta!.status).toBe("killed");
   });
 
-  test("websocket URL is returned from InProcessSessionHost", async (scope: unknown) => {
+  it("websocket URL is returned from InProcessSessionHost", async () => {
     const runtime = new InProcessSessionHost();
     const service = new SessionService({ local: runtime });
     const storage = new MemoryFlamecastStorage();
 
-    try {
-      const { sessionId } = await service.startSession(storage, defaultStartOpts("local"));
+    const { sessionId } = await service.startSession(storage, defaultStartOpts("local"));
 
-      const wsUrl = service.getWebsocketUrl(sessionId);
-      expect(wsUrl).toBeTruthy();
-      expect(wsUrl).toContain(sessionId);
-      expect(wsUrl).toMatch(/^ws:\/\//);
-    } finally {
-      await alchemy.destroy(scope);
-    }
+    const wsUrl = service.getWebsocketUrl(sessionId);
+    expect(wsUrl).toBeTruthy();
+    expect(wsUrl).toContain(sessionId);
+    expect(wsUrl).toMatch(/^ws:\/\//);
   });
 });
 
@@ -123,42 +95,38 @@ describe("runtime dispatch with InProcessSessionHost", () => {
 // ===========================================================================
 
 describe("multiple runtimes isolation", () => {
-  test("sessions on different runtimes are isolated", async (scope: unknown) => {
+  it("sessions on different runtimes are isolated", async () => {
     const runtimeA = new InProcessSessionHost({ responseText: "I am runtime A" });
     const runtimeB = new InProcessSessionHost({ responseText: "I am runtime B" });
     const service = new SessionService({ alpha: runtimeA, beta: runtimeB });
     const storage = new MemoryFlamecastStorage();
 
-    try {
-      const { sessionId: idA } = await service.startSession(storage, defaultStartOpts("alpha"));
-      const { sessionId: idB } = await service.startSession(storage, defaultStartOpts("beta"));
+    const { sessionId: idA } = await service.startSession(storage, defaultStartOpts("alpha"));
+    const { sessionId: idB } = await service.startSession(storage, defaultStartOpts("beta"));
 
-      // Each runtime only has its own session
-      expect(runtimeA.getSessionIds()).toContain(idA);
-      expect(runtimeA.getSessionIds()).not.toContain(idB);
-      expect(runtimeB.getSessionIds()).toContain(idB);
-      expect(runtimeB.getSessionIds()).not.toContain(idA);
+    // Each runtime only has its own session
+    expect(runtimeA.getSessionIds()).toContain(idA);
+    expect(runtimeA.getSessionIds()).not.toContain(idB);
+    expect(runtimeB.getSessionIds()).toContain(idB);
+    expect(runtimeB.getSessionIds()).not.toContain(idA);
 
-      // Service tracks both
-      expect(service.hasSession(idA)).toBe(true);
-      expect(service.hasSession(idB)).toBe(true);
-      expect(service.listSessionIds()).toHaveLength(2);
+    // Service tracks both
+    expect(service.hasSession(idA)).toBe(true);
+    expect(service.hasSession(idB)).toBe(true);
+    expect(service.listSessionIds()).toHaveLength(2);
 
-      // getRuntimeName returns the correct provider
-      expect(service.getRuntimeName(idA)).toBe("alpha");
-      expect(service.getRuntimeName(idB)).toBe("beta");
+    // getRuntimeName returns the correct provider
+    expect(service.getRuntimeName(idA)).toBe("alpha");
+    expect(service.getRuntimeName(idB)).toBe("beta");
 
-      // Terminate one doesn't affect the other
-      await service.terminateSession(storage, idA);
-      expect(runtimeA.getSessionIds()).not.toContain(idA);
-      expect(runtimeB.getSessionIds()).toContain(idB);
-      expect(service.hasSession(idB)).toBe(true);
-    } finally {
-      await alchemy.destroy(scope);
-    }
+    // Terminate one doesn't affect the other
+    await service.terminateSession(storage, idA);
+    expect(runtimeA.getSessionIds()).not.toContain(idA);
+    expect(runtimeB.getSessionIds()).toContain(idB);
+    expect(service.hasSession(idB)).toBe(true);
   });
 
-  test("Flamecast with multiple runtimes routes by template provider", async (scope: unknown) => {
+  it("Flamecast with multiple runtimes routes by template provider", async () => {
     const runtimeLocal = new InProcessSessionHost();
     const runtimeCloud = new InProcessSessionHost();
     const storage = new MemoryFlamecastStorage();
@@ -197,27 +165,22 @@ describe("multiple runtimes isolation", () => {
       expect(cloudSession.agentName).toBe("Cloud Agent");
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("unknown runtime provider throws with available list", async (scope: unknown) => {
+  it("unknown runtime provider throws with available list", async () => {
     const runtimeA = new InProcessSessionHost();
     const runtimeB = new InProcessSessionHost();
     const service = new SessionService({ alpha: runtimeA, beta: runtimeB });
     const storage = new MemoryFlamecastStorage();
 
-    try {
-      await expect(service.startSession(storage, defaultStartOpts("nonexistent"))).rejects.toThrow(
-        /Unknown runtime: "nonexistent"/,
-      );
+    await expect(service.startSession(storage, defaultStartOpts("nonexistent"))).rejects.toThrow(
+      /Unknown runtime: "nonexistent"/,
+    );
 
-      await expect(service.startSession(storage, defaultStartOpts("nonexistent"))).rejects.toThrow(
-        /Available: alpha, beta/,
-      );
-    } finally {
-      await alchemy.destroy(scope);
-    }
+    await expect(service.startSession(storage, defaultStartOpts("nonexistent"))).rejects.toThrow(
+      /Available: alpha, beta/,
+    );
   });
 });
 
@@ -226,7 +189,7 @@ describe("multiple runtimes isolation", () => {
 // ===========================================================================
 
 describe("onSessionEnd fires on terminate with correct context", () => {
-  test("onSessionEnd receives session context and reason", async (scope: unknown) => {
+  it("onSessionEnd receives session context and reason", async () => {
     const endCalls: Array<{
       sessionId: string;
       agentName: string;
@@ -266,11 +229,10 @@ describe("onSessionEnd fires on terminate with correct context", () => {
       expect(endCalls[0].runtime).toBe("local");
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("onSessionEnd fires for each terminated session", async (scope: unknown) => {
+  it("onSessionEnd fires for each terminated session", async () => {
     const onSessionEnd = vi.fn(async () => {});
 
     const runtime = new InProcessSessionHost();
@@ -301,7 +263,6 @@ describe("onSessionEnd fires on terminate with correct context", () => {
       expect(ids).toContain(s2.id);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });
@@ -311,7 +272,7 @@ describe("onSessionEnd fires on terminate with correct context", () => {
 // ===========================================================================
 
 describe("onPermissionRequest with InProcessSessionHost context", () => {
-  test("c.allow() resolves with first approve option", async (scope: unknown) => {
+  it("c.allow() resolves with first approve option", async () => {
     const onPermissionRequest = vi.fn(async (c: PermissionRequestContext<{ local: Runtime }>) => {
       // Verify context fields are correctly populated
       expect(c.session.id).toBeTruthy();
@@ -351,11 +312,10 @@ describe("onPermissionRequest with InProcessSessionHost context", () => {
       expect(onPermissionRequest).toHaveBeenCalledTimes(1);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("c.deny() resolves with first reject option", async (scope: unknown) => {
+  it("c.deny() resolves with first reject option", async () => {
     const onPermissionRequest = vi.fn(async (c: PermissionRequestContext<{ local: Runtime }>) =>
       c.deny(),
     );
@@ -387,11 +347,10 @@ describe("onPermissionRequest with InProcessSessionHost context", () => {
       expect(response).toEqual({ optionId: "no" });
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("permission request on multi-runtime Flamecast routes to correct session", async (scope: unknown) => {
+  it("permission request on multi-runtime Flamecast routes to correct session", async () => {
     const permCalls: string[] = [];
 
     const onPermissionRequest = vi.fn(
@@ -447,7 +406,6 @@ describe("onPermissionRequest with InProcessSessionHost context", () => {
       expect(permCalls).toContain(`cloud:${cloudSession.id}`);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });
@@ -457,7 +415,7 @@ describe("onPermissionRequest with InProcessSessionHost context", () => {
 // ===========================================================================
 
 describe("InProcessSessionHost filesystem events", () => {
-  test("emits filesystem snapshot when configured", async (scope: unknown) => {
+  it("emits filesystem snapshot when configured", async () => {
     const runtime = new InProcessSessionHost({
       emitFilesystemSnapshot: true,
       filesystemEntries: [
@@ -491,7 +449,6 @@ describe("InProcessSessionHost filesystem events", () => {
       ]);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });

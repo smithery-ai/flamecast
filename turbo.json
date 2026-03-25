@@ -19,23 +19,12 @@
       "outputs": []
     },
     "test:api:coverage": {
-      "outputs": ["coverage/**"],
-      "passThroughEnv": ["ALCHEMY_CI_STATE_STORE_CHECK"]
+      "outputs": ["coverage/**"]
     },
     "knip": {
       "outputs": []
     },
     "psql:generate": {
-      "cache": false
-    },
-    "alchemy:deploy": {
-      "cache": false
-    },
-    "alchemy:dev": {
-      "cache": false,
-      "persistent": true
-    },
-    "alchemy:destroy": {
       "cache": false
     }
   }

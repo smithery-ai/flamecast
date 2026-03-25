@@ -6,44 +6,14 @@
  */
 
 /* oxlint-disable no-type-assertion/no-type-assertion */
-import { describe, expect } from "vitest";
-import alchemy from "alchemy";
-import "alchemy/test/vitest";
+import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
-import { hc } from "hono/client";
 import { Flamecast } from "../src/flamecast/index.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
-import { createApi, type AppType } from "../src/flamecast/api.js";
+import { createApi } from "../src/flamecast/api.js";
 import { InProcessSessionHost } from "./fixtures/in-process-session-host.js";
+import { createClient } from "./fixtures/test-helpers.js";
 import type { AgentTemplate } from "../src/shared/session.js";
-
-type AlchemyTestFactory = (meta: ImportMeta, opts: { prefix: string }) => typeof describe;
-
-function isAlchemyTestFactory(value: unknown): value is AlchemyTestFactory {
-  return typeof value === "function";
-}
-
-const maybeAlchemyTest = Reflect.get(alchemy, "test");
-
-if (!isAlchemyTestFactory(maybeAlchemyTest)) {
-  throw new Error("alchemy.test is unavailable");
-}
-
-const test = maybeAlchemyTest(import.meta, { prefix: "session-lifecycle" });
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function createClient(flamecast: Flamecast) {
-  const api = createApi(flamecast);
-  const app = new Hono().route("/api", api);
-  return hc<AppType>("http://localhost/api", {
-    fetch(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
-      return app.fetch(new Request(String(input), init));
-    },
-  });
-}
 
 const exampleTemplate: AgentTemplate = {
   id: "example",
@@ -57,7 +27,7 @@ const exampleTemplate: AgentTemplate = {
 // ===========================================================================
 
 describe("session lifecycle with InProcessSessionHost", () => {
-  test("full happy path - create, get, list, terminate, verify status", async (scope: unknown) => {
+  it("full happy path - create, get, list, terminate, verify status", async () => {
     const runtime = new InProcessSessionHost();
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
@@ -126,11 +96,10 @@ describe("session lifecycle with InProcessSessionHost", () => {
       expect(killed.status).toBe("killed");
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("create session with inline spawn (no template)", async (scope: unknown) => {
+  it("create session with inline spawn (no template)", async () => {
     const runtime = new InProcessSessionHost();
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
@@ -158,11 +127,10 @@ describe("session lifecycle with InProcessSessionHost", () => {
       expect(internalSession!.args).toEqual(["main.py"]);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("multiple concurrent sessions are isolated", async (scope: unknown) => {
+  it("multiple concurrent sessions are isolated", async () => {
     const runtime = new InProcessSessionHost();
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
@@ -200,11 +168,10 @@ describe("session lifecycle with InProcessSessionHost", () => {
       expect(fetched.status).toBe("active");
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("health endpoint reflects session count", async (scope: unknown) => {
+  it("health endpoint reflects session count", async () => {
     const runtime = new InProcessSessionHost();
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
@@ -231,11 +198,10 @@ describe("session lifecycle with InProcessSessionHost", () => {
       expect(body1.sessions).toBe(1);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("terminate already-killed session returns 409", async (scope: unknown) => {
+  it("terminate already-killed session returns 409", async () => {
     const runtime = new InProcessSessionHost();
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
@@ -263,11 +229,10 @@ describe("session lifecycle with InProcessSessionHost", () => {
       expect(kill2.status).toBe(409);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 
-  test("get nonexistent session returns 404", async (scope: unknown) => {
+  it("get nonexistent session returns 404", async () => {
     const runtime = new InProcessSessionHost();
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
@@ -283,7 +248,6 @@ describe("session lifecycle with InProcessSessionHost", () => {
       expect(res.status).toBe(404);
     } finally {
       await flamecast.shutdown();
-      await alchemy.destroy(scope);
     }
   });
 });

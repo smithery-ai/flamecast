@@ -12,7 +12,6 @@
     "src/**/*.tsx",
     "test/**/*.ts",
     "vite.config.ts",
-    "vitest.integration.config.ts",
-    "alchemy.run.ts"
+    "vitest.integration.config.ts"
   ]
 }

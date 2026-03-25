@@ -38,6 +38,9 @@ function waitForPort(proc: ChildProcess, timeoutMs = 30_000): Promise<number> {
         clearTimeout(timeout);
         proc.stdout?.removeAllListeners("data");
         proc.stderr?.removeAllListeners("data");
+        // Pipe remaining output to parent so child logs aren't lost
+        proc.stdout?.pipe(process.stdout);
+        proc.stderr?.pipe(process.stderr);
         resolve(parseInt(match[1], 10));
       }
     };
