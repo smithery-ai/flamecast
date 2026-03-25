@@ -1,0 +1,221 @@
+---
+title: "Build your own agent"
+description: "Make your agent ACP-compatible and get a REST + WebSocket API automatically"
+---
+
+If you build an agent that implements the ACP protocol, Flamecast gives you a full REST API, WebSocket streaming, session management, and a React UI — without writing any server code.
+
+## What your agent needs to implement
+
+An ACP agent is a process that communicates over stdio or TCP using the [Agent Client Protocol](https://agentclientprotocol.com). You implement the `acp.Agent` interface:
+
+```typescript
+import * as acp from "@agentclientprotocol/sdk";
+
+class MyAgent implements acp.Agent {
+  private connection: acp.AgentSideConnection;
+
+  constructor(connection: acp.AgentSideConnection) {
+    this.connection = connection;
+  }
+
+  async initialize(params: acp.InitializeParams): Promise<acp.InitializeResponse> {
+    return {
+      protocolVersion: params.protocolVersion,
+      agentCapabilities: {},
+    };
+  }
+
+  async newSession(params: acp.NewSessionParams): Promise<acp.NewSessionResponse> {
+    return { sessionId: crypto.randomUUID() };
+  }
+
+  async prompt(params: acp.PromptParams): Promise<acp.PromptResponse> {
+    // Stream a response back to the client
+    this.connection.sessionUpdate({
+      sessionId: params.sessionId,
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "Hello from my agent!" },
+    });
+
+    return { stopReason: "end_turn" };
+  }
+
+  async cancel(params: acp.CancelParams): Promise<void> {
+    // Handle cancellation
+  }
+}
+```
+
+## Connect over stdio
+
+The simplest connection method. Flamecast spawns your agent as a child process and communicates over stdin/stdout:
+
+```typescript
+import * as acp from "@agentclientprotocol/sdk";
+
+// At the bottom of your agent file:
+const stream = acp.ndJsonStream(
+  ReadableStream.from(process.stdin),
+  new WritableStream({
+    write: (chunk) => {
+      process.stdout.write(chunk);
+    },
+  })
+);
+
+new acp.AgentSideConnection((conn) => new MyAgent(conn), stream);
+```
+
+Register it with Flamecast:
+
+```typescript
+const flamecast = new Flamecast({
+  runtimes: {
+    local: new LocalRuntime(),
+  },
+  agentTemplates: [
+    {
+      id: "my-agent",
+      name: "My agent",
+      spawn: { command: "node", args: ["my-agent.js"] },
+      runtime: "local",
+    },
+  ],
+});
+```
+
+## Connect over TCP
+
+For agents running in containers or on remote hosts, listen on a TCP port:
+
+```typescript
+import * as acp from "@agentclientprotocol/sdk";
+import net from "node:net";
+
+const port = parseInt(process.env.ACP_PORT || "9100");
+
+const server = net.createServer((socket) => {
+  const stream = acp.ndJsonStream(
+    ReadableStream.from(socket),
+    new WritableStream({ write: (chunk) => socket.write(chunk) })
+  );
+  new acp.AgentSideConnection((conn) => new MyAgent(conn), stream);
+});
+
+server.listen(port, () => {
+  console.log(`Agent listening on port ${port}`);
+});
+```
+
+Then register it with a Docker or custom runtime:
+
+```typescript
+const flamecast = new Flamecast({
+  runtimes: {
+    docker: new LocalDockerRuntime(),
+  },
+  agentTemplates: [
+    {
+      id: "my-agent-docker",
+      name: "My agent (Docker)",
+      spawn: { command: "node", args: ["my-agent.js"] },
+      runtime: "docker",
+    },
+  ],
+});
+```
+
+## Streaming responses
+
+Send incremental content back to the client during a prompt:
+
+```typescript
+async prompt(params: acp.PromptParams): Promise<acp.PromptResponse> {
+  const text = "Here is a detailed response...";
+
+  // Stream the response in chunks
+  for (const chunk of splitIntoChunks(text)) {
+    this.connection.sessionUpdate({
+      sessionId: params.sessionId,
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: chunk },
+    });
+  }
+
+  return { stopReason: "end_turn" };
+}
+```
+
+Flamecast's AcpBridge coalesces these chunks and streams them to connected WebSocket clients in real time.
+
+## Tool calls
+
+Report tool usage back to the client:
+
+```typescript
+async prompt(params: acp.PromptParams): Promise<acp.PromptResponse> {
+  // Notify that a tool call is starting
+  this.connection.sessionUpdate({
+    sessionId: params.sessionId,
+    sessionUpdate: "tool_call",
+    toolCallId: "call-1",
+    title: "Reading file",
+    status: "pending",
+  });
+
+  // Do the work...
+  const content = await readFile("./src/index.ts");
+
+  // Report completion
+  this.connection.sessionUpdate({
+    sessionId: params.sessionId,
+    sessionUpdate: "tool_call_update",
+    toolCallId: "call-1",
+    status: "completed",
+  });
+
+  return { stopReason: "end_turn" };
+}
+```
+
+## Permission requests
+
+Ask the user for approval before performing sensitive operations:
+
+```typescript
+async prompt(params: acp.PromptParams): Promise<acp.PromptResponse> {
+  // Request permission
+  const response = await this.connection.requestPermission({
+    toolCall: { id: "call-1", title: "Delete database" },
+    options: [
+      { optionId: "allow", name: "Allow", kind: "allow" },
+      { optionId: "deny", name: "Deny", kind: "deny" },
+    ],
+  });
+
+  if (response.optionId === "allow") {
+    // Proceed with the operation
+  }
+
+  return { stopReason: "end_turn" };
+}
+```
+
+Flamecast brokers this request to the connected client (UI, Slackbot, or SDK consumer), waits for the user's response, and relays it back to your agent.
+
+## What you get from Flamecast
+
+Once your agent is ACP-compatible, registering it with Flamecast gives you:
+
+| Feature | Description |
+|---|---|
+| REST API | `POST /api/agents` to start sessions, `GET /agents` to list them, `DELETE /agents/:id` to terminate |
+| WebSocket streaming | Real-time event streaming at `ws://host/ws/sessions/:id` |
+| Permission brokering | User approval flows handled automatically |
+| Session persistence | Session metadata stored in memory, PGLite, or PostgreSQL |
+| Prompt queuing | Serial prompt execution with automatic queue draining |
+| React UI | A reference UI for interacting with your agent |
+| Client SDK | TypeScript client with auto-reconnecting WebSocket and React hooks |
+
+See the [API reference](/api-reference/introduction) for the full API surface.

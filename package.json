@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "lsof -ti :3000,:3001,:3002,:3003 2>/dev/null | xargs kill -9 2>/dev/null; pnpm build && alchemy dev --force",
+    "dev": "turbo run dev",
     "dev:client": "turbo run dev --filter=@flamecast/sdk",
     "dev:server": "turbo run dev --filter=@acp/server",
     "build": "turbo run build",
@@ -21,13 +21,13 @@
     "test:api:coverage": "turbo run test:api:coverage --filter=@flamecast/sdk",
     "test:server": "pnpm --filter @acp/server test",
     "check": "pnpm ci:lint && pnpm build && pnpm test:api:coverage && pnpm test:server && pnpm knip",
-    "alchemy:deploy": "pnpm build && infisical run --path=/tooling --env=staging --silent -- alchemy deploy --stage prod",
-    "alchemy:destroy": "alchemy destroy",
+    "alchemy:deploy": "turbo run alchemy:deploy --filter=@flamecast/sdk",
+    "alchemy:dev": "turbo run alchemy:dev --filter=@flamecast/sdk",
+    "alchemy:destroy": "turbo run alchemy:destroy --filter=@flamecast/sdk",
     "clean": "git clean -ffdX"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.30.0",
-    "@electric-sql/pglite-socket": "^0.1.1",
     "@libsql/client": "^0.17.2",
     "@tanstack/router-devtools": "^1.166.9",
     "@tanstack/router-plugin": "^1.166.14",
@@ -36,7 +36,6 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitest/coverage-v8": "^4.1.0",
-    "alchemy": "^0.89.0",
     "drizzle-kit": "^0.31.8",
     "eslint-plugin-no-type-assertion": "^1.3.0",
     "knip": "^6.0.1",

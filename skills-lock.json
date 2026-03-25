@@ -5,6 +5,11 @@
       "source": "agentclientprotocol.com",
       "sourceType": "well-known",
       "computedHash": "4b8ea21ad5eba0fa9c615a084e6b34eaeb82202fd48e650d7276a1560651cea8"
+    },
+    "mintlify": {
+      "source": "mintlify.com",
+      "sourceType": "well-known",
+      "computedHash": "fc61ab6703f692dc2c215e74327a8998d02987ca9571084440be20e7ecad6b46"
     }
   }
 }

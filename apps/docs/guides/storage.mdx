@@ -1,0 +1,62 @@
+---
+title: "Storage"
+description: "Persist session metadata with pluggable backends"
+---
+
+Flamecast supports multiple storage backends for persisting session metadata and agent templates.
+
+## Backends
+
+| Backend | Package | Use case |
+|---|---|---|
+| Memory | Built-in | Development and testing. Data lost on restart |
+| PGLite | `@flamecast/storage-psql` | Embedded Postgres. No external database needed |
+| PostgreSQL | `@flamecast/storage-psql` | Production. Full Postgres with connection pooling |
+
+## Configuration
+
+### In-memory (default)
+
+```typescript
+import { Flamecast } from "@flamecast/sdk";
+
+const flamecast = new Flamecast();
+```
+
+### PGLite
+
+```typescript
+import { Flamecast } from "@flamecast/sdk";
+import { createPsqlStorage } from "@flamecast/storage-psql";
+
+const flamecast = new Flamecast({
+  storage: await createPsqlStorage(),
+});
+```
+
+PGLite stores data in `<cwd>/.flamecast/pglite` by default. Override with the `FLAMECAST_PGLITE_DIR` environment variable or the `dataDir` option.
+
+### PostgreSQL
+
+```typescript
+import { createPsqlStorage } from "@flamecast/storage-psql";
+
+const storage = await createPsqlStorage({
+  url: "postgres://localhost/flamecast",
+});
+
+const flamecast = new Flamecast({ storage });
+```
+
+## Options
+
+| Option | Description |
+|---|---|
+| `url` | Postgres connection string |
+| `dataDir` | PGLite data directory (default: `<cwd>/.flamecast/pglite`) |
+
+The SQL storage backend uses Drizzle ORM. Generate migrations with:
+
+```bash
+pnpm psql:generate
+```

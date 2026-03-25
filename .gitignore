@@ -44,7 +44,3 @@ packages/flamecast/coverage/
 packages/flamecast/src/client/routeTree.gen.ts
 
 .flamecast/
-
-# Dolt database files (added by bd init)
-.dolt/
-*.db

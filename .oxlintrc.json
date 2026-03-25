@@ -21,6 +21,7 @@
     "coverage/",
     "**/coverage/",
     "node_modules/",
+    "apps/docs/",
     "packages/flamecast/src/client/routeTree.gen.ts"
   ]
 }

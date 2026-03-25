@@ -1,0 +1,84 @@
+---
+title: "Quickstart"
+description: "Install Flamecast and launch your first agent session"
+---
+
+<Info>
+  **Prerequisites**: Node.js 20+ and pnpm installed.
+</Info>
+
+<Steps>
+<Step title="Clone and install">
+
+```bash
+npm create flamecast@latest # Coming soon, basically will be the contents of apps/server
+cd my-app
+pnpm install
+```
+
+</Step>
+
+<Step title="Start the dev server">
+
+```bash
+pnpm dev
+```
+
+This starts the API server on port 3001 and the React UI dev server.
+
+</Step>
+
+<Step title="Launch a session">
+
+Open **http://localhost:3000**. The home page lists registered agent templates. Click **Start session** to launch one.
+
+You can also create a session from the command line:
+
+```bash
+curl -X POST http://localhost:3001/api/agents \
+  -H "Content-Type: application/json" \
+  -d '{ "agentTemplateId": "example" }'
+```
+
+</Step>
+</Steps>
+
+## Use the SDK directly
+
+You can also create a Flamecast instance programmatically:
+
+```typescript
+import { Flamecast } from "@flamecast/sdk";
+import { createPsqlStorage } from "@flamecast/storage-psql";
+
+const flamecast = new Flamecast({
+  storage: await createPsqlStorage(),
+});
+
+await flamecast.listen(3001);
+```
+
+## What to do next
+
+Pick the guide that matches your use case:
+
+<CardGroup cols={2}>
+  <Card title="Orchestrate local agents" icon="terminal" href="/guides/local-agents">
+    Run Claude Code, Codex, or other local agents.
+  </Card>
+  <Card title="Orchestrate cloud agents" icon="cloud" href="/guides/cloud-agents">
+    Connect to agents in Docker or remote environments.
+  </Card>
+  <Card title="Build your own agent" icon="hammer" href="/guides/build-your-own-agent">
+    Make an agent ACP-compatible and give it a REST API.
+  </Card>
+  <Card title="Spin off subagents" icon="diagram-project" href="/guides/subagents">
+    Coordinate multiple agents from a parent agent.
+  </Card>
+  <Card title="Set up a Slackbot" icon="message" href="/guides/slackbot">
+    Wire an agent into Slack using Chat SDK.
+  </Card>
+  <Card title="Build a custom UI" icon="browser" href="/guides/custom-ui">
+    Use React hooks to build your own agent interface.
+  </Card>
+</CardGroup>
