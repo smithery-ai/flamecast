@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
+import { DockerRuntime } from "@flamecast/runtime-docker";
 import { createPsqlStorage } from "@flamecast/storage-psql";
 
 const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
@@ -8,6 +9,7 @@ const flamecast = new Flamecast({
   storage: await createPsqlStorage(url ? { url } : undefined),
   runtimes: {
     default: new NodeRuntime(),
+    docker: new DockerRuntime(),
   },
 });
 

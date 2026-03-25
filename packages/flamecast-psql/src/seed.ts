@@ -3,6 +3,7 @@
  * Seed the database with builtin agent templates.
  * Run via: DATABASE_URL=... npx tsx src/seed.ts
  */
+import { defaultAgentTemplates } from "./default-templates.js";
 import { createDatabase } from "./db.js";
 import { createStorageFromDb } from "./storage.js";
 
@@ -12,24 +13,9 @@ if (!url) {
   process.exit(1);
 }
 
-const templates = [
-  {
-    id: "example",
-    name: "Example agent",
-    spawn: { command: "pnpm", args: ["exec", "tsx", "packages/flamecast/src/flamecast/agent.ts"] },
-    runtime: { provider: "default" },
-  },
-  {
-    id: "codex",
-    name: "Codex ACP",
-    spawn: { command: "pnpm", args: ["dlx", "@zed-industries/codex-acp"] },
-    runtime: { provider: "default" },
-  },
-];
-
 const { db, close } = await createDatabase({ url });
 const storage = createStorageFromDb(db);
-await storage.seedAgentTemplates(templates);
+await storage.seedAgentTemplates(defaultAgentTemplates);
 
-console.log(`Seeded ${templates.length} templates`);
+console.log(`Seeded ${defaultAgentTemplates.length} templates`);
 await close();

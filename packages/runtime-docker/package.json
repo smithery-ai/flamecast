@@ -1,5 +1,5 @@
 {
-  "name": "@flamecast/runtime-e2b",
+  "name": "@flamecast/runtime-docker",
   "version": "0.0.0",
   "type": "module",
   "exports": {
@@ -13,7 +13,11 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@e2b/code-interpreter": "^2.4.0",
-    "@flamecast/sdk": "workspace:*"
+    "@flamecast/sdk": "workspace:*",
+    "dockerode": "^4.0.6"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^3.3.37",
+    "typescript": "^5.8.3"
   }
 }

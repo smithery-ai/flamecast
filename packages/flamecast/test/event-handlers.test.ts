@@ -242,8 +242,8 @@ describe("onPermissionRequest handler", () => {
         title: "Allow file write",
         kind: "file_write",
         options: [
-          { optionId: "allow", name: "Allow", kind: "approve" },
-          { optionId: "deny", name: "Deny", kind: "reject" },
+          { optionId: "allow", name: "Allow", kind: "allow_once" },
+          { optionId: "deny", name: "Deny", kind: "reject_once" },
         ],
       });
 
@@ -287,8 +287,8 @@ describe("onPermissionRequest handler", () => {
         title: "Run shell command",
         kind: "command",
         options: [
-          { optionId: "yes", name: "Yes", kind: "approve" },
-          { optionId: "no", name: "No", kind: "reject" },
+          { optionId: "yes", name: "Yes", kind: "allow_once" },
+          { optionId: "no", name: "No", kind: "reject_once" },
         ],
       });
 
@@ -315,7 +315,7 @@ describe("onPermissionRequest handler", () => {
         requestId: "req-1",
         toolCallId: "tool-1",
         title: "Allow file write",
-        options: [{ optionId: "allow", name: "Allow", kind: "approve" }],
+        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
       });
 
       expect(response).toBeUndefined();
@@ -344,7 +344,7 @@ describe("onPermissionRequest handler", () => {
         requestId: "req-1",
         toolCallId: "tool-1",
         title: "Allow file write",
-        options: [{ optionId: "allow", name: "Allow", kind: "approve" }],
+        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
       });
 
       expect(response).toBeUndefined();
@@ -376,7 +376,7 @@ describe("onPermissionRequest handler", () => {
         requestId: "req-1",
         toolCallId: "tool-1",
         title: "Allow file write",
-        options: [{ optionId: "no", name: "No", kind: "reject" }],
+        options: [{ optionId: "no", name: "No", kind: "reject_once" }],
       });
 
       // No approve option => allow() falls back to cancelled

@@ -102,7 +102,7 @@ export type FlamecastOptions<
 export class Flamecast<
   R extends Record<string, Runtime<Record<string, unknown>>> = Record<string, Runtime>,
 > {
-  private readonly initialAgentTemplates: AgentTemplate[];
+  private readonly initialAgentTemplates: AgentTemplate[] | undefined;
   private readonly storageConfig?: FlamecastStorage;
   private readonly sessionService: SessionService;
   private readonly runtimesMap: Record<string, Runtime>;
@@ -118,7 +118,7 @@ export class Flamecast<
 
   constructor(opts: FlamecastOptions<R>) {
     this.storageConfig = opts.storage;
-    this.initialAgentTemplates = opts.agentTemplates ?? [];
+    this.initialAgentTemplates = opts.agentTemplates;
     // oxlint-disable-next-line no-type-assertion/no-type-assertion
     this.runtimesMap = opts.runtimes as Record<string, Runtime>;
     // oxlint-disable-next-line no-type-assertion/no-type-assertion
@@ -183,7 +183,7 @@ export class Flamecast<
   async createSession(opts: CreateSessionBody): Promise<Session> {
     await this.ensureReady();
 
-    const cwd = opts.cwd ?? ".";
+    const cwd = opts.cwd ?? process.cwd();
     const { agentName, spawn, runtime } = await this.resolveSessionDefinition(opts);
     const startedAt = new Date().toISOString();
 
@@ -274,11 +274,11 @@ export class Flamecast<
       kind: event.kind,
       options: event.options,
       allow() {
-        const approveOpt = event.options.find((o) => o.kind === "approve");
+        const approveOpt = event.options.find((o) => o.kind.startsWith("allow"));
         return approveOpt ? { optionId: approveOpt.optionId } : { outcome: "cancelled" };
       },
       deny() {
-        const rejectOpt = event.options.find((o) => o.kind === "reject");
+        const rejectOpt = event.options.find((o) => o.kind.startsWith("reject"));
         return rejectOpt ? { optionId: rejectOpt.optionId } : { outcome: "cancelled" };
       },
     };
@@ -324,7 +324,9 @@ export class Flamecast<
       this.readyPromise = (async () => {
         const storage = this.storageConfig ?? new MemoryFlamecastStorage();
         this.storage = storage;
-        await storage.seedAgentTemplates(this.initialAgentTemplates);
+        if (this.initialAgentTemplates) {
+          await storage.seedAgentTemplates(this.initialAgentTemplates);
+        }
       })();
     }
     await this.readyPromise;
