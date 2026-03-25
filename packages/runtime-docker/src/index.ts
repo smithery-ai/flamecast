@@ -81,10 +81,7 @@ export class DockerRuntime implements Runtime {
           PortBindings: { [`${CONTAINER_PORT}/tcp`]: [{ HostPort: "0" }] },
           AutoRemove: true,
         },
-        Env: [
-          `SESSION_HOST_PORT=${CONTAINER_PORT}`,
-          "RUNTIME_SETUP_ENABLED=1",
-        ],
+        Env: [`SESSION_HOST_PORT=${CONTAINER_PORT}`, "RUNTIME_SETUP_ENABLED=1"],
       });
 
       await container.start();
@@ -158,11 +155,7 @@ export class DockerRuntime implements Runtime {
     });
   }
 
-  private async proxyRequest(
-    sessionId: string,
-    path: string,
-    request: Request,
-  ): Promise<Response> {
+  private async proxyRequest(sessionId: string, path: string, request: Request): Promise<Response> {
     const entry = this.containers.get(sessionId);
     if (!entry) {
       return jsonResponse({ error: `Session "${sessionId}" not found` }, 404);
