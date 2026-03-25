@@ -1,16 +1,16 @@
 ---
 title: "Storage"
-description: "Persist session metadata and events with pluggable backends"
+description: "Persist session metadata with pluggable backends"
 ---
 
-Flamecast supports multiple storage backends for persisting session metadata and events.
+Flamecast supports multiple storage backends for persisting session metadata and agent templates.
 
 ## Backends
 
 | Backend | Package | Use case |
 |---|---|---|
 | Memory | Built-in | Development and testing. Data lost on restart |
-| PGLite | `@flamecast/storage-psql` | Embedded SQLite-like Postgres. No external database needed |
+| PGLite | `@flamecast/storage-psql` | Embedded Postgres. No external database needed |
 | PostgreSQL | `@flamecast/storage-psql` | Production. Full Postgres with connection pooling |
 
 ## Configuration
@@ -27,13 +27,14 @@ const flamecast = new Flamecast();
 
 ```typescript
 import { Flamecast } from "@flamecast/sdk";
+import { createPsqlStorage } from "@flamecast/storage-psql";
 
 const flamecast = new Flamecast({
-  storage: "pglite",
+  storage: await createPsqlStorage(),
 });
 ```
 
-PGLite stores data in `<cwd>/.flamecast/pglite` by default. Override with the `FLAMECAST_PGLITE_DIR` environment variable.
+PGLite stores data in `<cwd>/.flamecast/pglite` by default. Override with the `FLAMECAST_PGLITE_DIR` environment variable or the `dataDir` option.
 
 ### PostgreSQL
 
@@ -47,7 +48,7 @@ const storage = await createPsqlStorage({
 const flamecast = new Flamecast({ storage });
 ```
 
-## SQL storage options
+## Options
 
 | Option | Description |
 |---|---|

@@ -38,17 +38,17 @@ All endpoints are prefixed with `/api`.
 
 ```json
 {
-  "id": "my-agent",
   "name": "My custom agent",
   "spawn": {
     "command": "node",
     "args": ["agent.js"]
   },
-  "runtime": {
-    "provider": "local"
-  }
+  "setup": "npm install",
+  "runtime": "local"
 }
 ```
+
+The `runtime` field is a string referencing one of the named runtimes registered on the Flamecast instance (e.g. `"local"`, `"docker"`, `"e2b"`). The optional `setup` field is a shell script string that runs before the agent starts (e.g. installing dependencies). The server generates a unique `id` for the template and returns it in the response.
 
 ## Agents
 
@@ -84,6 +84,15 @@ All endpoints are prefixed with `/api`.
 }
 ```
 
+**Request body (with working directory)**
+
+```json
+{
+  "agentTemplateId": "codex",
+  "cwd": "/path/to/project"
+}
+```
+
 **Response**
 
 The response includes a `websocketUrl` for active sessions, which clients use to establish a WebSocket connection.
@@ -93,6 +102,13 @@ The response includes a `websocketUrl` for active sessions, which clients use to
 <ParamField path="GET /agents/:agentId" type="endpoint">
   Returns the current agent snapshot, including `websocketUrl` for live sessions.
 </ParamField>
+
+**Query parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `includeFileSystem` | `boolean` | Include filesystem snapshot in response |
+| `showAllFiles` | `boolean` | Show all files, including those in `.gitignore` |
 
 ### Terminate an agent
 

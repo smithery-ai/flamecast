@@ -1,40 +1,51 @@
 ---
-title: "Introduction"
-description: "Flamecast is an open-source, self-hostable control plane for ACP-compatible agents"
+title: "Flamecast"
+description: "An open-source control plane for orchestrating ACP-compatible agents"
 ---
 
-Flamecast starts and manages agent sessions behind a REST API, brokers ACP permission requests, persists session metadata and logs, and ships a reference React UI — all with real-time WebSocket connectivity.
+Flamecast manages agent sessions behind a REST API, brokers permission requests, persists session metadata and logs, and streams everything in real time over WebSocket. It works with any agent that speaks the [Agent Client Protocol](https://agentclientprotocol.com).
 
-## Get started
+## What can you do with Flamecast?
 
-<Card
-  title="Quickstart"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Install Flamecast and launch your first agent session in minutes.
+<CardGroup cols={2}>
+  <Card title="Orchestrate local agents" icon="terminal" href="/guides/local-agents">
+    Run Claude Code, Codex, or other ACP agents as local child processes.
+  </Card>
+  <Card title="Orchestrate cloud agents" icon="cloud" href="/guides/cloud-agents">
+    Connect to agents running in Docker, Kubernetes, or remote servers.
+  </Card>
+  <Card title="Build your own agent" icon="hammer" href="/guides/build-your-own-agent">
+    Make your agent ACP-compatible and get a REST + WebSocket API for free.
+  </Card>
+  <Card title="Spin off subagents" icon="diagram-project" href="/guides/subagents">
+    Use Flamecast to spawn and coordinate multiple agents from a parent agent.
+  </Card>
+  <Card title="Set up a Slackbot" icon="message" href="/guides/slackbot">
+    Connect an agent to Slack using Chat SDK for a conversational interface.
+  </Card>
+  <Card title="Build a custom UI" icon="browser" href="/guides/custom-ui">
+    Use the React hooks and Client SDK to build your own agent interface.
+  </Card>
+</CardGroup>
+
+## How it works
+
+Flamecast sits between your agents and the clients that interact with them:
+
+```mermaid
+graph LR
+    A["Your app / UI / Slackbot"] -->|"REST + WebSocket"| B["Flamecast"]
+    B -->|"ACP (stdio / TCP)"| C["Agent 1"]
+    B -->|"ACP (stdio / TCP)"| D["Agent 2"]
+    B -->|"ACP (stdio / TCP)"| E["Agent N"]
+    B --> F["Storage"]
+```
+
+1. You tell Flamecast to start an agent session (via REST API or SDK).
+2. Flamecast spawns the agent using a [runtime provider](/guides/architecture) (local process, Docker container, or custom).
+3. Flamecast brokers all communication over ACP — prompts, responses, tool calls, and permission requests.
+4. Clients connect over WebSocket for real-time streaming, or poll the REST API.
+
+<Card title="Quickstart" icon="rocket" href="/quickstart" horizontal>
+  Install Flamecast and launch your first agent session in under a minute.
 </Card>
-
-## Core features
-
-<Columns cols={2}>
-  <Card title="ACP-native" icon="plug" href="/guides/acp-bridge">
-    First-class support for the Agent Client Protocol. Connect any ACP-compatible agent.
-  </Card>
-  <Card title="Runtime providers" icon="server" href="/guides/runtime-providers">
-    Run agents locally, in Docker containers, or with custom providers.
-  </Card>
-  <Card title="Real-time WebSocket" icon="bolt" href="/api-reference/websocket">
-    Stream session events and send control messages over a persistent connection.
-  </Card>
-  <Card title="Pluggable storage" icon="database" href="/guides/storage">
-    Memory, PGLite, or PostgreSQL backends for session persistence.
-  </Card>
-  <Card title="REST API" icon="code" href="/api-reference/introduction">
-    Manage agents, sessions, and templates through a typed HTTP API.
-  </Card>
-  <Card title="Client SDK" icon="window" href="/api-reference/client-sdk">
-    Auto-reconnecting WebSocket client with React hooks included.
-  </Card>
-</Columns>

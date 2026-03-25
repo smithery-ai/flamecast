@@ -1,6 +1,6 @@
 ---
-title: "Introduction"
-description: "Overview of the Flamecast HTTP and WebSocket APIs"
+title: "API overview"
+description: "REST and WebSocket APIs for managing agents and sessions"
 ---
 
 Flamecast exposes a REST API for managing agents and templates, and a WebSocket endpoint for real-time session interaction.
@@ -19,7 +19,7 @@ Flamecast does not currently implement authentication. All endpoints are open.
   Do not expose a Flamecast instance to the public internet without adding your own auth layer.
 </Warning>
 
-## API overview
+## API surface
 
 | Area | Description |
 |---|---|
@@ -29,12 +29,15 @@ Flamecast does not currently implement authentication. All endpoints are open.
 
 ## Typed client
 
-Flamecast ships a typed HTTP client at `@flamecast/sdk/client`:
+Flamecast ships a typed HTTP and WebSocket client at `@flamecast/sdk/client`:
 
 ```typescript
-import { FlamecastClient } from "@flamecast/sdk/client";
+import { createFlamecastClient } from "@flamecast/sdk/client";
 
-const client = new FlamecastClient("http://localhost:3001");
-const templates = await client.getAgentTemplates();
-const agent = await client.createAgent({ agentTemplateId: "example" });
+const client = createFlamecastClient({ baseUrl: "http://localhost:3001" });
+
+const templates = await client.fetchAgentTemplates();
+const agent = await client.createSession({ agentTemplateId: "example" });
 ```
+
+See the [Client SDK reference](/api-reference/client-sdk) for the full API.

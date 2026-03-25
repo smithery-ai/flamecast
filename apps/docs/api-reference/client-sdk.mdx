@@ -5,12 +5,36 @@ description: "TypeScript client with auto-reconnecting WebSocket and React hooks
 
 The `@flamecast/sdk/client` package provides a typed client for interacting with Flamecast from the browser or Node.js.
 
+## REST client
+
+```typescript
+import { createFlamecastClient } from "@flamecast/sdk/client";
+
+const client = createFlamecastClient({ baseUrl: "http://localhost:3001" });
+
+// List templates
+const templates = await client.fetchAgentTemplates();
+
+// Create a session
+const session = await client.createSession({ agentTemplateId: "example" });
+
+// Get session details
+const snapshot = await client.fetchSession(session.id);
+
+// Terminate
+await client.terminateSession(session.id);
+```
+
 ## FlamecastSession
 
 `FlamecastSession` is an auto-reconnecting WebSocket wrapper for a single session.
 
+<Note>
+  ***Import path:*** `FlamecastSession` is not yet re-exported from `@flamecast/sdk/client`. Import it directly from the internal module path for now:
+</Note>
+
 ```typescript
-import { FlamecastSession } from "@flamecast/sdk/client";
+import { FlamecastSession } from "@flamecast/sdk/client/lib/flamecast-session";
 
 const session = new FlamecastSession({
   websocketUrl: "ws://localhost:3001/ws/sessions/abc-123",
@@ -23,7 +47,7 @@ session.connect();
 ### Listen for events
 
 ```typescript
-session.on((event) => {
+const unsubscribe = session.on((event) => {
   console.log("Event:", event.type, event.data);
 });
 ```
@@ -38,7 +62,7 @@ session.prompt("Hello, agent!");
 session.respondToPermission(requestId, { optionId: "allow" });
 
 // Cancel a queued prompt
-session.cancel();
+session.cancel(queueId);
 
 // Terminate the session
 session.terminate();
@@ -50,7 +74,7 @@ session.disconnect();
 ### Read files
 
 ```typescript
-const content = await session.readFile("/path/to/file.ts");
+const { content, truncated } = await session.requestFilePreview("/src/index.ts");
 ```
 
 ### Connection state
@@ -64,6 +88,14 @@ The `connectionState` property reflects the current WebSocket status:
 | `connected` | Active connection |
 | `reconnecting` | Attempting to reconnect after a drop |
 
+Listen for state changes:
+
+```typescript
+session.onStateChange((state) => {
+  console.log("Connection:", state);
+});
+```
+
 ### Options
 
 | Option | Default | Description |
@@ -74,10 +106,34 @@ The `connectionState` property reflects the current WebSocket status:
 
 ## React hooks
 
-The SDK includes React hooks for use with TanStack Query:
+The SDK includes a React hook for use with TanStack Query:
+
+<Note>
+  ***Import path:*** `useFlamecastSession` is not yet re-exported from `@flamecast/sdk/client`. Import it directly for now:
+</Note>
 
 ```typescript
-import { useFlamecastSession } from "@flamecast/sdk/client";
+import { useFlamecastSession } from "@flamecast/sdk/client/hooks/use-flamecast-session";
+
+function SessionView({ sessionId }: { sessionId: string }) {
+  const {
+    events,
+    connectionState,
+    isConnected,
+    prompt,
+    respondToPermission,
+    cancel,
+    terminate,
+  } = useFlamecastSession(sessionId);
+
+  return (
+    <div>
+      <p>Status: {connectionState}</p>
+      <p>Events: {events.length}</p>
+      <button onClick={() => prompt("Hello!")}>Send prompt</button>
+    </div>
+  );
+}
 ```
 
-These hooks manage connection lifecycle, event buffering, and state synchronization automatically.
+The hook manages connection lifecycle, event buffering, and state synchronization automatically.

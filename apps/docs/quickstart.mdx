@@ -1,6 +1,6 @@
 ---
 title: "Quickstart"
-description: "Get Flamecast running and launch your first agent session"
+description: "Install Flamecast and launch your first agent session"
 ---
 
 <Info>
@@ -11,26 +11,38 @@ description: "Get Flamecast running and launch your first agent session"
 <Step title="Clone and install">
 
 ```bash
-npm create flamecast@latest my-app
+git clone https://github.com/anthropics/flamecast.git my-app
 cd my-app
+pnpm install
 ```
+
+<Note>
+  ***Coming soon:*** `npm create flamecast@latest` will scaffold a new project automatically.
+</Note>
 
 </Step>
 
 <Step title="Start the dev server">
 
 ```bash
-npm install
-npm run dev
+pnpm dev
 ```
 
-This starts both the API server on port 3001 and the React UI dev server.
+This starts the API server on port 3001 and the React UI dev server.
 
 </Step>
 
-<Step title="Open the UI">
+<Step title="Launch a session">
 
-Go to **http://localhost:3000**. The home page lists registered agent templates. Click **Start session** to launch one.
+Open **http://localhost:3000**. The home page lists registered agent templates. Click **Start session** to launch one.
+
+You can also create a session from the command line:
+
+```bash
+curl -X POST http://localhost:3001/api/agents \
+  -H "Content-Type: application/json" \
+  -d '{ "agentTemplateId": "example" }'
+```
 
 </Step>
 </Steps>
@@ -41,29 +53,36 @@ You can also create a Flamecast instance programmatically:
 
 ```typescript
 import { Flamecast } from "@flamecast/sdk";
+import { createPsqlStorage } from "@flamecast/storage-psql";
 
 const flamecast = new Flamecast({
-  storage: "pglite",
+  storage: await createPsqlStorage(),
 });
 
 await flamecast.listen(3001);
 ```
 
-The `Flamecast` constructor accepts options for [storage](/guides/storage), [runtime providers](/guides/runtime-providers), and [agent templates](/guides/agent-templates).
+## What to do next
 
-## Next steps
+Pick the guide that matches your use case:
 
 <CardGroup cols={2}>
-  <Card title="Architecture" icon="sitemap" href="/guides/architecture">
-    Understand how the pieces fit together.
+  <Card title="Orchestrate local agents" icon="terminal" href="/guides/local-agents">
+    Run Claude Code, Codex, or other local agents.
   </Card>
-  <Card title="Configuration" icon="gear" href="/guides/configuration">
-    Customize storage, providers, and templates.
+  <Card title="Orchestrate cloud agents" icon="cloud" href="/guides/cloud-agents">
+    Connect to agents in Docker or remote environments.
   </Card>
-  <Card title="REST API" icon="code" href="/api-reference/introduction">
-    Explore the HTTP endpoints.
+  <Card title="Build your own agent" icon="hammer" href="/guides/build-your-own-agent">
+    Make an agent ACP-compatible and give it a REST API.
   </Card>
-  <Card title="Client SDK" icon="window" href="/api-reference/client-sdk">
-    Connect to sessions from your own frontend.
+  <Card title="Spin off subagents" icon="diagram-project" href="/guides/subagents">
+    Coordinate multiple agents from a parent agent.
+  </Card>
+  <Card title="Set up a Slackbot" icon="message" href="/guides/slackbot">
+    Wire an agent into Slack using Chat SDK.
+  </Card>
+  <Card title="Build a custom UI" icon="browser" href="/guides/custom-ui">
+    Use React hooks to build your own agent interface.
   </Card>
 </CardGroup>

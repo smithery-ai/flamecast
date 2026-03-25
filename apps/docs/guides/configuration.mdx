@@ -1,6 +1,6 @@
 ---
 title: "Configuration"
-description: "All Flamecast constructor options and environment variables"
+description: "Flamecast constructor options and environment variables"
 ---
 
 Flamecast is configured through TypeScript via the `Flamecast` constructor. There are no JSON config files.
@@ -9,10 +9,24 @@ Flamecast is configured through TypeScript via the `Flamecast` constructor. Ther
 
 ```typescript
 import { Flamecast } from "@flamecast/sdk";
+import { createPsqlStorage } from "@flamecast/storage-psql";
 
 const flamecast = new Flamecast({
-  storage: "pglite",
-  handleSignals: true,
+  storage: await createPsqlStorage(),
+  runtimes: {
+    local: new LocalRuntime(),
+    docker: new LocalDockerRuntime(),
+    e2b: new E2BRuntime({ apiKey: process.env.E2B_API_KEY }),
+  },
+  agentTemplates: [
+    {
+      id: "my-agent",
+      name: "My agent",
+      spawn: { command: "node", args: ["agent.js"] },
+      setup: "npm install",
+      runtime: "e2b",
+    },
+  ],
 });
 
 await flamecast.listen(3001);
@@ -20,21 +34,39 @@ await flamecast.listen(3001);
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `storage` | `string \| FlamecastStorage` | `"memory"` | Persistence backend |
-| `runtimeProviders` | `Record<string, RuntimeProvider>` | Built-in `local` + `docker` | Registry of runtime providers |
+| `storage` | `FlamecastStorage` | `MemoryFlamecastStorage` | Persistence backend. Use `createPsqlStorage()` for embedded PGLite or Postgres |
+| `runtimes` | `Record<string, Runtime>` | Built-in `LocalRuntime` + `LocalDockerRuntime` | Named runtime instances. Agent templates reference these by key |
 | `agentTemplates` | `AgentTemplate[]` | Built-in templates | Initial template list. Replaces defaults when provided |
 | `handleSignals` | `boolean` | `true` | Auto shutdown on SIGINT/SIGTERM |
-| `runtimeClient` | `RuntimeClient` | `LocalRuntimeClient` | Custom runtime client implementation |
+
+### Runtimes
+
+Each key in the `runtimes` object becomes a named runtime that agent templates can reference. For example, if you register `e2b: new E2BRuntime(...)`, templates can use `runtime: "e2b"`.
+
+Templates registered via `POST /api/agent-templates` can reference any runtime available on the server:
+
+```bash
+curl -X POST http://localhost:3001/api/agent-templates \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "E2B agent",
+    "spawn": { "command": "node", "args": ["agent.js"] },
+    "runtime": "e2b"
+  }'
+```
+
+See [Orchestrate cloud agents](/guides/cloud-agents) for details on built-in and custom runtimes.
 
 ## Fetch handler
 
-The same instance also exposes a standard `fetch` handler for serverless or custom HTTP setups:
+For serverless or custom HTTP setups, use the `fetch` handler:
 
 ```typescript
 import { Flamecast } from "@flamecast/sdk";
+import { createPsqlStorage } from "@flamecast/storage-psql";
 
 const flamecast = new Flamecast({
-  storage: { type: "postgres", url: process.env.DATABASE_URL! },
+  storage: await createPsqlStorage({ url: process.env.DATABASE_URL! }),
 });
 
 export default flamecast.fetch;
@@ -46,10 +78,11 @@ export default flamecast.fetch;
 |---|---|
 | `FLAMECAST_PGLITE_DIR` | Override PGLite data directory (default: `<cwd>/.flamecast/pglite`) |
 | `DATABASE_URL` | Postgres connection string (when using Postgres storage) |
+| `FLAMECAST_PORT` or `PORT` | Override the default listen port (default: `3001`) |
 
 ## Current limitations
 
-- No auth or multi-tenancy
-- Single-process control plane; no distributed coordination
-- Worker deployment needs non-local runtime providers
-- Runtime reconnection across process restarts is not implemented yet
+- No authentication or multi-tenancy built in. Add your own auth layer before exposing to the internet.
+- Single-process control plane. No distributed coordination across multiple instances.
+- Worker deployment (e.g. Cloudflare Workers) requires custom runtime providers — `local` and `docker` providers are not available.
+- Runtime reconnection across process restarts is not implemented yet.

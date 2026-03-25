@@ -11,7 +11,7 @@ The WebSocket endpoint provides real-time event streaming and control for each s
 ws://localhost:3001/ws/sessions/:sessionId
 ```
 
-On connect, the server sends the full event history for the session, followed by live events.
+On connect, the server sends the full event history for the session, followed by live events as they happen.
 
 ## Server to client messages
 
@@ -47,7 +47,7 @@ ws.onmessage = (event) => {
       console.log("Connected to session:", message.sessionId);
       break;
     case "event":
-      console.log("Event:", message.data);
+      console.log("Event:", message.event);
       break;
   }
 };
@@ -62,7 +62,13 @@ ws.send(JSON.stringify({
 ws.send(JSON.stringify({
   action: "permission.respond",
   requestId: "req-123",
-  response: { optionId: "allow" },
+  body: { optionId: "allow" },
+}));
+
+// Cancel a queued prompt
+ws.send(JSON.stringify({
+  action: "cancel",
+  queueId: "queue-456",
 }));
 ```
 

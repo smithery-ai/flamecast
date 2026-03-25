@@ -1,0 +1,262 @@
+---
+title: "RFC: Queue management"
+description: "React hooks and REST API for managing the session prompt queue"
+tag: "RFC"
+---
+
+<Info>
+  This is a design proposal, not a shipped feature. Feedback is welcome on [GitHub](https://github.com/anthropics/flamecast).
+</Info>
+
+## Problem
+
+Flamecast processes prompts serially per session — each [ACP session](/rfcs/multi-session-websocket) has its own prompt queue. When a prompt is sent while the session is busy, it's queued and executed after the current prompt completes. Today, the queue is opaque. Clients can send prompts and cancel them by `queueId`, but there's no way to:
+
+- See what's in the queue
+- Reorder queued prompts
+- Clear the entire queue
+- Know the position of a queued prompt
+- Pause and resume queue processing
+
+This makes it hard to build UIs that show pending work, let users reprioritize, or implement batching workflows where multiple prompts are queued up front.
+
+## Proposed solution
+
+Expose the per-session prompt queue through both the REST API and React hooks.
+
+### REST API
+
+All queue endpoints are scoped to a session. An agent with multiple sessions has independent queues for each.
+
+#### List queued prompts
+
+```
+GET /api/sessions/:sessionId/queue
+```
+
+**Response**
+
+```json
+{
+  "items": [
+    {
+      "queueId": "q-001",
+      "text": "Fix the login bug",
+      "createdAt": "2025-03-24T10:30:00Z",
+      "position": 0
+    },
+    {
+      "queueId": "q-002",
+      "text": "Add unit tests for auth module",
+      "createdAt": "2025-03-24T10:30:05Z",
+      "position": 1
+    }
+  ],
+  "processing": {
+    "queueId": "q-000",
+    "text": "Refactor the database layer",
+    "startedAt": "2025-03-24T10:29:00Z"
+  },
+  "paused": false
+}
+```
+
+| Field | Description |
+|---|---|
+| `items` | Ordered list of queued prompts (not yet started) |
+| `processing` | The prompt currently being executed, or `null` if idle |
+| `paused` | Whether queue processing is paused |
+
+#### Cancel a queued prompt
+
+```
+DELETE /api/sessions/:sessionId/queue/:queueId
+```
+
+Removes a specific prompt from the queue. Returns `404` if the prompt is already being processed or doesn't exist.
+
+#### Clear the queue
+
+```
+DELETE /api/sessions/:sessionId/queue
+```
+
+Removes all queued prompts. Does not cancel the currently processing prompt.
+
+#### Reorder the queue
+
+```
+PUT /api/sessions/:sessionId/queue
+```
+
+**Request body**
+
+```json
+{
+  "order": ["q-002", "q-001"]
+}
+```
+
+Reorders the queue to match the provided `queueId` array. All IDs must be present — this is a full replacement of the queue order.
+
+#### Pause and resume
+
+```
+POST /api/sessions/:sessionId/queue/pause
+POST /api/sessions/:sessionId/queue/resume
+```
+
+When paused, the queue stops draining — the current prompt finishes, but the next one doesn't start. New prompts can still be added to the queue. Resuming starts processing from where it left off.
+
+### WebSocket messages
+
+New server-to-client messages:
+
+| Type | Description |
+|---|---|
+| `queue.updated` | The queue changed (prompt added, removed, reordered, or completed) |
+| `queue.paused` | Queue processing was paused |
+| `queue.resumed` | Queue processing was resumed |
+
+The `queue.updated` message includes the `sessionId` and full queue state:
+
+```json
+{
+  "type": "queue.updated",
+  "sessionId": "session-456",
+  "queue": {
+    "items": [...],
+    "processing": {...},
+    "paused": false
+  }
+}
+```
+
+New client-to-server actions:
+
+| Action | Description |
+|---|---|
+| `queue.reorder` | Reorder the queue. Body: `{ order: string[] }` |
+| `queue.clear` | Clear all queued prompts |
+| `queue.pause` | Pause queue processing |
+| `queue.resume` | Resume queue processing |
+
+### React hook: `useQueue`
+
+```typescript
+import { useQueue } from "@flamecast/sdk/client/hooks/use-queue";
+
+function QueuePanel({ sessionId }: { sessionId: string }) {
+  const {
+    items,          // QueueItem[] — ordered list of pending prompts
+    processing,     // QueueItem | null — the currently executing prompt
+    paused,         // boolean
+    cancel,         // (queueId: string) => void
+    clear,          // () => void
+    reorder,        // (queueIds: string[]) => void
+    pause,          // () => void
+    resume,         // () => void
+  } = useQueue(sessionId);
+
+  return (
+    <div>
+      {processing && (
+        <div className="processing">
+          Running: {processing.text}
+        </div>
+      )}
+
+      {items.map((item, i) => (
+        <div key={item.queueId} className="queue-item">
+          <span>{i + 1}. {item.text}</span>
+          <button onClick={() => cancel(item.queueId)}>Remove</button>
+        </div>
+      ))}
+
+      <div className="controls">
+        <button onClick={paused ? resume : pause}>
+          {paused ? "Resume" : "Pause"}
+        </button>
+        <button onClick={clear} disabled={items.length === 0}>
+          Clear queue
+        </button>
+      </div>
+    </div>
+  );
+}
+```
+
+### Drag-and-drop reordering
+
+The `reorder` function accepts a reordered array of `queueId`s, making it straightforward to integrate with drag-and-drop libraries:
+
+```typescript
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
+
+function DraggableQueue({ sessionId }: { sessionId: string }) {
+  const { items, reorder } = useQueue(sessionId);
+
+  const handleDragEnd = (result: any) => {
+    if (!result.destination) return;
+
+    const reordered = Array.from(items);
+    const [moved] = reordered.splice(result.source.index, 1);
+    reordered.splice(result.destination.index, 0, moved);
+
+    reorder(reordered.map((item) => item.queueId));
+  };
+
+  return (
+    <DragDropContext onDragEnd={handleDragEnd}>
+      <Droppable droppableId="queue">
+        {(provided) => (
+          <div ref={provided.innerRef} {...provided.droppableProps}>
+            {items.map((item, i) => (
+              <Draggable key={item.queueId} draggableId={item.queueId} index={i}>
+                {(provided) => (
+                  <div
+                    ref={provided.innerRef}
+                    {...provided.draggableProps}
+                    {...provided.dragHandleProps}
+                  >
+                    {item.text}
+                  </div>
+                )}
+              </Draggable>
+            ))}
+            {provided.placeholder}
+          </div>
+        )}
+      </Droppable>
+    </DragDropContext>
+  );
+}
+```
+
+## Queue events via webhooks
+
+If the session has [webhooks](/rfcs/webhooks) configured, queue state changes are not delivered as webhook events by default. Queue changes are high-frequency and primarily useful for real-time UIs, not serverless handlers.
+
+*Proposed:* Add `queue.updated` as an optional event type that webhook registrations can opt into:
+
+```json
+{
+  "webhooks": [
+    {
+      "url": "https://my-app.vercel.app/api/queue-events",
+      "secret": "whsec_abc123",
+      "events": ["queue.updated"]
+    }
+  ]
+}
+```
+
+## Open questions
+
+1. **Queue size limit.** Should there be a maximum queue depth per session? If so, what happens when the limit is reached — reject the prompt, or drop the oldest entry?
+
+2. **Priority levels.** Should prompts support a `priority` field that affects queue ordering (e.g. `"high"`, `"normal"`, `"low"`)?
+
+3. **Estimated wait time.** Should the queue API return an estimated wait time based on average prompt processing duration?
+
+4. **Queue persistence.** Should the queue survive server restarts (when using durable storage), or is it ephemeral per session?

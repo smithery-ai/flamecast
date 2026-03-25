@@ -15,21 +15,27 @@
         "groups": [
           {
             "group": "Getting started",
-            "pages": ["index", "quickstart", "development"]
+            "pages": ["index", "quickstart"]
           },
           {
-            "group": "Core concepts",
+            "group": "Use cases",
             "pages": [
-              "guides/architecture",
-              "guides/acp-bridge",
-              "guides/runtime-providers",
-              "guides/storage",
-              "guides/agent-templates"
+              "guides/local-agents",
+              "guides/cloud-agents",
+              "guides/build-your-own-agent",
+              "guides/subagents",
+              "guides/slackbot",
+              "guides/custom-ui"
             ]
           },
           {
-            "group": "Configuration",
-            "pages": ["guides/configuration"]
+            "group": "Going deeper",
+            "pages": [
+              "guides/architecture",
+              "guides/configuration",
+              "guides/storage",
+              "guides/development"
+            ]
           }
         ]
       },
@@ -47,6 +53,23 @@
           {
             "group": "Client SDK",
             "pages": ["api-reference/client-sdk"]
+          }
+        ]
+      },
+      {
+        "tab": "RFCs",
+        "groups": [
+          {
+            "group": "Proposals",
+            "pages": [
+              "rfcs/webhooks",
+              "rfcs/setup-scripts",
+              "rfcs/dockerfile-validation",
+              "rfcs/prebuilt-images",
+              "rfcs/queue-management",
+              "rfcs/terminal-sessions",
+              "rfcs/multi-session-websocket"
+            ]
           }
         ]
       }
