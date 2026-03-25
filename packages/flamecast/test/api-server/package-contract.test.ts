@@ -31,9 +31,17 @@ describe("package contract", () => {
       types: "./dist/flamecast/api.d.ts",
       import: "./dist/flamecast/api.js",
     });
-    expect(packageJson.exports["./session-manager"]).toEqual({
-      types: "./dist/flamecast/session-manager.d.ts",
-      import: "./dist/flamecast/session-manager.js",
+    expect(packageJson.exports["./session-service"]).toEqual({
+      types: "./dist/flamecast/session-service.d.ts",
+      import: "./dist/flamecast/session-service.js",
+    });
+    expect(packageJson.exports["./runtime"]).toEqual({
+      types: "./dist/flamecast/runtime.d.ts",
+      import: "./dist/flamecast/runtime.js",
+    });
+    expect(packageJson.exports["./runtimes/node"]).toEqual({
+      types: "./dist/flamecast/runtimes/node.d.ts",
+      import: "./dist/flamecast/runtimes/node.js",
     });
 
     const entry = await import("../../src/index.js");

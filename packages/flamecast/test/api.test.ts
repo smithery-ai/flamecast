@@ -3,7 +3,8 @@ import alchemy from "alchemy";
 import "alchemy/test/vitest";
 import { Hono } from "hono";
 import { hc } from "hono/client";
-import { Flamecast, type RuntimeClient } from "../src/flamecast/index.js";
+import { Flamecast } from "../src/flamecast/index.js";
+import type { Runtime } from "../src/flamecast/runtime.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import type { FlamecastStorage } from "../src/flamecast/storage.js";
 import { createApi, type AppType } from "../src/flamecast/api.js";
@@ -22,33 +23,38 @@ if (!isAlchemyTestFactory(maybeAlchemyTest)) {
 
 const test = maybeAlchemyTest(import.meta, { prefix: "test" });
 
-/** Mock runtime client that tracks sessions in memory and persists to storage. */
-function createMockRuntimeClient(storage: FlamecastStorage): RuntimeClient {
+/** Mock runtime that handles /start and /terminate via the Runtime interface. */
+function createMockRuntime(storage: FlamecastStorage): Runtime {
   const sessions = new Set<string>();
   return {
-    async startSession(opts) {
-      const sessionId = crypto.randomUUID();
-      await storage.createSession({
-        id: sessionId,
-        agentName: opts.agentName,
-        spawn: opts.spawn,
-        startedAt: opts.startedAt,
-        lastUpdatedAt: new Date().toISOString(),
-        status: "active",
-        pendingPermission: null,
-      });
-      sessions.add(sessionId);
-      return { sessionId };
-    },
-    async terminateSession(sessionId) {
-      await storage.finalizeSession(sessionId, "terminated");
-      sessions.delete(sessionId);
-    },
-    hasSession(sessionId) {
-      return sessions.has(sessionId);
-    },
-    listSessionIds() {
-      return [...sessions];
+    async fetchSession(sessionId: string, request: Request): Promise<Response> {
+      const url = new URL(request.url);
+      if (url.pathname.endsWith("/start") && request.method === "POST") {
+        const id = crypto.randomUUID();
+        await storage.createSession({
+          id,
+          agentName: "mock",
+          spawn: { command: "echo", args: [] },
+          startedAt: new Date().toISOString(),
+          lastUpdatedAt: new Date().toISOString(),
+          status: "active",
+          pendingPermission: null,
+        });
+        sessions.add(id);
+        return new Response(
+          JSON.stringify({
+            acpSessionId: id,
+            hostUrl: `http://localhost:9999`,
+            websocketUrl: `ws://localhost:9999`,
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.pathname.endsWith("/terminate") && request.method === "POST") {
+        sessions.delete(sessionId);
+        return new Response("OK");
+      }
+      return new Response("OK");
     },
   };
 }
@@ -68,7 +74,7 @@ describe("api contract", () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
-      runtimeClient: createMockRuntimeClient(storage),
+      runtimes: { local: createMockRuntime(storage) },
     });
     const client = createClient(flamecast);
 
@@ -86,7 +92,7 @@ describe("api contract", () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
-      runtimeClient: createMockRuntimeClient(storage),
+      runtimes: { local: createMockRuntime(storage) },
     });
     const client = createClient(flamecast);
 
@@ -103,7 +109,7 @@ describe("api contract", () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
-      runtimeClient: createMockRuntimeClient(storage),
+      runtimes: { local: createMockRuntime(storage) },
     });
     const client = createClient(flamecast);
 
@@ -119,7 +125,7 @@ describe("api contract", () => {
     const storage = new MemoryFlamecastStorage();
     const flamecast = new Flamecast({
       storage,
-      runtimeClient: createMockRuntimeClient(storage),
+      runtimes: { local: createMockRuntime(storage) },
     });
     const client = createClient(flamecast);
 

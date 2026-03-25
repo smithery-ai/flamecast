@@ -19,10 +19,11 @@ export default defineConfig({
       include: ["src/flamecast/**/*.ts", "src/server/**/*.ts"],
       exclude: [
         "src/flamecast/storage.ts",
-        "src/flamecast/session-manager.ts", // tested via alchemy dev integration, not unit tests
-        "src/flamecast/data-plane.ts", // type-only module, no runtime logic to test
-        "src/flamecast/agent.ts", // example agent — tested via runtime-bridge integration
-        "src/flamecast/client.ts", // example client — tested via runtime-bridge integration
+        "src/flamecast/runtime.ts", // type-only module, no runtime logic to test
+        "src/flamecast/runtimes/node.ts", // tested via integration tests, not unit tests
+        "src/flamecast/session-service.ts", // tested via integration tests, not unit tests
+        "src/flamecast/agent.ts", // example agent — tested via session-host integration
+        "src/flamecast/client.ts", // example client — tested via session-host integration
       ],
       thresholds: {
         branches: 55,

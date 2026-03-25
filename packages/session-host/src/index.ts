@@ -1,13 +1,34 @@
 #!/usr/bin/env node
 /* oxlint-disable no-type-assertion/no-type-assertion */
-import { spawn, execSync, type ChildProcess } from "node:child_process";
+import { spawn, exec, type ChildProcess } from "node:child_process";
+import { promisify } from "node:util";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
 import { Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import { WebSocketServer, WebSocket } from "ws";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { startFileWatcher, type FileChange } from "./file-watcher.js";
-import type { BridgeStartRequest, BridgeStartResponse, BridgeHealthResponse } from "./protocol.js";
+// Matches SessionHostStartRequest / SessionHostStartResponse from @flamecast shared types
+interface BridgeStartRequest {
+  command: string;
+  args: string[];
+  workspace: string;
+  setup?: string;
+}
+
+interface BridgeStartResponse {
+  acpSessionId: string;
+  hostUrl: string;
+  websocketUrl: string;
+}
+
+interface BridgeHealthResponse {
+  status: "idle" | "running";
+  sessionId?: string;
+}
+import { walkDirectory } from "./walk-directory.js";
 
 // ---- Config from environment ----
 
@@ -29,11 +50,14 @@ type ControlMessage =
   | { action: "permission.respond"; requestId: string; body: Record<string, unknown> }
   | { action: "cancel"; queueId?: string }
   | { action: "terminate" }
-  | { action: "ping" };
+  | { action: "ping" }
+  | { action: "fs.snapshot"; path?: string }
+  | { action: "file.preview"; path: string };
 
 // ---- Session state (one session at a time) ----
 
 let sessionId = "";
+let sessionWorkspace = "";
 let agent: ChildProcess | null = null;
 let connection: acp.ClientSideConnection | null = null;
 let fileWatcher: ReturnType<typeof startFileWatcher> | undefined;
@@ -172,7 +196,30 @@ function createAcpClient(): acp.Client {
 
 // ---- WebSocket control message handler ----
 
-async function handleControl(msg: ControlMessage): Promise<void> {
+/** Send a filesystem snapshot to a single WebSocket client. */
+async function sendFsSnapshot(ws: WebSocket, workspace: string): Promise<void> {
+  const entries = await walkDirectory(workspace);
+  const data = JSON.stringify({
+    type: "event",
+    timestamp: new Date().toISOString(),
+    event: {
+      type: "filesystem.snapshot",
+      data: { snapshot: { root: workspace, entries } },
+      timestamp: new Date().toISOString(),
+    },
+  });
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(data);
+  }
+}
+
+/** Broadcast a filesystem snapshot to all connected clients. */
+async function broadcastFsSnapshot(workspace: string): Promise<void> {
+  const entries = await walkDirectory(workspace);
+  emitEvent("filesystem.snapshot", { snapshot: { root: workspace, entries } });
+}
+
+async function handleControl(ws: WebSocket, msg: ControlMessage): Promise<void> {
   try {
     switch (msg.action) {
       case "prompt": {
@@ -210,6 +257,38 @@ async function handleControl(msg: ControlMessage): Promise<void> {
 
       case "ping":
         break;
+
+      case "fs.snapshot": {
+        if (!sessionWorkspace) throw new Error("No active session");
+        await sendFsSnapshot(ws, sessionWorkspace);
+        break;
+      }
+
+      case "file.preview": {
+        if (!sessionWorkspace) throw new Error("No active session");
+        try {
+          const content = await readFile(resolve(sessionWorkspace, msg.path), "utf8");
+          ws.send(
+            JSON.stringify({
+              type: "event",
+              timestamp: new Date().toISOString(),
+              event: {
+                type: "file.preview",
+                data: { path: msg.path, content },
+                timestamp: new Date().toISOString(),
+              },
+            }),
+          );
+        } catch {
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: `Cannot read: ${msg.path}`,
+            }),
+          );
+        }
+        break;
+      }
     }
   } catch (error) {
     broadcast({
@@ -230,11 +309,13 @@ async function startSession(
   }
 
   const workspace = req.workspace ?? process.cwd();
+  sessionWorkspace = workspace;
 
   // SMI-1677: Run optional setup command before spawning agent.
   // RUNTIME_SETUP_ENABLED is set by the Container class (deployed mode only).
   if (req.setup && process.env.RUNTIME_SETUP_ENABLED) {
-    execSync(req.setup, { cwd: workspace, stdio: "inherit" });
+    const execAsync = promisify(exec);
+    await execAsync(req.setup, { cwd: workspace });
   }
 
   // Spawn agent process
@@ -292,6 +373,8 @@ async function startSession(
   // Start file watcher
   fileWatcher = startFileWatcher(workspace, ["node_modules", ".git"], (changes: FileChange[]) => {
     emitEvent("filesystem.changed", { changes });
+    // Also emit a full filesystem snapshot after each change batch
+    void broadcastFsSnapshot(workspace);
   });
 
   // Handle agent exit
@@ -301,9 +384,9 @@ async function startSession(
   });
 
   return {
-    sessionId,
+    acpSessionId: sessionId,
+    hostUrl: `http://localhost:${serverPort}`,
     websocketUrl: `ws://localhost:${serverPort}`,
-    port: serverPort,
   };
 }
 
@@ -311,6 +394,7 @@ function resetSession(): void {
   agent = null;
   connection = null;
   sessionId = "";
+  sessionWorkspace = "";
   permissionResolvers.clear();
   fileWatcher?.close();
   fileWatcher = undefined;
@@ -368,7 +452,7 @@ const httpServer = createServer(async (req, res) => {
     res.end("Not Found");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error("[runtime-bridge] request error:", message);
+    console.error("[session-host] request error:", message);
     jsonResponse(res, 500, { error: message });
   }
 });
@@ -381,12 +465,16 @@ wss.on("connection", (ws) => {
   clients.add(ws);
   if (sessionId) {
     ws.send(JSON.stringify({ type: "connected", sessionId } satisfies WsMessage));
+    // Send initial filesystem snapshot to the newly connected client
+    if (sessionWorkspace) {
+      void sendFsSnapshot(ws, sessionWorkspace);
+    }
   }
 
   ws.on("message", (data) => {
     try {
       const msg = JSON.parse(String(data)) as ControlMessage;
-      void handleControl(msg);
+      void handleControl(ws, msg);
     } catch {
       ws.send(JSON.stringify({ type: "error", message: "Invalid message" } satisfies WsMessage));
     }
@@ -401,5 +489,5 @@ wss.on("connection", (ws) => {
 httpServer.listen(BRIDGE_PORT, () => {
   const addr = httpServer.address();
   const port = typeof addr === "object" && addr ? addr.port : BRIDGE_PORT;
-  console.log(`[runtime-bridge] listening on port ${port} (idle, waiting for POST /start)`);
+  console.log(`[session-host] listening on port ${port} (idle, waiting for POST /start)`);
 });

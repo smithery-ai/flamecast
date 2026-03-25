@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { serve } from "@hono/node-server";
-import type { ServerType } from "@hono/node-server";
 import type {
   AgentSpawn,
   AgentTemplate,
@@ -12,115 +10,135 @@ import type {
 import { createServerApp } from "../server/app.js";
 import type { FlamecastStorage } from "./storage.js";
 import { MemoryFlamecastStorage } from "./storage/memory/index.js";
+import { SessionService } from "./session-service.js";
+import type { Runtime, RuntimeNames, SessionContext, SessionEndReason } from "./runtime.js";
 
 export type { AgentSpawn, AgentTemplate, PendingPermission, Session } from "../shared/session.js";
 export type { SessionMeta, FlamecastStorage } from "./storage.js";
 export type { AppType } from "./api.js";
+export type {
+  Runtime,
+  RuntimeNames,
+  RuntimeConfigFor,
+  SessionContext,
+  SessionEndReason,
+} from "./runtime.js";
+export { SessionService } from "./session-service.js";
+export { NodeRuntime } from "./runtimes/node.js";
+export { E2BRuntime } from "./runtimes/e2b.js";
 
-type ShutdownSignal = "SIGINT" | "SIGTERM";
+// ---------------------------------------------------------------------------
+// Event handler context types
+// ---------------------------------------------------------------------------
+
+/** Permission-request outcomes returned by the handler. */
+export type PermissionResponse = { optionId: string } | { outcome: "cancelled" };
 
 /**
- * Interface for session runtime management.
- * Implemented by both the legacy LocalRuntimeClient (for tests)
- * and the new SessionManager (for production Worker).
+ * Context passed to `onPermissionRequest`.
+ *
+ * NOTE (MVP limitation): `onPermissionRequest` is only invoked when the
+ * control plane sits in the WebSocket proxy path (deployed mode). In local-dev
+ * mode (direct WS between UI and session host), the permission request goes
+ * straight to the UI and this handler is not called.
  */
-export interface RuntimeClient {
-  startSession(opts: {
-    agentName: string;
-    spawn: AgentSpawn;
-    cwd: string;
-    runtime: AgentTemplateRuntime;
-    startedAt: string;
-  }): Promise<{ sessionId: string }>;
-  terminateSession(sessionId: string): Promise<void>;
-  hasSession(sessionId: string): boolean;
-  listSessionIds(): string[];
-  getWebsocketUrl?(sessionId: string): string | undefined;
+export interface PermissionRequestContext<
+  R extends Record<string, Runtime<Record<string, unknown>>>,
+> {
+  session: SessionContext<R>;
+  requestId: string;
+  toolCallId: string;
+  title: string;
+  kind: string | undefined;
+  options: Array<{ optionId: string; name: string; kind: string }>;
+  /** Convenience: return `allow()` to approve with the first "approve"-kind option. */
+  allow(): PermissionResponse;
+  /** Convenience: return `deny()` to reject with the first "reject"-kind option. */
+  deny(): PermissionResponse;
 }
 
-export type FlamecastOptions = {
-  storage?: FlamecastStorage;
-  agentTemplates?: AgentTemplate[];
-  handleSignals?: boolean;
-  runtimeClient?: RuntimeClient;
-};
+/** Context passed to `onSessionEnd`. */
+export interface SessionEndContext<R extends Record<string, Runtime<Record<string, unknown>>>> {
+  session: SessionContext<R>;
+  reason: SessionEndReason;
+}
 
-export class Flamecast {
+/** Context passed to `onAgentMessage` (stub — not wired for MVP). */
+export interface AgentMessageContext<R extends Record<string, Runtime<Record<string, unknown>>>> {
+  session: SessionContext<R>;
+  type: string;
+  data: unknown;
+}
+
+/** Context passed to `onError` (stub — not wired for MVP). */
+export interface ErrorContext<R extends Record<string, Runtime<Record<string, unknown>>>> {
+  session: SessionContext<R>;
+  error: Error;
+}
+
+/** Event handlers that can be registered on a Flamecast instance. */
+export interface FlamecastEventHandlers<
+  R extends Record<string, Runtime<Record<string, unknown>>>,
+> {
+  onPermissionRequest?: (c: PermissionRequestContext<R>) => Promise<PermissionResponse | undefined>;
+  onSessionEnd?: (c: SessionEndContext<R>) => Promise<void>;
+  /** Stub — not wired for MVP. */
+  onAgentMessage?: (c: AgentMessageContext<R>) => Promise<void>;
+  /** Stub — not wired for MVP. */
+  onError?: (c: ErrorContext<R>) => Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// FlamecastOptions & Flamecast class
+// ---------------------------------------------------------------------------
+
+export type FlamecastOptions<
+  R extends Record<string, Runtime<Record<string, unknown>>> = Record<string, Runtime>,
+> = {
+  storage?: FlamecastStorage;
+  runtimes: R;
+  agentTemplates?: AgentTemplate[];
+} & FlamecastEventHandlers<R>;
+
+export class Flamecast<
+  R extends Record<string, Runtime<Record<string, unknown>>> = Record<string, Runtime>,
+> {
   private readonly initialAgentTemplates: AgentTemplate[];
   private readonly storageConfig?: FlamecastStorage;
-  private readonly handleSignals: boolean;
-  private readonly signalHandlers = new Map<ShutdownSignal, () => void>();
-  private readonly runtimeClient: RuntimeClient;
+  private readonly sessionService: SessionService;
+  private readonly runtimesMap: Record<string, Runtime>;
+
+  /** Registered event handlers. */
+  readonly handlers: Readonly<FlamecastEventHandlers<R>>;
+
   private storage: FlamecastStorage | null = null;
   private readyPromise: Promise<void> | null = null;
-  private server: ServerType | null = null;
-  private listenPort: number | null = null;
-  private shutdownPromise: Promise<void> | null = null;
-  private readonly app = createServerApp(this);
 
-  readonly fetch: (request: Request) => Promise<Response>;
+  /** The Hono app. Use with any runtime: Node, CF Workers, Vercel, etc. */
+  readonly app = createServerApp(this);
 
-  constructor(opts: FlamecastOptions = {}) {
+  constructor(opts: FlamecastOptions<R>) {
     this.storageConfig = opts.storage;
-    this.handleSignals = opts.handleSignals ?? true;
     this.initialAgentTemplates = opts.agentTemplates ?? [];
-
-    this.runtimeClient = opts.runtimeClient ?? {
-      async startSession() {
-        throw new Error("No runtimeClient configured");
-      },
-      async terminateSession() {
-        throw new Error("No runtimeClient configured");
-      },
-      hasSession() {
-        return false;
-      },
-      listSessionIds() {
-        return [];
-      },
+    // oxlint-disable-next-line no-type-assertion/no-type-assertion
+    this.runtimesMap = opts.runtimes as Record<string, Runtime>;
+    // oxlint-disable-next-line no-type-assertion/no-type-assertion
+    this.sessionService = new SessionService(opts.runtimes as Record<string, Runtime>);
+    this.handlers = {
+      onPermissionRequest: opts.onPermissionRequest,
+      onSessionEnd: opts.onSessionEnd,
+      onAgentMessage: opts.onAgentMessage,
+      onError: opts.onError,
     };
-
-    this.fetch = async (request: Request) => this.app.fetch(request);
   }
 
-  async listen(port = 3001) {
-    if (this.server) {
-      throw new Error("Flamecast is already listening");
-    }
-
-    await this.ensureReady();
-    const server = serve({ fetch: this.fetch, port }, (info) => {
-      this.listenPort = info.port;
-      console.log(`Flamecast running on http://localhost:${info.port}`);
-    });
-    this.server = server;
-
-    this.registerSignalHandlers();
-    return server;
-  }
-
+  /** Terminate all sessions and dispose all runtimes. */
   async shutdown(): Promise<void> {
-    if (this.shutdownPromise) {
-      return this.shutdownPromise;
+    for (const id of this.sessionService.listSessionIds()) {
+      await this.terminateSession(id).catch(() => {});
     }
-
-    const shutdownPromise = (async () => {
-      this.unregisterSignalHandlers();
-
-      for (const session of await this.listSessions()) {
-        await this.terminateSession(session.id).catch(() => {});
-      }
-
-      await this.closeServer();
-    })();
-    this.shutdownPromise = shutdownPromise;
-
-    try {
-      await shutdownPromise;
-    } finally {
-      if (this.shutdownPromise === shutdownPromise) {
-        this.shutdownPromise = null;
-      }
+    for (const runtime of Object.values(this.runtimesMap)) {
+      await runtime.dispose?.();
     }
   }
 
@@ -139,7 +157,7 @@ export class Flamecast {
         command: body.spawn.command,
         args: [...body.spawn.args],
       },
-      runtime: body.runtime ? { ...body.runtime } : { provider: "container" },
+      runtime: body.runtime ? { ...body.runtime } : { provider: "local" },
     };
 
     await this.requireStorage().saveAgentTemplate(template);
@@ -149,11 +167,11 @@ export class Flamecast {
   async createSession(opts: CreateSessionBody): Promise<Session> {
     await this.ensureReady();
 
-    const cwd = opts.cwd ?? process.cwd();
+    const cwd = opts.cwd ?? ".";
     const { agentName, spawn, runtime } = await this.resolveSessionDefinition(opts);
     const startedAt = new Date().toISOString();
 
-    const { sessionId } = await this.runtimeClient.startSession({
+    const { sessionId } = await this.sessionService.startSession(this.requireStorage(), {
       agentName,
       spawn,
       cwd,
@@ -175,7 +193,7 @@ export class Flamecast {
     opts: { includeFileSystem?: boolean; showAllFiles?: boolean } = {},
   ): Promise<Session> {
     await this.ensureReady();
-    if (!this.runtimeClient.hasSession(id)) {
+    if (!this.sessionService.hasSession(id)) {
       const meta = await this.requireStorage().getSessionMeta(id);
       if (!meta) throw new Error(`Session "${id}" not found`);
     }
@@ -184,86 +202,104 @@ export class Flamecast {
 
   async terminateSession(id: string): Promise<void> {
     await this.ensureReady();
-    if (!this.runtimeClient.hasSession(id)) {
+    if (!this.sessionService.hasSession(id)) {
       const meta = await this.requireStorage().getSessionMeta(id);
       if (meta?.status === "killed") {
         throw new Error("Cannot terminate an already-killed session");
       }
     }
-    await this.runtimeClient.terminateSession(id);
+
+    // Build session context for the handler before termination
+    const sessionCtx = await this.buildSessionContext(id);
+
+    await this.sessionService.terminateSession(this.requireStorage(), id);
+
+    // Invoke onSessionEnd handler if registered
+    if (this.handlers.onSessionEnd && sessionCtx) {
+      try {
+        await this.handlers.onSessionEnd({ session: sessionCtx, reason: "terminated" });
+      } catch (err) {
+        console.warn(
+          `[Flamecast] onSessionEnd handler error for "${id}":`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
   }
 
-  private registerSignalHandlers(): void {
-    if (!this.handleSignals || this.signalHandlers.size > 0) {
-      return;
-    }
+  /**
+   * Invoke the `onPermissionRequest` handler for a given session.
+   *
+   * Called by SessionService when a permission event arrives from the session
+   * host (deployed mode only — see PermissionRequestContext doc for limitations).
+   *
+   * Returns the handler's response, or `undefined` if no handler is registered.
+   */
+  async handlePermissionRequest(
+    sessionId: string,
+    event: {
+      requestId: string;
+      toolCallId: string;
+      title: string;
+      kind?: string;
+      options: Array<{ optionId: string; name: string; kind: string }>;
+    },
+  ): Promise<PermissionResponse | undefined> {
+    if (!this.handlers.onPermissionRequest) return undefined;
 
-    for (const signal of ["SIGTERM", "SIGINT"] satisfies ShutdownSignal[]) {
-      const handler = () => {
-        void this.shutdownFromSignal(signal);
-      };
-      this.signalHandlers.set(signal, handler);
-      process.on(signal, handler);
-    }
-  }
+    const sessionCtx = await this.buildSessionContext(sessionId);
+    if (!sessionCtx) return undefined;
 
-  private unregisterSignalHandlers(): void {
-    for (const [signal, handler] of this.signalHandlers) {
-      process.off(signal, handler);
-    }
-    this.signalHandlers.clear();
-  }
-
-  private async shutdownFromSignal(signal: ShutdownSignal): Promise<void> {
-    if (this.shutdownPromise) {
-      return;
-    }
-
-    console.log("\nShutting down...");
+    const ctx: PermissionRequestContext<R> = {
+      session: sessionCtx,
+      requestId: event.requestId,
+      toolCallId: event.toolCallId,
+      title: event.title,
+      kind: event.kind,
+      options: event.options,
+      allow() {
+        const approveOpt = event.options.find((o) => o.kind === "approve");
+        return approveOpt ? { optionId: approveOpt.optionId } : { outcome: "cancelled" };
+      },
+      deny() {
+        const rejectOpt = event.options.find((o) => o.kind === "reject");
+        return rejectOpt ? { optionId: rejectOpt.optionId } : { outcome: "cancelled" };
+      },
+    };
 
     try {
-      await this.shutdown();
-      process.exit(0);
-    } catch (error) {
-      console.error(`Failed to shut down Flamecast cleanly after ${signal}.`, error);
-      process.exit(1);
+      return await this.handlers.onPermissionRequest(ctx);
+    } catch (err) {
+      console.warn(
+        `[Flamecast] onPermissionRequest handler error for "${sessionId}":`,
+        err instanceof Error ? err.message : err,
+      );
+      return undefined;
     }
   }
 
-  private async closeServer(): Promise<void> {
-    const server = this.server;
-    this.server = null;
+  // ---------------------------------------------------------------------------
+  // Private helpers
+  // ---------------------------------------------------------------------------
 
-    if (!server) {
-      return;
-    }
+  private async buildSessionContext(sessionId: string): Promise<SessionContext<R> | null> {
+    const storage = this.requireStorage();
+    const meta = await storage.getSessionMeta(sessionId);
+    if (!meta) return null;
 
-    const closePromise = new Promise<void>((resolve, reject) => {
-      try {
-        if (server.close.length === 0) {
-          server.close();
-          resolve();
-          return;
-        }
+    // Determine which runtime provider this session uses. SessionService
+    // tracks this internally, but the meta doesn't persist the runtime name.
+    // Fallback to "unknown" if the session is already removed from the service.
+    const runtimeName = this.sessionService.getRuntimeName(sessionId) ?? "unknown";
 
-        server.close((error?: Error) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-          resolve();
-        });
-      } catch (error) {
-        reject(error);
-      }
-    });
-
-    await Promise.race([
-      closePromise,
-      new Promise<void>((_, reject) =>
-        setTimeout(() => reject(new Error("server close timed out")), 10_000),
-      ),
-    ]);
+    return {
+      id: meta.id,
+      agentName: meta.agentName,
+      // oxlint-disable-next-line no-type-assertion/no-type-assertion
+      runtime: runtimeName as RuntimeNames<R>,
+      spawn: { command: meta.spawn.command, args: [...meta.spawn.args] },
+      startedAt: meta.startedAt,
+    };
   }
 
   private async ensureReady(): Promise<void> {
@@ -318,7 +354,7 @@ export class Flamecast {
         command: opts.spawn.command,
         args: [...(opts.spawn.args ?? [])],
       },
-      runtime: { provider: "container" },
+      runtime: { provider: "local" },
     };
   }
 
@@ -332,11 +368,7 @@ export class Flamecast {
       throw new Error(`Session "${id}" not found`);
     }
 
-    const websocketUrl =
-      this.runtimeClient.getWebsocketUrl?.(id) ??
-      (this.listenPort && this.runtimeClient.hasSession(id)
-        ? `ws://localhost:${this.listenPort}/ws/sessions/${id}`
-        : undefined);
+    const websocketUrl = this.sessionService.getWebsocketUrl(id);
 
     return {
       ...meta,

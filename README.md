@@ -100,7 +100,7 @@ packages/
     client/                 # React UI
     shared/                 # Zod schemas + API types
   flamecast-psql/           # SQL storage (Drizzle + postgres.js)
-  runtime-bridge/           # Agent sidecar (spawns agent, ACP, WebSocket)
+  session-host/             # Agent sidecar (spawns agent, ACP, WebSocket)
 ```
 
 ---
