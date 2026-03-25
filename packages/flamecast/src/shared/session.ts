@@ -154,3 +154,12 @@ export const CreateSessionBodySchema = z
   .refine((b) => Boolean(b.agentTemplateId) !== Boolean(b.spawn), {
     message: "Provide exactly one of agentTemplateId or spawn",
   });
+
+// Compile-time check: ensure the schema's output type stays compatible with
+// the protocol's CreateSessionBody. Cannot use `satisfies` because .refine()
+// changes the schema type, but this assignment fails if they drift.
+import type { CreateSessionBody as _CreateSessionBodyCheck } from "@flamecast/protocol/session";
+type _SchemaOutput = z.output<typeof CreateSessionBodySchema>;
+type _Drift = _SchemaOutput extends _CreateSessionBodyCheck ? true : never;
+const _driftCheck: _Drift = true;
+void _driftCheck;
