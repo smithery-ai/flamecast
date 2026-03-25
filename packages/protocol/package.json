@@ -15,6 +15,10 @@
       "types": "./dist/session-host.d.ts",
       "import": "./dist/session-host.js"
     },
+    "./session": {
+      "types": "./dist/session.d.ts",
+      "import": "./dist/session.js"
+    },
     "./ws": {
       "types": "./dist/ws.d.ts",
       "import": "./dist/ws.js"
