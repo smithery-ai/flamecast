@@ -7,6 +7,7 @@ import {
   Sandbox,
   Template,
   defaultBuildLogger,
+  waitForPort,
 } from "@e2b/code-interpreter";
 import type { Runtime } from "@flamecast/sdk/runtime";
 
@@ -45,7 +46,6 @@ function generateDockerfile(baseImage: string, setup?: string): string {
 
   lines.push(`ENV SESSION_HOST_PORT=${SESSION_HOST_PORT}`);
   lines.push(`EXPOSE ${SESSION_HOST_PORT}`);
-  lines.push(`CMD ["node", "/session-host/dist/index.js"]`);
 
   return lines.join("\n") + "\n";
 }
@@ -122,10 +122,9 @@ export class E2BRuntime implements Runtime {
       });
 
       try {
+        // Session-host is already running — E2B's waitForPort ensures it's ready
         const host = sandbox.getHost(SESSION_HOST_PORT);
         const hostUrl = `https://${host}`;
-
-        await this.waitForReady(sandbox, SESSION_HOST_PORT);
 
         this.sandboxes.set(sessionId, { sandboxId: sandbox.sandboxId, hostUrl });
 
@@ -264,7 +263,11 @@ export class E2BRuntime implements Runtime {
     try {
       const template = Template()
         .fromDockerfile(dockerfileContent)
-        .copyItems(copyItems);
+        .copyItems(copyItems)
+        .setStartCmd(
+          `node /session-host/dist/index.js`,
+          waitForPort(SESSION_HOST_PORT),
+        );
 
       await Template.build(template, templateName, {
         apiKey: this.apiKey,
@@ -278,26 +281,6 @@ export class E2BRuntime implements Runtime {
     return templateName;
   }
 
-  private async waitForReady(
-    sandbox: { getHost(port: number): string },
-    port: number,
-    timeoutMs = 30_000,
-  ): Promise<void> {
-    const host = sandbox.getHost(port);
-    const healthUrl = `https://${host}/health`;
-    const deadline = Date.now() + timeoutMs;
-
-    while (Date.now() < deadline) {
-      try {
-        const resp = await fetch(healthUrl);
-        if (resp.ok) return;
-      } catch {
-        // Not ready yet
-      }
-      await new Promise((r) => setTimeout(r, 500));
-    }
-    throw new Error(`SessionHost not ready after ${timeoutMs}ms`);
-  }
 }
 
 /**
