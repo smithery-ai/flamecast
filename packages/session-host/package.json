@@ -13,7 +13,8 @@
     "dev": "tsx watch src/router.ts",
     "dev:host": "tsx watch src/index.ts",
     "start": "node dist/router.js",
-    "start:host": "node dist/index.js"
+    "start:host": "node dist/index.js",
+    "build:package": "tsc"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.16.1",

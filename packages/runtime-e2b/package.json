@@ -10,7 +10,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "build:package": "tsc"
   },
   "dependencies": {
     "@e2b/code-interpreter": "^2.4.0",
