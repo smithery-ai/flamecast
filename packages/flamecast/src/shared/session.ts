@@ -22,7 +22,6 @@ export type {
   AgentSpawn,
   AgentTemplate,
   AgentTemplateRuntime,
-  FileSystemSnapshot,
   PendingPermission,
   PermissionResponseBody,
   RegisterAgentTemplateBody,
@@ -155,6 +154,3 @@ export const CreateSessionBodySchema = z
   .refine((b) => Boolean(b.agentTemplateId) !== Boolean(b.spawn), {
     message: "Provide exactly one of agentTemplateId or spawn",
   });
-
-
-
