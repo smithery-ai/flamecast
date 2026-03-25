@@ -110,6 +110,7 @@ export class DockerRuntime implements Runtime {
       const text = await resp.text();
       let result: Record<string, unknown>;
       try {
+        // oxlint-disable-next-line no-type-assertion/no-type-assertion
         result = JSON.parse(text) as Record<string, unknown>;
       } catch {
         throw new Error(`SessionHost /start failed (${resp.status}): ${text}`);
