@@ -388,6 +388,9 @@ const httpServer = createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && req.url === "/start") {
+      // Validated upstream by SessionService before forwarding to the runtime.
+      // Type annotation is compile-time only; no runtime zod validation here
+      // to keep session-host free of the @flamecast/protocol runtime dep.
       const body: SessionHostStartRequest = JSON.parse(await readBody(req));
       const addr = httpServer.address();
       const port = typeof addr === "object" && addr ? addr.port : SESSION_HOST_PORT;
@@ -413,8 +416,13 @@ const httpServer = createServer(async (req, res) => {
         jsonResponse(res, 400, { error: "Missing ?path= parameter" });
         return;
       }
+      const resolved = resolve(sessionWorkspace, filePath);
+      if (!resolved.startsWith(sessionWorkspace)) {
+        jsonResponse(res, 403, { error: "Path outside workspace" });
+        return;
+      }
       try {
-        const raw = await readFile(resolve(sessionWorkspace, filePath), "utf8");
+        const raw = await readFile(resolved, "utf8");
         const maxChars = 100_000;
         const truncated = raw.length > maxChars;
         const content = truncated ? raw.slice(0, maxChars) : raw;
@@ -455,11 +463,13 @@ wss.on("connection", (ws) => {
   clients.add(ws);
   if (sessionId) {
     ws.send(JSON.stringify({ type: "connected", sessionId } satisfies WsServerMessage));
-    // Send initial filesystem snapshot to the newly connected client
   }
 
   ws.on("message", (data) => {
     try {
+      // Type annotation is compile-time only; WS messages come from the
+      // SDK client which is already typed. No runtime zod validation to
+      // keep session-host free of the @flamecast/protocol runtime dep.
       const msg: WsControlMessage = JSON.parse(String(data));
       void handleControl(ws, msg);
     } catch {
