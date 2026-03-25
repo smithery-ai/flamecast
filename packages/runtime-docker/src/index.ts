@@ -26,15 +26,13 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
  */
 export class DockerRuntime implements Runtime {
   private readonly fallbackImage: string;
-  private readonly fallbackDockerfile: string | undefined;
   private readonly docker: Docker;
   private readonly containers = new Map<string, { containerId: string; port: number }>();
   /** Cache of images already built from dockerfiles in this runtime's lifetime. */
   private readonly builtImages = new Map<string, string>();
 
-  constructor(opts?: { image?: string; dockerfile?: string; docker?: Docker }) {
+  constructor(opts?: { image?: string; docker?: Docker }) {
     this.fallbackImage = opts?.image ?? "flamecast-session-host";
-    this.fallbackDockerfile = opts?.dockerfile;
     this.docker = opts?.docker ?? new Docker();
   }
 
@@ -196,7 +194,7 @@ export class DockerRuntime implements Runtime {
     // oxlint-disable-next-line no-type-assertion/no-type-assertion
     const image = body.image as string | undefined;
     // oxlint-disable-next-line no-type-assertion/no-type-assertion
-    const dockerfile = (body.dockerfile as string | undefined) ?? this.fallbackDockerfile;
+    const dockerfile = body.dockerfile as string | undefined;
 
     if (image) {
       try {
@@ -213,18 +211,6 @@ export class DockerRuntime implements Runtime {
     if (dockerfile) {
       const tag = await this.dockerfileTag(dockerfile);
       return this.buildImage(dockerfile, tag);
-    }
-
-    // Verify the fallback image exists before returning it
-    try {
-      await this.docker.getImage(this.fallbackImage).inspect();
-    } catch {
-      throw new Error(
-        `Docker image "${this.fallbackImage}" not found locally. Either:\n` +
-          `  - Build it: docker build -t ${this.fallbackImage} .\n` +
-          `  - Pass a dockerfile: new DockerRuntime({ dockerfile: "./Dockerfile" })\n` +
-          `  - Set image/dockerfile on the agent template's runtime config`,
-      );
     }
 
     return this.fallbackImage;

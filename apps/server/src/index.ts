@@ -14,11 +14,20 @@ const flamecast = new Flamecast({
   storage: await createPsqlStorage(url ? { url } : undefined),
   runtimes: {
     default: new NodeRuntime(),
-    docker: new DockerRuntime({
-      image: "flamecast-session-host",
-      dockerfile: sessionHostDockerfile,
-    }),
+    docker: new DockerRuntime(),
   },
+  agentTemplates: [
+    {
+      id: "docker-session-host",
+      name: "Docker Session Host",
+      spawn: { command: "node", args: ["dist/index.js"] },
+      runtime: {
+        provider: "docker",
+        image: "flamecast-session-host",
+        dockerfile: sessionHostDockerfile,
+      },
+    },
+  ],
 });
 
 serve({ fetch: flamecast.app.fetch, port: 3001 }, (info) => {
