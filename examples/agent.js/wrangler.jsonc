@@ -1,0 +1,12 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "flamecast-agent-js",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-03-25",
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "vars": {
+    "AGENT_MODE": "scripted",
+    "COMPACT_AT_CHARS": "12000",
+    "KEEP_RECENT_TURNS": "6"
+  }
+}
