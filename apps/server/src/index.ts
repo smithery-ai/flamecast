@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
 import { DockerRuntime } from "@flamecast/runtime-docker";
-import { E2BRuntime } from "@flamecast/runtime-e2b";
 import { createPsqlStorage } from "@flamecast/storage-psql";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -19,10 +18,6 @@ const flamecast = new Flamecast({
     // Base image defaults to "node:22-slim". Override with:
     //   new DockerRuntime({ baseImage: "node:20-slim" })
     docker: new DockerRuntime(),
-    // Requires E2B_API_KEY env var. Template defaults to "flamecast-session-host".
-    ...(process.env.E2B_API_KEY
-      ? { e2b: new E2BRuntime({ apiKey: process.env.E2B_API_KEY }) }
-      : {}),
   },
   agentTemplates: [
     {
