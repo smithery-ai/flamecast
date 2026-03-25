@@ -17,8 +17,6 @@ import type {
   SessionHostHealthResponse,
 } from "@flamecast/protocol/session-host";
 import type { WsServerMessage, WsControlMessage } from "@flamecast/protocol/ws";
-import { WsControlMessageSchema } from "@flamecast/protocol/ws/zod";
-import { SessionHostStartRequestSchema } from "@flamecast/protocol/session-host/zod";
 
 // ---- Config from environment ----
 
@@ -390,15 +388,10 @@ const httpServer = createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && req.url === "/start") {
-      const parsed = JSON.parse(await readBody(req));
-      const result = SessionHostStartRequestSchema.safeParse(parsed);
-      if (!result.success) {
-        jsonResponse(res, 400, { error: result.error.message });
-        return;
-      }
+      const body: SessionHostStartRequest = JSON.parse(await readBody(req));
       const addr = httpServer.address();
       const port = typeof addr === "object" && addr ? addr.port : SESSION_HOST_PORT;
-      const startResult = await startSession(result.data, port);
+      const startResult = await startSession(body, port);
       jsonResponse(res, 200, startResult);
       return;
     }
@@ -467,18 +460,8 @@ wss.on("connection", (ws) => {
 
   ws.on("message", (data) => {
     try {
-      const parsed = JSON.parse(String(data));
-      const result = WsControlMessageSchema.safeParse(parsed);
-      if (!result.success) {
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: `Invalid message: ${result.error.message}`,
-          } satisfies WsServerMessage),
-        );
-        return;
-      }
-      void handleControl(ws, result.data);
+      const msg: WsControlMessage = JSON.parse(String(data));
+      void handleControl(ws, msg);
     } catch {
       ws.send(
         JSON.stringify({ type: "error", message: "Invalid message" } satisfies WsServerMessage),
