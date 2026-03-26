@@ -25,12 +25,31 @@ import {
   ChevronDownIcon,
   FileCode2Icon,
   FolderTreeIcon,
+  ListIcon,
+  PauseIcon,
+  PlayIcon,
   SendIcon,
+  Trash2Icon,
+  XIcon,
 } from "lucide-react";
 /* oxlint-disable no-type-assertion/no-type-assertion */
 import type { FileSystemEntry, SessionLog } from "../../shared/session";
 import type { PermissionRequestEvent } from "@flamecast/protocol/session-host";
 import { useFlamecastSession } from "@/client/hooks/use-flamecast-session";
+import { useQueue } from "@/client/hooks/use-queue";
+import {
+  Queue,
+  QueueItem,
+  QueueItemAction,
+  QueueItemActions,
+  QueueItemContent,
+  QueueItemIndicator,
+  QueueList,
+  QueueSection,
+  QueueSectionContent,
+  QueueSectionLabel,
+  QueueSectionTrigger,
+} from "@/components/ai-elements/queue";
 
 export const Route = createFileRoute("/sessions/$id")({
   component: SessionDetailPage,
@@ -53,6 +72,7 @@ function SessionDetailPage() {
 
   // WebSocket-based session events and control
   const {
+    session: flamecastSession,
     events: wsEvents,
     isConnected,
     prompt: wsPrompt,
@@ -60,6 +80,9 @@ function SessionDetailPage() {
     requestFilePreview,
     requestFsSnapshot,
   } = useFlamecastSession(id);
+
+  // Queue state from WebSocket events
+  const queue = useQueue(flamecastSession);
 
   // REST for initial session metadata and file system
   const { data: session, isLoading } = useQuery({
@@ -481,6 +504,68 @@ function SessionDetailPage() {
       </Tabs>
 
       <div className="flex shrink-0 flex-col gap-2 pt-4">
+        {queue.items.length > 0 && (
+          <Queue>
+            <QueueSection>
+              <QueueSectionTrigger>
+                <QueueSectionLabel
+                  label={queue.items.length === 1 ? "queued prompt" : "queued prompts"}
+                  count={queue.items.length}
+                  icon={<ListIcon className="size-4" />}
+                />
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      queue.paused ? queue.resume() : queue.pause();
+                    }}
+                    title={queue.paused ? "Resume queue" : "Pause queue"}
+                  >
+                    {queue.paused ? <PlayIcon className="size-3" /> : <PauseIcon className="size-3" />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 text-destructive"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      queue.clear();
+                    }}
+                    title="Clear queue"
+                  >
+                    <Trash2Icon className="size-3" />
+                  </Button>
+                </div>
+              </QueueSectionTrigger>
+              <QueueSectionContent>
+                <QueueList>
+                  {queue.items.map((item) => (
+                    <QueueItem key={item.queueId}>
+                      <div className="flex items-center gap-2">
+                        <QueueItemIndicator />
+                        <QueueItemContent>{item.text}</QueueItemContent>
+                        <QueueItemActions>
+                          <QueueItemAction
+                            onClick={() => queue.cancel(item.queueId)}
+                            title="Cancel"
+                          >
+                            <XIcon className="size-3" />
+                          </QueueItemAction>
+                        </QueueItemActions>
+                      </div>
+                    </QueueItem>
+                  ))}
+                </QueueList>
+              </QueueSectionContent>
+            </QueueSection>
+            {queue.paused && (
+              <p className="px-3 pb-1 text-xs text-muted-foreground">Queue paused</p>
+            )}
+          </Queue>
+        )}
         <div className="flex gap-2 p-1">
           <Input
             value={prompt}

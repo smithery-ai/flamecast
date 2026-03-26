@@ -110,6 +110,7 @@ export function useFlamecastSession(sessionId: string) {
   }, []);
 
   return {
+    session: sessionRef.current,
     events,
     connectionState,
     isConnected: connectionState === "connected",
