@@ -118,7 +118,7 @@ export class E2BRuntime implements Runtime {
     // Create a new sandbox
     const sandbox = await Sandbox.create(this.template, {
       apiKey: this.apiKey,
-      timeoutMs: 24 * 60 * 60 * 1000,
+      timeoutMs: 60 * 60 * 1000,
       metadata: { "flamecast.instance": instanceId },
     });
 
@@ -297,14 +297,31 @@ export class E2BRuntime implements Runtime {
 
       // Connect to sandbox and start session-host binary on the assigned port
       const sandbox = await Sandbox.connect(inst.sandboxId, { apiKey: this.apiKey });
-      await sandbox.commands.run(
-        `SESSION_HOST_PORT=${slot.port} RUNTIME_SETUP_ENABLED=1 ${SANDBOX_BIN_PATH}`,
-        { background: true },
+
+      // Verify the binary exists and is executable
+      const checkResult = await sandbox.commands.run(`ls -la ${SANDBOX_BIN_PATH} && file ${SANDBOX_BIN_PATH}`);
+      console.log(`[E2BRuntime] Binary check: ${checkResult.stdout.trim()}`);
+      if (checkResult.exitCode !== 0) {
+        throw new Error(`Session-host binary not found in sandbox: ${checkResult.stderr}`);
+      }
+
+      // Start session-host; capture stderr for diagnostics
+      console.log(`[E2BRuntime] Starting session-host on port ${slot.port}...`);
+      const proc = await sandbox.commands.run(
+        `SESSION_HOST_PORT=${slot.port} RUNTIME_SETUP_ENABLED=1 ${SANDBOX_BIN_PATH} 2>&1 &
+         sleep 1 && echo "PROCESS_CHECK" && ps aux | grep session-host | grep -v grep`,
+        { timeoutMs: 10_000 },
       );
+      console.log(`[E2BRuntime] Startup output: ${proc.stdout.trim()}`);
+      if (proc.stderr) {
+        console.warn(`[E2BRuntime] Startup stderr: ${proc.stderr.trim()}`);
+      }
 
       const host = sandbox.getHost(slot.port);
       const hostUrl = `https://${host}`;
       const websocketUrl = `wss://${host}`;
+
+      console.log(`[E2BRuntime] Host URL: ${hostUrl}`);
 
       slot.inUse = true;
       this.sessions.set(sessionId, { instanceName, port: slot.port, hostUrl, websocketUrl });
@@ -406,16 +423,24 @@ export class E2BRuntime implements Runtime {
 
   private async waitForReady(hostUrl: string, timeoutMs = 30_000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
+    let attempts = 0;
 
     while (Date.now() < deadline) {
+      attempts++;
       try {
         const resp = await fetch(`${hostUrl}/health`);
-        if (resp.ok) return;
-      } catch {
-        // Not ready yet
+        if (resp.ok) {
+          console.log(`[E2BRuntime] Session-host ready after ${attempts} attempts`);
+          return;
+        }
+        console.log(`[E2BRuntime] Health check attempt ${attempts}: status ${resp.status}`);
+      } catch (err) {
+        if (attempts % 5 === 0) {
+          console.log(`[E2BRuntime] Health check attempt ${attempts}: ${err instanceof Error ? err.message : "connection failed"}`);
+        }
       }
       await new Promise((r) => setTimeout(r, 500));
     }
-    throw new Error(`SessionHost not ready after ${timeoutMs}ms`);
+    throw new Error(`SessionHost at ${hostUrl} not ready after ${timeoutMs}ms (${attempts} attempts)`);
   }
 }

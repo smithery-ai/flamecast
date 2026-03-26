@@ -21,7 +21,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/client/components/ui/dialog";
-import { PlusIcon, PlayIcon, TerminalIcon } from "lucide-react";
+import { LoaderCircleIcon, PlusIcon, PlayIcon, TerminalIcon } from "lucide-react";
+import { toast } from "sonner";
 import { useState } from "react";
 import type { AgentTemplate } from "@/shared/session";
 import type { RuntimeInfo } from "@flamecast/protocol/runtime";
@@ -74,6 +75,9 @@ function SessionsPage() {
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
       navigate({ to: "/sessions/$id", params: { id: session.id } });
     },
+    onError: (err) => {
+      toast.error("Failed to create session", { description: String(err.message) });
+    },
   });
 
   const registerMutation = useMutation({
@@ -88,6 +92,9 @@ function SessionsPage() {
       setNewCommand("");
       setNewArgs("");
       setDialogOpen(false);
+    },
+    onError: (err) => {
+      toast.error("Failed to register template", { description: String(err.message) });
     },
   });
 
@@ -222,7 +229,8 @@ function SessionsPage() {
                   onStartSession={(runtimeInstance) =>
                     createMutation.mutate({ agentTemplateId: template.id, runtimeInstance })
                   }
-                  isStartingSession={createMutation.isPending}
+                  isStartingSession={createMutation.isPending && createMutation.variables?.agentTemplateId === template.id}
+                  isAnyStarting={createMutation.isPending}
                 />
               ))}
             </div>
@@ -239,13 +247,17 @@ function AgentTemplateCard({
   defaultInstance,
   onStartSession,
   isStartingSession,
+  isAnyStarting,
 }: {
   template: AgentTemplate;
   runtimeInfo?: RuntimeInfo;
   /** The current ?runtime= filter. If it's a running instance name, pre-select it. */
   defaultInstance?: string;
   onStartSession: (runtimeInstance?: string) => void;
+  /** True when THIS template's session is being created. */
   isStartingSession: boolean;
+  /** True when ANY session is being created (to disable all buttons). */
+  isAnyStarting: boolean;
 }) {
   const needsInstanceSelect = runtimeInfo && !runtimeInfo.onlyOne;
   const runningInstances = runtimeInfo?.instances.filter((i) => i.status === "running") ?? [];
@@ -304,10 +316,14 @@ function AgentTemplateCard({
           size="sm"
           className="w-full"
           onClick={() => onStartSession(needsInstanceSelect ? selectedInstance : undefined)}
-          disabled={isStartingSession || !canStart}
+          disabled={isAnyStarting || !canStart}
         >
-          <PlayIcon data-icon="inline-start" />
-          Start session
+          {isStartingSession ? (
+            <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
+          ) : (
+            <PlayIcon data-icon="inline-start" />
+          )}
+          {isStartingSession ? "Starting…" : "Start session"}
         </Button>
       </CardContent>
     </Card>
