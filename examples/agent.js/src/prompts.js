@@ -1,6 +1,7 @@
 export const EXECUTE_JS_TOOL_DESCRIPTION = [
   "Execute JavaScript inside a Cloudflare Worker shared session scope.",
   "Use this tool whenever you need computation, persistent session state, outbound HTTP(S) requests via fetch, or the Worker virtual filesystem via await import('node:fs').",
+  "You may call executeJS multiple times in the same turn until you have enough information to answer.",
   "Write complete JavaScript source that ends with an explicit return statement.",
   "Use ordinary globals like `customer = ...` to persist JSON-serializable values across turns.",
   "Do not claim network access is blocked or unavailable unless an actual fetch call fails.",

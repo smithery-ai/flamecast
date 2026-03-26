@@ -20,7 +20,7 @@ This example intentionally does not expose shell, filesystem, or a typed tool SD
 The model contract is:
 
 - respond directly when no tool is needed
-- otherwise emit exactly one tool call: `executeJS`
+- otherwise use the single native tool, `executeJS`, as many times as needed before answering
 - in gateway mode, the `executeJS` tool description carries the runtime capability contract; there is no separate planner/finalizer prompt layer
 - `executeJS` code runs in a shared session scope and must end with an explicit `return`
 - `executeJS` code can use `fetch(...)` for outbound HTTP(S) requests and external web access
@@ -69,6 +69,8 @@ For a Flamecast prompt:
    - through a generated Dynamic Worker when `LOADER` is available in production.
 6. The updated serializable globals are written back to the session `Agent` state.
 7. Flamecast receives the final prompt response plus the streamed event trail.
+
+In gateway mode, that loop is multi-step. The model can call `executeJS`, inspect the tool result, call it again, and only stop when it is ready to answer, subject to a bounded step limit in the harness.
 
 ### Why ACP is still there
 

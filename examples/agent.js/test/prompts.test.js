@@ -5,6 +5,7 @@ describe("agent prompts", () => {
   test("documents fetch and outbound web access in the executeJS tool contract", () => {
     expect(EXECUTE_JS_TOOL_DESCRIPTION).toContain("fetch");
     expect(EXECUTE_JS_TOOL_DESCRIPTION).toContain("virtual filesystem");
+    expect(EXECUTE_JS_TOOL_DESCRIPTION).toContain("multiple times");
     expect(EXECUTE_JS_TOOL_DESCRIPTION).toContain("Do not claim network access is blocked");
   });
 
