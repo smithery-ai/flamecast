@@ -227,10 +227,13 @@ export class Flamecast<
         const liveStatus = await runtime.getInstanceStatus(inst.name).catch(() => undefined);
         if (liveStatus) {
           status = liveStatus;
-          // Sync DB if it drifted (e.g. someone paused via Docker Desktop)
-          if (status !== inst.status) {
-            await storage.saveRuntimeInstance({ ...inst, status }).catch(() => {});
-          }
+        } else if (inst.status === "running" || inst.status === "paused") {
+          // Runtime has no knowledge of this instance (e.g. server restarted) — mark stopped
+          status = "stopped";
+        }
+        // Sync DB if it drifted (e.g. someone paused via Docker Desktop, or server restarted)
+        if (status !== inst.status) {
+          await storage.saveRuntimeInstance({ ...inst, status }).catch(() => {});
         }
       }
 
