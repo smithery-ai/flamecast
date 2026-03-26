@@ -27,7 +27,6 @@ import {
   FolderTreeIcon,
   SendIcon,
 } from "lucide-react";
-/* oxlint-disable no-type-assertion/no-type-assertion */
 import type { FileSystemEntry, SessionLog } from "../../shared/session";
 import type { PermissionRequestEvent } from "@flamecast/protocol/session-host";
 import { useFlamecastSession } from "@/client/hooks/use-flamecast-session";
@@ -74,25 +73,33 @@ function SessionDetailPage() {
     return session?.logs ?? [];
   }, [wsEvents, session?.logs]);
 
-  // Derive pending permission from WS events
-  const pendingPermission = useMemo(() => {
-    for (let i = wsEvents.length - 1; i >= 0; i--) {
-      const event = wsEvents[i];
-      // Permission was resolved
+  // Derive all pending permissions from WS events
+  const pendingPermissions = useMemo(() => {
+    const resolvedIds = new Set<string>();
+    for (const event of wsEvents) {
       if (
         event.type === "permission_approved" ||
         event.type === "permission_rejected" ||
         event.type === "permission_cancelled" ||
         event.type === "permission_responded"
       ) {
-        return null;
-      }
-      // Permission request from session host (flat shape with requestId)
-      if (event.type === "permission_request" && event.data.requestId) {
-        return event.data as PermissionRequestEvent;
+        const rid = (event.data as { requestId?: string }).requestId;
+        if (rid) resolvedIds.add(rid);
       }
     }
-    return session?.pendingPermission ?? null;
+    const pending: PermissionRequestEvent[] = [];
+    for (const event of wsEvents) {
+      if (event.type === "permission_request") {
+        const rid = (event.data as { requestId?: string }).requestId;
+        if (rid && !resolvedIds.has(rid)) {
+          pending.push(event.data as unknown as PermissionRequestEvent);
+        }
+      }
+    }
+    if (pending.length === 0 && session?.pendingPermission) {
+      return [session.pendingPermission];
+    }
+    return pending;
   }, [wsEvents, session?.pendingPermission]);
 
   // Fetch filesystem snapshot via HTTP, refetch when files change
@@ -310,55 +317,48 @@ function SessionDetailPage() {
                     return null;
                   })
                 )}
-                {pendingPermission ? (
-                  <Card className="max-w-2xl border-primary/50 bg-primary/5">
+                {pendingPermissions.map((pending) => (
+                  <Card key={pending.requestId} className="max-w-2xl border-primary/50 bg-primary/5">
                     <CardHeader>
                       <CardTitle className="text-base">Permission required</CardTitle>
                       <CardDescription>
-                        {pendingPermission.title}
-                        {pendingPermission.kind ? (
+                        {pending.title}
+                        {pending.kind ? (
                           <Badge variant="outline" className="ml-2">
-                            {pendingPermission.kind}
+                            {pending.kind}
                           </Badge>
                         ) : null}
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="flex flex-wrap gap-2">
-                      {(() => {
-                        const pending = pendingPermission;
-                        return (
-                          <>
-                            {pending.options.map((opt) => (
-                              <Button
-                                key={opt.optionId}
-                                variant={opt.kind === "allow_once" ? "default" : "secondary"}
-                                size="sm"
-                                onClick={() =>
-                                  handlePermission(pending.requestId, {
-                                    optionId: opt.optionId,
-                                  })
-                                }
-                              >
-                                {opt.name}
-                              </Button>
-                            ))}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                handlePermission(pending.requestId, {
-                                  outcome: "cancelled",
-                                })
-                              }
-                            >
-                              Cancel
-                            </Button>
-                          </>
-                        );
-                      })()}
+                      {pending.options.map((opt) => (
+                        <Button
+                          key={opt.optionId}
+                          variant={opt.kind === "allow_once" ? "default" : "secondary"}
+                          size="sm"
+                          onClick={() =>
+                            handlePermission(pending.requestId, {
+                              optionId: opt.optionId,
+                            })
+                          }
+                        >
+                          {opt.name}
+                        </Button>
+                      ))}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          handlePermission(pending.requestId, {
+                            outcome: "cancelled",
+                          })
+                        }
+                      >
+                        Cancel
+                      </Button>
                     </CardContent>
                   </Card>
-                ) : null}
+                ))}
               </StickToBottom.Content>
               <StickToBottomFab />
             </StickToBottom>
@@ -487,14 +487,14 @@ function SessionDetailPage() {
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={(event) => event.key === "Enter" && handleSend()}
             placeholder="Send a prompt to the agent..."
-            disabled={isSending || !!pendingPermission}
+            disabled={isSending || pendingPermissions.length > 0}
           />
           <Button
             onClick={handleSend}
-            disabled={isSending || !!pendingPermission || !prompt.trim()}
+            disabled={isSending || pendingPermissions.length > 0 || !prompt.trim()}
           >
             <SendIcon data-icon="inline-start" />
-            {pendingPermission ? "Permission required" : isSending ? "Sending…" : "Send"}
+            {pendingPermissions.length > 0 ? "Permission required" : isSending ? "Sending…" : "Send"}
           </Button>
         </div>
       </div>
