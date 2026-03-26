@@ -11,7 +11,7 @@
   "include": [
     "src/cli.ts",
     "src/index.ts",
-    "src/serverless.ts",
+    "src/edge.ts",
     "src/worker.ts",
     "src/server/**/*.ts",
     "src/flamecast/**/*.ts",

@@ -15,9 +15,9 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./serverless": {
-      "types": "./dist/serverless.d.ts",
-      "import": "./dist/serverless.js"
+    "./edge": {
+      "types": "./dist/edge.d.ts",
+      "import": "./dist/edge.js"
     },
     "./api": {
       "types": "./dist/flamecast/api.d.ts",
