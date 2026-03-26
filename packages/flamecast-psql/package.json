@@ -15,10 +15,10 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.package.json && cp -r src/migrations dist/migrations",
+    "build": "tsc -p tsconfig.package.json && rm -rf dist/migrations && cp -r src/migrations dist/migrations",
     "test": "vitest run",
     "psql:generate": "drizzle-kit generate --config src/drizzle.config.ts",
-    "build:package": "tsc -p tsconfig.package.json && cp -r src/migrations dist/migrations"
+    "build:package": "tsc -p tsconfig.package.json && rm -rf dist/migrations && cp -r src/migrations dist/migrations"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.4.1",
