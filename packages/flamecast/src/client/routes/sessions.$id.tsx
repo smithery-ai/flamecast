@@ -83,16 +83,24 @@ function SessionDetailPage() {
         event.type === "permission_cancelled" ||
         event.type === "permission_responded"
       ) {
-        const rid = (event.data as { requestId?: string }).requestId;
-        if (rid) resolvedIds.add(rid);
+        const rid = event.data.requestId;
+        if (typeof rid === "string") resolvedIds.add(rid);
       }
     }
     const pending: PermissionRequestEvent[] = [];
     for (const event of wsEvents) {
       if (event.type === "permission_request") {
-        const rid = (event.data as { requestId?: string }).requestId;
-        if (rid && !resolvedIds.has(rid)) {
-          pending.push(event.data as unknown as PermissionRequestEvent);
+        const d = event.data;
+        const rid = d.requestId;
+        if (
+          typeof rid === "string" &&
+          !resolvedIds.has(rid) &&
+          typeof d.title === "string" &&
+          Array.isArray(d.options)
+        ) {
+          // Shape validated above — safe to treat as PermissionRequestEvent
+          // oxlint-disable-next-line no-type-assertion/no-type-assertion
+          pending.push(d as unknown as PermissionRequestEvent);
         }
       }
     }
