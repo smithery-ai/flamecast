@@ -4,7 +4,7 @@
  *
  * Always targets linux (since the binary runs inside Docker containers),
  * and builds for the host's CPU architecture by default.
- * Skips gracefully if Go is not installed.
+ * Fails with a clear error if Go is not installed.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readSync, closeSync } from "node:fs";
@@ -38,6 +38,17 @@ if (existsSync(output)) {
   } catch {
     // Can't read header — rebuild to be safe
   }
+}
+
+// Check Go is available
+try {
+  execFileSync("go", ["version"], { stdio: "pipe" });
+} catch {
+  console.error(
+    "[session-host-go] ERROR: Go is not installed.\n" +
+      "  Install Go (https://go.dev/dl/) and run: pnpm --filter @flamecast/session-host-go run postinstall",
+  );
+  process.exit(1);
 }
 
 // Map Node.js arch names to Go arch names
