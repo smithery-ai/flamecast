@@ -5,7 +5,7 @@ function buildDynamicWorkerSource(source) {
   return `
 const SOURCE = ${JSON.stringify(source)};
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-const runner = new AsyncFunction("__scope", "__console", "__import__", \`const scope = __scope;\\nconst globals = new Proxy(scope, {\\n  has(_target, key) { return key !== "console" && key !== "__import__" && key !== "scope"; },\\n  get(target, key) {\\n    if (key === Symbol.unscopables) return undefined;\\n    return key in target ? target[key] : globalThis[key];\\n  },\\n  set(target, key, value) {\\n    target[key] = value;\\n    return true;\\n  },\\n});\\nconst console = __console;\\nwith (globals) {\\n\${SOURCE}\\n}\`);
+const runner = new AsyncFunction("__scope", "__console", "__import__", \`const scope = __scope;\\nconst globals = new Proxy(scope, {\\n  has(_target, key) { return key !== "console" && key !== "__import__" && key !== "scope"; },\\n  get(target, key) {\\n    if (key === Symbol.unscopables) return undefined;\\n    return key in target ? target[key] : globalThis[key];\\n  },\\n  set(target, key, value) {\\n    target[key] = value;\\n    return true;\\n  },\\n});\\nconst console = __console;\\nconst runInScope = async () => {\\n  with (globals) {\\n\${SOURCE}\\n  }\\n};\\nreturn await runInScope();\`);
 
 function normalizeValue(value, seen = new WeakSet()) {
   if (

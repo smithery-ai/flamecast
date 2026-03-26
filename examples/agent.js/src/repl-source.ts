@@ -1,14 +1,4 @@
-const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-
-function canReturnExpression(expression) {
-  try {
-    // Parse-only check for whether this can be wrapped as a returned expression.
-    new AsyncFunction(`return (\n${expression}\n);`);
-    return true;
-  } catch {
-    return false;
-  }
-}
+const STATEMENT_PREFIX = /^(?:return|const|let|var|if|for|while|switch|try|catch|finally|class|function|async function|import|export|throw|break|continue|do)\b/;
 
 function lastNonEmptyLineIndex(lines) {
   for (let index = lines.length - 1; index >= 0; index -= 1) {
@@ -23,6 +13,28 @@ function stripTrailingSemicolon(text) {
   return text.trim().replace(/;$/, "").trimEnd();
 }
 
+function looksLikeExpression(expression) {
+  const trimmed = stripTrailingSemicolon(expression);
+
+  if (!trimmed || STATEMENT_PREFIX.test(trimmed)) {
+    return false;
+  }
+
+  return trimmed !== "{" && trimmed !== "}";
+}
+
+export function rewritePersistentBindings(source) {
+  return source
+    .replace(/(^|\n)(\s*)(const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g, "$1$2scope.$4 =")
+    .replace(
+      /(^|\n)(\s*)async function\s+([A-Za-z_$][\w$]*)\s*\(/g,
+      "$1$2scope.$3 = async function $3(",
+    )
+    .replace(/(^|\n)(\s*)function\s+([A-Za-z_$][\w$]*)\s*\(/g, "$1$2scope.$3 = function $3(")
+    .replace(/(^|\n)(\s*)class\s+([A-Za-z_$][\w$]*)\s*/g, "$1$2scope.$3 = class $3 ")
+    .replace(/\bimport\s*\(/g, "__import__(");
+}
+
 export function makeReplFriendlySource(source) {
   const text = String(source ?? "");
   const trimmed = text.trim();
@@ -30,8 +42,8 @@ export function makeReplFriendlySource(source) {
     return text;
   }
 
-  if (canReturnExpression(trimmed)) {
-    return `return (\n${trimmed}\n);`;
+  if (!trimmed.includes("\n") && looksLikeExpression(trimmed)) {
+    return `return (\n${stripTrailingSemicolon(trimmed)}\n);`;
   }
 
   const lines = text.split("\n");
@@ -47,7 +59,7 @@ export function makeReplFriendlySource(source) {
 
   const tryReplace = (prefix, candidate) => {
     const expression = stripTrailingSemicolon(candidate);
-    if (!expression || !canReturnExpression(expression)) {
+    if (!looksLikeExpression(expression)) {
       return null;
     }
 
@@ -66,4 +78,8 @@ export function makeReplFriendlySource(source) {
 
   const updated = tryReplace("", trimmedLine);
   return updated ?? text;
+}
+
+export function prepareExecuteJsSource(source) {
+  return makeReplFriendlySource(rewritePersistentBindings(String(source ?? "")));
 }

@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "sh -c 'export FLAMECAST_AGENT_JS_BASE_URL=\"${FLAMECAST_AGENT_JS_BASE_URL:-http://127.0.0.1:8788}\"; export ROUTER_PORT=\"${ROUTER_PORT:-8790}\"; turbo run dev'",
+    "dev": "turbo run dev",
     "dev:client": "turbo run dev --filter=@flamecast/sdk",
-    "dev:server": "sh -c 'export FLAMECAST_AGENT_JS_BASE_URL=\"${FLAMECAST_AGENT_JS_BASE_URL:-http://127.0.0.1:8788}\"; turbo run dev --filter=@acp/server'",
+    "dev:server": "turbo run dev --filter=@acp/server",
     "build": "turbo run build",
     "start": "pnpm dev",
     "knip": "pnpm --filter @flamecast/sdk run generate:routes && knip --config knip.json --workspace packages/flamecast --workspace apps/server --no-config-hints",

@@ -8,7 +8,7 @@ import {
 } from "agents";
 import { buildDynamicWorkerCode, hashText } from "./dynamic-worker-code.js";
 import { generateGatewayText, streamGatewayText } from "./gateway-model.js";
-import { makeReplFriendlySource } from "./repl-source.js";
+import { prepareExecuteJsSource } from "./repl-source.js";
 import {
   COMPACTION_PROMPT,
   DEFAULT_ASSISTANT_REPLY,
@@ -217,18 +217,6 @@ function truncate(text, maxChars = 1200) {
   return `${text.slice(0, maxChars)}...`;
 }
 
-function rewritePersistentBindings(source) {
-  return source
-    .replace(/(^|\n)(\s*)(const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g, "$1$2scope.$4 =")
-    .replace(
-      /(^|\n)(\s*)async function\s+([A-Za-z_$][\w$]*)\s*\(/g,
-      "$1$2scope.$3 = async function $3(",
-    )
-    .replace(/(^|\n)(\s*)function\s+([A-Za-z_$][\w$]*)\s*\(/g, "$1$2scope.$3 = function $3(")
-    .replace(/(^|\n)(\s*)class\s+([A-Za-z_$][\w$]*)\s*/g, "$1$2scope.$3 = class $3 ")
-    .replace(/\bimport\s*\(/g, "__import__(");
-}
-
 function planScriptedTurn(text) {
   const normalized = text.toLowerCase();
   const tmpFsRequest =
@@ -341,7 +329,7 @@ async function executeWithDynamicWorker(env, source, scope) {
 }
 
 async function runExecuteJS(env, code, session) {
-  const source = rewritePersistentBindings(makeReplFriendlySource(code));
+  const source = prepareExecuteJsSource(code);
   if (env.LOADER) {
     return executeWithDynamicWorker(env, source, session.scope);
   }
