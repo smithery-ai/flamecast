@@ -235,7 +235,10 @@ class EchoAgent implements acp.Agent {
           toolCallId: callId,
           status: "completed",
           content: [{ type: "content", content: { type: "text", text: editedContent } }],
-          rawOutput: { success: true, message: `Inserted boilerplate into ${name} at line ${midpoint}` },
+          rawOutput: {
+            success: true,
+            message: `Inserted boilerplate into ${name} at line ${midpoint}`,
+          },
         },
       });
       return true;
@@ -338,11 +341,7 @@ class EchoAgent implements acp.Agent {
     // -----------------------------------------------------------------------
     // 3. Create LOREM_2.md and LOREM_3.md in parallel
     // -----------------------------------------------------------------------
-    await this.streamWords(
-      sid,
-      "\nNow I'll create LOREM_2.md and LOREM_3.md in parallel.",
-      signal,
-    );
+    await this.streamWords(sid, "\nNow I'll create LOREM_2.md and LOREM_3.md in parallel.", signal);
     if (signal.aborted) return { stopReason: "cancelled" };
 
     await Promise.all([createFile("LOREM_2.md"), createFile("LOREM_3.md")]);
