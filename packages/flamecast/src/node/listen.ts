@@ -2,28 +2,34 @@
  * Node.js server — starts Flamecast with HTTP + WebSocket adapter.
  *
  * This module is only imported via `@flamecast/sdk` (the default Node entry
- * point). Serverless deploys use `@flamecast/sdk/serverless` which never
- * touches this file, keeping `ws` and `@hono/node-server` out of the bundle.
+ * point). Edge deploys use `@flamecast/sdk/edge` which never touches this
+ * file, keeping `ws` and `@hono/node-server` out of the bundle.
  */
-import { serve } from "@hono/node-server";
+import { serve as honoServe } from "@hono/node-server";
+import type { AddressInfo } from "node:net";
 import type { Flamecast } from "../flamecast/index.js";
 import { SessionHostBridge } from "./session-host-bridge.js";
 import { WsAdapter } from "./ws-adapter.js";
 
 /**
- * Start the Flamecast server on the given port.
- * Sets up the HTTP API and the multiplexed WebSocket adapter at `ws://host/ws`.
+ * Start the Flamecast server with HTTP API + WebSocket adapter.
  *
  * @example
  * ```ts
- * import { Flamecast, listen } from "@flamecast/sdk";
+ * import { Flamecast, serve } from "@flamecast/sdk";
  *
  * const flamecast = new Flamecast({ runtimes: { default: new NodeRuntime() } });
- * await listen(flamecast, 3001);
+ * serve(flamecast, { port: 3001 }, (info) => {
+ *   console.log(`Flamecast running on http://localhost:${info.port}`);
+ * });
  * ```
  */
-export function listen(flamecast: Flamecast, port: number): void {
-  const server = serve({ fetch: flamecast.app.fetch, port });
+export function serve(
+  flamecast: Flamecast,
+  options: { port: number },
+  listeningListener?: (info: AddressInfo) => void,
+): void {
+  const server = honoServe({ fetch: flamecast.app.fetch, port: options.port }, listeningListener);
 
   const bridge = new SessionHostBridge({ eventBus: flamecast.eventBus });
 
@@ -36,6 +42,4 @@ export function listen(flamecast: Flamecast, port: number): void {
     eventBus: flamecast.eventBus,
     flamecast,
   });
-
-  console.log(`Flamecast running on http://localhost:${port}`);
 }
