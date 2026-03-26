@@ -106,6 +106,77 @@ From the repo root:
 pnpm install
 ```
 
+## Run It With Flamecast In Production
+
+If you are using the Flamecast server in this repo, the production flow is:
+
+1. Deploy this worker.
+2. Set `FLAMECAST_AGENT_JS_BASE_URL` on the Flamecast server to that deployed worker URL.
+3. Start Flamecast.
+4. Use the built-in `Agent.js` template.
+
+Concretely:
+
+```bash
+pnpm --filter @flamecast/agent-js deploy
+printf %s "$CF_AI_GATEWAY_TOKEN" | pnpm wrangler secret put CF_AI_GATEWAY_TOKEN
+```
+
+If your AI Gateway does not already have a stored OpenAI provider key, also set:
+
+```bash
+printf %s "$OPENAI_API_KEY" | pnpm wrangler secret put OPENAI_API_KEY
+```
+
+Then run Flamecast with the deployed worker URL:
+
+```bash
+FLAMECAST_AGENT_JS_BASE_URL=https://flamecast-agent-js.smithery.workers.dev pnpm dev
+```
+
+That is enough for the server in this repo. [`apps/server/src/index.ts`](/Users/henry/.codex/worktrees/6f43/flamecast-v2/apps/server/src/index.ts) will:
+
+- register a runtime named `agentjs`
+- point it at `FLAMECAST_AGENT_JS_BASE_URL` with `NodeRuntime`
+- add a built-in agent template named `Agent.js`
+
+So in production, there is no extra manual runtime wiring if you are using this repo's server.
+
+## Production Wiring
+
+The key point is that Flamecast talks to the deployed worker like any other remote SessionHost.
+
+- Flamecast does not run the `agent.js` loop itself
+- Flamecast only proxies to the worker with `NodeRuntime`
+- the Cloudflare worker owns the model loop, session state, compaction, and `executeJS`
+
+For the server in this repo, the only required production config is:
+
+```bash
+FLAMECAST_AGENT_JS_BASE_URL=https://flamecast-agent-js.smithery.workers.dev
+```
+
+If you are building your own Flamecast host instead of using [`apps/server/src/index.ts`](/Users/henry/.codex/worktrees/6f43/flamecast-v2/apps/server/src/index.ts), the equivalent wiring is:
+
+```ts
+import { Flamecast, NodeRuntime } from "@flamecast/sdk";
+
+const flamecast = new Flamecast({
+  runtimes: {
+    default: new NodeRuntime(),
+    agentjs: new NodeRuntime(process.env.FLAMECAST_AGENT_JS_BASE_URL),
+  },
+  agentTemplates: [
+    {
+      id: "agentjs",
+      name: "Agent.js",
+      spawn: { command: "remote-sessionhost", args: ["agentjs"] },
+      runtime: { provider: "agentjs" },
+    },
+  ],
+});
+```
+
 ## Run Locally
 
 Start the worker with Wrangler:
