@@ -2,7 +2,7 @@ export const EXECUTE_JS_TOOL_DESCRIPTION = [
   "Execute JavaScript inside a Cloudflare Worker shared session scope.",
   "Use this tool whenever you need computation, persistent session state, outbound HTTP(S) requests via fetch, or the Worker virtual filesystem via await import('node:fs').",
   "You may call executeJS multiple times in the same turn until you have enough information to answer.",
-  "Write complete JavaScript source that ends with an explicit return statement.",
+  "The runtime is REPL-like: a final expression is returned automatically, and you can still use an explicit return when you want to.",
   "Use ordinary globals like `customer = ...` to persist JSON-serializable values across turns.",
   "Do not claim network access is blocked or unavailable unless an actual fetch call fails.",
 ].join(" ");
@@ -13,7 +13,7 @@ export const EXECUTE_JS_INPUT_SCHEMA = {
     code: {
       type: "string",
       description:
-        "JavaScript source to execute in the shared session scope. It can use fetch for external web access and await import('node:fs') for the Worker virtual filesystem. It must end with an explicit return statement.",
+        "JavaScript source to execute in the shared session scope. It can use fetch for external web access and await import('node:fs') for the Worker virtual filesystem. A final expression is returned automatically, like a REPL.",
     },
   },
   required: ["code"],

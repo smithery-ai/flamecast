@@ -22,7 +22,7 @@ The model contract is:
 - respond directly when no tool is needed
 - otherwise use the single native tool, `executeJS`, as many times as needed before answering
 - in gateway mode, the `executeJS` tool description carries the runtime capability contract; there is no separate planner/finalizer prompt layer
-- `executeJS` code runs in a shared session scope and must end with an explicit `return`
+- `executeJS` code runs in a shared session scope with REPL-like result semantics: a final expression is returned automatically, and explicit `return` still works
 - `executeJS` code can use `fetch(...)` for outbound HTTP(S) requests and external web access
 - `executeJS` code can use `await import("node:fs")` for the Worker virtual filesystem
 - persisted globals should stay JSON-serializable

@@ -3,6 +3,7 @@ import { jsonSchema, stepCountIs, tool } from "ai";
 import { Agent, getAgentByName, routeAgentRequest } from "agents";
 import { buildDynamicWorkerCode, hashText } from "./dynamic-worker-code.js";
 import { generateGatewayText, streamGatewayText } from "./gateway-model.js";
+import { makeReplFriendlySource } from "./repl-source.js";
 import {
   COMPACTION_PROMPT,
   DEFAULT_ASSISTANT_REPLY,
@@ -345,7 +346,7 @@ async function executeWithLocalExecutor(env, source, scope) {
 }
 
 async function runExecuteJS(env, code, session) {
-  const source = rewritePersistentBindings(code);
+  const source = rewritePersistentBindings(makeReplFriendlySource(code));
   if (env.LOADER) {
     return executeWithDynamicWorker(env, source, session.scope);
   }
