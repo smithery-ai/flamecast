@@ -471,7 +471,29 @@ const httpServer = createServer(async (req, res) => {
       emitRpc(acp.AGENT_METHODS.session_prompt, "client_to_agent", "request", params);
       const result = await connection.prompt(params);
       emitRpc(acp.AGENT_METHODS.session_prompt, "agent_to_client", "response", result);
+      void postCallback({ type: "end_turn", data: { promptResponse: result } });
       jsonResponse(res, 200, result);
+      return;
+    }
+
+    if (req.method === "POST" && req.url?.startsWith("/permissions/")) {
+      const requestId = req.url.slice("/permissions/".length);
+      const resolver = permissionResolvers.get(requestId);
+      if (!resolver) {
+        jsonResponse(res, 404, {
+          error: `Permission request ${requestId} not found or already resolved`,
+        });
+        return;
+      }
+      const body = JSON.parse(await readBody(req));
+      permissionResolvers.delete(requestId);
+      const response: acp.RequestPermissionResponse =
+        "optionId" in body && typeof body.optionId === "string"
+          ? { outcome: { outcome: "selected", optionId: body.optionId } }
+          : { outcome: { outcome: "cancelled" } };
+      emitRpc(acp.CLIENT_METHODS.session_request_permission, "client_to_agent", "response", body);
+      resolver(response);
+      jsonResponse(res, 200, { ok: true });
       return;
     }
 

@@ -46,6 +46,9 @@ function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastAp
       spawn: body.spawn,
       runtime: body.runtime ?? { provider: "default" },
     })),
+    handleSessionEvent: vi.fn(async () => ({ ok: true })),
+    promptSession: vi.fn(async () => ({ stopReason: "end_turn" })),
+    resolvePermission: vi.fn(async () => ({ ok: true })),
     runtimeNames: ["default"],
     ...overrides,
   };
@@ -368,7 +371,7 @@ describe("API server surface", () => {
     expect(response.status).toBe(404);
   });
 
-  it("does not expose the removed permissions route", async () => {
+  it("resolves a permission request via REST", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
@@ -378,7 +381,10 @@ describe("API server surface", () => {
       body: JSON.stringify({ optionId: "allow" }),
     });
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(200);
+    expect(flamecast.resolvePermission).toHaveBeenCalledWith(sampleAgentId, "request-1", {
+      optionId: "allow",
+    });
   });
 
   it("does not expose the removed queue route", async () => {

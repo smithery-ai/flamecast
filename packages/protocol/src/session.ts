@@ -103,6 +103,7 @@ export interface CreateSessionBody {
   agentTemplateId?: string;
   spawn?: AgentSpawn;
   name?: string;
+  webhooks?: Omit<WebhookConfig, "id">[];
 }
 
 export interface RegisterAgentTemplateBody {
@@ -116,3 +117,30 @@ export interface PromptBody {
 }
 
 export type PermissionResponseBody = { optionId: string } | { outcome: "cancelled" };
+
+// ---------------------------------------------------------------------------
+// Webhook delivery
+// ---------------------------------------------------------------------------
+
+/** Event types deliverable via webhooks. */
+export type WebhookEventType = "permission_request" | "end_turn" | "error" | "session_end";
+
+/** Webhook registration — per-session or global. */
+export interface WebhookConfig {
+  /** Stable internal ID assigned at registration. */
+  id: string;
+  url: string;
+  secret: string;
+  events?: WebhookEventType[];
+}
+
+/** Payload delivered to webhook endpoints. */
+export interface WebhookPayload {
+  sessionId: string;
+  eventId: string;
+  timestamp: string;
+  event: {
+    type: WebhookEventType;
+    data: Record<string, unknown>;
+  };
+}
