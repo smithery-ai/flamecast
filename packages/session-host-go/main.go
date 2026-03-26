@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -588,7 +589,70 @@ func main() {
 		writeJSON(w, 200, map[string]any{"ok": true})
 	})
 
+	mux.HandleFunc("GET /files", func(w http.ResponseWriter, r *http.Request) {
+		current.Lock()
+		sess := current.sess
+		current.Unlock()
+		if sess == nil || sess.workspace == "" {
+			writeJSON(w, 400, map[string]any{"error": "No active session"})
+			return
+		}
+		filePath := r.URL.Query().Get("path")
+		if filePath == "" {
+			writeJSON(w, 400, map[string]any{"error": "Missing ?path= parameter"})
+			return
+		}
+		resolved := filepath.Join(sess.workspace, filePath)
+		if !strings.HasPrefix(resolved, sess.workspace) {
+			writeJSON(w, 403, map[string]any{"error": "Path outside workspace"})
+			return
+		}
+		raw, err := os.ReadFile(resolved)
+		if err != nil {
+			writeJSON(w, 404, map[string]any{"error": "Cannot read: " + filePath})
+			return
+		}
+		maxChars := 100_000
+		content := string(raw)
+		truncated := len(content) > maxChars
+		if truncated {
+			content = content[:maxChars]
+		}
+		writeJSON(w, 200, map[string]any{
+			"path": filePath, "content": content, "truncated": truncated, "maxChars": maxChars,
+		})
+	})
+
+	mux.HandleFunc("GET /fs/snapshot", func(w http.ResponseWriter, r *http.Request) {
+		current.Lock()
+		sess := current.sess
+		current.Unlock()
+		if sess == nil || sess.workspace == "" {
+			writeJSON(w, 400, map[string]any{"error": "No active session"})
+			return
+		}
+		entries, err := filewatcher.WalkDirectory(sess.workspace)
+		if err != nil {
+			writeJSON(w, 500, map[string]any{"error": err.Error()})
+			return
+		}
+		maxEntries := 10_000
+		truncated := len(entries) > maxEntries
+		limited := entries
+		if truncated {
+			limited = entries[:maxEntries]
+		}
+		writeJSON(w, 200, map[string]any{
+			"root": sess.workspace, "entries": limited, "truncated": truncated, "maxEntries": maxEntries,
+		})
+	})
+
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "OPTIONS" {
+			setCORS(w)
+			w.WriteHeader(204)
+			return
+		}
 		if r.Header.Get("Upgrade") == "websocket" {
 			hub.HandleUpgrade(w, r)
 			return
@@ -621,7 +685,14 @@ func main() {
 
 // ---------- Helpers ----------
 
+func setCORS(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	setCORS(w)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
