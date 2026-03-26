@@ -1,13 +1,12 @@
 {
-  "name": "@flamecast/example-webhooks-and-signaling",
+  "name": "@flamecast/example-queue-drain",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch index.ts"
+    "dev": "tsx index.ts"
   },
   "dependencies": {
     "@flamecast/example-shared": "workspace:*",
-    "@flamecast/protocol": "workspace:*",
     "@flamecast/sdk": "workspace:*"
   },
   "devDependencies": {

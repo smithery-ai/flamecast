@@ -90,17 +90,43 @@ importers:
         specifier: ^1.19.11
         version: 1.19.11(hono@4.12.8)
 
-  examples/webhooks-and-signaling:
+  examples/queue-drain:
     dependencies:
-      '@flamecast/protocol':
+      '@flamecast/example-shared':
         specifier: workspace:*
-        version: link:../../packages/protocol
+        version: link:../shared
+      '@flamecast/sdk':
+        specifier: workspace:*
+        version: link:../../packages/flamecast
+    devDependencies:
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+
+  examples/shared:
+    dependencies:
       '@flamecast/sdk':
         specifier: workspace:*
         version: link:../../packages/flamecast
       '@hono/node-server':
         specifier: ^1.19.11
         version: 1.19.11(hono@4.12.8)
+    devDependencies:
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+
+  examples/webhooks-and-signaling:
+    dependencies:
+      '@flamecast/example-shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@flamecast/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@flamecast/sdk':
+        specifier: workspace:*
+        version: link:../../packages/flamecast
     devDependencies:
       tsx:
         specifier: ^4.21.0

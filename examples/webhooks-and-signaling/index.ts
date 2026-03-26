@@ -9,36 +9,19 @@
  * Run:
  *   pnpm --filter @flamecast/session-host --filter @flamecast/example-webhooks-and-signaling dev
  */
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { serve } from "@hono/node-server";
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
+import { EXAMPLE_TEMPLATE, PORTS, startServer } from "@flamecast/example-shared/create-example.js";
 import { createWebhookReceiver } from "./webhook-receiver.js";
 import { runDemo } from "./run-demo.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const agentPath = resolve(__dirname, "../../packages/flamecast/src/flamecast/agent.ts");
-
-const PORT = 3002;
-const WEBHOOK_PORT = 3004;
 const WEBHOOK_SECRET = "demo-secret";
-
-// --- Flamecast server with both tiers wired ---
 
 const flamecast = new Flamecast({
   runtimes: { default: new NodeRuntime() },
+  agentTemplates: [EXAMPLE_TEMPLATE],
 
   // Tier 2: external webhook — every session delivers events here
-  webhooks: [{ url: `http://localhost:${WEBHOOK_PORT}/events`, secret: WEBHOOK_SECRET }],
-
-  agentTemplates: [
-    {
-      id: "example",
-      name: "Example agent",
-      spawn: { command: "pnpm", args: ["exec", "tsx", agentPath] },
-      runtime: { provider: "default" },
-    },
-  ],
+  webhooks: [{ url: `http://localhost:${PORTS.webhook}/events`, secret: WEBHOOK_SECRET }],
 
   // Tier 1: in-process handlers
   onPermissionRequest: async (c) => {
@@ -53,17 +36,12 @@ const flamecast = new Flamecast({
   },
 });
 
-// --- Start ---
+const receiver = createWebhookReceiver(PORTS.webhook, WEBHOOK_SECRET);
 
-const receiver = createWebhookReceiver(WEBHOOK_PORT, WEBHOOK_SECRET);
-
-serve({ fetch: flamecast.app.fetch, port: PORT }, async () => {
+await startServer(flamecast, async (apiUrl) => {
   try {
-    await runDemo(`http://localhost:${PORT}/api`);
-  } catch (err) {
-    console.error(`  ✗ Failed: ${err}`);
+    await runDemo(apiUrl);
+  } finally {
+    receiver.close();
   }
-  receiver.close();
-  await flamecast.shutdown();
-  process.exit(0);
 });
