@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* oxlint-disable no-type-assertion/no-type-assertion */
 import { spawn, exec, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer } from "node:http";
@@ -10,50 +9,18 @@ import { WebSocketServer, WebSocket } from "ws";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { startFileWatcher, type FileChange } from "./file-watcher.js";
-import { readBody, jsonResponse } from "./http-utils.js";
-// Matches SessionHostStartRequest / SessionHostStartResponse from @flamecast shared types
-interface BridgeStartRequest {
-  command: string;
-  args: string[];
-  workspace: string;
-  setup?: string;
-}
-
-interface BridgeStartResponse {
-  acpSessionId: string;
-  hostUrl: string;
-  websocketUrl: string;
-}
-
-interface BridgeHealthResponse {
-  status: "idle" | "running";
-  sessionId?: string;
-}
+import { readBody, jsonResponse, handleCors } from "./http-utils.js";
 import { walkDirectory } from "./walk-directory.js";
+import type {
+  SessionHostStartRequest,
+  SessionHostStartResponse,
+  SessionHostHealthResponse,
+} from "@flamecast/protocol/session-host";
+import type { WsServerMessage, WsControlMessage } from "@flamecast/protocol/ws";
 
 // ---- Config from environment ----
 
 const SESSION_HOST_PORT = parseInt(process.env.SESSION_HOST_PORT ?? "8787", 10);
-
-// ---- Types ----
-
-type WsMessage =
-  | {
-      type: "event";
-      timestamp: string;
-      event: { type: string; data: Record<string, unknown>; timestamp: string };
-    }
-  | { type: "connected"; sessionId: string }
-  | { type: "error"; message: string };
-
-type ControlMessage =
-  | { action: "prompt"; text: string }
-  | { action: "permission.respond"; requestId: string; body: Record<string, unknown> }
-  | { action: "cancel"; queueId?: string }
-  | { action: "terminate" }
-  | { action: "ping" }
-  | { action: "fs.snapshot"; path?: string }
-  | { action: "file.preview"; path: string };
 
 // ---- Session state (one session at a time) ----
 
@@ -67,7 +34,7 @@ const permissionResolvers = new Map<string, (response: acp.RequestPermissionResp
 
 // ---- Broadcast helpers ----
 
-function broadcast(msg: WsMessage): void {
+function broadcast(msg: WsServerMessage): void {
   const data = JSON.stringify(msg);
   for (const ws of clients) {
     if (ws.readyState === WebSocket.OPEN) {
@@ -195,30 +162,7 @@ function createAcpClient(): acp.Client {
 
 // ---- WebSocket control message handler ----
 
-/** Send a filesystem snapshot to a single WebSocket client. */
-async function sendFsSnapshot(ws: WebSocket, workspace: string): Promise<void> {
-  const entries = await walkDirectory(workspace);
-  const data = JSON.stringify({
-    type: "event",
-    timestamp: new Date().toISOString(),
-    event: {
-      type: "filesystem.snapshot",
-      data: { snapshot: { root: workspace, entries } },
-      timestamp: new Date().toISOString(),
-    },
-  });
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(data);
-  }
-}
-
-/** Broadcast a filesystem snapshot to all connected clients. */
-async function broadcastFsSnapshot(workspace: string): Promise<void> {
-  const entries = await walkDirectory(workspace);
-  emitEvent("filesystem.snapshot", { snapshot: { root: workspace, entries } });
-}
-
-async function handleControl(ws: WebSocket, msg: ControlMessage): Promise<void> {
+async function handleControl(ws: WebSocket, msg: WsControlMessage): Promise<void> {
   try {
     switch (msg.action) {
       case "prompt": {
@@ -238,10 +182,10 @@ async function handleControl(ws: WebSocket, msg: ControlMessage): Promise<void> 
         if (resolver) {
           permissionResolvers.delete(msg.requestId);
           // ACP SDK expects { outcome: { outcome: "selected", optionId } } or { outcome: { outcome: "cancelled" } }
-          const body = msg.body as Record<string, unknown>;
-          const response: acp.RequestPermissionResponse = body.optionId
-            ? { outcome: { outcome: "selected", optionId: body.optionId as string } }
-            : { outcome: { outcome: "cancelled" } };
+          const response: acp.RequestPermissionResponse =
+            "optionId" in msg.body
+              ? { outcome: { outcome: "selected", optionId: msg.body.optionId } }
+              : { outcome: { outcome: "cancelled" } };
           emitRpc(
             acp.CLIENT_METHODS.session_request_permission,
             "client_to_agent",
@@ -266,38 +210,6 @@ async function handleControl(ws: WebSocket, msg: ControlMessage): Promise<void> 
 
       case "ping":
         break;
-
-      case "fs.snapshot": {
-        if (!sessionWorkspace) throw new Error("No active session");
-        await sendFsSnapshot(ws, sessionWorkspace);
-        break;
-      }
-
-      case "file.preview": {
-        if (!sessionWorkspace) throw new Error("No active session");
-        try {
-          const content = await readFile(resolve(sessionWorkspace, msg.path), "utf8");
-          ws.send(
-            JSON.stringify({
-              type: "event",
-              timestamp: new Date().toISOString(),
-              event: {
-                type: "file.preview",
-                data: { path: msg.path, content },
-                timestamp: new Date().toISOString(),
-              },
-            }),
-          );
-        } catch {
-          ws.send(
-            JSON.stringify({
-              type: "error",
-              message: `Cannot read: ${msg.path}`,
-            }),
-          );
-        }
-        break;
-      }
     }
   } catch (error) {
     broadcast({
@@ -310,9 +222,9 @@ async function handleControl(ws: WebSocket, msg: ControlMessage): Promise<void> 
 // ---- Session lifecycle ----
 
 async function startSession(
-  req: BridgeStartRequest,
+  req: SessionHostStartRequest,
   serverPort: number,
-): Promise<BridgeStartResponse> {
+): Promise<SessionHostStartResponse> {
   if (agent) {
     throw new Error("Session already running");
   }
@@ -330,10 +242,10 @@ async function startSession(
 }
 
 async function doStartSession(
-  req: BridgeStartRequest,
+  req: SessionHostStartRequest,
   workspace: string,
   serverPort: number,
-): Promise<BridgeStartResponse> {
+): Promise<SessionHostStartResponse> {
   // SMI-1677: Run optional setup command before spawning agent.
   // RUNTIME_SETUP_ENABLED is set by the Container class (deployed mode only).
   if (req.setup && process.env.RUNTIME_SETUP_ENABLED) {
@@ -383,12 +295,14 @@ async function doStartSession(
   agentProcess.on("exit", onEarlyExit);
 
   // Convert to Web Streams for ACP SDK
-  const agentInput = Writable.toWeb(agentProcess.stdin) as WritableStream<Uint8Array>;
+  const stdin = agentProcess.stdin;
+  const stdout = agentProcess.stdout;
+  const agentInput: WritableStream<Uint8Array> = Writable.toWeb(stdin);
   const agentOutput = new ReadableStream<Uint8Array>({
     start(controller) {
-      agentProcess.stdout!.on("data", (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
-      agentProcess.stdout!.on("end", () => controller.close());
-      agentProcess.stdout!.on("error", (err) => controller.error(err));
+      stdout.on("data", (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+      stdout.on("end", () => controller.close());
+      stdout.on("error", (err) => controller.error(err));
     },
   });
 
@@ -427,8 +341,6 @@ async function doStartSession(
   // Start file watcher
   fileWatcher = startFileWatcher(workspace, ["node_modules", ".git"], (changes: FileChange[]) => {
     emitEvent("filesystem.changed", { changes });
-    // Also emit a full filesystem snapshot after each change batch
-    void broadcastFsSnapshot(workspace);
   });
 
   // Handle agent exit (post-startup)
@@ -465,8 +377,10 @@ function terminateSession(): void {
 
 const httpServer = createServer(async (req, res) => {
   try {
+    if (handleCors(req, res)) return;
+
     if (req.method === "GET" && req.url === "/health") {
-      const health: BridgeHealthResponse = agent
+      const health: SessionHostHealthResponse = agent
         ? { status: "running", sessionId }
         : { status: "idle" };
       jsonResponse(res, 200, health);
@@ -474,17 +388,61 @@ const httpServer = createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && req.url === "/start") {
-      const body = JSON.parse(await readBody(req)) as BridgeStartRequest;
+      // Validated upstream by SessionService before forwarding to the runtime.
+      // Type annotation is compile-time only; no runtime zod validation here
+      // to keep session-host free of the @flamecast/protocol runtime dep.
+      const body: SessionHostStartRequest = JSON.parse(await readBody(req));
       const addr = httpServer.address();
       const port = typeof addr === "object" && addr ? addr.port : SESSION_HOST_PORT;
-      const result = await startSession(body, port);
-      jsonResponse(res, 200, result);
+      const startResult = await startSession(body, port);
+      jsonResponse(res, 200, startResult);
       return;
     }
 
     if (req.method === "POST" && req.url === "/terminate") {
       terminateSession();
       jsonResponse(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === "GET" && req.url?.startsWith("/files")) {
+      if (!sessionWorkspace) {
+        jsonResponse(res, 400, { error: "No active session" });
+        return;
+      }
+      const fileUrl = new URL(req.url, "http://localhost");
+      const filePath = fileUrl.searchParams.get("path");
+      if (!filePath) {
+        jsonResponse(res, 400, { error: "Missing ?path= parameter" });
+        return;
+      }
+      const resolved = resolve(sessionWorkspace, filePath);
+      if (!resolved.startsWith(sessionWorkspace)) {
+        jsonResponse(res, 403, { error: "Path outside workspace" });
+        return;
+      }
+      try {
+        const raw = await readFile(resolved, "utf8");
+        const maxChars = 100_000;
+        const truncated = raw.length > maxChars;
+        const content = truncated ? raw.slice(0, maxChars) : raw;
+        jsonResponse(res, 200, { path: filePath, content, truncated, maxChars });
+      } catch {
+        jsonResponse(res, 404, { error: `Cannot read: ${filePath}` });
+      }
+      return;
+    }
+
+    if (req.method === "GET" && req.url?.startsWith("/fs/snapshot")) {
+      if (!sessionWorkspace) {
+        jsonResponse(res, 400, { error: "No active session" });
+        return;
+      }
+      const entries = await walkDirectory(sessionWorkspace);
+      const maxEntries = 10_000;
+      const truncated = entries.length > maxEntries;
+      const limited = truncated ? entries.slice(0, maxEntries) : entries;
+      jsonResponse(res, 200, { root: sessionWorkspace, entries: limited, truncated, maxEntries });
       return;
     }
 
@@ -504,19 +462,20 @@ const wss = new WebSocketServer({ server: httpServer });
 wss.on("connection", (ws) => {
   clients.add(ws);
   if (sessionId) {
-    ws.send(JSON.stringify({ type: "connected", sessionId } satisfies WsMessage));
-    // Send initial filesystem snapshot to the newly connected client
-    if (sessionWorkspace) {
-      void sendFsSnapshot(ws, sessionWorkspace);
-    }
+    ws.send(JSON.stringify({ type: "connected", sessionId } satisfies WsServerMessage));
   }
 
   ws.on("message", (data) => {
     try {
-      const msg = JSON.parse(String(data)) as ControlMessage;
+      // Type annotation is compile-time only; WS messages come from the
+      // SDK client which is already typed. No runtime zod validation to
+      // keep session-host free of the @flamecast/protocol runtime dep.
+      const msg: WsControlMessage = JSON.parse(String(data));
       void handleControl(ws, msg);
     } catch {
-      ws.send(JSON.stringify({ type: "error", message: "Invalid message" } satisfies WsMessage));
+      ws.send(
+        JSON.stringify({ type: "error", message: "Invalid message" } satisfies WsServerMessage),
+      );
     }
   });
 

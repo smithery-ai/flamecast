@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Docker from "dockerode";
-import type { Runtime } from "@flamecast/sdk/runtime";
+import type { Runtime } from "@flamecast/protocol/runtime";
 
 // ---------------------------------------------------------------------------
 // Session-host binary resolution

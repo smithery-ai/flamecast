@@ -105,6 +105,10 @@ export function useFlamecastSession(sessionId: string) {
     return sessionRef.current?.requestFilePreview(path) ?? Promise.reject(new Error("No session"));
   }, []);
 
+  const requestFsSnapshot = useCallback(() => {
+    return sessionRef.current?.requestFsSnapshot() ?? Promise.reject(new Error("No session"));
+  }, []);
+
   return {
     events,
     connectionState,
@@ -114,5 +118,6 @@ export function useFlamecastSession(sessionId: string) {
     cancel,
     terminate,
     requestFilePreview,
+    requestFsSnapshot,
   };
 }

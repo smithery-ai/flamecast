@@ -1,5 +1,5 @@
 import type { SessionLog, PermissionResponseBody } from "../../shared/session.js";
-import type { WsServerMessage, WsControlMessage } from "../../shared/ws-protocol.js";
+import type { WsServerMessage, WsControlMessage } from "@flamecast/protocol/ws";
 
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
 
@@ -12,13 +12,22 @@ type FlamecastSessionOptions = {
 
 type EventCallback = (event: SessionLog) => void;
 
+/** Derive the HTTP base URL from a WebSocket URL. */
+function wsToHttpUrl(wsUrl: string): string {
+  return wsUrl.replace(/^ws(s?):/, "http$1:");
+}
+
 /**
  * Client-side session that connects directly to a Flamecast
  * WebSocket endpoint for real-time events and control.
+ *
+ * File reads and filesystem snapshots are served over HTTP.
+ * Real-time events (rpc, permissions, filesystem changes) are streamed over WS.
  */
 export class FlamecastSession {
   readonly sessionId: string;
   private readonly websocketUrl: string;
+  private readonly httpUrl: string;
   private readonly maxReconnectAttempts: number;
 
   private ws: WebSocket | null = null;
@@ -28,14 +37,11 @@ export class FlamecastSession {
   private readonly listeners = new Set<EventCallback>();
   private readonly stateListeners = new Set<(state: ConnectionState) => void>();
   private readonly eventBuffer: SessionLog[] = [];
-  private readonly filePreviewResolvers = new Map<
-    string,
-    (result: { content: string; truncated: boolean; maxChars: number }) => void
-  >();
 
   constructor(opts: FlamecastSessionOptions) {
     this.sessionId = opts.sessionId;
     this.websocketUrl = opts.websocketUrl;
+    this.httpUrl = wsToHttpUrl(opts.websocketUrl);
     this.maxReconnectAttempts = opts.maxReconnectAttempts ?? 5;
   }
 
@@ -102,25 +108,31 @@ export class FlamecastSession {
     this.sendControl({ action: "terminate" });
   }
 
-  /** Request a file preview from the sidecar. Returns the file content. */
-  requestFilePreview(
-    path: string,
+  /** Fetch a file preview over HTTP. */
+  async requestFilePreview(
+    filePath: string,
   ): Promise<{ content: string; truncated: boolean; maxChars: number }> {
-    return new Promise((resolve, reject) => {
-      this.filePreviewResolvers.set(path, resolve);
-      this.sendControl({ action: "file.preview", path });
-      // Timeout after 10s
-      setTimeout(() => {
-        if (this.filePreviewResolvers.delete(path)) {
-          reject(new Error("File preview request timed out"));
-        }
-      }, 10_000);
-    });
+    const resp = await fetch(`${this.httpUrl}/files?path=${encodeURIComponent(filePath)}`);
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({ error: resp.statusText }));
+      throw new Error(body.error ?? `Failed to fetch file: ${resp.status}`);
+    }
+    return resp.json();
   }
 
-  /** Request a filesystem snapshot from the sidecar. */
-  requestFsSnapshot(showAllFiles?: boolean): void {
-    this.sendControl({ action: "fs.snapshot", showAllFiles });
+  /** Fetch the filesystem snapshot over HTTP. */
+  async requestFsSnapshot(): Promise<{
+    root: string;
+    entries: Array<{ path: string; type: string }>;
+    truncated: boolean;
+    maxEntries: number;
+  }> {
+    const resp = await fetch(`${this.httpUrl}/fs/snapshot`);
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({ error: resp.statusText }));
+      throw new Error(body.error ?? `Failed to fetch snapshot: ${resp.status}`);
+    }
+    return resp.json();
   }
 
   // ---- Private ----
@@ -175,12 +187,6 @@ export class FlamecastSession {
           } catch {
             // Listener errors must not disrupt
           }
-        }
-      } else if (msg.type === "file.preview") {
-        const resolver = this.filePreviewResolvers.get(msg.path);
-        if (resolver) {
-          this.filePreviewResolvers.delete(msg.path);
-          resolver({ content: msg.content, truncated: msg.truncated, maxChars: msg.maxChars });
         }
       }
     } catch {

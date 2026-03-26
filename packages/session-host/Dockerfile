@@ -4,13 +4,7 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca
 # Session-host infrastructure (not user code)
 WORKDIR /app
 COPY dist/ ./dist/
-COPY package.json ./
-RUN npm install --omit=dev
-
-# Agent workspace — setup scripts and spawn commands run here
-RUN mkdir /workspace
-WORKDIR /workspace
-
+RUN npm init -y && npm install @agentclientprotocol/sdk ws
 ENV SESSION_HOST_PORT=8080
 EXPOSE 8080
 CMD ["node", "/app/dist/index.js"]

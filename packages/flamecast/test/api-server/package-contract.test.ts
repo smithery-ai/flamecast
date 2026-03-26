@@ -31,18 +31,12 @@ describe("package contract", () => {
       types: "./dist/flamecast/api.d.ts",
       import: "./dist/flamecast/api.js",
     });
-    expect(packageJson.exports["./session-service"]).toEqual({
-      types: "./dist/flamecast/session-service.d.ts",
-      import: "./dist/flamecast/session-service.js",
-    });
-    expect(packageJson.exports["./runtime"]).toEqual({
-      types: "./dist/flamecast/runtime.d.ts",
-      import: "./dist/flamecast/runtime.js",
-    });
-    expect(packageJson.exports["./runtimes/node"]).toEqual({
-      types: "./dist/flamecast/runtimes/node.d.ts",
-      import: "./dist/flamecast/runtimes/node.js",
-    });
+    // Internal sub-paths removed — types live in @flamecast/protocol,
+    // user-facing types re-exported from the main entrypoint
+    expect(packageJson.exports["./shared/session"]).toBeUndefined();
+    expect(packageJson.exports["./runtime"]).toBeUndefined();
+    expect(packageJson.exports["./session-service"]).toBeUndefined();
+    expect(packageJson.exports["./runtimes/node"]).toBeUndefined();
 
     const entry = await import("../../src/index.js");
     expect(entry.Flamecast).toBeTypeOf("function");

@@ -1,10 +1,10 @@
 import type { AgentSpawn, AgentTemplateRuntime } from "../shared/session.js";
 import type { FlamecastStorage } from "./storage.js";
-import type { Runtime } from "./runtime.js";
 import type {
+  Runtime,
   SessionHostStartRequest,
   SessionHostStartResponse,
-} from "../shared/session-host-protocol.js";
+} from "@flamecast/protocol";
 
 interface ManagedSession {
   id: string;
@@ -28,7 +28,6 @@ export class SessionService {
       spawn: AgentSpawn;
       cwd: string;
       runtime: AgentTemplateRuntime;
-      setup?: string;
       startedAt: string;
     },
   ): Promise<{ sessionId: string }> {
@@ -45,7 +44,7 @@ export class SessionService {
       command: opts.spawn.command,
       args: opts.spawn.args ?? [],
       workspace: opts.cwd,
-      setup: opts.setup,
+      setup: opts.runtime.setup,
     } satisfies SessionHostStartRequest & Record<string, unknown>;
 
     let response: Response;

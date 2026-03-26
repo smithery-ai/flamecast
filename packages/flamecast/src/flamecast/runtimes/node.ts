@@ -1,4 +1,4 @@
-import type { Runtime } from "../runtime.js";
+import type { Runtime } from "@flamecast/protocol/runtime";
 
 /**
  * NodeRuntime — connects to a SessionHost over HTTP.

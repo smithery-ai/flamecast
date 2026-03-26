@@ -5,12 +5,12 @@ import { Flamecast } from "../src/flamecast/index.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import { createApi } from "../src/flamecast/api.js";
 import { createClient } from "./fixtures/test-helpers.js";
-import type { Runtime } from "../src/flamecast/runtime.js";
+import type { Runtime } from "@flamecast/protocol/runtime";
 import type { AgentTemplate, PendingPermission } from "../src/shared/session.js";
 import type {
   SessionHostStartResponse,
   PermissionRequestEvent,
-} from "../src/shared/session-host-protocol.js";
+} from "@flamecast/protocol/session-host";
 
 // ---------------------------------------------------------------------------
 // Mock Runtime — implements Runtime interface for unit/integration tests

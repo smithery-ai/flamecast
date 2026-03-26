@@ -1,9 +1,5 @@
 import { boolean, index, integer, jsonb, pgSchema, text, timestamp } from "drizzle-orm/pg-core";
-import type {
-  AgentSpawn,
-  AgentTemplateRuntime,
-  PendingPermission,
-} from "@flamecast/sdk/shared/session";
+import type { AgentSpawn, AgentTemplateRuntime, PendingPermission } from "@flamecast/sdk";
 
 export const flamecastSchema = pgSchema("flamecast");
 

@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 /* oxlint-disable no-type-assertion/no-type-assertion */
 import type { FileSystemEntry, SessionLog } from "../../shared/session";
-import type { PermissionRequestEvent } from "../../shared/session-host-protocol";
+import type { PermissionRequestEvent } from "@flamecast/protocol/session-host";
 import { useFlamecastSession } from "@/client/hooks/use-flamecast-session";
 
 export const Route = createFileRoute("/sessions/$id")({
@@ -58,6 +58,7 @@ function SessionDetailPage() {
     prompt: wsPrompt,
     respondToPermission: wsRespondToPermission,
     requestFilePreview,
+    requestFsSnapshot,
   } = useFlamecastSession(id);
 
   // REST for initial session metadata and file system
@@ -94,24 +95,25 @@ function SessionDetailPage() {
     return session?.pendingPermission ?? null;
   }, [wsEvents, session?.pendingPermission]);
 
-  // Derive file system data from WS filesystem events, fall back to REST
-  const { fileEntries, workspaceRoot } = useMemo(() => {
-    // Walk backwards to find latest filesystem.snapshot
-    for (let i = wsEvents.length - 1; i >= 0; i--) {
-      const event = wsEvents[i];
-      if (event.type === "filesystem.snapshot" && event.data.snapshot) {
-        const snapshot = event.data.snapshot as { root?: string; entries?: FileSystemEntry[] };
-        return {
-          fileEntries: snapshot.entries ?? [],
-          workspaceRoot: snapshot.root ?? null,
-        };
-      }
-    }
-    return {
-      fileEntries: session?.fileSystem?.entries ?? [],
-      workspaceRoot: session?.fileSystem?.root ?? null,
-    };
-  }, [wsEvents, session?.fileSystem?.entries, session?.fileSystem?.root]);
+  // Fetch filesystem snapshot via HTTP, refetch when files change
+  const [fileEntries, setFileEntries] = useState<FileSystemEntry[]>([]);
+  const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
+
+  // Fetch snapshot on connect and when filesystem.changed events arrive
+  const fsChangeCount = useMemo(
+    () => wsEvents.filter((e) => e.type === "filesystem.changed").length,
+    [wsEvents],
+  );
+
+  useEffect(() => {
+    if (!isConnected) return;
+    requestFsSnapshot()
+      .then((snapshot) => {
+        setFileEntries(snapshot.entries as FileSystemEntry[]);
+        setWorkspaceRoot(snapshot.root);
+      })
+      .catch(() => {});
+  }, [isConnected, fsChangeCount, requestFsSnapshot]);
   const fileEntryMap = useMemo(
     () => new Map(fileEntries.map((entry) => [entry.path, entry])),
     [fileEntries],

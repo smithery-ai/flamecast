@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
-import type { Runtime } from "../src/flamecast/runtime.js";
+import type { Runtime } from "@flamecast/protocol/runtime";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import type { FlamecastStorage } from "../src/flamecast/storage.js";
 import { createClient } from "./fixtures/test-helpers.js";

@@ -1,5 +1,3 @@
-import type { ZodType } from "zod";
-
 /**
  * A Runtime knows how to ensure a SessionHost exists for a given session
  * and how to route HTTP/WS traffic to it.
@@ -7,8 +5,8 @@ import type { ZodType } from "zod";
  * Intentionally minimal for MVP. Covers start/forward/terminate via HTTP
  * semantics. May be split into explicit lifecycle methods later.
  */
+// oxlint-disable-next-line no-unused-vars -- TConfig is used by RuntimeConfigFor via `Runtime<infer C>`
 export interface Runtime<TConfig extends Record<string, unknown> = {}> {
-  readonly configSchema?: ZodType<TConfig>;
   fetchSession(sessionId: string, request: Request): Promise<Response>;
   dispose?(): Promise<void>;
 }

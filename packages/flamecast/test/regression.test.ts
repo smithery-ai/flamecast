@@ -7,7 +7,7 @@ import { Flamecast } from "../src/flamecast/index.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import { InProcessSessionHost } from "./fixtures/in-process-session-host.js";
 import { createClient } from "./fixtures/test-helpers.js";
-import type { Runtime } from "../src/flamecast/runtime.js";
+import type { Runtime } from "@flamecast/protocol/runtime";
 
 /**
  * 1. ACP permission response shape

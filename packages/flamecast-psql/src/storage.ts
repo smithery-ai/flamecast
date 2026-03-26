@@ -1,6 +1,5 @@
 import { and, asc, desc, eq, inArray, not } from "drizzle-orm";
-import type { AgentTemplate } from "@flamecast/sdk/shared/session";
-import type { FlamecastStorage, SessionMeta } from "@flamecast/sdk";
+import type { AgentTemplate, FlamecastStorage, SessionMeta } from "@flamecast/sdk";
 import { agentTemplates, sessions } from "./schema.js";
 import type { PsqlAppDb } from "./types.js";
 
@@ -22,9 +21,11 @@ function rowToTemplate(row: typeof agentTemplates.$inferSelect): AgentTemplate {
   return {
     id: row.id,
     name: row.name,
-    ...(row.setup ? { setup: row.setup } : {}),
     spawn: row.spawn,
-    runtime: row.runtime,
+    runtime: {
+      ...row.runtime,
+      ...(row.setup ? { setup: row.setup } : {}),
+    },
   };
 }
 
@@ -53,7 +54,7 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
           .values({
             id: template.id,
             name: template.name,
-            setup: template.setup ?? null,
+            setup: template.runtime.setup ?? null,
             spawn: template.spawn,
             runtime: template.runtime,
             managed: true,
@@ -63,7 +64,7 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
             target: agentTemplates.id,
             set: {
               name: template.name,
-              setup: template.setup ?? null,
+              setup: template.runtime.setup ?? null,
               spawn: template.spawn,
               runtime: template.runtime,
               managed: true,
@@ -98,7 +99,7 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
         .values({
           id: template.id,
           name: template.name,
-          setup: template.setup ?? null,
+          setup: template.runtime.setup ?? null,
           spawn: template.spawn,
           runtime: template.runtime,
           managed: false,
@@ -108,7 +109,7 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
           target: agentTemplates.id,
           set: {
             name: template.name,
-            setup: template.setup ?? null,
+            setup: template.runtime.setup ?? null,
             spawn: template.spawn,
             runtime: template.runtime,
             managed: false,

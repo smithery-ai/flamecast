@@ -49,7 +49,10 @@ class EchoAgent implements acp.Agent {
       if (session.pending.signal.aborted) return { stopReason: "cancelled" };
       await this.connection.sessionUpdate({
         sessionId: params.sessionId,
-        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: word + " " } },
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: word + " " },
+        },
       });
       await new Promise((r) => setTimeout(r, 50));
     }
@@ -85,7 +88,10 @@ class EchoAgent implements acp.Agent {
     // Final message
     await this.connection.sessionUpdate({
       sessionId: params.sessionId,
-      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "\nDone! Let me know if you need anything else." } },
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "\nDone! Let me know if you need anything else." },
+      },
     });
 
     session.pending = null;
@@ -111,23 +117,27 @@ function connectStdio(): void {
 }
 
 function listenTcp(port: number): void {
-  net.createServer((socket) => {
-    socket.setNoDelay(true);
-    const input = new WritableStream<Uint8Array>({
-      write(chunk) {
-        return new Promise((res, rej) => socket.write(chunk, (err) => (err ? rej(err) : res())));
-      },
-      close() { socket.end(); },
-    });
-    const output = new ReadableStream<Uint8Array>({
-      start(controller) {
-        socket.on("data", (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
-        socket.on("end", () => controller.close());
-        socket.on("error", (err) => controller.error(err));
-      },
-    });
-    new acp.AgentSideConnection((conn) => new EchoAgent(conn), acp.ndJsonStream(input, output));
-  }).listen(port, () => console.error(`Agent listening on port ${port}`));
+  net
+    .createServer((socket) => {
+      socket.setNoDelay(true);
+      const input = new WritableStream<Uint8Array>({
+        write(chunk) {
+          return new Promise((res, rej) => socket.write(chunk, (err) => (err ? rej(err) : res())));
+        },
+        close() {
+          socket.end();
+        },
+      });
+      const output = new ReadableStream<Uint8Array>({
+        start(controller) {
+          socket.on("data", (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)));
+          socket.on("end", () => controller.close());
+          socket.on("error", (err) => controller.error(err));
+        },
+      });
+      new acp.AgentSideConnection((conn) => new EchoAgent(conn), acp.ndJsonStream(input, output));
+    })
+    .listen(port, () => console.error(`Agent listening on port ${port}`));
 }
 
 const acpPort = process.env.ACP_PORT ? parseInt(process.env.ACP_PORT, 10) : undefined;

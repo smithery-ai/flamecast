@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Flamecast } from "../../src/flamecast/index.js";
-import type { Runtime } from "../../src/flamecast/runtime.js";
+import type { Runtime } from "@flamecast/protocol/runtime";
 import { MemoryFlamecastStorage } from "../../src/flamecast/storage/memory/index.js";
 
 const noopRuntime: Runtime = {

@@ -29,12 +29,14 @@ const flamecast = new Flamecast({
     {
       id: "docker-agent",
       name: "Docker Agent",
-      setup: [
-        "npm install tsx @agentclientprotocol/sdk",
-        `cat > /workspace/agent.ts << 'AGENT_EOF'\n${agentSource}\nAGENT_EOF`,
-      ].join(" && "),
       spawn: { command: "npx", args: ["tsx", "agent.ts"] },
-      runtime: { provider: "docker" },
+      runtime: {
+        provider: "docker",
+        setup: [
+          "npm install tsx @agentclientprotocol/sdk",
+          `cat > /workspace/agent.ts << 'AGENT_EOF'\n${agentSource}\nAGENT_EOF`,
+        ].join(" && "),
+      },
     },
   ],
 });

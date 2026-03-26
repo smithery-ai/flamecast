@@ -1,6 +1,15 @@
-import type { FileSystemEntry } from "./session.js";
+// ---------------------------------------------------------------------------
+// Shared types for filesystem entries (used by snapshot events)
+// ---------------------------------------------------------------------------
 
+export interface FileSystemEntry {
+  path: string;
+  type: "file" | "directory" | "symlink" | "other";
+}
+
+// ---------------------------------------------------------------------------
 // SessionHost → Client events
+// ---------------------------------------------------------------------------
 
 export interface PermissionRequestEvent {
   requestId: string;
@@ -22,7 +31,9 @@ export interface FilePreviewEvent {
   content: string;
 }
 
+// ---------------------------------------------------------------------------
 // Client → SessionHost actions
+// ---------------------------------------------------------------------------
 
 export interface PermissionRespondAction {
   action: "permission.respond";
@@ -40,7 +51,9 @@ export interface FilePreviewAction {
   path: string;
 }
 
+// ---------------------------------------------------------------------------
 // SessionHost HTTP contract
+// ---------------------------------------------------------------------------
 
 export interface SessionHostStartRequest {
   command: string;
@@ -54,4 +67,9 @@ export interface SessionHostStartResponse {
   acpSessionId: string;
   hostUrl: string;
   websocketUrl: string;
+}
+
+export interface SessionHostHealthResponse {
+  status: "idle" | "running";
+  sessionId?: string;
 }

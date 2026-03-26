@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { SessionService } from "../src/flamecast/session-service.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
-import type { Runtime } from "../src/flamecast/runtime.js";
+import type { Runtime } from "@flamecast/protocol/runtime";
 
 function createMockRuntime(): Runtime & {
   calls: Array<{ sessionId: string; method: string }>;

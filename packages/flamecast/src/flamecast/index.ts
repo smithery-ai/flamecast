@@ -11,19 +11,29 @@ import { createServerApp } from "../server/app.js";
 import type { FlamecastStorage } from "./storage.js";
 import { MemoryFlamecastStorage } from "./storage/memory/index.js";
 import { SessionService } from "./session-service.js";
-import type { Runtime, RuntimeNames, SessionContext, SessionEndReason } from "./runtime.js";
-
-export type { AgentSpawn, AgentTemplate, PendingPermission, Session } from "../shared/session.js";
-export type { SessionMeta, FlamecastStorage } from "./storage.js";
-export type { AppType } from "./api.js";
-export type {
+import type {
   Runtime,
   RuntimeNames,
-  RuntimeConfigFor,
   SessionContext,
   SessionEndReason,
-} from "./runtime.js";
-export { SessionService } from "./session-service.js";
+} from "@flamecast/protocol/runtime";
+
+// Public API types — all sourced from @flamecast/protocol
+export type {
+  AgentSpawn,
+  AgentTemplate,
+  AgentTemplateRuntime,
+  Session,
+  SessionLog,
+  PendingPermission,
+  FileSystemSnapshot,
+  PermissionResponseBody,
+  CreateSessionBody,
+  RegisterAgentTemplateBody,
+} from "@flamecast/protocol/session";
+export type { FileSystemEntry } from "@flamecast/protocol/session-host";
+
+export type { SessionMeta, FlamecastStorage } from "./storage.js";
 export { NodeRuntime } from "./runtimes/node.js";
 
 // ---------------------------------------------------------------------------
@@ -167,7 +177,6 @@ export class Flamecast<
     const template: AgentTemplate = {
       id: randomUUID(),
       name: body.name,
-      ...(body.setup ? { setup: body.setup } : {}),
       spawn: {
         command: body.spawn.command,
         args: [...body.spawn.args],
@@ -183,7 +192,7 @@ export class Flamecast<
     await this.ensureReady();
 
     const cwd = opts.cwd ?? process.cwd();
-    const { agentName, spawn, setup, runtime } = await this.resolveSessionDefinition(opts);
+    const { agentName, spawn, runtime } = await this.resolveSessionDefinition(opts);
     const startedAt = new Date().toISOString();
 
     const { sessionId } = await this.sessionService.startSession(this.requireStorage(), {
@@ -191,7 +200,6 @@ export class Flamecast<
       spawn,
       cwd,
       runtime,
-      setup,
       startedAt,
     });
 
@@ -342,7 +350,6 @@ export class Flamecast<
   private async resolveSessionDefinition(opts: CreateSessionBody): Promise<{
     agentName: string;
     spawn: AgentSpawn;
-    setup?: string;
     runtime: AgentTemplateRuntime;
   }> {
     if (opts.agentTemplateId) {
@@ -357,7 +364,6 @@ export class Flamecast<
           command: template.spawn.command,
           args: [...template.spawn.args],
         },
-        setup: template.setup,
         runtime: { ...template.runtime },
       };
     }

@@ -1,6 +1,6 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentTemplate } from "@flamecast/sdk/shared/session";
+import type { AgentTemplate } from "@flamecast/sdk";
 
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const exampleAgentPath = resolve(thisDir, "../../flamecast/src/flamecast/agent.ts");
@@ -22,19 +22,23 @@ export const defaultAgentTemplates: AgentTemplate[] = [
   {
     id: "example-docker",
     name: "Example agent (Docker)",
-    setup:
-      "npm install tsx @agentclientprotocol/sdk && " +
-      "curl -sf -o agent.ts https://raw.githubusercontent.com/smithery-ai/flamecast/main/packages/flamecast/src/flamecast/agent.ts",
     spawn: { command: "npx", args: ["tsx", "agent.ts"] },
-    runtime: { provider: "docker" },
+    runtime: {
+      provider: "docker",
+      setup:
+        "npm install tsx @agentclientprotocol/sdk && " +
+        "curl -sf -o agent.ts https://raw.githubusercontent.com/smithery-ai/flamecast/main/packages/flamecast/src/flamecast/agent.ts",
+    },
   },
   {
     id: "example-docker-2",
     name: "Example agent (Docker 2)",
-    setup:
-      "npm install tsx @agentclientprotocol/sdk && " +
-      "curl -sf -o agent.ts https://raw.githubusercontent.com/smithery-ai/flamecast/main/packages/flamecast/src/flamecast/agent.ts",
     spawn: { command: "npx", args: ["tsx", "agent.ts"] },
-    runtime: { provider: "docker" },
+    runtime: {
+      provider: "docker",
+      setup:
+        "npm install tsx @agentclientprotocol/sdk && " +
+        "curl -sf -o agent.ts https://raw.githubusercontent.com/smithery-ai/flamecast/main/packages/flamecast/src/flamecast/agent.ts",
+    },
   },
 ];
