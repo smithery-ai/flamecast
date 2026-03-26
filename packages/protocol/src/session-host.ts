@@ -59,6 +59,7 @@ export interface FilePreviewAction {
 export type SessionCallbackEvent =
   | { type: "permission_request"; data: PermissionRequestEvent }
   | { type: "session_end"; data: { exitCode: number | null } }
+  | { type: "end_turn"; data: { promptResponse: unknown } }
   | { type: "agent_message"; data: { sessionUpdate: unknown } }
   | { type: "error"; data: { message: string } };
 

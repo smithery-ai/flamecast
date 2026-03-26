@@ -38,6 +38,9 @@ export type {
   RegisterAgentTemplateBody,
   PromptBody,
   PermissionResponseBody,
+  WebhookConfig,
+  WebhookEventType,
+  WebhookPayload,
 } from "./session.js";
 
 export type {

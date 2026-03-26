@@ -1,4 +1,4 @@
-import type { AgentSpawn, AgentTemplateRuntime } from "../shared/session.js";
+import type { AgentSpawn, AgentTemplateRuntime, WebhookConfig } from "../shared/session.js";
 import type { FlamecastStorage } from "./storage.js";
 import type {
   Runtime,
@@ -11,6 +11,7 @@ interface ManagedSession {
   hostUrl: string;
   websocketUrl: string;
   runtimeName: string;
+  webhooks: WebhookConfig[];
 }
 
 export class SessionService {
@@ -30,6 +31,7 @@ export class SessionService {
       runtime: AgentTemplateRuntime;
       startedAt: string;
       callbackUrl?: string;
+      webhooks?: WebhookConfig[];
     },
   ): Promise<{ sessionId: string }> {
     const providerName = opts.runtime.provider ?? "local";
@@ -103,6 +105,7 @@ export class SessionService {
       hostUrl: result.hostUrl,
       websocketUrl: result.websocketUrl,
       runtimeName: providerName,
+      webhooks: opts.webhooks ?? [],
     });
 
     return { sessionId };
@@ -151,6 +154,10 @@ export class SessionService {
 
   getRuntimeName(sessionId: string): string | undefined {
     return this.sessions.get(sessionId)?.runtimeName;
+  }
+
+  getWebhooks(sessionId: string): WebhookConfig[] {
+    return this.sessions.get(sessionId)?.webhooks ?? [];
   }
 
   async proxyRequest(sessionId: string, path: string, init: RequestInit): Promise<Response> {

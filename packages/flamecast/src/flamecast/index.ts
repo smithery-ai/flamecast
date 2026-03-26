@@ -6,11 +6,14 @@ import type {
   CreateSessionBody,
   RegisterAgentTemplateBody,
   Session,
+  WebhookConfig,
+  WebhookEventType,
 } from "../shared/session.js";
 import { createServerApp } from "../server/app.js";
 import type { FlamecastStorage } from "./storage.js";
 import { MemoryFlamecastStorage } from "./storage/memory/index.js";
 import { SessionService } from "./session-service.js";
+import { WebhookDeliveryEngine } from "./webhook-delivery.js";
 import type {
   SessionCallbackEvent,
   PermissionCallbackResponse,
@@ -34,6 +37,9 @@ export type {
   PermissionResponseBody,
   CreateSessionBody,
   RegisterAgentTemplateBody,
+  WebhookConfig,
+  WebhookEventType,
+  WebhookPayload,
 } from "@flamecast/protocol/session";
 export type { FileSystemEntry } from "@flamecast/protocol/session-host";
 
@@ -111,6 +117,8 @@ export type FlamecastOptions<
   agentTemplates?: AgentTemplate[];
   /** Override the auto-detected callback URL for session-host → control plane events. */
   callbackUrl?: string;
+  /** Global webhooks delivered for all sessions. Merged with per-session webhooks at creation time. */
+  webhooks?: Omit<WebhookConfig, "id">[];
 } & FlamecastEventHandlers<R>;
 
 export class Flamecast<
@@ -121,6 +129,9 @@ export class Flamecast<
   private readonly sessionService: SessionService;
   private readonly runtimesMap: Record<string, Runtime<Record<string, unknown>>>;
   private readonly callbackUrl?: string;
+  private readonly globalWebhooks: Omit<WebhookConfig, "id">[];
+  private readonly webhookEngine = new WebhookDeliveryEngine();
+  private readonly webhookAbortControllers = new Map<string, AbortController>();
 
   /** Registered event handlers. */
   readonly handlers: Readonly<FlamecastEventHandlers<R>>;
@@ -135,6 +146,7 @@ export class Flamecast<
     this.storageConfig = opts.storage;
     this.initialAgentTemplates = opts.agentTemplates;
     this.callbackUrl = opts.callbackUrl;
+    this.globalWebhooks = opts.webhooks ?? [];
     this.runtimesMap = opts.runtimes;
     this.sessionService = new SessionService(opts.runtimes);
     this.app = createServerApp(this);
@@ -156,6 +168,11 @@ export class Flamecast<
     for (const id of this.sessionService.listSessionIds()) {
       await this.terminateSession(id).catch(() => {});
     }
+    // Cancel any remaining webhook retries
+    for (const ac of this.webhookAbortControllers.values()) ac.abort();
+    this.webhookAbortControllers.clear();
+    this.webhookEngine.clear();
+
     for (const runtime of Object.values(this.runtimesMap)) {
       await runtime.dispose?.();
     }
@@ -205,6 +222,12 @@ export class Flamecast<
     const startedAt = new Date().toISOString();
     const callbackUrl = internal?.callbackUrl ?? this.callbackUrl;
 
+    // Merge global + per-session webhooks, assign stable IDs
+    const sessionWebhooks: WebhookConfig[] = [
+      ...this.globalWebhooks,
+      ...(opts.webhooks ?? []),
+    ].map((w) => ({ ...w, id: randomUUID() }));
+
     const { sessionId } = await this.sessionService.startSession(this.requireStorage(), {
       agentName,
       spawn,
@@ -212,6 +235,7 @@ export class Flamecast<
       runtime,
       startedAt,
       callbackUrl,
+      webhooks: sessionWebhooks,
     });
 
     return this.snapshotSession(sessionId);
@@ -262,6 +286,10 @@ export class Flamecast<
 
     await this.sessionService.terminateSession(this.requireStorage(), id);
 
+    // Cancel in-flight webhook retries for this session
+    this.webhookAbortControllers.get(id)?.abort();
+    this.webhookAbortControllers.delete(id);
+
     // Invoke onSessionEnd handler if registered
     if (this.handlers.onSessionEnd && sessionCtx) {
       try {
@@ -283,10 +311,20 @@ export class Flamecast<
     sessionId: string,
     event: SessionCallbackEvent,
   ): Promise<PermissionCallbackResponse | { ok: true }> {
+    // 1. Dispatch to in-process handler
+    let result: PermissionCallbackResponse | { ok: true };
+
     switch (event.type) {
       case "permission_request": {
         const permResponse = await this.handlePermissionRequest(sessionId, event.data);
-        return permResponse ?? { deferred: true };
+        result = permResponse ?? { deferred: true };
+        break;
+      }
+
+      case "end_turn": {
+        // REST-prompt end_turn — delivered to webhooks only (no in-process handler yet)
+        result = { ok: true };
+        break;
       }
 
       case "session_end": {
@@ -301,7 +339,8 @@ export class Flamecast<
             );
           }
         }
-        return { ok: true };
+        result = { ok: true };
+        break;
       }
 
       case "agent_message": {
@@ -320,7 +359,8 @@ export class Flamecast<
             );
           }
         }
-        return { ok: true };
+        result = { ok: true };
+        break;
       }
 
       case "error": {
@@ -338,12 +378,48 @@ export class Flamecast<
             );
           }
         }
-        return { ok: true };
+        result = { ok: true };
+        break;
       }
 
       default:
-        return { ok: true };
+        result = { ok: true };
     }
+
+    // 2. Deliver to external webhooks (fire-and-forget, does not block response)
+    this.deliverWebhooks(sessionId, event);
+
+    return result;
+  }
+
+  /** Event types that are delivered via external webhooks. */
+  private static readonly WEBHOOK_EVENT_TYPES: Set<string> = new Set<WebhookEventType>([
+    "permission_request",
+    "session_end",
+    "end_turn",
+    "error",
+  ]);
+
+  /** Fire-and-forget webhook delivery for a session event. */
+  private deliverWebhooks(sessionId: string, event: SessionCallbackEvent): void {
+    if (!Flamecast.WEBHOOK_EVENT_TYPES.has(event.type)) return;
+
+    const webhooks = this.sessionService.getWebhooks(sessionId);
+    if (webhooks.length === 0) return;
+
+    let ac = this.webhookAbortControllers.get(sessionId);
+    if (!ac) {
+      ac = new AbortController();
+      this.webhookAbortControllers.set(sessionId, ac);
+    }
+
+    void this.webhookEngine.deliver(
+      sessionId,
+      event.type,
+      JSON.parse(JSON.stringify(event.data)),
+      webhooks,
+      ac.signal,
+    );
   }
 
   /**

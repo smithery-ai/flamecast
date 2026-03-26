@@ -30,6 +30,10 @@
     "./session-host/zod": {
       "types": "./dist/session-host-zod.d.ts",
       "import": "./dist/session-host-zod.js"
+    },
+    "./verify": {
+      "types": "./dist/verify.d.ts",
+      "import": "./dist/verify.js"
     }
   },
   "scripts": {

@@ -471,6 +471,7 @@ const httpServer = createServer(async (req, res) => {
       emitRpc(acp.AGENT_METHODS.session_prompt, "client_to_agent", "request", params);
       const result = await connection.prompt(params);
       emitRpc(acp.AGENT_METHODS.session_prompt, "agent_to_client", "response", result);
+      void postCallback({ type: "end_turn", data: { promptResponse: result } });
       jsonResponse(res, 200, result);
       return;
     }
