@@ -1,5 +1,5 @@
 {
-  "name": "@flamecast/client",
+  "name": "flamecast-client",
   "private": true,
   "type": "module",
   "scripts": {
