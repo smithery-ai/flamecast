@@ -138,6 +138,9 @@ export class Flamecast<
    *  `listen()` function to wire the WS adapter and session-host bridge. */
   readonly eventBus = new EventBus();
 
+  /** Whether the WS adapter has been wired (set by `listen()`). */
+  hasWebSocket = false;
+
   /** Registered event handlers. */
   readonly handlers: Readonly<FlamecastEventHandlers<R>>;
 

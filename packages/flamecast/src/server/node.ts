@@ -37,5 +37,6 @@ export function listen(flamecast: Flamecast, port: number): void {
     flamecast,
   });
 
+  flamecast.hasWebSocket = true;
   console.log(`Flamecast running on http://localhost:${port}`);
 }

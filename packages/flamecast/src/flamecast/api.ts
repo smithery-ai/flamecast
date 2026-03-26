@@ -15,6 +15,7 @@ export type FlamecastApi = Pick<
   | "eventBus"
   | "getSession"
   | "handleSessionEvent"
+  | "hasWebSocket"
   | "listAgentTemplates"
   | "listSessions"
   | "promptSession"
@@ -68,7 +69,11 @@ export function createApi(flamecast: FlamecastApi) {
       .get("/health", async (c) => {
         try {
           const sessions = await flamecast.listSessions();
-          return c.json({ status: "ok", sessions: sessions.length });
+          return c.json({
+            status: "ok",
+            sessions: sessions.length,
+            transport: ["sse", ...(flamecast.hasWebSocket ? ["websocket"] : [])],
+          });
         } catch (error) {
           return c.json({ status: "degraded", error: toErrorMessage(error) }, 503);
         }
