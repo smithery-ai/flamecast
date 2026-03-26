@@ -148,7 +148,8 @@ export class EventBus {
     const buf = this.history.get(sessionId);
     if (!buf) return undefined;
     for (let i = buf.length - 1; i >= 0; i--) {
-      if (filter(buf[i]!)) return buf[i];
+      const event = buf[i];
+      if (event && filter(event)) return event;
     }
     return undefined;
   }

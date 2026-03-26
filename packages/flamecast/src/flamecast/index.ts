@@ -14,10 +14,11 @@ import type { FlamecastStorage } from "./storage.js";
 import { MemoryFlamecastStorage } from "./storage/memory/index.js";
 import { SessionService } from "./session-service.js";
 import { WebhookDeliveryEngine } from "./webhook-delivery.js";
+import { serve } from "@hono/node-server";
 import { EventBus } from "./event-bus.js";
 import { resolveAgentId } from "./channel-router.js";
 import { SessionHostBridge } from "./session-host-bridge.js";
-import { WsAdapter, type UpgradeableServer } from "./ws-adapter.js";
+import { WsAdapter } from "./ws-adapter.js";
 import type {
   SessionCallbackEvent,
   PermissionCallbackResponse,
@@ -191,17 +192,16 @@ export class Flamecast<
   }
 
   /**
-   * Attach the multiplexed WebSocket adapter to an HTTP server.
-   * Creates the SessionHostBridge and WsAdapter, wires lifecycle events.
+   * Start the Flamecast server on the given port.
+   * Sets up the HTTP API and the multiplexed WebSocket adapter at `/ws`.
    */
-  attachWebSocket(server: UpgradeableServer): WsAdapter {
-    if (this.wsAdapter) return this.wsAdapter;
+  async listen(port: number): Promise<void> {
+    const server = serve({ fetch: this.app.fetch, port });
 
     this.bridge = new SessionHostBridge({ eventBus: this.eventBus });
 
-    // Wire lifecycle events to bridge connect/disconnect
     this.eventBus.onSessionCreated((payload) => {
-      this.bridge!.connect(payload.sessionId, payload.websocketUrl);
+      this.bridge?.connect(payload.sessionId, payload.websocketUrl);
     });
 
     this.wsAdapter = new WsAdapter({
@@ -210,7 +210,7 @@ export class Flamecast<
       flamecast: this,
     });
 
-    return this.wsAdapter;
+    console.log(`Flamecast running on http://localhost:${port}`);
   }
 
   async listAgentTemplates(): Promise<AgentTemplate[]> {

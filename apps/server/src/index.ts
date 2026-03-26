@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { serve } from "@hono/node-server";
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
 import { DockerRuntime } from "@flamecast/runtime-docker";
 import { createPsqlStorage } from "@flamecast/storage-psql";
@@ -41,12 +40,7 @@ const flamecast = new Flamecast({
   ],
 });
 
-const server = serve({ fetch: flamecast.app.fetch, port: 3001 }, (info) => {
-  console.log(`Flamecast running on http://localhost:${info.port}`);
-  console.log(`WebSocket adapter available at ws://localhost:${info.port}/ws`);
-});
-
-flamecast.attachWebSocket(server);
+await flamecast.listen(3001);
 
 process.on("SIGINT", () => {
   flamecast.shutdown().then(() => process.exit(0));

@@ -21,7 +21,7 @@ import {
 // ---------------------------------------------------------------------------
 
 /** Any HTTP server that supports the `upgrade` event. */
-export interface UpgradeableServer {
+interface UpgradeableServer {
   on(
     event: "upgrade",
     listener: (req: IncomingMessage, socket: Duplex, head: Buffer) => void,
