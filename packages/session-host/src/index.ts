@@ -26,6 +26,7 @@ const SESSION_HOST_PORT = parseInt(process.env.SESSION_HOST_PORT ?? "8787", 10);
 // ---- Session state (one session at a time) ----
 
 let sessionId = "";
+let flamecastSessionId = "";
 let sessionWorkspace = "";
 let callbackUrl = "";
 let agent: ChildProcess | null = null;
@@ -41,16 +42,23 @@ const permissionResolvers = new Map<string, (response: acp.RequestPermissionResp
  * Returns the parsed JSON response, or null if no callbackUrl is configured.
  */
 async function postCallback(event: SessionCallbackEvent): Promise<Record<string, unknown> | null> {
-  if (!callbackUrl) return null;
+  if (!callbackUrl || !flamecastSessionId) return null;
+  const url = `${callbackUrl}/agents/${flamecastSessionId}/events`;
+  console.log(`[session-host] postCallback ${event.type} → ${url}`);
   try {
-    const resp = await fetch(`${callbackUrl}/agents/${sessionId}/events`, {
+    const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(event),
     });
+    const body = await resp.json();
+    console.log(
+      `[session-host] postCallback ${event.type} ← ${resp.status} ${JSON.stringify(body).slice(0, 200)}`,
+    );
     if (!resp.ok) return null;
-    return resp.json();
-  } catch {
+    return body;
+  } catch (err) {
+    console.error(`[session-host] postCallback ${event.type} error:`, err);
     return null;
   }
 }
@@ -272,7 +280,11 @@ async function startSession(
 
   const workspace = req.workspace ?? process.cwd();
   sessionWorkspace = workspace;
+  flamecastSessionId = req.sessionId ?? "";
   callbackUrl = req.callbackUrl ?? "";
+  console.log(
+    `[session-host] flamecastSessionId = ${JSON.stringify(flamecastSessionId)}, callbackUrl = ${JSON.stringify(callbackUrl)}`,
+  );
 
   try {
     return await doStartSession(req, workspace, serverPort);
@@ -403,6 +415,7 @@ function resetSession(): void {
   agent = null;
   connection = null;
   sessionId = "";
+  flamecastSessionId = "";
   sessionWorkspace = "";
   callbackUrl = "";
   permissionResolvers.clear();

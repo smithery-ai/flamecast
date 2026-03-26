@@ -73,6 +73,8 @@ export type PermissionCallbackResponse =
 // ---------------------------------------------------------------------------
 
 export interface SessionHostStartRequest {
+  /** Flamecast-level session ID (used for callbacks to the control plane). */
+  sessionId?: string;
   command: string;
   args: string[];
   workspace: string;
