@@ -52,6 +52,23 @@ export interface FilePreviewAction {
 }
 
 // ---------------------------------------------------------------------------
+// SessionHost → Control Plane callback events
+// ---------------------------------------------------------------------------
+
+/** Union of all events the session-host can POST to the control plane. */
+export type SessionCallbackEvent =
+  | { type: "permission_request"; data: PermissionRequestEvent }
+  | { type: "session_end"; data: { exitCode: number | null } }
+  | { type: "agent_message"; data: { sessionUpdate: unknown } }
+  | { type: "error"; data: { message: string } };
+
+/** Response from the control plane for a permission_request callback. */
+export type PermissionCallbackResponse =
+  | { optionId: string }
+  | { outcome: "cancelled" }
+  | { deferred: true };
+
+// ---------------------------------------------------------------------------
 // SessionHost HTTP contract
 // ---------------------------------------------------------------------------
 

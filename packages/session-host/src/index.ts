@@ -15,6 +15,7 @@ import type {
   SessionHostStartRequest,
   SessionHostStartResponse,
   SessionHostHealthResponse,
+  SessionCallbackEvent,
 } from "@flamecast/protocol/session-host";
 import type { WsServerMessage, WsControlMessage } from "@flamecast/protocol/ws";
 
@@ -26,11 +27,33 @@ const SESSION_HOST_PORT = parseInt(process.env.SESSION_HOST_PORT ?? "8787", 10);
 
 let sessionId = "";
 let sessionWorkspace = "";
+let callbackUrl = "";
 let agent: ChildProcess | null = null;
 let connection: acp.ClientSideConnection | null = null;
 let fileWatcher: ReturnType<typeof startFileWatcher> | undefined;
 const clients = new Set<WebSocket>();
 const permissionResolvers = new Map<string, (response: acp.RequestPermissionResponse) => void>();
+
+// ---- Control plane callback ----
+
+/**
+ * POST an event to the control plane's callback URL.
+ * Returns the parsed JSON response, or null if no callbackUrl is configured.
+ */
+async function postCallback(event: SessionCallbackEvent): Promise<Record<string, unknown> | null> {
+  if (!callbackUrl) return null;
+  try {
+    const resp = await fetch(`${callbackUrl}/agents/${sessionId}/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(event),
+    });
+    if (!resp.ok) return null;
+    return resp.json();
+  } catch {
+    return null;
+  }
+}
 
 // ---- Broadcast helpers ----
 
@@ -69,26 +92,45 @@ function createAcpClient(): acp.Client {
   return {
     sessionUpdate: async (params: acp.SessionNotification) => {
       emitRpc(acp.CLIENT_METHODS.session_update, "agent_to_client", "notification", params);
+      void postCallback({ type: "agent_message", data: { sessionUpdate: params } });
     },
 
     requestPermission: async (params: acp.RequestPermissionRequest) => {
       emitRpc(acp.CLIENT_METHODS.session_request_permission, "agent_to_client", "request", params);
 
       const requestId = crypto.randomUUID();
+      const eventData = {
+        requestId,
+        toolCallId: params.toolCall.toolCallId,
+        title: params.toolCall.title ?? "",
+        kind: params.toolCall.kind ?? undefined,
+        options: params.options.map((o: acp.PermissionOption) => ({
+          optionId: o.optionId,
+          name: o.name,
+          kind: String(o.kind),
+        })),
+      };
+
+      // Try the control plane callback first — if it returns a decision, resolve immediately
+      const result = await postCallback({ type: "permission_request", data: eventData });
+      const optionId = result && typeof result.optionId === "string" ? result.optionId : null;
+      if (optionId) {
+        emitRpc(
+          acp.CLIENT_METHODS.session_request_permission,
+          "client_to_agent",
+          "response",
+          result,
+        );
+        return { outcome: { outcome: "selected", optionId } };
+      }
+      if (result && "outcome" in result && result.outcome === "cancelled") {
+        return { outcome: { outcome: "cancelled" } };
+      }
+
+      // Callback deferred or unavailable — fall back to WS-based permission flow
       return new Promise<acp.RequestPermissionResponse>((resolve) => {
         permissionResolvers.set(requestId, resolve);
-
-        emitEvent("permission_request", {
-          requestId,
-          toolCallId: params.toolCall.toolCallId,
-          title: params.toolCall.title ?? "",
-          kind: params.toolCall.kind ?? undefined,
-          options: params.options.map((o: acp.PermissionOption) => ({
-            optionId: o.optionId,
-            name: o.name,
-            kind: String(o.kind),
-          })),
-        });
+        emitEvent("permission_request", eventData);
       });
     },
 
@@ -212,10 +254,9 @@ async function handleControl(ws: WebSocket, msg: WsControlMessage): Promise<void
         break;
     }
   } catch (error) {
-    broadcast({
-      type: "error",
-      message: error instanceof Error ? error.message : "Unknown error",
-    });
+    const message = error instanceof Error ? error.message : "Unknown error";
+    broadcast({ type: "error", message });
+    void postCallback({ type: "error", data: { message } });
   }
 }
 
@@ -231,6 +272,7 @@ async function startSession(
 
   const workspace = req.workspace ?? process.cwd();
   sessionWorkspace = workspace;
+  callbackUrl = req.callbackUrl ?? "";
 
   try {
     return await doStartSession(req, workspace, serverPort);
@@ -346,6 +388,7 @@ async function doStartSession(
   // Handle agent exit (post-startup)
   agentProcess.on("exit", (code) => {
     emitEvent("session.terminated", { exitCode: code });
+    void postCallback({ type: "session_end", data: { exitCode: code } });
     resetSession();
   });
 
@@ -361,6 +404,7 @@ function resetSession(): void {
   connection = null;
   sessionId = "";
   sessionWorkspace = "";
+  callbackUrl = "";
   permissionResolvers.clear();
   fileWatcher?.close();
   fileWatcher = undefined;

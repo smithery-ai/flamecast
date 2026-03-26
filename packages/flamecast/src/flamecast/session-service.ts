@@ -29,6 +29,7 @@ export class SessionService {
       cwd: string;
       runtime: AgentTemplateRuntime;
       startedAt: string;
+      callbackUrl?: string;
     },
   ): Promise<{ sessionId: string }> {
     const providerName = opts.runtime.provider ?? "local";
@@ -41,10 +42,12 @@ export class SessionService {
 
     const sessionId = crypto.randomUUID();
     const body = {
+      sessionId,
       command: opts.spawn.command,
       args: opts.spawn.args ?? [],
       workspace: opts.cwd,
-      setup: opts.runtime.setup,
+      setup: opts.setup,
+      callbackUrl: opts.callbackUrl,
     } satisfies SessionHostStartRequest & Record<string, unknown>;
 
     let response: Response;

@@ -11,6 +11,7 @@ export type FlamecastApi = Pick<
   Flamecast,
   | "createSession"
   | "getSession"
+  | "handleSessionEvent"
   | "listAgentTemplates"
   | "listSessions"
   | "registerAgentTemplate"
@@ -94,7 +95,11 @@ export function createApi(flamecast: FlamecastApi) {
     .post("/agents", zValidator("json", CreateSessionBodySchema), async (c) => {
       try {
         const body = c.req.valid("json");
-        const session = await flamecast.createSession(body);
+        // Derive callback URL from the incoming request so the session-host
+        // can POST events back to the control plane
+        const reqUrl = new URL(c.req.url);
+        const callbackUrl = `${reqUrl.protocol}//${reqUrl.host}/api`;
+        const session = await flamecast.createSession(body, { callbackUrl });
         return c.json(session, 201);
       } catch (error) {
         console.error("Agent creation failed:", error);
@@ -104,6 +109,16 @@ export function createApi(flamecast: FlamecastApi) {
     })
     .get("/agents/:agentId", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
     .get("/agents/:agentId/", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
+    .post("/agents/:agentId/events", async (c) => {
+      try {
+        const agentId = c.req.param("agentId");
+        const event = await c.req.json();
+        return c.json(await flamecast.handleSessionEvent(agentId, event));
+      } catch (error) {
+        console.error("Session event callback failed:", error);
+        return c.json({ error: toErrorMessage(error) }, 500);
+      }
+    })
     .delete("/agents/:agentId", async (c) => {
       try {
         await flamecast.terminateSession(c.req.param("agentId"));

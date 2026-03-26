@@ -17,6 +17,8 @@ export type {
   SessionHostStartRequest,
   SessionHostStartResponse,
   SessionHostHealthResponse,
+  SessionCallbackEvent,
+  PermissionCallbackResponse,
 } from "./session-host.js";
 
 export type {
