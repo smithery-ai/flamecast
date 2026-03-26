@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { WebSocket } from "ws";
-import { Flamecast } from "../../../packages/flamecast/src/flamecast/index.ts";
+import { Flamecast, NodeRuntime } from "../../../packages/flamecast/src/flamecast/index.ts";
 import { MemoryFlamecastStorage } from "../../../packages/flamecast/src/flamecast/storage/memory/index.ts";
-import { AgentJsRuntime } from "../src/flamecast-runtime.js";
 import { startExampleMiniflare } from "../src/miniflare.js";
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -105,7 +104,7 @@ async function promptSession(ws: WebSocket, text: string): Promise<unknown> {
 }
 
 describe("agent.js runtime", () => {
-  test("registers and runs the agent.js worker through the Flamecast API", async () => {
+  test("registers and runs the hosted worker through Flamecast via NodeRuntime", async () => {
     const remoteAgent = await startExampleMiniflare({
       bindings: { AGENT_MODE: "scripted" },
       port: 0,
@@ -115,7 +114,7 @@ describe("agent.js runtime", () => {
     const flamecast = new Flamecast({
       storage: new MemoryFlamecastStorage(),
       runtimes: {
-        agentjs: new AgentJsRuntime(),
+        agentjs: new NodeRuntime(remoteAgent.baseUrl),
       },
     });
     cleanup.push(() => flamecast.shutdown());

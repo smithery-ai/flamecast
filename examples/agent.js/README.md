@@ -1,10 +1,11 @@
 # `@flamecast/agent-js`
 
-This example runs a Flamecast-compatible ACP agent as a Cloudflare Worker.
+This example runs a Flamecast-compatible JS agent as a Cloudflare Worker.
 
 It keeps the harness minimal:
 
 - ACP over WebSocket at `/acp/:sessionId`
+- Flamecast SessionHost routes at `/sessions/:sessionId`
 - one Cloudflare `Agent` instance per Flamecast session
 - one native tool exposed to the model: `executeJS`
 - shared session scope across turns
@@ -28,14 +29,14 @@ The model contract is:
 
 The session mental model is “real REPL-like globals across turns.” Internally, the harness checkpoints and restores serializable state so the behavior survives local executor hops, Dynamic Worker invocations, and cold starts.
 
-Flamecast still speaks plain ACP. The Cloudflare Agent SDK sits underneath that transport:
+The worker exposes two surfaces:
 
-- Flamecast chooses the runtime session ID
-- the runtime provider connects to `/acp/:sessionId`
-- the Worker routes that request to `getAgentByName(...)`
-- the corresponding `Agent` instance stores the session transcript, compaction summary, and JSON-serializable globals in Durable Object SQLite
+- ACP at `/acp/:sessionId` for direct ACP clients
+- Flamecast SessionHost routes at `/sessions/:sessionId` so Flamecast can point `NodeRuntime` at the worker directly
 
-The Agent's own protocol/state-sync frames are disabled for ACP connections, so the WebSocket carries ACP NDJSON only.
+In both cases, the Worker routes by session ID with `getAgentByName(...)`, and the corresponding `Agent` instance stores the session transcript, compaction summary, and JSON-serializable globals in Durable Object SQLite.
+
+The Agent SDK's own protocol/state-sync frames are disabled for ACP connections, so `/acp/:sessionId` carries ACP NDJSON only.
 
 Context management is deliberately narrow. The only built-in primitive is compaction:
 
@@ -89,6 +90,8 @@ Useful endpoints:
 
 - `GET /health`
 - `WS /acp/:sessionId`
+- `POST /sessions/:sessionId/start`
+- `WS /sessions/:sessionId`
 
 Local dev now auto-switches to `AGENT_MODE=gateway` when `CF_AI_GATEWAY_TOKEN` is available in `examples/agent.js/.env` or the shell. Otherwise it falls back to `scripted`, which gives deterministic `executeJS` behavior for smoke tests.
 
@@ -127,14 +130,11 @@ curl -X POST http://127.0.0.1:3001/api/agent-templates \
   -d '{
     "name": "Agent.js local",
     "spawn": { "command": "remote-acp", "args": ["agent.js"] },
-    "runtime": {
-      "provider": "agentjs",
-      "baseUrl": "http://127.0.0.1:8787"
-    }
+    "runtime": { "provider": "agentjs" }
   }'
 ```
 
-Then create a session from that template through the API or UI. The local provider appends the Flamecast session ID automatically and connects to `ws://127.0.0.1:8787/acp/:sessionId`.
+Then create a session from that template through the API or UI. In local dev, `apps/server` registers `agentjs` as `new NodeRuntime("http://127.0.0.1:8787")`, so Flamecast talks to the worker through the worker's native SessionHost routes.
 
 ## Run The End-to-End Test
 
@@ -142,7 +142,7 @@ Then create a session from that template through the API or UI. The local provid
 pnpm --filter @flamecast/agent-js test
 ```
 
-The test starts Miniflare, connects Flamecast’s local runtime client to the worker over ACP/WebSocket, sends two prompts, and verifies that `executeJS` preserves session scope between turns. It also includes a direct ACP reconnect test to confirm that the same `sessionId` resumes the same Agent-backed session state.
+The test starts Miniflare, points Flamecast's `NodeRuntime` at the worker, sends two prompts through the Flamecast API surface, and verifies that `executeJS` preserves session scope between turns. It also includes a direct ACP reconnect test to confirm that the same `sessionId` resumes the same Agent-backed session state.
 
 ## Use AI Gateway With The Vercel AI SDK
 
@@ -199,31 +199,20 @@ printf %s "$OPENAI_API_KEY" | pnpm wrangler secret put OPENAI_API_KEY
 
 ## Flamecast Integration
 
-Flamecast core does not bundle this runtime. Register it where you construct `Flamecast`, then templates can refer to it by any provider key you choose.
-
-This example includes:
-
-- a low-level ACP transport helper at [`src/runtime-provider.js`](/Users/henry/.codex/worktrees/6f43/flamecast-v2/examples/agent.js/src/runtime-provider.js)
-- a Flamecast runtime implementation at [`src/flamecast-runtime.ts`](/Users/henry/.codex/worktrees/6f43/flamecast-v2/examples/agent.js/src/flamecast-runtime.ts)
-
-To wire it into the local Flamecast server, register it explicitly:
+Because the hosted worker now exposes Flamecast's SessionHost contract directly, Flamecast does not need a custom `agentjs` bridge runtime. Register it with a normal [`NodeRuntime`](/Users/henry/.codex/worktrees/6f43/flamecast-v2/packages/flamecast/src/flamecast/runtime-node.ts) that points at the worker base URL:
 
 ```ts
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
-import { AgentJsRuntime } from "../../../examples/agent.js/src/flamecast-runtime.js";
 
 const flamecast = new Flamecast({
   runtimes: {
     default: new NodeRuntime(),
-    agentjs: new AgentJsRuntime({
-      baseUrl: process.env.FLAMECAST_AGENT_JS_BASE_URL,
-      websocketUrl: process.env.FLAMECAST_AGENT_JS_WEBSOCKET_URL,
-    }),
+    agentjs: new NodeRuntime(process.env.FLAMECAST_AGENT_JS_BASE_URL),
   },
 });
 ```
 
-After that, templates can use `runtime.provider = "agentjs"` and either inherit the server defaults above or override them per template with `runtime.baseUrl` / `runtime.websocketUrl`.
+After that, templates only need `runtime.provider = "agentjs"`. The base URL lives in the server/runtime registration, not in the template.
 
 Example template registration:
 
@@ -233,9 +222,6 @@ curl -X POST http://localhost:3001/api/agent-templates \
   -d '{
     "name": "Agent.js remote",
     "spawn": { "command": "remote-acp", "args": ["agent.js"] },
-    "runtime": {
-      "provider": "agentjs",
-      "baseUrl": "https://flamecast-agent-js.smithery.workers.dev"
-    }
+    "runtime": { "provider": "agentjs" }
   }'
 ```

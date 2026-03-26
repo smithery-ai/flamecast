@@ -11,6 +11,7 @@ import {
 } from "./prompts.js";
 
 const ACP_BASE_PATH = "/acp";
+const SESSION_BASE_PATH = "/sessions";
 
 function createSessionState() {
   return {
@@ -25,13 +26,131 @@ function cloneSession(session) {
   return structuredClone(session);
 }
 
-function getSessionIdFromPath(pathname) {
+function getAcpSessionIdFromPath(pathname) {
   if (!pathname.startsWith(`${ACP_BASE_PATH}/`)) {
     return null;
   }
 
   const sessionId = pathname.slice(ACP_BASE_PATH.length + 1).split("/")[0];
   return sessionId ? decodeURIComponent(sessionId) : null;
+}
+
+function getSessionHostMatch(pathname) {
+  if (!pathname.startsWith(`${SESSION_BASE_PATH}/`)) {
+    return null;
+  }
+
+  const remainder = pathname.slice(SESSION_BASE_PATH.length + 1);
+  const [encodedSessionId, ...resource] = remainder.split("/");
+  if (!encodedSessionId) {
+    return null;
+  }
+
+  return {
+    sessionId: decodeURIComponent(encodedSessionId),
+    resource,
+  };
+}
+
+function isRecord(value) {
+  return typeof value === "object" && value !== null;
+}
+
+function parseStartBody(value) {
+  if (!isRecord(value)) {
+    throw new Error("Invalid start request");
+  }
+
+  const args = value.args;
+  if (
+    typeof value.command !== "string" ||
+    !Array.isArray(args) ||
+    args.some((arg) => typeof arg !== "string") ||
+    typeof value.workspace !== "string"
+  ) {
+    throw new Error("Invalid start request");
+  }
+
+  return {
+    command: value.command,
+    args,
+    workspace: value.workspace,
+    sessionId: typeof value.sessionId === "string" ? value.sessionId : undefined,
+    setup: typeof value.setup === "string" ? value.setup : undefined,
+    callbackUrl: typeof value.callbackUrl === "string" ? value.callbackUrl : undefined,
+  };
+}
+
+function parsePromptBody(value) {
+  if (!isRecord(value)) {
+    throw new Error("Invalid prompt request");
+  }
+
+  return {
+    text: typeof value.text === "string" ? value.text : undefined,
+  };
+}
+
+function parsePermissionBody(value) {
+  if (!isRecord(value)) {
+    throw new Error("Invalid permission response");
+  }
+
+  return {
+    optionId: typeof value.optionId === "string" ? value.optionId : undefined,
+    outcome: value.outcome === "cancelled" ? value.outcome : undefined,
+  };
+}
+
+function parseWsControlMessage(value) {
+  if (!isRecord(value) || typeof value.action !== "string") {
+    throw new Error("Invalid control message");
+  }
+
+  const queueId = typeof value.queueId === "string" ? value.queueId : undefined;
+
+  switch (value.action) {
+    case "prompt":
+      if (typeof value.text !== "string") {
+        throw new Error("Invalid control message");
+      }
+      return { action: "prompt", text: value.text };
+    case "permission.respond":
+      if (
+        typeof value.requestId !== "string" ||
+        !isRecord(value.body) ||
+        !("optionId" in value.body || value.body.outcome === "cancelled")
+      ) {
+        throw new Error("Invalid control message");
+      }
+      return {
+        action: "permission.respond",
+        requestId: value.requestId,
+        body:
+          typeof value.body.optionId === "string"
+            ? { optionId: value.body.optionId }
+            : { outcome: "cancelled" },
+      };
+    case "cancel":
+      return queueId ? { action: "cancel", queueId } : { action: "cancel" };
+    case "terminate":
+      return { action: "terminate" };
+    case "ping":
+      return { action: "ping" };
+    case "queue.clear":
+      return { action: "queue.clear" };
+    case "queue.pause":
+      return { action: "queue.pause" };
+    case "queue.resume":
+      return { action: "queue.resume" };
+    case "queue.reorder":
+      if (!Array.isArray(value.order) || value.order.some((item) => typeof item !== "string")) {
+        throw new Error("Invalid control message");
+      }
+      return { action: "queue.reorder", order: value.order };
+    default:
+      throw new Error("Invalid control message");
+  }
 }
 
 function getTextPrompt(params) {
@@ -674,45 +793,300 @@ export class AcpSessionAgent extends Agent {
     super(ctx, env);
     this.pendingPrompt = null;
     this.acpTransports = new Map();
+    this.sessionConnections = new Map();
   }
 
   shouldSendProtocolMessages() {
     return false;
   }
 
+  async onRequest(request) {
+    const url = new URL(request.url);
+    const match = getSessionHostMatch(url.pathname);
+    if (!match || match.sessionId !== this.name) {
+      return Response.json({ error: "Not found" }, { status: 404 });
+    }
+
+    const [resource = "", secondary = ""] = match.resource;
+
+    if (resource === "start" && request.method === "POST") {
+      return this.handleSessionHostStart(request);
+    }
+    if (resource === "terminate" && request.method === "POST") {
+      return this.handleSessionHostTerminate();
+    }
+    if (resource === "prompt" && request.method === "POST") {
+      return this.handleSessionHostPrompt(request);
+    }
+    if (resource === "queue" && request.method === "GET") {
+      return this.handleSessionHostQueue();
+    }
+    if (resource === "permissions" && secondary && request.method === "POST") {
+      return this.handleSessionHostPermission(decodeURIComponent(secondary), request);
+    }
+    if (resource === "fs" && secondary === "snapshot" && request.method === "GET") {
+      return Response.json({
+        root: "/",
+        entries: [],
+        truncated: false,
+        maxEntries: 0,
+      });
+    }
+    if (resource === "files" && request.method === "GET") {
+      return Response.json(
+        { error: "File preview is not supported by agent.js runtime" },
+        { status: 404 },
+      );
+    }
+
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
+
   async onConnect(connection, ctx) {
-    const sessionId = getSessionIdFromPath(new URL(ctx.request.url).pathname);
-    if (!sessionId) {
-      connection.close(1008, "Missing session ID");
+    const pathname = new URL(ctx.request.url).pathname;
+    const acpSessionId = getAcpSessionIdFromPath(pathname);
+    if (acpSessionId === this.name) {
+      const transport = createAcpConnectionTransport(connection);
+      this.acpTransports.set(connection.id, transport);
+
+      new acp.AgentSideConnection(
+        (acpConnection) => new AcpSessionProtocolHandler(this, acpConnection, acpSessionId),
+        acp.ndJsonStream(transport.input, transport.output),
+      );
       return;
     }
 
-    const transport = createAcpConnectionTransport(connection);
-    this.acpTransports.set(connection.id, transport);
+    const sessionMatch = getSessionHostMatch(pathname);
+    if (sessionMatch?.sessionId === this.name && sessionMatch.resource.length === 0) {
+      this.sessionConnections.set(connection.id, connection);
+      connection.send(JSON.stringify({ type: "connected", sessionId: this.name }));
+      return;
+    }
 
-    new acp.AgentSideConnection(
-      (acpConnection) => new AcpSessionProtocolHandler(this, acpConnection, sessionId),
-      acp.ndJsonStream(transport.input, transport.output),
-    );
+    connection.close(1008, "Missing session ID");
   }
 
   async onMessage(connection, message) {
-    await this.acpTransports.get(connection.id)?.push(message);
+    const transport = this.acpTransports.get(connection.id);
+    if (transport) {
+      await transport.push(message);
+      return;
+    }
+
+    if (!this.sessionConnections.has(connection.id)) {
+      return;
+    }
+
+    let body;
+    try {
+      body = parseWsControlMessage(JSON.parse(String(message)));
+    } catch {
+      connection.send(JSON.stringify({ type: "error", message: "Invalid message format" }));
+      return;
+    }
+
+    try {
+      await this.handleSessionHostControl(body);
+    } catch (error) {
+      connection.send(
+        JSON.stringify({
+          type: "error",
+          message: error instanceof Error ? error.message : "Command failed",
+        }),
+      );
+    }
   }
 
   onClose(connection) {
-    this.acpTransports.get(connection.id)?.close();
+    const transport = this.acpTransports.get(connection.id);
+    transport?.close();
     this.acpTransports.delete(connection.id);
-    if (this.acpTransports.size === 0) {
+    this.sessionConnections.delete(connection.id);
+    if (transport && this.acpTransports.size === 0) {
       this.pendingPrompt?.abort();
     }
   }
 
   onError(connection, error) {
-    this.acpTransports.get(connection.id)?.error(error);
+    const transport = this.acpTransports.get(connection.id);
+    transport?.error(error);
     this.acpTransports.delete(connection.id);
-    if (this.acpTransports.size === 0) {
+    this.sessionConnections.delete(connection.id);
+    if (transport && this.acpTransports.size === 0) {
       this.pendingPrompt?.abort();
+    }
+  }
+
+  async handleSessionHostStart(request) {
+    if (this.state.cwd !== null) {
+      return Response.json({ error: `Session "${this.name}" already exists` }, { status: 409 });
+    }
+
+    try {
+      const body = parseStartBody(JSON.parse(await request.text()));
+      const session = cloneSession(this.state);
+      session.cwd = body.workspace;
+      this.setState(session);
+
+      const url = new URL(request.url);
+      const hostUrl = `${url.origin}${SESSION_BASE_PATH}/${encodeURIComponent(this.name)}`;
+      const websocketUrl = hostUrl.replace(/^http(s?):/, "ws$1:");
+
+      return Response.json({
+        acpSessionId: this.name,
+        hostUrl,
+        websocketUrl,
+      });
+    } catch (error) {
+      return Response.json(
+        { error: error instanceof Error ? error.message : "Failed to start session" },
+        { status: 400 },
+      );
+    }
+  }
+
+  async handleSessionHostTerminate() {
+    if (this.state.cwd === null) {
+      return Response.json({ error: `Session "${this.name}" not found` }, { status: 404 });
+    }
+
+    this.pendingPrompt?.abort();
+    this.setState(createSessionState());
+
+    for (const connection of this.sessionConnections.values()) {
+      connection.close(1000, "Session terminated");
+    }
+    this.sessionConnections.clear();
+
+    return Response.json({ ok: true });
+  }
+
+  async handleSessionHostPrompt(request) {
+    if (this.state.cwd === null) {
+      return Response.json({ error: `Session "${this.name}" not found` }, { status: 404 });
+    }
+    if (this.pendingPrompt) {
+      return Response.json({ error: "A prompt is already running" }, { status: 409 });
+    }
+
+    try {
+      const body = parsePromptBody(JSON.parse(await request.text()));
+      if (!body.text) {
+        return Response.json({ error: "Missing 'text' field" }, { status: 400 });
+      }
+
+      const result = await this.executeSessionHostPrompt(body.text);
+      return Response.json(result);
+    } catch (error) {
+      return Response.json(
+        { error: error instanceof Error ? error.message : "Prompt failed" },
+        { status: 500 },
+      );
+    }
+  }
+
+  handleSessionHostQueue() {
+    if (this.state.cwd === null) {
+      return Response.json({ error: `Session "${this.name}" not found` }, { status: 404 });
+    }
+
+    return Response.json({
+      processing: Boolean(this.pendingPrompt),
+      paused: false,
+      items: [],
+      size: 0,
+    });
+  }
+
+  async handleSessionHostPermission(requestId, request) {
+    parsePermissionBody(JSON.parse(await request.text()));
+    return Response.json({ error: `Permission request "${requestId}" not found` }, { status: 404 });
+  }
+
+  async executeSessionHostPrompt(text) {
+    const params = {
+      sessionId: this.name,
+      prompt: [{ type: "text", text }],
+    };
+
+    this.emitSessionHostRpc(acp.AGENT_METHODS.session_prompt, "client_to_agent", "request", params);
+
+    try {
+      const result = await promptSession(
+        this,
+        {
+          sessionUpdate: async (payload) => {
+            this.emitSessionHostRpc(
+              acp.CLIENT_METHODS.session_update,
+              "agent_to_client",
+              "notification",
+              payload,
+            );
+          },
+        },
+        this.name,
+        params,
+      );
+      this.emitSessionHostRpc(
+        acp.AGENT_METHODS.session_prompt,
+        "agent_to_client",
+        "response",
+        result,
+      );
+      return result;
+    } catch (error) {
+      this.broadcastSessionMessage({
+        type: "error",
+        message: error instanceof Error ? error.message : "Prompt failed",
+      });
+      throw error;
+    }
+  }
+
+  async handleSessionHostControl(message) {
+    switch (message.action) {
+      case "prompt":
+        if (this.state.cwd === null) {
+          throw new Error(`Session "${this.name}" not found`);
+        }
+        await this.executeSessionHostPrompt(message.text);
+        return;
+      case "permission.respond":
+        throw new Error(`Permission request "${message.requestId}" not found`);
+      case "terminate":
+        await this.handleSessionHostTerminate();
+        return;
+      case "ping":
+      case "cancel":
+      case "queue.clear":
+      case "queue.pause":
+      case "queue.resume":
+      case "queue.reorder":
+        return;
+    }
+  }
+
+  emitSessionHostEvent(type, data) {
+    const timestamp = new Date().toISOString();
+    this.broadcastSessionMessage({
+      type: "event",
+      timestamp,
+      event: { type, data, timestamp },
+    });
+  }
+
+  emitSessionHostRpc(method, direction, phase, payload) {
+    const data = { method, direction, phase };
+    if (payload !== undefined) {
+      data.payload = payload;
+    }
+    this.emitSessionHostEvent("rpc", data);
+  }
+
+  broadcastSessionMessage(message) {
+    const data = JSON.stringify(message);
+    for (const connection of this.sessionConnections.values()) {
+      connection.send(data);
     }
   }
 }
@@ -720,7 +1094,8 @@ export class AcpSessionAgent extends Agent {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const sessionId = getSessionIdFromPath(url.pathname);
+    const sessionId =
+      getAcpSessionIdFromPath(url.pathname) ?? getSessionHostMatch(url.pathname)?.sessionId;
 
     if (url.pathname === "/health") {
       return Response.json({
@@ -747,9 +1122,10 @@ export default {
         endpoints: {
           health: "/health",
           acp: "/acp/:sessionId",
+          sessionHost: "/sessions/:sessionId",
         },
       },
-      { status: url.pathname === ACP_BASE_PATH ? 400 : 200 },
+      { status: url.pathname === ACP_BASE_PATH || url.pathname === SESSION_BASE_PATH ? 400 : 200 },
     );
   },
 };
