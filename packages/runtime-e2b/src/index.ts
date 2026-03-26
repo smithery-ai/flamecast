@@ -1,112 +1,181 @@
 import { Sandbox } from "@e2b/code-interpreter";
 import type { Runtime } from "@flamecast/protocol/runtime";
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+const DEFAULT_MAX_SESSIONS = 20;
+const DEFAULT_BASE_PORT = 9000;
+
+function jsonResponse(body: Record<string, unknown>, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
+}
+
+// ---------------------------------------------------------------------------
+// Internal types
+// ---------------------------------------------------------------------------
+
+interface PortSlot {
+  port: number;
+  inUse: boolean;
+}
+
+interface InstanceEntry {
+  sandboxId: string;
+  ports: PortSlot[];
+}
+
+interface SessionEntry {
+  instanceName: string;
+  port: number;
+  hostUrl: string;
+  websocketUrl: string;
+}
+
+// ---------------------------------------------------------------------------
+// E2BRuntime
+// ---------------------------------------------------------------------------
+
 /**
- * E2BRuntime — provisions SessionHosts in E2B sandboxes.
+ * E2BRuntime — one E2B sandbox per runtime instance.
  *
- * Each session gets its own sandbox. The SessionHost runs inside the sandbox
- * and is reachable via E2B's port forwarding (https://{PORT}-{SANDBOX_ID}.e2b.app).
+ * When `start(instanceId)` is called, an E2B sandbox is created and kept alive.
+ * Sessions are started inside the sandbox via `sandbox.commands.run`, each
+ * running its own session-host process on a unique port.
+ *
+ * `pause(instanceId)` pauses the sandbox (freezing all session-hosts).
+ * `stop(instanceId)` kills the sandbox entirely.
  */
 export class E2BRuntime implements Runtime {
   private readonly apiKey: string;
   private readonly template: string;
-  private readonly sandboxes = new Map<string, { sandboxId: string; hostUrl: string }>();
+  private readonly maxSessions: number;
+  private readonly basePort: number;
 
-  constructor(opts: { apiKey: string; template?: string }) {
+  /** instanceName → E2B sandbox + port pool */
+  private readonly instances = new Map<string, InstanceEntry>();
+  /** sessionId → which instance + assigned port/URLs */
+  private readonly sessions = new Map<string, SessionEntry>();
+
+  constructor(opts: {
+    apiKey: string;
+    template?: string;
+    maxSessionsPerInstance?: number;
+    basePort?: number;
+  }) {
     this.apiKey = opts.apiKey;
     this.template = opts.template ?? "flamecast-session-host";
+    this.maxSessions = opts.maxSessionsPerInstance ?? DEFAULT_MAX_SESSIONS;
+    this.basePort = opts.basePort ?? DEFAULT_BASE_PORT;
   }
+
+  // ---------------------------------------------------------------------------
+  // Instance lifecycle
+  // ---------------------------------------------------------------------------
+
+  async start(instanceId: string): Promise<void> {
+    const existing = this.instances.get(instanceId);
+    if (existing) {
+      // Resume a paused sandbox — Sandbox.connect auto-resumes paused sandboxes
+      await Sandbox.connect(existing.sandboxId, { apiKey: this.apiKey });
+      return;
+    }
+
+    const sandbox = await Sandbox.create(this.template, {
+      apiKey: this.apiKey,
+      timeoutMs: 24 * 60 * 60 * 1000,
+      metadata: { "flamecast.instance": instanceId },
+    });
+
+    const ports: PortSlot[] = [];
+    for (let i = 0; i < this.maxSessions; i++) {
+      ports.push({ port: this.basePort + i, inUse: false });
+    }
+
+    this.instances.set(instanceId, { sandboxId: sandbox.sandboxId, ports });
+    console.log(
+      `[E2BRuntime] Instance "${instanceId}" started (sandbox=${sandbox.sandboxId})`,
+    );
+  }
+
+  async stop(instanceId: string): Promise<void> {
+    const inst = this.instances.get(instanceId);
+    if (!inst) return;
+
+    // Clean up session tracking
+    for (const [sid, session] of this.sessions) {
+      if (session.instanceName === instanceId) {
+        this.sessions.delete(sid);
+      }
+    }
+
+    try {
+      await Sandbox.kill(inst.sandboxId, { apiKey: this.apiKey });
+    } catch {
+      // Sandbox may already be gone
+    }
+
+    this.instances.delete(instanceId);
+    console.log(`[E2BRuntime] Instance "${instanceId}" stopped`);
+  }
+
+  async pause(instanceId: string): Promise<void> {
+    const inst = this.instances.get(instanceId);
+    if (!inst) throw new Error(`Instance "${instanceId}" not found`);
+
+    await Sandbox.pause(inst.sandboxId, { apiKey: this.apiKey });
+    console.log(`[E2BRuntime] Instance "${instanceId}" paused`);
+  }
+
+  async getInstanceStatus(
+    instanceId: string,
+  ): Promise<"running" | "stopped" | "paused" | undefined> {
+    const inst = this.instances.get(instanceId);
+    if (!inst) return undefined;
+
+    try {
+      const info = await Sandbox.getFullInfo(inst.sandboxId, { apiKey: this.apiKey });
+      if (info.state === "paused") return "paused";
+      if (info.state === "running") return "running";
+      return "stopped";
+    } catch {
+      return undefined;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Session handling
+  // ---------------------------------------------------------------------------
 
   async fetchSession(sessionId: string, request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
     if (path.endsWith("/start") && request.method === "POST") {
-      if (this.sandboxes.has(sessionId)) {
-        return new Response(JSON.stringify({ error: "Session already exists" }), {
-          status: 409,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      try {
-        const sandbox = await Sandbox.create(this.template, {
-          apiKey: this.apiKey,
-          timeoutMs: 60 * 60 * 1000,
-        });
-
-        const port = 8080;
-        await sandbox.commands.run(`SESSION_HOST_PORT=${port} node /app/dist/index.js`, {
-          background: true,
-        });
-
-        await this.waitForReady(sandbox, port);
-
-        const host = sandbox.getHost(port);
-        const hostUrl = `https://${host}`;
-
-        this.sandboxes.set(sessionId, { sandboxId: sandbox.sandboxId, hostUrl });
-
-        const body = await request.text();
-        const resp = await fetch(`${hostUrl}/start`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body,
-        });
-
-        const result = await resp.json();
-        result.hostUrl = hostUrl;
-        result.websocketUrl = `wss://${host}`;
-
-        return new Response(JSON.stringify(result), {
-          status: resp.status,
-          headers: { "Content-Type": "application/json" },
-        });
-      } catch (err) {
-        return new Response(
-          JSON.stringify({
-            error: err instanceof Error ? err.message : "Failed to create sandbox",
-          }),
-          { status: 500, headers: { "Content-Type": "application/json" } },
-        );
-      }
+      return this.handleStart(sessionId, request);
     }
-
-    const entry = this.sandboxes.get(sessionId);
-    if (!entry) {
-      return new Response(JSON.stringify({ error: `Session ${sessionId} not found` }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    const body = request.method !== "GET" ? await request.text() : undefined;
-    const resp = await fetch(`${entry.hostUrl}${path}`, {
-      method: request.method,
-      headers: { "Content-Type": "application/json" },
-      body,
-    });
 
     if (path.endsWith("/terminate") && request.method === "POST") {
-      try {
-        const sandbox = await Sandbox.connect(entry.sandboxId, { apiKey: this.apiKey });
-        await sandbox.kill();
-      } catch {
-        // Best-effort cleanup
-      }
-      this.sandboxes.delete(sessionId);
+      return this.handleTerminate(sessionId, path);
     }
 
-    return new Response(await resp.text(), {
-      status: resp.status,
-      headers: { "Content-Type": "application/json" },
-    });
+    return this.proxyRequest(sessionId, path, request);
   }
 
   getRuntimeMeta(sessionId: string): Record<string, unknown> | null {
-    const entry = this.sandboxes.get(sessionId);
-    if (!entry) return null;
-    return { sandboxId: entry.sandboxId, hostUrl: entry.hostUrl };
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+
+    const inst = this.instances.get(session.instanceName);
+    return {
+      instanceName: session.instanceName,
+      sandboxId: inst?.sandboxId,
+      port: session.port,
+      hostUrl: session.hostUrl,
+      websocketUrl: session.websocketUrl,
+    };
   }
 
   async reconnect(
@@ -114,18 +183,37 @@ export class E2BRuntime implements Runtime {
     runtimeMeta: Record<string, unknown> | null,
   ): Promise<boolean> {
     if (!runtimeMeta) return false;
+    const instanceName = typeof runtimeMeta.instanceName === "string" ? runtimeMeta.instanceName : undefined;
     const sandboxId = typeof runtimeMeta.sandboxId === "string" ? runtimeMeta.sandboxId : undefined;
+    const port = typeof runtimeMeta.port === "number" ? runtimeMeta.port : undefined;
     const hostUrl = typeof runtimeMeta.hostUrl === "string" ? runtimeMeta.hostUrl : undefined;
-    if (!sandboxId || !hostUrl) return false;
+    const websocketUrl = typeof runtimeMeta.websocketUrl === "string" ? runtimeMeta.websocketUrl : undefined;
+    if (!instanceName || !sandboxId || !port || !hostUrl || !websocketUrl) return false;
 
     try {
-      const sandbox = await Sandbox.connect(sandboxId, { apiKey: this.apiKey });
-      // Check if the sandbox is still running by probing health
-      const host = sandbox.getHost(8080);
-      const resp = await fetch(`https://${host}/health`).catch(() => null);
+      // Ensure instance is tracked
+      if (!this.instances.has(instanceName)) {
+        const info = await Sandbox.getFullInfo(sandboxId, { apiKey: this.apiKey });
+        if (info.state !== "running") return false;
+
+        const ports: PortSlot[] = [];
+        for (let i = 0; i < this.maxSessions; i++) {
+          ports.push({ port: this.basePort + i, inUse: false });
+        }
+        this.instances.set(instanceName, { sandboxId, ports });
+      }
+
+      // Verify session-host is responsive
+      const resp = await fetch(`${hostUrl}/health`).catch(() => null);
       if (!resp?.ok) return false;
 
-      this.sandboxes.set(sessionId, { sandboxId, hostUrl });
+      // Mark port as in use
+      const inst = this.instances.get(instanceName);
+      if (!inst) return false;
+      const slot = inst.ports.find((p) => p.port === port);
+      if (slot) slot.inUse = true;
+
+      this.sessions.set(sessionId, { instanceName, port, hostUrl, websocketUrl });
       return true;
     } catch {
       return false;
@@ -133,29 +221,162 @@ export class E2BRuntime implements Runtime {
   }
 
   async dispose(): Promise<void> {
-    for (const [, entry] of this.sandboxes) {
-      try {
-        const sandbox = await Sandbox.connect(entry.sandboxId, { apiKey: this.apiKey });
-        await sandbox.kill();
-      } catch {
-        // Best-effort
-      }
-    }
-    this.sandboxes.clear();
+    const instanceNames = [...this.instances.keys()];
+    await Promise.allSettled(instanceNames.map((name) => this.stop(name)));
+    this.instances.clear();
+    this.sessions.clear();
   }
 
-  private async waitForReady(
-    sandbox: { getHost(port: number): string },
-    port: number,
-    timeoutMs = 30_000,
-  ): Promise<void> {
-    const host = sandbox.getHost(port);
-    const healthUrl = `https://${host}/health`;
+  // ---------------------------------------------------------------------------
+  // Request handlers
+  // ---------------------------------------------------------------------------
+
+  private async handleStart(sessionId: string, request: Request): Promise<Response> {
+    if (this.sessions.has(sessionId)) {
+      return jsonResponse({ error: `Session "${sessionId}" already exists` }, 409);
+    }
+
+    try {
+      const parsed: Record<string, unknown> = JSON.parse(await request.text());
+      const instanceName = typeof parsed.instanceName === "string" ? parsed.instanceName : undefined;
+
+      if (!instanceName) {
+        return jsonResponse(
+          { error: "Missing instanceName — create a runtime instance first" },
+          400,
+        );
+      }
+
+      const inst = this.instances.get(instanceName);
+      if (!inst) {
+        return jsonResponse({ error: `Runtime instance "${instanceName}" not found` }, 404);
+      }
+
+      // Allocate a port
+      const slot = inst.ports.find((p) => !p.inUse);
+      if (!slot) {
+        return jsonResponse(
+          { error: `No available ports in instance "${instanceName}" (max ${this.maxSessions} sessions)` },
+          503,
+        );
+      }
+
+      // Connect to sandbox and start session-host
+      const sandbox = await Sandbox.connect(inst.sandboxId, { apiKey: this.apiKey });
+      await sandbox.commands.run(
+        `SESSION_HOST_PORT=${slot.port} node /app/dist/index.js`,
+        { background: true },
+      );
+
+      const host = sandbox.getHost(slot.port);
+      const hostUrl = `https://${host}`;
+      const websocketUrl = `wss://${host}`;
+
+      slot.inUse = true;
+      this.sessions.set(sessionId, { instanceName, port: slot.port, hostUrl, websocketUrl });
+
+      await this.waitForReady(hostUrl);
+
+      // Forward to session-host (strip instanceName)
+      delete parsed.instanceName;
+
+      const resp = await fetch(`${hostUrl}/start`, {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify(parsed),
+      });
+
+      const text = await resp.text();
+      let result: Record<string, unknown>;
+      try {
+        result = JSON.parse(text);
+      } catch {
+        throw new Error(`SessionHost /start failed (${resp.status}): ${text}`);
+      }
+
+      if (!resp.ok) {
+        throw new Error(`SessionHost /start failed (${resp.status}): ${result.error ?? text}`);
+      }
+
+      result.hostUrl = hostUrl;
+      result.websocketUrl = websocketUrl;
+
+      return new Response(JSON.stringify(result), {
+        status: resp.status,
+        headers: JSON_HEADERS,
+      });
+    } catch (err) {
+      // Clean up on failure
+      const session = this.sessions.get(sessionId);
+      if (session) {
+        const inst = this.instances.get(session.instanceName);
+        const slot = inst?.ports.find((p) => p.port === session.port);
+        if (slot) slot.inUse = false;
+        this.sessions.delete(sessionId);
+      }
+      return jsonResponse(
+        { error: err instanceof Error ? err.message : "Failed to start session" },
+        500,
+      );
+    }
+  }
+
+  private async handleTerminate(sessionId: string, path: string): Promise<Response> {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return jsonResponse({ error: `Session "${sessionId}" not found` }, 404);
+    }
+
+    const resp = await fetch(`${session.hostUrl}${path}`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+    });
+
+    // Free the port
+    const inst = this.instances.get(session.instanceName);
+    const slot = inst?.ports.find((p) => p.port === session.port);
+    if (slot) slot.inUse = false;
+    this.sessions.delete(sessionId);
+
+    return new Response(await resp.text(), {
+      status: resp.status,
+      headers: JSON_HEADERS,
+    });
+  }
+
+  private async proxyRequest(
+    sessionId: string,
+    path: string,
+    request: Request,
+  ): Promise<Response> {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return jsonResponse({ error: `Session "${sessionId}" not found` }, 404);
+    }
+
+    const body = request.method !== "GET" ? await request.text() : undefined;
+    const resp = await fetch(`${session.hostUrl}${path}`, {
+      method: request.method,
+      headers: JSON_HEADERS,
+      body,
+    });
+
+    return new Response(await resp.text(), {
+      status: resp.status,
+      headers: JSON_HEADERS,
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Readiness check
+  // ---------------------------------------------------------------------------
+
+  private async waitForReady(hostUrl: string, timeoutMs = 30_000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
 
     while (Date.now() < deadline) {
       try {
-        const resp = await fetch(healthUrl);
+        const resp = await fetch(`${hostUrl}/health`);
         if (resp.ok) return;
       } catch {
         // Not ready yet

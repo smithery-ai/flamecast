@@ -1,4 +1,3 @@
-/* oxlint-disable no-type-assertion/no-type-assertion */
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -272,10 +271,10 @@ export class DockerRuntime implements Runtime {
     runtimeMeta: Record<string, unknown> | null,
   ): Promise<boolean> {
     if (!runtimeMeta) return false;
-    const instanceName = runtimeMeta.instanceName as string | undefined;
-    const containerId = runtimeMeta.containerId as string | undefined;
-    const containerPort = runtimeMeta.containerPort as number | undefined;
-    const hostPort = runtimeMeta.hostPort as number | undefined;
+    const instanceName = typeof runtimeMeta.instanceName === "string" ? runtimeMeta.instanceName : undefined;
+    const containerId = typeof runtimeMeta.containerId === "string" ? runtimeMeta.containerId : undefined;
+    const containerPort = typeof runtimeMeta.containerPort === "number" ? runtimeMeta.containerPort : undefined;
+    const hostPort = typeof runtimeMeta.hostPort === "number" ? runtimeMeta.hostPort : undefined;
     if (!instanceName || !containerId || !containerPort || !hostPort) return false;
 
     try {
@@ -303,7 +302,8 @@ export class DockerRuntime implements Runtime {
       if (!resp?.ok) return false;
 
       // Mark the port as in use
-      const inst = this.instances.get(instanceName)!;
+      const inst = this.instances.get(instanceName);
+      if (!inst) return false;
       const slot = inst.ports.find((p) => p.containerPort === containerPort);
       if (slot) slot.inUse = true;
 
@@ -331,8 +331,8 @@ export class DockerRuntime implements Runtime {
     }
 
     try {
-      const parsed = JSON.parse(await request.text()) as Record<string, unknown>;
-      const instanceName = parsed.instanceName as string | undefined;
+      const parsed: Record<string, unknown> = JSON.parse(await request.text());
+      const instanceName = typeof parsed.instanceName === "string" ? parsed.instanceName : undefined;
 
       if (!instanceName) {
         return jsonResponse(
