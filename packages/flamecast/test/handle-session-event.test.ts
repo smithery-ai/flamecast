@@ -43,9 +43,11 @@ function createMockRuntime(): Runtime {
 }
 
 /** Helper: create a Flamecast instance with a session already created. */
-async function setup(handlers: Parameters<typeof Flamecast>[0] extends infer O
-  ? Omit<O, "runtimes" | "storage">
-  : never = {}) {
+async function setup(
+  handlers: Parameters<typeof Flamecast>[0] extends infer O
+    ? Omit<O, "runtimes" | "storage">
+    : never = {},
+) {
   const storage = new MemoryFlamecastStorage();
   const flamecast = new Flamecast({
     storage,
