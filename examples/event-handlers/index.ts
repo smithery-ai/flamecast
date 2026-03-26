@@ -2,38 +2,19 @@
 /**
  * Example: Event Handlers
  *
- * Demonstrates all four Flamecast event handlers wired via the
- * session-host → control plane callback mechanism.
+ * Starts a Flamecast server, creates a session, sends a prompt via REST,
+ * and logs all handler activity. Fully self-contained — just run:
  *
- * Usage:
  *   cd examples/event-handlers
  *   npx tsx index.ts
- *
- * Then test with curl (or run ./test.sh):
- *
- *   # Create a session
- *   curl -s -X POST http://localhost:3001/api/agents \
- *     -H 'Content-Type: application/json' \
- *     -d '{"agentTemplateId": "example"}' | jq .
- *
- *   # Send a prompt via REST (use the session ID from above)
- *   curl -s -X POST http://localhost:3001/api/agents/SESSION_ID/prompts \
- *     -H 'Content-Type: application/json' \
- *     -d '{"text": "write a file to disk"}' | jq .
- *
- *   # Terminate
- *   curl -s -X DELETE http://localhost:3001/api/agents/SESSION_ID | jq .
- *
- * Watch the terminal for handler output.
  */
 import { serve } from "@hono/node-server";
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
 
 const PORT = 3001;
+const BASE = `http://localhost:${PORT}/api`;
 
 const flamecast = new Flamecast({
-  // Omit storage — defaults to in-memory
-  // callbackUrl is auto-detected from incoming requests
   runtimes: {
     default: new NodeRuntime(),
   },
@@ -46,52 +27,63 @@ const flamecast = new Flamecast({
     },
   ],
 
-  // -----------------------------------------------------------------------
-  // Event handlers — these fire when the session-host calls back
-  // -----------------------------------------------------------------------
-
   onPermissionRequest: async (c) => {
-    console.log("\n=== PERMISSION REQUEST ===");
-    console.log(`  Session:  ${c.session.id}`);
-    console.log(`  Agent:    ${c.session.agentName}`);
-    console.log(`  Title:    ${c.title}`);
-    console.log(`  Kind:     ${c.kind ?? "(none)"}`);
-    console.log(`  Options:  ${c.options.map((o) => `${o.name} (${o.kind})`).join(", ")}`);
-    console.log(`  → Auto-approving`);
+    console.log("\n>>> PERMISSION REQUEST");
+    console.log(`    ${c.title} [${c.options.map((o) => o.name).join(" / ")}]`);
+    console.log(`    → Auto-approving`);
     return c.allow();
   },
 
   onSessionEnd: async (c) => {
-    console.log("\n=== SESSION ENDED ===");
-    console.log(`  Session:  ${c.session.id}`);
-    console.log(`  Agent:    ${c.session.agentName}`);
-    console.log(`  Reason:   ${c.reason}`);
+    console.log(`\n>>> SESSION ENDED (${c.reason})`);
   },
 
   onAgentMessage: async (c) => {
-    console.log("\n=== AGENT MESSAGE ===");
-    console.log(`  Session:  ${c.session.id}`);
-    console.log(`  Type:     ${c.type}`);
-    console.log(`  Data:     ${JSON.stringify(c.data).slice(0, 200)}`);
+    console.log(`\n>>> AGENT MESSAGE: ${JSON.stringify(c.data).slice(0, 200)}`);
   },
 
   onError: async (c) => {
-    console.log("\n=== ERROR ===");
-    console.log(`  Session:  ${c.session.id}`);
-    console.log(`  Error:    ${c.error.message}`);
+    console.log(`\n>>> ERROR: ${c.error.message}`);
   },
 });
 
-serve({ fetch: flamecast.app.fetch, port: PORT }, () => {
-  console.log(`Flamecast running on http://localhost:${PORT}`);
-  console.log(`\nEvent handlers registered:`);
-  console.log(`  onPermissionRequest  ✓ (auto-approve)`);
-  console.log(`  onSessionEnd         ✓`);
-  console.log(`  onAgentMessage       ✓`);
-  console.log(`  onError              ✓`);
-  console.log(`\nCreate a session to see handlers fire.`);
-});
+// Start server, then run the test flow
+const server = serve({ fetch: flamecast.app.fetch, port: PORT }, async () => {
+  console.log(`Flamecast running on http://localhost:${PORT}\n`);
 
-process.on("SIGINT", () => {
-  flamecast.shutdown().then(() => process.exit(0));
+  try {
+    // 1. Create session
+    console.log("--- Creating session ---");
+    const createRes = await fetch(`${BASE}/agents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agentTemplateId: "example" }),
+    });
+    const session = await createRes.json();
+    console.log(`Session: ${session.id} (${session.agentName})`);
+
+    // 2. Send prompt via REST
+    console.log("\n--- Sending prompt ---");
+    const promptRes = await fetch(`${BASE}/agents/${session.id}/prompts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "write a file to disk" }),
+    });
+    const promptResult = await promptRes.json();
+    console.log(`Prompt result:`, JSON.stringify(promptResult).slice(0, 200));
+
+    // 3. Terminate
+    console.log("\n--- Terminating session ---");
+    await fetch(`${BASE}/agents/${session.id}`, { method: "DELETE" });
+
+    console.log("\n--- Done ---");
+  } catch (err) {
+    console.error("Test failed:", err);
+  }
+
+  // Give handlers a moment to fire, then exit
+  setTimeout(() => {
+    server.close();
+    flamecast.shutdown().then(() => process.exit(0));
+  }, 1000);
 });
