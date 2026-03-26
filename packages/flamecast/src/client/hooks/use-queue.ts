@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import type { PromptQueueState } from "@flamecast/protocol/session";
-import type { FlamecastSession } from "../lib/flamecast-session.js";
+import { useFlamecastContext } from "../lib/flamecast-context.js";
 
 const EMPTY_STATE: PromptQueueState = {
   processing: false,
@@ -10,97 +10,87 @@ const EMPTY_STATE: PromptQueueState = {
 };
 
 /**
- * React hook for managing a session's prompt queue.
+ * Subscribe to a session's prompt queue via the multiplexed connection.
  *
- * Subscribes to `queue.updated`, `queue.paused`, and `queue.resumed` WS events
- * from the FlamecastSession and provides control methods for queue management.
+ * Supersedes the PR #77 version which used a direct FlamecastSession WS.
+ * Same return API, different transport.
  *
- * @param session - A FlamecastSession instance (from useFlamecastSession's ref)
+ * @example
+ * ```tsx
+ * const { items, processing, paused, cancel, clear, reorder, pause, resume } = useQueue(sessionId);
+ * ```
  */
-export function useQueue(session: FlamecastSession | null) {
+export function useQueue(sessionId: string) {
+  const { connection } = useFlamecastContext();
   const stateRef = useRef<PromptQueueState>(EMPTY_STATE);
-
-  // Subscribe to queue events from the session's WS stream
-  useEffect(() => {
-    if (!session) return;
-
-    const unsub = session.on((event) => {
-      if (event.type === "queue.updated") {
-        // Queue state is broadcast as the event data payload
-        const d = event.data;
-        stateRef.current = {
-          processing: Boolean(d.processing),
-          paused: Boolean(d.paused),
-          items: Array.isArray(d.items)
-            ? d.items.map((item: Record<string, unknown>) => ({
-                queueId: String(item.queueId),
-                text: String(item.text),
-                enqueuedAt: String(item.enqueuedAt),
-                position: Number(item.position),
-              }))
-            : [],
-          size: Number(d.size ?? 0),
-        };
-      } else if (event.type === "queue.paused") {
-        stateRef.current = { ...stateRef.current, paused: true };
-      } else if (event.type === "queue.resumed") {
-        stateRef.current = { ...stateRef.current, paused: false };
-      }
-    });
-
-    return unsub;
-  }, [session]);
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
-      if (!session) return () => {};
-      return session.on((event) => {
-        if (
-          event.type === "queue.updated" ||
-          event.type === "queue.paused" ||
-          event.type === "queue.resumed"
-        ) {
+      const sub = connection.subscribe(`session:${sessionId}:queue`);
+
+      const unsub = sub.onEvent((msg) => {
+        const d = msg.event.data;
+
+        if (msg.event.type === "queue.updated") {
+          stateRef.current = {
+            processing: Boolean(d.processing),
+            paused: Boolean(d.paused),
+            items: Array.isArray(d.items)
+              ? d.items.map((item: Record<string, unknown>) => ({
+                  queueId: String(item.queueId),
+                  text: String(item.text),
+                  enqueuedAt: String(item.enqueuedAt),
+                  position: Number(item.position),
+                }))
+              : [],
+            size: Number(d.size ?? 0),
+          };
+          onStoreChange();
+        } else if (msg.event.type === "queue.paused") {
+          stateRef.current = { ...stateRef.current, paused: true };
+          onStoreChange();
+        } else if (msg.event.type === "queue.resumed") {
+          stateRef.current = { ...stateRef.current, paused: false };
           onStoreChange();
         }
       });
+
+      return () => {
+        unsub();
+        sub.return();
+      };
     },
-    [session],
+    [connection, sessionId],
   );
 
   const getSnapshot = useCallback(() => stateRef.current, []);
-
   const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
+  useEffect(() => {
+    stateRef.current = EMPTY_STATE;
+  }, [sessionId]);
+
   const cancel = useCallback(
-    (queueId: string) => {
-      session?.cancel(queueId);
-    },
-    [session],
+    (queueId: string) => connection.cancel(sessionId, queueId),
+    [connection, sessionId],
   );
 
-  const clear = useCallback(() => {
-    session?.clearQueue();
-  }, [session]);
+  const clear = useCallback(() => connection.queueClear(sessionId), [connection, sessionId]);
 
   const reorder = useCallback(
-    (order: string[]) => {
-      session?.reorderQueue(order);
-    },
-    [session],
+    (order: string[]) => connection.queueReorder(sessionId, order),
+    [connection, sessionId],
   );
 
-  const pause = useCallback(() => {
-    session?.pauseQueue();
-  }, [session]);
+  const pause = useCallback(() => connection.queuePause(sessionId), [connection, sessionId]);
 
-  const resume = useCallback(() => {
-    session?.resumeQueue();
-  }, [session]);
+  const resume = useCallback(() => connection.queueResume(sessionId), [connection, sessionId]);
 
   return {
     items: state.items,
     processing: state.processing,
     paused: state.paused,
+    size: state.size,
     cancel,
     clear,
     reorder,

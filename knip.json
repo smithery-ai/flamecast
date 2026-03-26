@@ -12,8 +12,8 @@
         "src/client/main.tsx",
         "src/client/routeTree.gen.ts",
         "src/client/hooks/*.ts",
+        "src/client/components/*.tsx",
         "src/flamecast/agent.ts",
-        "src/flamecast/client.ts",
         "src/flamecast/index.ts",
         "src/index.ts",
         "test/**/*.test.ts"
