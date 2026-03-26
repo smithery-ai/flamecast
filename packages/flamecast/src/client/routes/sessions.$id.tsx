@@ -91,16 +91,24 @@ function SessionDetailPage() {
     for (const event of wsEvents) {
       if (event.type === "permission_request") {
         const d = event.data;
-        const rid = d.requestId;
         if (
-          typeof rid === "string" &&
-          !resolvedIds.has(rid) &&
+          typeof d.requestId === "string" &&
+          !resolvedIds.has(d.requestId) &&
+          typeof d.toolCallId === "string" &&
           typeof d.title === "string" &&
           Array.isArray(d.options)
         ) {
-          // Shape validated above — safe to treat as PermissionRequestEvent
-          // oxlint-disable-next-line no-type-assertion/no-type-assertion
-          pending.push(d as unknown as PermissionRequestEvent);
+          pending.push({
+            requestId: d.requestId,
+            toolCallId: d.toolCallId,
+            title: d.title,
+            kind: typeof d.kind === "string" ? d.kind : undefined,
+            options: d.options.map((opt: Record<string, unknown>) => ({
+              optionId: String(opt.optionId),
+              name: String(opt.name),
+              kind: String(opt.kind),
+            })),
+          });
         }
       }
     }
