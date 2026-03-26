@@ -20,6 +20,7 @@ The model contract is:
 - respond directly when no tool is needed
 - otherwise emit exactly one tool call: `executeJS`
 - `executeJS` code runs in a shared session scope and must end with an explicit `return`
+- `executeJS` code can use `await import("node:fs")` for the Worker virtual filesystem
 - persisted globals should stay JSON-serializable
 
 The session mental model is “real REPL-like globals across turns.” Internally, the harness checkpoints and restores serializable state so the behavior survives local executor hops, Dynamic Worker invocations, and cold starts.
@@ -43,6 +44,12 @@ Local Miniflare development runs the ACP worker plus a tiny companion HTTP execu
 Deployed Cloudflare Workers use the `LOADER` binding from Dynamic Workers, so each `executeJS` run executes in a generated worker program instead of in the parent ACP loop.
 
 Persisted session globals should stay JSON-serializable. That is what survives across turns and cold starts.
+
+The deployed worker enables `nodejs_compat`, so `executeJS` can use Cloudflare's virtual `node:fs` support:
+
+- `/tmp` is writable scratch space for a single request
+- `/bundle` is read-only bundle content
+- `/tmp` contents do not persist across turns, so cross-turn state should still live in session globals instead of the filesystem
 
 ## Install
 

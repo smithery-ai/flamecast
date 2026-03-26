@@ -64,7 +64,8 @@ function rewritePersistentBindings(source) {
       /(^|\n)(\s*)function\s+([A-Za-z_$][\w$]*)\s*\(/g,
       "$1$2scope.$3 = function $3(",
     )
-    .replace(/(^|\n)(\s*)class\s+([A-Za-z_$][\w$]*)\s*/g, "$1$2scope.$3 = class $3 ");
+    .replace(/(^|\n)(\s*)class\s+([A-Za-z_$][\w$]*)\s*/g, "$1$2scope.$3 = class $3 ")
+    .replace(/\bimport\s*\(/g, "__import__(");
 }
 
 function serializeTranscript(session, nextUserText) {
@@ -112,6 +113,22 @@ function parseJsonObject(text) {
 
 function planScriptedTurn(text) {
   const normalized = text.toLowerCase();
+  const tmpFsRequest =
+    normalized.includes("node:fs") ||
+    normalized.includes("virtual fs") ||
+    normalized.includes("/tmp") ||
+    normalized.includes("tmp file");
+
+  if (tmpFsRequest) {
+    return {
+      executeJS: [
+        'const { writeFileSync, readFileSync } = await import("node:fs");',
+        'writeFileSync("/tmp/hello.txt", "Hello from executeJS");',
+        'return { path: "/tmp/hello.txt", contents: readFileSync("/tmp/hello.txt", "utf8") };',
+      ].join("\n"),
+    };
+  }
+
   const counterRequest = normalized.includes("counter") || normalized.includes("increment");
   if (counterRequest) {
     return {
@@ -269,7 +286,7 @@ function buildDynamicWorkerSource(source) {
   return `
 const SOURCE = ${JSON.stringify(source)};
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-const runner = new AsyncFunction("scope", "__console", \`const console = __console;\\nwith (scope) {\\n\${SOURCE}\\n}\`);
+const runner = new AsyncFunction("scope", "__console", "__import__", \`const console = __console;\\nwith (scope) {\\n\${SOURCE}\\n}\`);
 
 function normalizeValue(value, seen = new WeakSet()) {
   if (
@@ -325,7 +342,7 @@ export default {
     };
 
     try {
-      const result = await runner(scope, console);
+      const result = await runner(scope, console, (specifier) => import(specifier));
       return Response.json({
         ok: true,
         result: normalizeValue(result),
@@ -348,6 +365,7 @@ export default {
 async function executeWithDynamicWorker(env, source, scope) {
   const dynamicWorker = await env.LOADER.load({
     compatibilityDate: "2026-03-25",
+    compatibilityFlags: ["nodejs_compat"],
     mainModule: buildDynamicWorkerSource(source),
   });
 

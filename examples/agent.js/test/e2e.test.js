@@ -39,7 +39,6 @@ describe("agent.js example", () => {
       getStorage: () => storage,
     });
 
-    const events = [];
     const { sessionId } = await runtimeClient.startSession({
       agentName: "agent.js",
       spawn: { command: "unused", args: [] },
@@ -49,7 +48,7 @@ describe("agent.js example", () => {
     });
 
     cleanup.push(() => runtimeClient.terminateSession(sessionId));
-    const unsubscribe = runtimeClient.subscribe(sessionId, (event) => events.push(event));
+    const unsubscribe = runtimeClient.subscribe(sessionId, () => {});
     cleanup.push(async () => unsubscribe());
 
     const first = await runtimeClient.promptSession(sessionId, "Increment the counter and return it.");
@@ -58,11 +57,59 @@ describe("agent.js example", () => {
     expect(first).toEqual({ stopReason: "end_turn" });
     expect(second).toEqual({ stopReason: "end_turn" });
 
-    const toolUpdates = collectToolUpdates(events);
+    const toolUpdates = collectToolUpdates(runtimeClient.getEventHistory(sessionId));
     const completed = toolUpdates.filter((update) => update.status === "completed");
 
     expect(completed).toHaveLength(2);
     expect(completed[0].rawOutput.result).toEqual({ counter: 1 });
     expect(completed[1].rawOutput.result).toEqual({ counter: 2 });
+  });
+
+  test("supports node:fs access against the virtual tmp filesystem contract", async () => {
+    const local = await startExampleMiniflare({
+      bindings: {
+        AGENT_MODE: "scripted",
+      },
+      port: 0,
+    });
+    cleanup.push(() => local.dispose());
+
+    const storage = new MemoryFlamecastStorage();
+    const runtimeClient = new LocalRuntimeClient({
+      runtimeProviders: {
+        "agent.js": createCloudflareWorkerRuntimeProvider({
+          websocketUrl: local.websocketUrl,
+        }),
+      },
+      getStorage: () => storage,
+    });
+
+    const { sessionId } = await runtimeClient.startSession({
+      agentName: "agent.js",
+      spawn: { command: "unused", args: [] },
+      cwd: process.cwd(),
+      runtime: { provider: "agent.js" },
+      startedAt: new Date().toISOString(),
+    });
+
+    cleanup.push(() => runtimeClient.terminateSession(sessionId));
+    const unsubscribe = runtimeClient.subscribe(sessionId, () => {});
+    cleanup.push(async () => unsubscribe());
+
+    const result = await runtimeClient.promptSession(
+      sessionId,
+      "Use node:fs to write a tmp file and return its contents.",
+    );
+
+    expect(result).toEqual({ stopReason: "end_turn" });
+
+    const toolUpdates = collectToolUpdates(runtimeClient.getEventHistory(sessionId));
+    const completed = toolUpdates.filter((update) => update.status === "completed");
+
+    expect(completed).toHaveLength(1);
+    expect(completed[0].rawOutput.result).toEqual({
+      path: "/tmp/hello.txt",
+      contents: "Hello from executeJS",
+    });
   });
 });

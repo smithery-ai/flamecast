@@ -70,16 +70,21 @@ async function executeSource(source, scope) {
   const runner = new AsyncFunction(
     "scope",
     "__console",
+    "__import__",
     `const console = __console;\nwith (scope) {\n${source}\n}`,
   );
 
   try {
-    const result = await runner(scope, {
-      log: (...args) => logs.push(formatLogEntry(args)),
-      info: (...args) => logs.push(formatLogEntry(args)),
-      warn: (...args) => logs.push(formatLogEntry(args)),
-      error: (...args) => logs.push(formatLogEntry(args)),
-    });
+    const result = await runner(
+      scope,
+      {
+        log: (...args) => logs.push(formatLogEntry(args)),
+        info: (...args) => logs.push(formatLogEntry(args)),
+        warn: (...args) => logs.push(formatLogEntry(args)),
+        error: (...args) => logs.push(formatLogEntry(args)),
+      },
+      (specifier) => import(specifier),
+    );
 
     return { ok: true, result: normalizeValue(result), scope: normalizeValue(scope), logs };
   } catch (error) {
