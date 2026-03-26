@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+const randomUUID = (): string => crypto.randomUUID();
 import type {
   AgentSpawn,
   AgentTemplate,
@@ -9,11 +9,13 @@ import type {
   WebhookConfig,
   WebhookEventType,
 } from "../shared/session.js";
-import { createServerApp } from "../server/app.js";
+import { createServerApp } from "./app.js";
 import type { FlamecastStorage } from "./storage.js";
 import { MemoryFlamecastStorage } from "./storage/memory/index.js";
 import { SessionService } from "./session-service.js";
-import { WebhookDeliveryEngine } from "./webhook-delivery.js";
+import { WebhookDeliveryEngine } from "./events/webhooks.js";
+import { EventBus } from "./events/bus.js";
+import { resolveAgentId } from "./events/channels.js";
 import type {
   SessionCallbackEvent,
   PermissionCallbackResponse,
@@ -43,7 +45,7 @@ export type {
 export type { FileSystemEntry } from "@flamecast/protocol/session-host";
 
 export type { SessionMeta, FlamecastStorage } from "./storage.js";
-export { NodeRuntime } from "./runtimes/node.js";
+export { NodeRuntime } from "./runtime-node.js";
 
 // ---------------------------------------------------------------------------
 // Event handler context types
@@ -131,6 +133,14 @@ export class Flamecast<
   private readonly globalWebhooks: Omit<WebhookConfig, "id">[];
   private readonly webhookEngine = new WebhookDeliveryEngine();
   private readonly webhookAbortControllers = new Map<string, AbortController>();
+
+  /** Event bus for lifecycle events and session history. Used by the Node
+   *  `listen()` function to wire the WS adapter and session-host bridge. */
+  readonly eventBus = new EventBus();
+
+  /** Sessions with an active bridge WS connection. Populated by `listen()`.
+   *  Used to skip duplicate EventBus pushes from handleSessionEvent(). */
+  readonly bridgedSessions = new Set<string>();
 
   /** Registered event handlers. */
   readonly handlers: Readonly<FlamecastEventHandlers<R>>;
@@ -236,6 +246,16 @@ export class Flamecast<
       webhooks: sessionWebhooks,
     });
 
+    // Emit lifecycle event for WS adapter bridge
+    const websocketUrl = this.sessionService.getWebsocketUrl(sessionId);
+    if (websocketUrl) {
+      this.eventBus.emitSessionCreated({
+        sessionId,
+        agentId: resolveAgentId(sessionId),
+        websocketUrl,
+      });
+    }
+
     return this.snapshotSession(sessionId);
   }
 
@@ -306,6 +326,12 @@ export class Flamecast<
     const sessionCtx = await this.buildSessionContext(id);
 
     await this.sessionService.terminateSession(this.requireStorage(), id);
+
+    // Emit lifecycle event for WS adapter bridge
+    this.eventBus.emitSessionTerminated({
+      sessionId: id,
+      agentId: resolveAgentId(id),
+    });
 
     // Cancel in-flight webhook retries for this session
     this.webhookAbortControllers.get(id)?.abort();
@@ -407,7 +433,23 @@ export class Flamecast<
         result = { ok: true };
     }
 
-    // 2. Deliver to external webhooks (fire-and-forget, does not block response)
+    // 2. Push to EventBus for SSE consumers. Skip if a bridge WS connection
+    //    exists for this session (Node mode) — the bridge already pushes all
+    //    events with full fidelity, and double-pushing would create duplicates
+    //    with different seq numbers.
+    if (!this.bridgedSessions.has(sessionId)) {
+      this.eventBus.pushEvent({
+        sessionId,
+        agentId: resolveAgentId(sessionId),
+        event: {
+          type: event.type,
+          data: { ...event.data },
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+
+    // 3. Deliver to external webhooks (fire-and-forget, does not block response)
     this.deliverWebhooks(sessionId, event);
 
     return result;

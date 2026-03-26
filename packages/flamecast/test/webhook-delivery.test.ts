@@ -3,7 +3,7 @@
  * HMAC signing, retry, ordering, and event filtering.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { WebhookDeliveryEngine } from "../src/flamecast/webhook-delivery.js";
+import { WebhookDeliveryEngine } from "../src/flamecast/events/webhooks.js";
 import { verifyWebhookSignature } from "@flamecast/protocol/verify";
 import type { WebhookConfig } from "@flamecast/protocol/session";
 

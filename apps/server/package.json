@@ -13,8 +13,5 @@
     "@flamecast/runtime-docker": "workspace:*",
     "@flamecast/sdk": "workspace:*",
     "@flamecast/storage-psql": "workspace:*"
-  },
-  "devDependencies": {
-    "@hono/node-server": "^1.19.11"
   }
 }

@@ -15,13 +15,13 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./edge": {
+      "types": "./dist/edge.d.ts",
+      "import": "./dist/edge.js"
+    },
     "./api": {
       "types": "./dist/flamecast/api.d.ts",
       "import": "./dist/flamecast/api.js"
-    },
-    "./server/app": {
-      "types": "./dist/server/app.d.ts",
-      "import": "./dist/server/app.js"
     },
     "./client": {
       "types": "./src/client/api.ts",
@@ -74,12 +74,14 @@
     "use-stick-to-bottom": "^1.1.3",
     "vaul": "^1.1.2",
     "vite": "^8.0.1",
+    "ws": "^8.20.0",
     "yaml": "^2.8.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@tanstack/router-generator": "1.166.15",
     "@tanstack/router-plugin": "^1.166.14",
+    "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.1.0",
     "knip": "^6.0.1",
     "vitest": "^4.1.0"

@@ -59,3 +59,28 @@ export type {
   WsQueuePauseAction,
   WsQueueResumeAction,
 } from "./ws.js";
+
+export type {
+  Channel,
+  WsChannelServerMessage,
+  WsChannelControlMessage,
+  WsChannelConnectedMessage,
+  WsSubscribedMessage,
+  WsUnsubscribedMessage,
+  WsChannelEventMessage,
+  WsSessionCreatedMessage,
+  WsSessionTerminatedMessage,
+  WsChannelErrorMessage,
+  WsPongMessage,
+  WsSubscribeAction,
+  WsUnsubscribeAction,
+  WsChannelPromptAction,
+  WsChannelPermissionRespondAction,
+  WsChannelCancelAction,
+  WsChannelTerminateAction,
+  WsChannelQueueReorderAction,
+  WsChannelQueueClearAction,
+  WsChannelQueuePauseAction,
+  WsChannelQueueResumeAction,
+  WsChannelPingAction,
+} from "./ws-channels.js";
