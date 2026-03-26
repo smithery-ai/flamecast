@@ -275,7 +275,8 @@ export class Flamecast<
   async listSessions(): Promise<Session[]> {
     await this.ensureReady();
     const allMetas = await this.requireStorage().listAllSessions();
-    return Promise.all(allMetas.map((meta) => this.snapshotSession(meta.id)));
+    const activeMetas = allMetas.filter((meta) => meta.status === "active");
+    return Promise.all(activeMetas.map((meta) => this.snapshotSession(meta.id)));
   }
 
   async getSession(
