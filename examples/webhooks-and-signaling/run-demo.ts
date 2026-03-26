@@ -2,7 +2,11 @@
  * Creates a session, sends a prompt, and prints the result.
  * Called after both servers are ready.
  */
+import { createFlamecastClient } from "@flamecast/sdk/client";
+
 export async function runDemo(baseUrl: string): Promise<void> {
+  const client = createFlamecastClient({ baseUrl });
+
   console.log();
   console.log("  Webhooks and Signaling");
   console.log("  " + "─".repeat(40));
@@ -10,25 +14,13 @@ export async function runDemo(baseUrl: string): Promise<void> {
   const start = Date.now();
 
   process.stdout.write("  Creating session...  ");
-  const createRes = await fetch(`${baseUrl}/agents`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agentTemplateId: "example" }),
-  });
-  const session = await createRes.json();
-  if (!createRes.ok) throw new Error(JSON.stringify(session));
+  const session = await client.createSession({ agentTemplateId: "example" });
   console.log(`✓ ${session.id}`);
 
   const prompt = "write hello world to /tmp/test.txt";
   console.log(`  Sending prompt: "${prompt}"`);
 
-  const promptRes = await fetch(`${baseUrl}/agents/${session.id}/prompts`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: prompt }),
-  });
-  const result = await promptRes.json();
-  if (!promptRes.ok) throw new Error(JSON.stringify(result));
+  await client.promptSession(session.id, prompt);
   console.log(`  → Agent completed`);
 
   await new Promise((r) => setTimeout(r, 500));

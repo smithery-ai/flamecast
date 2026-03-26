@@ -122,7 +122,7 @@ const PromptQueueItemSchema = z.object({
   position: z.number().int().nonnegative(),
 });
 
-const PromptQueueStateSchema = z.object({
+export const PromptQueueStateSchema = z.object({
   processing: z.boolean(),
   paused: z.boolean(),
   items: z.array(PromptQueueItemSchema),

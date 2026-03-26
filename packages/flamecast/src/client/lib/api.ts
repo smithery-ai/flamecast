@@ -3,10 +3,23 @@ import { createFlamecastClient } from "../api.js";
 const client = createFlamecastClient({ baseUrl: "/api" });
 
 export const {
-  createSession,
+  // Agent templates
   fetchAgentTemplates,
+  registerAgentTemplate,
+  // Sessions
+  createSession,
   fetchSession,
   fetchSessions,
-  registerAgentTemplate,
   terminateSession,
+  // Prompts
+  promptSession,
+  // Permissions
+  resolvePermission,
+  // Queue
+  fetchQueue,
+  cancelQueueItem,
+  clearQueue,
+  reorderQueue,
+  pauseQueue,
+  resumeQueue,
 } = client;

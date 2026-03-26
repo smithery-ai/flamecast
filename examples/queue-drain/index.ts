@@ -8,6 +8,7 @@
  *   pnpm --filter @flamecast/session-host --filter @flamecast/example-queue-drain dev
  */
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
+import { createFlamecastClient } from "@flamecast/sdk/client";
 import { EXAMPLE_TEMPLATE, startServer } from "@flamecast/example-shared/create-example.js";
 
 const PROMPTS = [
@@ -28,43 +29,29 @@ const flamecast = new Flamecast({
 });
 
 await startServer(flamecast, async (apiUrl) => {
+  const client = createFlamecastClient({ baseUrl: apiUrl });
+
   console.log();
   console.log("  Queue Drain Demo");
   console.log("  " + "─".repeat(40));
 
   // 1. Create session
   process.stdout.write("  Creating session...  ");
-  const createRes = await fetch(`${apiUrl}/agents`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ agentTemplateId: "example" }),
-  });
-  const session = await createRes.json();
-  if (!createRes.ok) throw new Error(JSON.stringify(session));
+  const session = await client.createSession({ agentTemplateId: "example" });
   console.log(`✓ ${session.id}`);
   console.log();
 
   // 2. Fire first prompt (executes immediately)
   console.log(`  Sending ${PROMPTS.length} prompts...`);
-  const firstRes = await fetch(`${apiUrl}/agents/${session.id}/prompts`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: PROMPTS[0] }),
-  });
-  await firstRes.json();
-  if (firstRes.status === 200) {
+  const firstResult = await client.promptSession(session.id, PROMPTS[0]);
+  if (!("queued" in firstResult)) {
     console.log(`  [1] "${PROMPTS[0]}" → executing`);
   }
 
   // 3. Fire remaining prompts (should queue since agent is busy)
   for (let i = 1; i < PROMPTS.length; i++) {
-    const res = await fetch(`${apiUrl}/agents/${session.id}/prompts`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: PROMPTS[i] }),
-    });
-    const result = await res.json();
-    if (res.status === 202 && result.queued) {
+    const result = await client.promptSession(session.id, PROMPTS[i]);
+    if ("queued" in result && result.queued) {
       console.log(`  [${i + 1}] "${PROMPTS[i]}" → queued (position ${result.position})`);
     } else {
       console.log(`  [${i + 1}] "${PROMPTS[i]}" → executing (agent was idle)`);
@@ -81,9 +68,7 @@ await startServer(flamecast, async (apiUrl) => {
   let done = false;
 
   while (!done) {
-    const qRes = await fetch(`${apiUrl}/agents/${session.id}/queue`);
-    if (!qRes.ok) break;
-    const q = await qRes.json();
+    const q = await client.fetchQueue(session.id);
 
     if (q.size !== lastSize || q.processing !== lastProcessing) {
       const status = q.processing ? "processing" : "idle";
