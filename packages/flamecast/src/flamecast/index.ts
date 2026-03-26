@@ -257,6 +257,11 @@ export class Flamecast<
     return this.snapshotSession(id, opts);
   }
 
+  /** Proxy a queue management request to the session-host. */
+  async proxyQueueRequest(id: string, path: string, init: RequestInit): Promise<Response> {
+    return this.sessionService.proxyRequest(id, path, init);
+  }
+
   async promptSession(id: string, text: string): Promise<Record<string, unknown>> {
     await this.ensureReady();
     const response = await this.sessionService.proxyRequest(id, "/prompt", {
@@ -583,6 +588,14 @@ export class Flamecast<
 
     const websocketUrl = this.sessionService.getWebsocketUrl(id);
 
+    // Fetch queue state from session-host if the session is active
+    const promptQueue = this.sessionService.hasSession(id)
+      ? await this.sessionService
+          .proxyRequest(id, "/queue", { method: "GET" })
+          .then((r) => (r.ok ? r.json().catch(() => null) : null))
+          .catch(() => null)
+      : null;
+
     return {
       ...meta,
       logs: [],
@@ -593,7 +606,7 @@ export class Flamecast<
           }
         : null,
       fileSystem: null,
-      promptQueue: null,
+      promptQueue,
       websocketUrl,
     };
   }

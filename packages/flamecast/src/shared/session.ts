@@ -124,6 +124,7 @@ const PromptQueueItemSchema = z.object({
 
 const PromptQueueStateSchema = z.object({
   processing: z.boolean(),
+  paused: z.boolean(),
   items: z.array(PromptQueueItemSchema),
   size: z.number().int().nonnegative(),
 }) satisfies z.ZodType<PromptQueueState>;

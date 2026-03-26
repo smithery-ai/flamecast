@@ -108,6 +108,26 @@ export class FlamecastSession {
     this.sendControl({ action: "terminate" });
   }
 
+  /** Clear all queued prompts (does not affect the currently processing prompt). */
+  clearQueue(): void {
+    this.sendControl({ action: "queue.clear" });
+  }
+
+  /** Reorder queued prompts. `order` must contain all current queue IDs. */
+  reorderQueue(order: string[]): void {
+    this.sendControl({ action: "queue.reorder", order });
+  }
+
+  /** Pause queue draining — current prompt finishes, next won't auto-start. */
+  pauseQueue(): void {
+    this.sendControl({ action: "queue.pause" });
+  }
+
+  /** Resume queue draining. */
+  resumeQueue(): void {
+    this.sendControl({ action: "queue.resume" });
+  }
+
   /** Fetch a file preview over HTTP. */
   async requestFilePreview(
     filePath: string,

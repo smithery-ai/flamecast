@@ -76,6 +76,7 @@ export interface PromptQueueItem {
 
 export interface PromptQueueState {
   processing: boolean;
+  paused: boolean;
   items: PromptQueueItem[];
   size: number;
 }

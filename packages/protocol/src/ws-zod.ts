@@ -62,10 +62,31 @@ const WsPingActionSchema = z.object({
   action: z.literal("ping"),
 });
 
+const WsQueueReorderActionSchema = z.object({
+  action: z.literal("queue.reorder"),
+  order: z.array(z.string()),
+});
+
+const WsQueueClearActionSchema = z.object({
+  action: z.literal("queue.clear"),
+});
+
+const WsQueuePauseActionSchema = z.object({
+  action: z.literal("queue.pause"),
+});
+
+const WsQueueResumeActionSchema = z.object({
+  action: z.literal("queue.resume"),
+});
+
 export const WsControlMessageSchema = z.union([
   WsPromptActionSchema,
   WsPermissionRespondActionSchema,
   WsCancelActionSchema,
   WsTerminateActionSchema,
   WsPingActionSchema,
+  WsQueueReorderActionSchema,
+  WsQueueClearActionSchema,
+  WsQueuePauseActionSchema,
+  WsQueueResumeActionSchema,
 ]) satisfies z.ZodType<WsControlMessage>;

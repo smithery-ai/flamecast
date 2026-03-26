@@ -48,9 +48,30 @@ export interface WsPingAction {
   action: "ping";
 }
 
+export interface WsQueueReorderAction {
+  action: "queue.reorder";
+  order: string[];
+}
+
+export interface WsQueueClearAction {
+  action: "queue.clear";
+}
+
+export interface WsQueuePauseAction {
+  action: "queue.pause";
+}
+
+export interface WsQueueResumeAction {
+  action: "queue.resume";
+}
+
 export type WsControlMessage =
   | WsPromptAction
   | WsPermissionRespondAction
   | WsCancelAction
   | WsTerminateAction
-  | WsPingAction;
+  | WsPingAction
+  | WsQueueReorderAction
+  | WsQueueClearAction
+  | WsQueuePauseAction
+  | WsQueueResumeAction;
