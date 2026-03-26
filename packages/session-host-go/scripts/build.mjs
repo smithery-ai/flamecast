@@ -29,12 +29,10 @@ if (existsSync(output)) {
       if (process.env.SKIP_BUILD) {
         console.log("[session-host-go] binary already exists (ELF), skipping build");
         process.exit(0);
-      }
-      else {
+      } else {
         console.log("[session-host-go] binary already exists (ELF), rebuilding...");
       }
-    }
-    else {
+    } else {
       console.log("[session-host-go] binary exists but is not ELF (wrong platform), rebuilding...");
     }
   } catch {
