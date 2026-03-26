@@ -43,15 +43,12 @@ export class SessionService {
     }
 
     const sessionId = crypto.randomUUID();
-    const runtimeConfig = Object.fromEntries(
-      Object.entries(opts.runtime).filter(([key]) => key !== "provider"),
-    );
     const body = {
-      ...runtimeConfig,
       sessionId,
       command: opts.spawn.command,
       args: opts.spawn.args ?? [],
       workspace: opts.cwd,
+      setup: opts.runtime.setup,
       callbackUrl: opts.callbackUrl,
     } satisfies SessionHostStartRequest & Record<string, unknown>;
 

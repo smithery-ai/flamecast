@@ -143,35 +143,6 @@ describe("API server surface", () => {
     });
   });
 
-  it("registers agent templates with explicit runtime config", async () => {
-    const flamecast = createFlamecastStub({ runtimeNames: ["default", "custom"] });
-    const app = createServerApp(flamecast);
-
-    const response = await app.request("/api/agent-templates", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name: "Remote custom runtime",
-        spawn: { command: "remote-acp", args: ["custom-agent"] },
-        runtime: {
-          provider: "custom",
-          endpoint: "https://runtime.example.com",
-        },
-      } satisfies RegisterAgentTemplateBody),
-    });
-
-    expect(response.status).toBe(201);
-    expect(await readJson(response)).toEqual({
-      id: "registered-template",
-      name: "Remote custom runtime",
-      spawn: { command: "remote-acp", args: ["custom-agent"] },
-      runtime: {
-        provider: "custom",
-        endpoint: "https://runtime.example.com",
-      },
-    });
-  });
-
   it("rejects invalid agent template payloads", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);

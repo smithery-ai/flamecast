@@ -37,7 +37,7 @@ describe("agent.js runtime", () => {
         body: JSON.stringify({
           name: "Agent.js remote",
           spawn: { command: "remote-sessionhost", args: ["agentjs"] },
-          runtime: { provider: "agentjs", baseUrl: remoteAgent.baseUrl },
+          runtime: { provider: "agentjs" },
         }),
       }),
     );
