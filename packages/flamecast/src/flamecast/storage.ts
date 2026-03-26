@@ -1,3 +1,4 @@
+import type { RuntimeInstance } from "@flamecast/protocol/runtime";
 import type { AgentTemplate, Session } from "../shared/session.js";
 
 /** Durable slice of {@link Session} (everything except runtime-only state). */
@@ -38,4 +39,9 @@ export type FlamecastStorage = {
     Array<SessionMeta & { runtimeInfo: SessionRuntimeInfo | null }>
   >;
   finalizeSession(id: string, reason: "terminated"): Promise<void>;
+
+  // Runtime instance management
+  saveRuntimeInstance(instance: RuntimeInstance): Promise<void>;
+  listRuntimeInstances(): Promise<RuntimeInstance[]>;
+  deleteRuntimeInstance(name: string): Promise<void>;
 };

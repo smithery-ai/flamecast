@@ -8,6 +8,7 @@ import type { Runtime } from "@flamecast/protocol/runtime";
  * Pass a URL explicitly for deployed environments.
  */
 export class NodeRuntime implements Runtime {
+  readonly onlyOne = true;
   private readonly url: string;
 
   constructor(url?: string) {

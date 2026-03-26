@@ -1,10 +1,22 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createSession, fetchAgentTemplates, registerAgentTemplate } from "@/client/lib/api";
+import {
+  createSession,
+  fetchAgentTemplates,
+  fetchRuntimes,
+  registerAgentTemplate,
+} from "@/client/lib/api";
 import { Button } from "@/client/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/client/components/ui/card";
 import { Input } from "@/client/components/ui/input";
 import { Label } from "@/client/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/client/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -14,9 +26,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/client/components/ui/dialog";
-import { PlusIcon, PlayIcon, TerminalIcon } from "lucide-react";
+import { LoaderCircleIcon, PlusIcon, PlayIcon, TerminalIcon } from "lucide-react";
+import { toast } from "sonner";
 import { useState } from "react";
 import type { AgentTemplate } from "@/shared/session";
+import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 
 export const Route = createFileRoute("/")({
   component: SessionsPage,
@@ -25,21 +39,54 @@ export const Route = createFileRoute("/")({
 function SessionsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  // oxlint-disable-next-line no-type-assertion/no-type-assertion -- TanStack Router search params are untyped with strict:false
+  const search = useSearch({ strict: false }) as Record<string, unknown>;
+  const runtimeFilter = typeof search.runtime === "string" ? search.runtime : undefined;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newCommand, setNewCommand] = useState("");
   const [newArgs, setNewArgs] = useState("");
 
-  const { data: templates = [], isLoading: templatesLoading } = useQuery({
+  const { data: allTemplates = [], isLoading: templatesLoading } = useQuery({
     queryKey: ["agent-templates"],
     queryFn: fetchAgentTemplates,
   });
 
+  const { data: runtimes } = useQuery({
+    queryKey: ["runtimes"],
+    queryFn: fetchRuntimes,
+    refetchInterval: 30_000,
+  });
+
+  // Resolve instance name → type name so templates (which store provider/type)
+  // match when filtering by a specific instance like "staging".
+  const resolvedTypeName = (() => {
+    if (!runtimeFilter || !runtimes) return runtimeFilter;
+    for (const rt of runtimes) {
+      if (rt.typeName === runtimeFilter) return rt.typeName;
+      if (rt.instances.some((i) => i.name === runtimeFilter)) return rt.typeName;
+    }
+    return runtimeFilter;
+  })();
+
+  const templates = resolvedTypeName
+    ? allTemplates.filter((t) => t.runtime.provider === resolvedTypeName)
+    : allTemplates;
+
   const createMutation = useMutation({
-    mutationFn: (agentTemplateId: string) => createSession({ agentTemplateId, cwd: undefined }),
+    mutationFn: ({
+      agentTemplateId,
+      runtimeInstance,
+    }: {
+      agentTemplateId: string;
+      runtimeInstance?: string;
+    }) => createSession({ agentTemplateId, cwd: undefined, runtimeInstance }),
     onSuccess: (session) => {
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
       navigate({ to: "/sessions/$id", params: { id: session.id } });
+    },
+    onError: (err) => {
+      toast.error("Failed to create session", { description: String(err.message) });
     },
   });
 
@@ -55,6 +102,9 @@ function SessionsPage() {
       setNewCommand("");
       setNewArgs("");
       setDialogOpen(false);
+    },
+    onError: (err) => {
+      toast.error("Failed to register template", { description: String(err.message) });
     },
   });
 
@@ -184,8 +234,16 @@ function SessionsPage() {
                 <AgentTemplateCard
                   key={template.id}
                   template={template}
-                  onStartSession={() => createMutation.mutate(template.id)}
-                  isStartingSession={createMutation.isPending}
+                  runtimeInfo={runtimes?.find((rt) => rt.typeName === template.runtime.provider)}
+                  defaultInstance={runtimeFilter}
+                  onStartSession={(runtimeInstance) =>
+                    createMutation.mutate({ agentTemplateId: template.id, runtimeInstance })
+                  }
+                  isStartingSession={
+                    createMutation.isPending &&
+                    createMutation.variables?.agentTemplateId === template.id
+                  }
+                  isAnyStarting={createMutation.isPending}
                 />
               ))}
             </div>
@@ -198,13 +256,36 @@ function SessionsPage() {
 
 function AgentTemplateCard({
   template,
+  runtimeInfo,
+  defaultInstance,
   onStartSession,
   isStartingSession,
+  isAnyStarting,
 }: {
   template: AgentTemplate;
-  onStartSession: () => void;
+  runtimeInfo?: RuntimeInfo;
+  /** The current ?runtime= filter. If it's a running instance name, pre-select it. */
+  defaultInstance?: string;
+  onStartSession: (runtimeInstance?: string) => void;
+  /** True when THIS template's session is being created. */
   isStartingSession: boolean;
+  /** True when ANY session is being created (to disable all buttons). */
+  isAnyStarting: boolean;
 }) {
+  const needsInstanceSelect = runtimeInfo && !runtimeInfo.onlyOne;
+  const runningInstances = runtimeInfo?.instances.filter((i) => i.status === "running") ?? [];
+
+  // If the filter points to a specific running instance (not the type name), default to it.
+  const inferredDefault =
+    defaultInstance &&
+    defaultInstance !== runtimeInfo?.typeName &&
+    runningInstances.some((i) => i.name === defaultInstance)
+      ? defaultInstance
+      : "";
+  const [selectedInstance, setSelectedInstance] = useState<string>(inferredDefault);
+
+  const canStart = needsInstanceSelect ? Boolean(selectedInstance) : true;
+
   return (
     <Card className="group transition-colors hover:border-foreground/20">
       <CardHeader className="pb-3">
@@ -219,9 +300,43 @@ function AgentTemplateCard({
         <code className="block truncate rounded bg-muted px-2 py-1.5 text-xs text-muted-foreground">
           {template.spawn.command} {(template.spawn.args ?? []).join(" ")}
         </code>
-        <Button size="sm" className="w-full" onClick={onStartSession} disabled={isStartingSession}>
-          <PlayIcon data-icon="inline-start" />
-          Start session
+
+        {needsInstanceSelect && (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Runtime instance</label>
+            {runningInstances.length === 0 ? (
+              <p className="text-xs text-muted-foreground/70">
+                No running {runtimeInfo.typeName} instances. Start one from the sidebar.
+              </p>
+            ) : (
+              <Select value={selectedInstance} onValueChange={setSelectedInstance}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Select instance…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {runningInstances.map((inst) => (
+                    <SelectItem key={inst.name} value={inst.name} className="text-xs">
+                      {inst.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+        )}
+
+        <Button
+          size="sm"
+          className="w-full"
+          onClick={() => onStartSession(needsInstanceSelect ? selectedInstance : undefined)}
+          disabled={isAnyStarting || !canStart}
+        >
+          {isStartingSession ? (
+            <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
+          ) : (
+            <PlayIcon data-icon="inline-start" />
+          )}
+          {isStartingSession ? "Starting…" : "Start session"}
         </Button>
       </CardContent>
     </Card>

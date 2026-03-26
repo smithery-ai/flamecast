@@ -1,4 +1,3 @@
-/* oxlint-disable no-type-assertion/no-type-assertion */
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,12 +47,34 @@ function resolveSessionHostBinary(): string {
 // Constants
 // ---------------------------------------------------------------------------
 
-const CONTAINER_PORT = "8080";
 const CONTAINER_BIN_PATH = "/usr/local/bin/session-host";
 const JSON_HEADERS = { "Content-Type": "application/json" };
+const DEFAULT_MAX_SESSIONS = 20;
+const DEFAULT_BASE_PORT = 9000;
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
+}
+
+// ---------------------------------------------------------------------------
+// Internal types
+// ---------------------------------------------------------------------------
+
+interface PortSlot {
+  containerPort: number;
+  hostPort: number;
+  inUse: boolean;
+}
+
+interface InstanceEntry {
+  containerId: string;
+  ports: PortSlot[];
+}
+
+interface SessionEntry {
+  instanceName: string;
+  containerPort: number;
+  hostPort: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,27 +82,161 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 // ---------------------------------------------------------------------------
 
 /**
- * DockerRuntime — spawns a new container per session.
+ * DockerRuntime — one Docker container per runtime instance.
  *
- * Bind-mounts the session-host static Go binary into any user-provided base
- * image. The binary is statically linked and has zero dependencies, so it
- * works on any Linux distro (Debian, Alpine, Ubuntu, etc.) without requiring
- * Node.js or any other runtime.
+ * When `start(instanceId)` is called, a container is created with the base
+ * image and a pre-allocated port range. Sessions are started inside the
+ * container via `docker exec`, each running its own session-host binary on a
+ * unique port.
  *
- * This avoids:
- *   - Dockerfile generation overhead
- *   - CMD/entrypoint conflicts with user images
- *   - Runtime dependencies in the base image
+ * `pause(instanceId)` freezes the container (and all session-hosts inside it).
+ * `stop(instanceId)` tears down the container entirely.
  */
 export class DockerRuntime implements Runtime {
   private readonly baseImage: string;
   private readonly docker: Docker;
-  private readonly containers = new Map<string, { containerId: string; port: number }>();
+  private readonly maxSessions: number;
+  private readonly basePort: number;
 
-  constructor(opts?: { baseImage?: string; docker?: Docker }) {
+  /** instanceName → Docker container + port pool */
+  private readonly instances = new Map<string, InstanceEntry>();
+  /** sessionId → which instance + assigned port */
+  private readonly sessions = new Map<string, SessionEntry>();
+
+  constructor(opts?: {
+    baseImage?: string;
+    docker?: Docker;
+    maxSessionsPerInstance?: number;
+    baseContainerPort?: number;
+  }) {
     this.baseImage = opts?.baseImage ?? "node:22-slim";
     this.docker = opts?.docker ?? new Docker();
+    this.maxSessions = opts?.maxSessionsPerInstance ?? DEFAULT_MAX_SESSIONS;
+    this.basePort = opts?.baseContainerPort ?? DEFAULT_BASE_PORT;
   }
+
+  // ---------------------------------------------------------------------------
+  // Instance lifecycle
+  // ---------------------------------------------------------------------------
+
+  async start(instanceId: string): Promise<void> {
+    const existing = this.instances.get(instanceId);
+    if (existing) {
+      // Resume a paused or stopped container
+      const container = this.docker.getContainer(existing.containerId);
+      const info = await container.inspect();
+      if (info.State.Paused) {
+        await container.unpause();
+      } else if (!info.State.Running) {
+        await container.start();
+      }
+      return;
+    }
+
+    // Create a new container for this instance
+    const binaryPath = resolveSessionHostBinary();
+    await this.ensureImage(this.baseImage);
+
+    const exposedPorts: Record<string, Record<string, never>> = {};
+    const portBindings: Record<string, Array<{ HostPort: string }>> = {};
+    for (let i = 0; i < this.maxSessions; i++) {
+      const key = `${this.basePort + i}/tcp`;
+      exposedPorts[key] = {};
+      portBindings[key] = [{ HostPort: "0" }];
+    }
+
+    const container = await this.docker.createContainer({
+      Image: this.baseImage,
+      Cmd: ["tail", "-f", "/dev/null"],
+      ExposedPorts: exposedPorts,
+      Env: ["RUNTIME_SETUP_ENABLED=1"],
+      HostConfig: {
+        Binds: [`${binaryPath}:${CONTAINER_BIN_PATH}:ro`],
+        PortBindings: portBindings,
+      },
+      WorkingDir: "/workspace",
+      Labels: { "flamecast.instance": instanceId },
+    });
+
+    await container.start();
+    const info = await container.inspect();
+
+    if (!info.State.Running) {
+      const logs = await container.logs({ stdout: true, stderr: true, tail: 20 });
+      await container.remove().catch(() => {});
+      throw new Error(
+        `Container exited immediately (code=${info.State.ExitCode}). Logs:\n${logs.toString()}`,
+      );
+    }
+
+    const ports: PortSlot[] = [];
+    for (let i = 0; i < this.maxSessions; i++) {
+      const containerPort = this.basePort + i;
+      const binding = info.NetworkSettings.Ports[`${containerPort}/tcp`];
+      const hostPort = parseInt(binding?.[0]?.HostPort ?? "0", 10);
+      if (hostPort) {
+        ports.push({ containerPort, hostPort, inUse: false });
+      }
+    }
+
+    this.instances.set(instanceId, { containerId: container.id, ports });
+    console.log(
+      `[DockerRuntime] Instance "${instanceId}" started (container=${container.id.slice(0, 12)}, ${ports.length} ports)`,
+    );
+  }
+
+  async stop(instanceId: string): Promise<void> {
+    const inst = this.instances.get(instanceId);
+    if (!inst) return;
+
+    // Clean up session tracking for this instance
+    for (const [sid, session] of this.sessions) {
+      if (session.instanceName === instanceId) {
+        this.sessions.delete(sid);
+      }
+    }
+
+    try {
+      const container = this.docker.getContainer(inst.containerId);
+      await container.kill().catch(() => {});
+      await container.remove().catch(() => {});
+    } catch {
+      // Container may already be gone
+    }
+
+    this.instances.delete(instanceId);
+    console.log(`[DockerRuntime] Instance "${instanceId}" stopped`);
+  }
+
+  async pause(instanceId: string): Promise<void> {
+    const inst = this.instances.get(instanceId);
+    if (!inst) throw new Error(`Instance "${instanceId}" not found`);
+
+    const container = this.docker.getContainer(inst.containerId);
+    await container.pause();
+    console.log(`[DockerRuntime] Instance "${instanceId}" paused`);
+  }
+
+  async getInstanceStatus(
+    instanceId: string,
+  ): Promise<"running" | "stopped" | "paused" | undefined> {
+    const inst = this.instances.get(instanceId);
+    if (!inst) return undefined;
+
+    try {
+      const container = this.docker.getContainer(inst.containerId);
+      const info = await container.inspect();
+      if (info.State.Paused) return "paused";
+      if (info.State.Running) return "running";
+      return "stopped";
+    } catch {
+      return undefined;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Session handling
+  // ---------------------------------------------------------------------------
 
   async fetchSession(sessionId: string, request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -99,9 +254,16 @@ export class DockerRuntime implements Runtime {
   }
 
   getRuntimeMeta(sessionId: string): Record<string, unknown> | null {
-    const entry = this.containers.get(sessionId);
-    if (!entry) return null;
-    return { containerId: entry.containerId, port: entry.port };
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+
+    const inst = this.instances.get(session.instanceName);
+    return {
+      instanceName: session.instanceName,
+      containerId: inst?.containerId,
+      containerPort: session.containerPort,
+      hostPort: session.hostPort,
+    };
   }
 
   async reconnect(
@@ -109,20 +271,46 @@ export class DockerRuntime implements Runtime {
     runtimeMeta: Record<string, unknown> | null,
   ): Promise<boolean> {
     if (!runtimeMeta) return false;
-    const containerId = runtimeMeta.containerId as string | undefined;
-    const port = runtimeMeta.port as number | undefined;
-    if (!containerId || !port) return false;
+    const instanceName =
+      typeof runtimeMeta.instanceName === "string" ? runtimeMeta.instanceName : undefined;
+    const containerId =
+      typeof runtimeMeta.containerId === "string" ? runtimeMeta.containerId : undefined;
+    const containerPort =
+      typeof runtimeMeta.containerPort === "number" ? runtimeMeta.containerPort : undefined;
+    const hostPort = typeof runtimeMeta.hostPort === "number" ? runtimeMeta.hostPort : undefined;
+    if (!instanceName || !containerId || !containerPort || !hostPort) return false;
 
     try {
-      const container = this.docker.getContainer(containerId);
-      const info = await container.inspect();
-      if (!info.State.Running) return false;
+      // Ensure instance is tracked
+      if (!this.instances.has(instanceName)) {
+        const container = this.docker.getContainer(containerId);
+        const info = await container.inspect();
+        if (!info.State.Running && !info.State.Paused) return false;
 
-      // Verify the session-host inside the container is responsive
-      const resp = await fetch(`http://localhost:${port}/health`).catch(() => null);
+        // Reconstruct port pool from container info
+        const ports: PortSlot[] = [];
+        for (let i = 0; i < this.maxSessions; i++) {
+          const cp = this.basePort + i;
+          const binding = info.NetworkSettings.Ports[`${cp}/tcp`];
+          const hp = parseInt(binding?.[0]?.HostPort ?? "0", 10);
+          if (hp) {
+            ports.push({ containerPort: cp, hostPort: hp, inUse: false });
+          }
+        }
+        this.instances.set(instanceName, { containerId, ports });
+      }
+
+      // Verify session-host is responsive
+      const resp = await fetch(`http://localhost:${hostPort}/health`).catch(() => null);
       if (!resp?.ok) return false;
 
-      this.containers.set(sessionId, { containerId, port });
+      // Mark the port as in use
+      const inst = this.instances.get(instanceName);
+      if (!inst) return false;
+      const slot = inst.ports.find((p) => p.containerPort === containerPort);
+      if (slot) slot.inUse = true;
+
+      this.sessions.set(sessionId, { instanceName, containerPort, hostPort });
       return true;
     } catch {
       return false;
@@ -130,14 +318,10 @@ export class DockerRuntime implements Runtime {
   }
 
   async dispose(): Promise<void> {
-    await Promise.allSettled(
-      [...this.containers.values()].map(async (entry) => {
-        const c = this.docker.getContainer(entry.containerId);
-        await c.kill().catch(() => {});
-        await c.remove().catch(() => {});
-      }),
-    );
-    this.containers.clear();
+    const instanceNames = [...this.instances.keys()];
+    await Promise.allSettled(instanceNames.map((name) => this.stop(name)));
+    this.instances.clear();
+    this.sessions.clear();
   }
 
   // ---------------------------------------------------------------------------
@@ -145,63 +329,62 @@ export class DockerRuntime implements Runtime {
   // ---------------------------------------------------------------------------
 
   private async handleStart(sessionId: string, request: Request): Promise<Response> {
-    if (this.containers.has(sessionId)) {
+    if (this.sessions.has(sessionId)) {
       return jsonResponse({ error: `Session "${sessionId}" already exists` }, 409);
     }
 
     try {
-      const parsed = JSON.parse(await request.text()) as Record<string, unknown>;
-      const binaryPath = resolveSessionHostBinary();
+      const parsed: Record<string, unknown> = JSON.parse(await request.text());
+      const instanceName =
+        typeof parsed.instanceName === "string" ? parsed.instanceName : undefined;
 
-      console.log(
-        `[DockerRuntime] Starting container (image=${this.baseImage}, binary=${binaryPath})`,
-      );
-
-      await this.ensureImage(this.baseImage);
-
-      const container = await this.docker.createContainer({
-        Image: this.baseImage,
-        Cmd: [CONTAINER_BIN_PATH],
-        ExposedPorts: { [`${CONTAINER_PORT}/tcp`]: {} },
-        Env: [`SESSION_HOST_PORT=${CONTAINER_PORT}`, "RUNTIME_SETUP_ENABLED=1"],
-        HostConfig: {
-          Binds: [`${binaryPath}:${CONTAINER_BIN_PATH}:ro`],
-          PortBindings: { [`${CONTAINER_PORT}/tcp`]: [{ HostPort: "0" }] },
-        },
-        WorkingDir: "/workspace",
-      });
-
-      await container.start();
-
-      const info = await container.inspect();
-
-      // Check if the container is actually running
-      if (!info.State.Running) {
-        const logs = await container.logs({ stdout: true, stderr: true, tail: 20 });
-        await container.remove().catch(() => {});
-        throw new Error(
-          `Container exited immediately (code=${info.State.ExitCode}). ` +
-            `Logs:\n${logs.toString()}`,
+      if (!instanceName) {
+        return jsonResponse(
+          { error: "Missing instanceName — create a runtime instance first" },
+          400,
         );
       }
 
-      const portBindings = info.NetworkSettings.Ports[`${CONTAINER_PORT}/tcp`];
-      const port = parseInt(portBindings?.[0]?.HostPort ?? "0", 10);
-
-      if (!port) {
-        const logs = await container.logs({ stdout: true, stderr: true, tail: 20 });
-        await container.kill().catch(() => {});
-        await container.remove().catch(() => {});
-        throw new Error(`Failed to get container port. Logs:\n${logs.toString()}`);
+      const inst = this.instances.get(instanceName);
+      if (!inst) {
+        return jsonResponse({ error: `Runtime instance "${instanceName}" not found` }, 404);
       }
 
-      this.containers.set(sessionId, { containerId: container.id, port });
-      await this.waitForReady(port);
+      // Allocate a port
+      const slot = inst.ports.find((p) => !p.inUse);
+      if (!slot) {
+        return jsonResponse(
+          {
+            error: `No available ports in instance "${instanceName}" (max ${this.maxSessions} sessions)`,
+          },
+          503,
+        );
+      }
 
-      // Override workspace to the container's agent workspace.
+      // Exec session-host inside the container
+      const container = this.docker.getContainer(inst.containerId);
+      const exec = await container.exec({
+        Cmd: [CONTAINER_BIN_PATH],
+        Env: [`SESSION_HOST_PORT=${slot.containerPort}`],
+        AttachStdout: false,
+        AttachStderr: false,
+      });
+      await exec.start({ Detach: true });
+
+      slot.inUse = true;
+      this.sessions.set(sessionId, {
+        instanceName,
+        containerPort: slot.containerPort,
+        hostPort: slot.hostPort,
+      });
+
+      await this.waitForReady(slot.hostPort);
+
+      // Forward to session-host (strip instanceName, override workspace)
       parsed.workspace = "/workspace";
+      delete parsed.instanceName;
 
-      const resp = await fetch(`http://localhost:${port}/start`, {
+      const resp = await fetch(`http://localhost:${slot.hostPort}/start`, {
         method: "POST",
         headers: JSON_HEADERS,
         body: JSON.stringify(parsed),
@@ -219,47 +402,45 @@ export class DockerRuntime implements Runtime {
         throw new Error(`SessionHost /start failed (${resp.status}): ${result.error ?? text}`);
       }
 
-      result.hostUrl = `http://localhost:${port}`;
-      result.websocketUrl = `ws://localhost:${port}`;
+      result.hostUrl = `http://localhost:${slot.hostPort}`;
+      result.websocketUrl = `ws://localhost:${slot.hostPort}`;
 
       return new Response(JSON.stringify(result), {
         status: resp.status,
         headers: JSON_HEADERS,
       });
     } catch (err) {
-      const leaked = this.containers.get(sessionId);
-      this.containers.delete(sessionId);
-      if (leaked) {
-        const c = this.docker.getContainer(leaked.containerId);
-        await c.kill().catch(() => {});
-        await c.remove().catch(() => {});
+      // Clean up on failure
+      const session = this.sessions.get(sessionId);
+      if (session) {
+        const inst = this.instances.get(session.instanceName);
+        const slot = inst?.ports.find((p) => p.containerPort === session.containerPort);
+        if (slot) slot.inUse = false;
+        this.sessions.delete(sessionId);
       }
       return jsonResponse(
-        { error: err instanceof Error ? err.message : "Failed to start container" },
+        { error: err instanceof Error ? err.message : "Failed to start session" },
         500,
       );
     }
   }
 
   private async handleTerminate(sessionId: string, path: string): Promise<Response> {
-    const entry = this.containers.get(sessionId);
-    if (!entry) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
       return jsonResponse({ error: `Session "${sessionId}" not found` }, 404);
     }
 
-    const resp = await fetch(`http://localhost:${entry.port}${path}`, {
+    const resp = await fetch(`http://localhost:${session.hostPort}${path}`, {
       method: "POST",
       headers: JSON_HEADERS,
     });
 
-    try {
-      const c = this.docker.getContainer(entry.containerId);
-      await c.kill().catch(() => {});
-      await c.remove().catch(() => {});
-    } catch {
-      // Container may already be stopped
-    }
-    this.containers.delete(sessionId);
+    // Free the port
+    const inst = this.instances.get(session.instanceName);
+    const slot = inst?.ports.find((p) => p.containerPort === session.containerPort);
+    if (slot) slot.inUse = false;
+    this.sessions.delete(sessionId);
 
     return new Response(await resp.text(), {
       status: resp.status,
@@ -268,13 +449,13 @@ export class DockerRuntime implements Runtime {
   }
 
   private async proxyRequest(sessionId: string, path: string, request: Request): Promise<Response> {
-    const entry = this.containers.get(sessionId);
-    if (!entry) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
       return jsonResponse({ error: `Session "${sessionId}" not found` }, 404);
     }
 
     const body = request.method !== "GET" ? await request.text() : undefined;
-    const resp = await fetch(`http://localhost:${entry.port}${path}`, {
+    const resp = await fetch(`http://localhost:${session.hostPort}${path}`, {
       method: request.method,
       headers: JSON_HEADERS,
       body,
@@ -324,6 +505,6 @@ export class DockerRuntime implements Runtime {
       }
       await new Promise((r) => setTimeout(r, 300));
     }
-    throw new Error(`SessionHost container not ready after ${timeoutMs}ms`);
+    throw new Error(`SessionHost not ready after ${timeoutMs}ms`);
   }
 }

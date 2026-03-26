@@ -2,10 +2,11 @@ import { and, asc, desc, eq, inArray, not } from "drizzle-orm";
 import type {
   AgentTemplate,
   FlamecastStorage,
+  RuntimeInstance,
   SessionMeta,
   SessionRuntimeInfo,
 } from "@flamecast/sdk";
-import { agentTemplates, sessions } from "./schema.js";
+import { agentTemplates, runtimeInstances, sessions } from "./schema.js";
 import type { PsqlAppDb } from "./types.js";
 
 function rowToMeta(row: typeof sessions.$inferSelect | undefined): SessionMeta | null {
@@ -19,6 +20,7 @@ function rowToMeta(row: typeof sessions.$inferSelect | undefined): SessionMeta |
     lastUpdatedAt: row.lastUpdatedAt,
     status,
     pendingPermission: row.pendingPermission,
+    runtime: row.runtime ?? undefined,
   };
 }
 
@@ -136,6 +138,7 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
         websocketUrl: runtimeInfo?.websocketUrl ?? null,
         runtimeName: runtimeInfo?.runtimeName ?? null,
         runtimeMeta: runtimeInfo?.runtimeMeta ?? null,
+        runtime: meta.runtime ?? null,
       });
     },
 
@@ -186,6 +189,36 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
 
     async finalizeSession(id: string, _reason: "terminated") {
       await db.update(sessions).set({ status: "killed" }).where(eq(sessions.id, id));
+    },
+
+    async saveRuntimeInstance(instance: RuntimeInstance) {
+      await db
+        .insert(runtimeInstances)
+        .values({
+          name: instance.name,
+          typeName: instance.typeName,
+          status: instance.status,
+        })
+        .onConflictDoUpdate({
+          target: runtimeInstances.name,
+          set: {
+            typeName: instance.typeName,
+            status: instance.status,
+          },
+        });
+    },
+
+    async listRuntimeInstances() {
+      const rows = await db.select().from(runtimeInstances);
+      return rows.map((row) => {
+        const status =
+          row.status === "stopped" ? "stopped" : row.status === "paused" ? "paused" : "running";
+        return { name: row.name, typeName: row.typeName, status };
+      });
+    },
+
+    async deleteRuntimeInstance(name: string) {
+      await db.delete(runtimeInstances).where(eq(runtimeInstances.name, name));
     },
   };
 }

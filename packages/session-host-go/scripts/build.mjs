@@ -2,43 +2,24 @@
 /**
  * postinstall script — builds the Go session-host binary for Linux.
  *
- * Always targets linux (since the binary runs inside Docker containers),
- * and builds for the host's CPU architecture by default.
- * Fails with a clear error if Go is not installed.
+ * Builds for BOTH amd64 and arm64 so that runtimes targeting different
+ * architectures (e.g. Docker on Apple Silicon = arm64, E2B = amd64) can
+ * each resolve the correct binary.
+ *
+ * Output:
+ *   dist/session-host        — host arch (default for DockerRuntime)
+ *   dist/session-host-amd64  — always amd64
+ *   dist/session-host-arm64  — always arm64
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readSync, closeSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { arch } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
-const output = join(root, "dist", "session-host");
-
-// Skip if already built for the correct platform (linux)
-if (existsSync(output)) {
-  try {
-    const header = Buffer.alloc(4);
-    const fd = openSync(output, "r");
-    readSync(fd, header, 0, 4, 0);
-    closeSync(fd);
-    const isELF =
-      header[0] === 0x7f && header[1] === 0x45 && header[2] === 0x4c && header[3] === 0x46;
-    if (isELF) {
-      if (process.env.SKIP_BUILD) {
-        console.log("[session-host-go] binary already exists (ELF), skipping build");
-        process.exit(0);
-      } else {
-        console.log("[session-host-go] binary already exists (ELF), rebuilding...");
-      }
-    } else {
-      console.log("[session-host-go] binary exists but is not ELF (wrong platform), rebuilding...");
-    }
-  } catch {
-    // Can't read header — rebuild to be safe
-  }
-}
+const distDir = join(root, "dist");
 
 // Check Go is available
 try {
@@ -51,20 +32,33 @@ try {
   process.exit(1);
 }
 
-// Map Node.js arch names to Go arch names
-const goArch = { x64: "amd64", arm64: "arm64" }[arch()] ?? "amd64";
+mkdirSync(distDir, { recursive: true });
 
-mkdirSync(join(root, "dist"), { recursive: true });
+const hostArch = { x64: "amd64", arm64: "arm64" }[arch()] ?? "amd64";
+const archs = ["amd64", "arm64"];
 
-console.log(`[session-host-go] building static binary (linux/${goArch})...`);
-try {
-  execFileSync("go", ["build", "-o", output, "-ldflags=-s -w", "."], {
-    cwd: root,
-    stdio: "inherit",
-    env: { ...process.env, CGO_ENABLED: "0", GOOS: "linux", GOARCH: goArch },
-  });
-  console.log("[session-host-go] ✓ built dist/session-host");
-} catch (err) {
-  console.error("[session-host-go] build failed:", err.message);
-  process.exit(1);
+for (const goArch of archs) {
+  const output = join(distDir, `session-host-${goArch}`);
+  if (existsSync(output) && process.env.SKIP_BUILD) {
+    console.log(`[session-host-go] session-host-${goArch} already exists, skipping`);
+    continue;
+  }
+
+  console.log(`[session-host-go] building static binary (linux/${goArch})...`);
+  try {
+    execFileSync("go", ["build", "-o", output, "-ldflags=-s -w", "."], {
+      cwd: root,
+      stdio: "inherit",
+      env: { ...process.env, CGO_ENABLED: "0", GOOS: "linux", GOARCH: goArch },
+    });
+    console.log(`[session-host-go] ✓ built dist/session-host-${goArch}`);
+  } catch (err) {
+    console.error(`[session-host-go] build failed (${goArch}):`, err.message);
+    process.exit(1);
+  }
 }
+
+// Copy host-arch binary as the default (backwards compat for DockerRuntime)
+const defaultBinary = join(distDir, "session-host");
+copyFileSync(join(distDir, `session-host-${hostArch}`), defaultBinary);
+console.log(`[session-host-go] ✓ dist/session-host -> session-host-${hostArch} (default)`);

@@ -29,6 +29,7 @@ export class SessionService {
       spawn: AgentSpawn;
       cwd: string;
       runtime: AgentTemplateRuntime;
+      runtimeInstance?: string;
       startedAt: string;
       callbackUrl?: string;
       webhooks?: WebhookConfig[];
@@ -50,6 +51,7 @@ export class SessionService {
       workspace: opts.cwd,
       setup: opts.runtime.setup,
       callbackUrl: opts.callbackUrl,
+      instanceName: opts.runtimeInstance,
     } satisfies SessionHostStartRequest & Record<string, unknown>;
 
     let response: Response;
@@ -93,6 +95,7 @@ export class SessionService {
           lastUpdatedAt: new Date().toISOString(),
           status: "active",
           pendingPermission: null,
+          runtime: opts.runtimeInstance ?? providerName,
         },
         runtimeInfo,
       );
