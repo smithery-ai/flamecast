@@ -28,6 +28,7 @@ import {
   SendIcon,
 } from "lucide-react";
 import type { FileSystemEntry, SessionLog } from "../../shared/session";
+import { FileSystemEntrySchema, PendingPermissionSchema } from "../../shared/session";
 import type { PermissionRequestEvent } from "@flamecast/protocol/session-host";
 import { useFlamecastSession } from "@/client/hooks/use-flamecast-session";
 
@@ -90,25 +91,9 @@ function SessionDetailPage() {
     const pending: PermissionRequestEvent[] = [];
     for (const event of wsEvents) {
       if (event.type === "permission_request") {
-        const d = event.data;
-        if (
-          typeof d.requestId === "string" &&
-          !resolvedIds.has(d.requestId) &&
-          typeof d.toolCallId === "string" &&
-          typeof d.title === "string" &&
-          Array.isArray(d.options)
-        ) {
-          pending.push({
-            requestId: d.requestId,
-            toolCallId: d.toolCallId,
-            title: d.title,
-            kind: typeof d.kind === "string" ? d.kind : undefined,
-            options: d.options.map((opt: Record<string, unknown>) => ({
-              optionId: String(opt.optionId),
-              name: String(opt.name),
-              kind: String(opt.kind),
-            })),
-          });
+        const parsed = PendingPermissionSchema.safeParse(event.data);
+        if (parsed.success && !resolvedIds.has(parsed.data.requestId)) {
+          pending.push(parsed.data);
         }
       }
     }
@@ -133,12 +118,10 @@ function SessionDetailPage() {
     requestFsSnapshot()
       .then((snapshot) => {
         setFileEntries(
-          snapshot.entries.map((e) => ({
-            path: e.path,
-            type: (e.type === "file" || e.type === "directory" || e.type === "symlink"
-              ? e.type
-              : "other") satisfies FileSystemEntry["type"],
-          })),
+          snapshot.entries.flatMap((e) => {
+            const parsed = FileSystemEntrySchema.safeParse(e);
+            return parsed.success ? [parsed.data] : [];
+          }),
         );
         setWorkspaceRoot(snapshot.root);
       })
