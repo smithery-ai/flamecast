@@ -138,6 +138,10 @@ export class Flamecast<
    *  `listen()` function to wire the WS adapter and session-host bridge. */
   readonly eventBus = new EventBus();
 
+  /** Sessions with an active bridge WS connection. Populated by `listen()`.
+   *  Used to skip duplicate EventBus pushes from handleSessionEvent(). */
+  readonly bridgedSessions = new Set<string>();
+
   /** Registered event handlers. */
   readonly handlers: Readonly<FlamecastEventHandlers<R>>;
 
@@ -433,7 +437,7 @@ export class Flamecast<
     //    exists for this session (Node mode) — the bridge already pushes all
     //    events with full fidelity, and double-pushing would create duplicates
     //    with different seq numbers.
-    if (!this.sessionService.getWebsocketUrl(sessionId)) {
+    if (!this.bridgedSessions.has(sessionId)) {
       this.eventBus.pushEvent({
         sessionId,
         agentId: resolveAgentId(sessionId),

@@ -38,7 +38,12 @@ export function listen(
   const bridge = new SessionHostBridge({ eventBus: flamecast.eventBus });
 
   flamecast.eventBus.onSessionCreated((payload) => {
+    flamecast.bridgedSessions.add(payload.sessionId);
     bridge.connect(payload.sessionId, payload.websocketUrl);
+  });
+
+  flamecast.eventBus.onSessionTerminated((payload) => {
+    flamecast.bridgedSessions.delete(payload.sessionId);
   });
 
   const adapter = new WsAdapter({
