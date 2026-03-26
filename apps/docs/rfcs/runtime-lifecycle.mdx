@@ -1,11 +1,11 @@
 ---
 title: "RFC: Runtime lifecycle & instance management"
-description: "Start, stop, and manage named runtime instances with UI visibility and session scoping"
+description: "Start, stop, pause, and manage named runtime instances with UI visibility, session scoping, and server restart recovery"
 tag: "RFC"
 ---
 
 <Info>
-  This is a design proposal, not a shipped feature. Feedback is welcome on [GitHub](https://github.com/anthropics/flamecast).
+  This RFC reflects the current implementation on the `feat/runtime-lifecycle` branch.
 </Info>
 
 ## Background
@@ -17,40 +17,75 @@ const fc = new Flamecast({
   runtimes: {
     default: new NodeRuntime(),
     docker: new DockerRuntime(),
+    e2b: new E2BRuntime({ apiKey: process.env.E2B_API_KEY }),
   },
 });
 ```
 
-Runtimes handle session lifecycle — starting agent processes, routing HTTP/WS traffic, and tearing down containers. But they are passive: always-on, invisible to the UI, and limited to a single logical instance per registered name.
+Runtimes handle session lifecycle — starting agent processes, routing HTTP/WS traffic, and tearing down containers or sandboxes. Previously they were passive: always-on, invisible to the UI, and limited to a single logical instance per registered name.
 
 ## Problem
 
-1. **No lifecycle management.** Runtimes are always-on with no start/stop semantics. You can't spin up a Docker environment on demand or shut one down to reclaim resources.
+1. **No lifecycle management.** Runtimes were always-on with no start/stop semantics. You couldn't spin up a Docker environment on demand or shut one down to reclaim resources.
 
-2. **No UI visibility.** The dashboard shows sessions and templates, but has no concept of runtimes. Operators can't see which runtimes are available, which are running, or what sessions belong to which runtime.
+2. **No UI visibility.** The dashboard showed sessions and templates, but had no concept of runtimes. Operators couldn't see which runtimes were available, which were running, or what sessions belonged to which runtime.
 
-3. **Single instance per type.** Each registered name maps to exactly one runtime object. You can't run multiple Docker environments (e.g., `staging` and `prod`) from the same `DockerRuntime` without registering them as separate keys at construction time.
+3. **Single instance per type.** Each registered name mapped to exactly one runtime object. You couldn't run multiple Docker environments (e.g., `staging` and `prod`) from the same `DockerRuntime`.
 
-4. **No session scoping.** Sessions don't track which runtime instance they belong to. There's no way to filter the UI to "show me only the sessions running on staging" or deep-link to a runtime-specific view.
+4. **No session scoping.** Sessions didn't track which runtime instance they belonged to. There was no way to filter the UI to "show me only the sessions running on staging".
 
-## Proposed solution
+## Solution
 
-### Runtime interface changes
+### Architecture: container/sandbox-per-instance
 
-Add optional lifecycle methods and a single-instance flag to the `Runtime` interface:
+Multi-instance runtimes (Docker, E2B) follow a **container-per-instance** model:
+
+- **`start(instanceId)`** creates a long-lived container (Docker) or sandbox (E2B) with pre-allocated ports and the session-host Go binary.
+- **Sessions** are processes *inside* that container/sandbox, started via `docker exec` or `sandbox.commands.run()`.
+- **`pause(instanceId)`** freezes the container/sandbox, suspending all sessions without terminating them.
+- **`stop(instanceId)`** kills the container/sandbox entirely.
+
+```
+┌─────────────────────────────────────────┐
+│  Runtime Instance "staging"             │
+│  (Docker container / E2B sandbox)       │
+│                                         │
+│  ┌──────────┐  ┌──────────┐             │
+│  │ session-  │  │ session-  │            │
+│  │ host :9000│  │ host :9001│  ...       │
+│  └──────────┘  └──────────┘             │
+│                                         │
+│  session-host binary (Go, static)       │
+│  Pre-allocated port pool (20 ports)     │
+└─────────────────────────────────────────┘
+```
+
+### Runtime interface
 
 ```typescript
 export interface Runtime<TConfig extends Record<string, unknown> = {}> {
-  /** If true, only a single instance is allowed (e.g., local/node runtimes). Default: false. */
+  /** If true, only a single instance is allowed (e.g., NodeRuntime). Default: false. */
   readonly onlyOne?: boolean;
 
   fetchSession(sessionId: string, request: Request): Promise<Response>;
 
-  /** Start a runtime instance. For multi-instance runtimes, instanceId identifies which instance. */
+  /** Start (or resume) a runtime instance. Creates it if it doesn't exist. */
   start?(instanceId: string): Promise<void>;
 
-  /** Stop a specific runtime instance. */
+  /** Stop a specific runtime instance and tear down its resources. */
   stop?(instanceId: string): Promise<void>;
+
+  /** Pause a runtime instance (sessions survive, resources freeze). */
+  pause?(instanceId: string): Promise<void>;
+
+  /** Query the live status of an instance from the actual runtime. */
+  getInstanceStatus?(instanceId: string): Promise<"running" | "stopped" | "paused" | undefined>;
+
+  /** Return runtime-specific metadata for session recovery after server restart. */
+  getRuntimeMeta?(sessionId: string): Record<string, unknown> | null;
+
+  /** Re-register a previously-running session after a server restart. */
+  reconnect?(sessionId: string, runtimeMeta: Record<string, unknown> | null): Promise<boolean>;
 
   dispose?(): Promise<void>;
 }
@@ -60,33 +95,57 @@ export interface Runtime<TConfig extends Record<string, unknown> = {}> {
 
 | Runtime type | `onlyOne` | Instance naming | Behavior |
 |---|---|---|---|
-| Single-instance (e.g., `NodeRuntime`) | `true` | Instance name = type name (e.g., `"default"`) | `start()`/`stop()` are optional no-ops. One logical instance. |
-| Multi-instance (e.g., `DockerRuntime`) | `false` (default) | User-provided name (e.g., `"staging"`, `"prod"`) | `start("staging")` creates an instance. `stop("staging")` tears down only that instance. |
+| `NodeRuntime` | `true` | Instance name = type name (e.g., `"default"`) | Lifecycle methods are no-ops. One implicit instance. |
+| `DockerRuntime` | `false` | User-provided (e.g., `"staging"`) | Creates a Docker container per instance. Sessions are `docker exec` processes inside. |
+| `E2BRuntime` | `false` | User-provided (e.g., `"e2b-1"`) | Creates an E2B sandbox per instance. Uploads the Go session-host binary. Sessions are processes inside the sandbox. |
 
-Single-instance runtimes (`onlyOne: true`) work exactly as they do today — the lifecycle methods are optional and the instance is implicitly "running" when the server starts.
+### Instance status
 
-### Runtime instance status
-
-Each instance has a status:
+Each instance has a status that is **queried live** from the runtime (Docker API, E2B API), not just read from the database:
 
 | Status | Meaning |
 |---|---|
 | `running` | Instance is active and can accept sessions |
-| `stopped` | Instance has been stopped |
+| `paused` | Instance is frozen (Docker: paused container, E2B: paused sandbox). Sessions survive but are suspended. |
+| `stopped` | Instance has been stopped or is no longer reachable |
+
+`listRuntimes()` calls `runtime.getInstanceStatus()` for each persisted instance and syncs the DB if the live status has drifted (e.g., someone paused via Docker Desktop). If the runtime returns `undefined` for a "running" instance (e.g., after server restart where in-memory state is lost), it's automatically marked as "stopped".
+
+### DockerRuntime internals
+
+- Creates a container with `tail -f /dev/null` as the entrypoint (keeps it alive)
+- Bind-mounts the session-host Go binary as read-only
+- Pre-allocates a port range (default: 20 ports starting at 9000) with ephemeral host port mapping
+- `handleStart()` reads `instanceName` from the request body, allocates a port, and runs `docker exec` with the session-host binary
+- `pause()` calls `container.pause()`, `start()` on a paused instance calls `container.unpause()`
+- `getInstanceStatus()` inspects the actual Docker container state
+
+### E2BRuntime internals
+
+- Creates a sandbox from the `"base"` template (or configurable)
+- Uploads the session-host Go binary via `sandbox.files.write()` (always uses the **amd64** binary since E2B sandboxes are x86_64)
+- Pre-allocates a port pool (default: 20 ports starting at 9000)
+- `handleStart()` runs the binary via `sandbox.commands.run()` in background
+- Uses `sandbox.getHost(port)` for HTTPS port forwarding (no host port binding needed)
+- `pause()` calls `Sandbox.pause()`, `start()` on a paused instance uses `Sandbox.connect()` which auto-resumes
+- `getInstanceStatus()` uses `Sandbox.getFullInfo()` to query sandbox state
+
+**Cross-compilation:** The session-host Go binary is built for both `linux/amd64` and `linux/arm64`. DockerRuntime uses the host architecture binary; E2BRuntime always uses `amd64`.
 
 ### Flamecast lifecycle API
-
-Three new methods on the `Flamecast` class:
 
 ```typescript
 class Flamecast {
   /** Start a runtime instance. For onlyOne types, instanceName defaults to typeName. */
   async startRuntime(typeName: string, instanceName?: string): Promise<RuntimeInstance>;
 
-  /** Stop a runtime instance. Terminates all sessions on that instance first. */
+  /** Stop a runtime instance. Terminates all active sessions on it first. */
   async stopRuntime(instanceName: string): Promise<void>;
 
-  /** List all runtime types with their instances and statuses. */
+  /** Pause a runtime instance (if the runtime supports it). */
+  async pauseRuntime(instanceName: string): Promise<void>;
+
+  /** List all runtime types with their instances and live statuses. */
   async listRuntimes(): Promise<RuntimeInfo[]>;
 }
 ```
@@ -97,7 +156,7 @@ Types:
 interface RuntimeInstance {
   name: string;
   typeName: string;
-  status: "running" | "stopped";
+  status: "running" | "stopped" | "paused";
 }
 
 interface RuntimeInfo {
@@ -107,23 +166,36 @@ interface RuntimeInfo {
 }
 ```
 
+### Session scoping
+
+Sessions have a `runtime` field recording which runtime instance they belong to. The `instanceName` is passed in the `/start` request body from the `SessionService` so the runtime knows which container/sandbox to exec into.
+
+```typescript
+interface Session {
+  // ... existing fields ...
+  runtime?: string;  // runtime instance name
+}
+```
+
+When creating a session, the client can specify `runtimeInstance` to target a specific instance:
+
+```typescript
+await flamecast.createSession({
+  agentTemplateId: "docker-agent",
+  runtimeInstance: "staging",
+});
+```
+
 ### Persistence
 
-Runtime instance state is persisted via the storage interface so statuses survive server restarts.
+Runtime instance state is persisted via the storage interface.
 
 **Storage additions:**
 
 ```typescript
 interface FlamecastStorage {
-  // ... existing methods ...
-
-  /** Save or update a runtime instance record. */
   saveRuntimeInstance(instance: RuntimeInstance): Promise<void>;
-
-  /** List all runtime instances. */
   listRuntimeInstances(): Promise<RuntimeInstance[]>;
-
-  /** Delete a runtime instance record. */
   deleteRuntimeInstance(name: string): Promise<void>;
 }
 ```
@@ -138,28 +210,14 @@ CREATE TABLE flamecast.runtime_instances (
 );
 ```
 
-On server restart, instances with `status = 'running'` are re-started via `runtime.start(instanceId)`.
-
-### Session scoping
-
-Sessions gain a `runtime` field that records which runtime instance they belong to:
-
-```typescript
-interface Session {
-  // ... existing fields ...
-  runtime?: string;  // runtime instance name
-}
-```
-
-This field is set when the session is created (derived from the template's `runtime.provider` or the resolved runtime). It enables filtering sessions by runtime instance in the UI and API.
-
 ### REST API
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/runtimes` | List runtime types with instances |
+| `GET` | `/api/runtimes` | List runtime types with instances and live statuses |
 | `POST` | `/api/runtimes/:typeName/start` | Start an instance. Body: `{ name?: string }` |
-| `POST` | `/api/runtimes/:instanceName/stop` | Stop an instance |
+| `POST` | `/api/runtimes/:instanceName/stop` | Stop an instance (terminates sessions first) |
+| `POST` | `/api/runtimes/:instanceName/pause` | Pause an instance |
 
 **`GET /api/runtimes` response:**
 
@@ -168,64 +226,70 @@ This field is set when the session is created (derived from the template's `runt
   {
     "typeName": "default",
     "onlyOne": true,
-    "instances": [
-      { "name": "default", "typeName": "default", "status": "running" }
-    ]
+    "instances": []
   },
   {
     "typeName": "docker",
     "onlyOne": false,
     "instances": [
       { "name": "staging", "typeName": "docker", "status": "running" },
-      { "name": "prod", "typeName": "docker", "status": "stopped" }
+      { "name": "prod", "typeName": "docker", "status": "paused" }
+    ]
+  },
+  {
+    "typeName": "e2b",
+    "onlyOne": false,
+    "instances": [
+      { "name": "e2b-1", "typeName": "e2b", "status": "running" }
     ]
   }
 ]
 ```
 
-**`POST /api/runtimes/docker/start` request:**
-
-```json
-{ "name": "staging" }
-```
-
-For `onlyOne` runtimes, `name` is omitted and defaults to the type name.
-
-**`POST /api/runtimes/staging/stop` response:**
-
-```json
-{ "ok": true }
-```
-
-Stopping an instance terminates all active sessions on that instance before calling `runtime.stop()`.
-
-### UI changes
-
-The sidebar gains a "Runtimes" group above the sessions list:
-
-- **`onlyOne` types** show a play/stop toggle button
-- **Multi-instance types** show a "+" button to create a named instance, and each instance has its own stop button
-- **Clicking an instance** filters the sessions list and templates page to only show items scoped to that runtime
-- **`?runtime=X`** URL parameter enables deep linking to a runtime-filtered view
-
 ### Client SDK
-
-Three new methods on the client:
 
 ```typescript
 interface FlamecastClient {
-  // ... existing methods ...
-
   fetchRuntimes(): Promise<RuntimeInfo[]>;
   startRuntime(typeName: string, name?: string): Promise<RuntimeInstance>;
   stopRuntime(instanceName: string): Promise<void>;
+  pauseRuntime(instanceName: string): Promise<void>;
 }
 ```
 
-## Open questions
+### UI
 
-1. **Session cleanup on stop.** When a runtime instance is stopped, should all sessions be terminated immediately, or should new session creation be blocked while existing sessions drain? The current proposal terminates all sessions.
+The sidebar has a **Runtimes** group above the sessions list:
 
-2. **Per-instance config.** Should multi-instance runtimes accept per-instance configuration at `start()` time, or do all instances share the config from the constructor? For example, should `start("staging", { memory: "4g" })` be possible?
+- **`onlyOne` types** (e.g., `default`): clickable label that filters sessions, no lifecycle controls
+- **Multi-instance types** (e.g., `docker`, `e2b`): "+" button to create a named instance
+  - **Running instances**: pause (⏸) and stop (⏹) buttons on hover
+  - **Paused instances**: yellow badge + play (▶) button to resume
+  - **Stopped instances**: gray badge + play (▶) button to restart
+  - **Loading states**: spinner replaces icon during in-flight actions
+  - **Error handling**: toast notifications via Sonner on action failures
+- **Clicking an instance** filters sessions and templates to that runtime
+- **`?runtime=X`** URL parameter for deep linking
 
-3. **Routing for multi-instance runtimes.** Should `fetchSession()` for multi-instance runtimes route based on a session→instance mapping maintained by the control plane, or should each instance be a separate runtime object? The current proposal keeps a single runtime object per type and passes the instance ID through.
+**Session creation** on the templates page:
+
+- Multi-instance templates show a runtime instance dropdown (only running instances)
+- "Start session" button shows a spinner while creating
+- Toast error on creation failure with the actual error message
+
+### Server restart recovery
+
+After a server restart:
+
+1. **Runtime instances**: `listRuntimes()` queries live status via `getInstanceStatus()`. If the runtime has no in-memory state for a "running" instance (lost on restart), it's automatically marked "stopped" in the DB.
+2. **Sessions**: `recoverSessions()` attempts to reconnect to still-running session-hosts via `runtime.reconnect()`, which checks process health and re-registers the session in the runtime's internal maps.
+
+## Resolved questions
+
+1. **Session cleanup on stop.** All active sessions on the instance are terminated before calling `runtime.stop()`.
+
+2. **Per-instance config.** All instances share the config from the constructor. Per-instance config is not supported yet.
+
+3. **Routing for multi-instance runtimes.** A single runtime object per type manages all instances internally. The `instanceName` is passed through the `/start` request body so the runtime knows which container/sandbox to target. `fetchSession()` routes based on the runtime's internal session→instance mapping.
+
+4. **Architecture mismatch.** The session-host Go binary is cross-compiled for both amd64 and arm64. Each runtime resolves the appropriate binary for its target platform.
