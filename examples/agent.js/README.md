@@ -114,7 +114,7 @@ Start the worker with Wrangler:
 pnpm --filter @flamecast/agent-js dev
 ```
 
-This runs the worker locally at `http://127.0.0.1:8787`.
+This runs the worker locally at `http://127.0.0.1:8788`.
 
 Useful endpoints:
 
@@ -153,7 +153,7 @@ pnpm --filter @flamecast/agent-js dev
 Then start Flamecast with the worker URL registered:
 
 ```bash
-FLAMECAST_AGENT_JS_BASE_URL=http://127.0.0.1:8787 pnpm dev
+FLAMECAST_AGENT_JS_BASE_URL=http://127.0.0.1:8788 pnpm dev
 ```
 
 `agentjs` is only registered when `FLAMECAST_AGENT_JS_BASE_URL` is set. That keeps the default Flamecast runtime list generic.
