@@ -310,6 +310,24 @@ export class Flamecast<
       const detail = await response.text().catch(() => "(unreadable)");
       throw new Error(`Permission resolve failed (${response.status}): ${detail}`);
     }
+
+    // The session host's HTTP permission endpoint does not emit a resolution
+    // event back through the callback, so push one to the event bus so that
+    // WS clients can track which permissions have been resolved.
+    const eventType =
+      "outcome" in body && body.outcome === "cancelled"
+        ? "permission_cancelled"
+        : "permission_responded";
+    this.eventBus.pushEvent({
+      sessionId,
+      agentId: resolveAgentId(sessionId),
+      event: {
+        type: eventType,
+        data: { requestId, ...body },
+        timestamp: new Date().toISOString(),
+      },
+    });
+
     return response.json();
   }
 

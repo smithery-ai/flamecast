@@ -95,7 +95,7 @@ const PendingPermissionOptionSchema = z.object({
   kind: z.string(),
 }) satisfies z.ZodType<PendingPermissionOption>;
 
-const PendingPermissionSchema = z.object({
+export const PendingPermissionSchema = z.object({
   requestId: z.string(),
   toolCallId: z.string(),
   title: z.string(),
@@ -103,7 +103,7 @@ const PendingPermissionSchema = z.object({
   options: z.array(PendingPermissionOptionSchema),
 }) satisfies z.ZodType<PendingPermission>;
 
-const FileSystemEntrySchema = z.object({
+export const FileSystemEntrySchema = z.object({
   path: z.string(),
   type: z.enum(["file", "directory", "symlink", "other"]),
 }) satisfies z.ZodType<FileSystemEntry>;

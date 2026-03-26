@@ -109,243 +109,276 @@ class EchoAgent implements acp.Agent {
     const signal = session.pending.signal;
 
     const sid = params.sessionId;
-    const filePath = path.join(session.cwd, "LOREM.md");
-
-    // -----------------------------------------------------------------------
-    // 1. Stream intro message
-    // -----------------------------------------------------------------------
-    await this.streamWords(
-      sid,
-      "Hello! Let me create a LOREM.md file with 100 lines of lorem ipsum for you.",
-      signal,
-    );
-    if (signal.aborted) return { stopReason: "cancelled" };
-
-    // -----------------------------------------------------------------------
-    // 2. Tool call: create LOREM.md (needs permission)
-    // -----------------------------------------------------------------------
     const loremContent = generateLoremIpsum(100);
-    const createCallId = "call_" + crypto.randomUUID().slice(0, 8);
 
-    await this.connection.sessionUpdate({
-      sessionId: sid,
-      update: {
-        sessionUpdate: "tool_call",
-        toolCallId: createCallId,
-        title: "Create LOREM.md",
-        kind: "edit",
-        status: "pending",
-        locations: [{ path: "./LOREM.md" }],
-        rawInput: { path: "./LOREM.md", content: loremContent },
-      },
-    });
+    // Helper: create a file with a tool call + permission request
+    const createFile = async (name: string): Promise<boolean> => {
+      const filePath = path.join(session.cwd, name);
+      const callId = "call_" + crypto.randomUUID().slice(0, 8);
+      const relPath = "./" + name;
 
-    const createPermission = await this.connection.requestPermission({
-      sessionId: sid,
-      toolCall: {
-        toolCallId: createCallId,
-        title: "Create LOREM.md",
-        kind: "edit",
-        status: "pending",
-        locations: [{ path: "./LOREM.md" }],
-        rawInput: { path: "./LOREM.md", content: loremContent },
-      },
-      options: [
-        { kind: "allow_once", name: "Allow", optionId: "allow" },
-        { kind: "reject_once", name: "Reject", optionId: "reject" },
-      ],
-    });
+      await this.connection.sessionUpdate({
+        sessionId: sid,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: callId,
+          title: `Create ${name}`,
+          kind: "edit",
+          status: "pending",
+          locations: [{ path: relPath }],
+          rawInput: { path: relPath, content: loremContent },
+        },
+      });
 
-    if (createPermission.outcome.outcome === "cancelled") return { stopReason: "cancelled" };
+      const perm = await this.connection.requestPermission({
+        sessionId: sid,
+        toolCall: {
+          toolCallId: callId,
+          title: `Create ${name}`,
+          kind: "edit",
+          status: "pending",
+          locations: [{ path: relPath }],
+          rawInput: { path: relPath, content: loremContent },
+        },
+        options: [
+          { kind: "allow_once", name: "Allow", optionId: "allow" },
+          { kind: "reject_once", name: "Reject", optionId: "reject" },
+        ],
+      });
 
-    if (createPermission.outcome.optionId === "reject") {
+      if (perm.outcome.outcome === "cancelled" || perm.outcome.optionId === "reject") {
+        await this.connection.sessionUpdate({
+          sessionId: sid,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: callId,
+            status: "completed",
+            rawOutput: { success: false, message: `User rejected creation of ${name}` },
+          },
+        });
+        return false;
+      }
+
+      await fs.writeFile(filePath, loremContent, "utf8");
       await this.connection.sessionUpdate({
         sessionId: sid,
         update: {
           sessionUpdate: "tool_call_update",
-          toolCallId: createCallId,
+          toolCallId: callId,
           status: "completed",
-          rawOutput: { success: false, message: "User rejected file creation" },
+          content: [{ type: "content", content: { type: "text", text: loremContent } }],
+          rawOutput: { success: true, message: `Created ${name} with 100 lines` },
         },
       });
+      return true;
+    };
+
+    // Helper: edit a file (insert boilerplate at midpoint)
+    const editFile = async (name: string): Promise<boolean> => {
+      const filePath = path.join(session.cwd, name);
+      const callId = "call_" + crypto.randomUUID().slice(0, 8);
+      const relPath = "./" + name;
+
+      const lines = loremContent.split("\n");
+      const midpoint = Math.floor(lines.length / 2);
+      const boilerplateLines = BOILERPLATE.split("\n");
+      lines.splice(midpoint, 0, ...boilerplateLines);
+      const editedContent = lines.join("\n");
+
+      await this.connection.sessionUpdate({
+        sessionId: sid,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: callId,
+          title: `Insert boilerplate into ${name}`,
+          kind: "edit",
+          status: "pending",
+          locations: [{ path: relPath }],
+          rawInput: { path: relPath, insertAtLine: midpoint, content: BOILERPLATE },
+        },
+      });
+
+      const perm = await this.connection.requestPermission({
+        sessionId: sid,
+        toolCall: {
+          toolCallId: callId,
+          title: `Insert boilerplate into ${name}`,
+          kind: "edit",
+          status: "pending",
+          locations: [{ path: relPath }],
+          rawInput: { path: relPath, insertAtLine: midpoint, content: BOILERPLATE },
+        },
+        options: [
+          { kind: "allow_once", name: "Allow", optionId: "allow" },
+          { kind: "reject_once", name: "Reject", optionId: "reject" },
+        ],
+      });
+
+      if (perm.outcome.outcome === "cancelled" || perm.outcome.optionId === "reject") {
+        await this.connection.sessionUpdate({
+          sessionId: sid,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: callId,
+            status: "completed",
+            rawOutput: { success: false, message: `User rejected edit of ${name}` },
+          },
+        });
+        return false;
+      }
+
+      await fs.writeFile(filePath, editedContent, "utf8");
+      await this.connection.sessionUpdate({
+        sessionId: sid,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: callId,
+          status: "completed",
+          content: [{ type: "content", content: { type: "text", text: editedContent } }],
+          rawOutput: {
+            success: true,
+            message: `Inserted boilerplate into ${name} at line ${midpoint}`,
+          },
+        },
+      });
+      return true;
+    };
+
+    // Helper: delete a file
+    const deleteFile = async (name: string): Promise<boolean> => {
+      const filePath = path.join(session.cwd, name);
+      const callId = "call_" + crypto.randomUUID().slice(0, 8);
+      const relPath = "./" + name;
+
+      await this.connection.sessionUpdate({
+        sessionId: sid,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: callId,
+          title: `Delete ${name}`,
+          kind: "edit",
+          status: "pending",
+          locations: [{ path: relPath }],
+          rawInput: { path: relPath, action: "delete" },
+        },
+      });
+
+      const perm = await this.connection.requestPermission({
+        sessionId: sid,
+        toolCall: {
+          toolCallId: callId,
+          title: `Delete ${name}`,
+          kind: "edit",
+          status: "pending",
+          locations: [{ path: relPath }],
+          rawInput: { path: relPath, action: "delete" },
+        },
+        options: [
+          { kind: "allow_once", name: "Allow", optionId: "allow" },
+          { kind: "reject_once", name: "Reject", optionId: "reject" },
+        ],
+      });
+
+      if (perm.outcome.outcome === "cancelled" || perm.outcome.optionId === "reject") {
+        await this.connection.sessionUpdate({
+          sessionId: sid,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: callId,
+            status: "completed",
+            rawOutput: { success: false, message: `User rejected deletion of ${name}` },
+          },
+        });
+        return false;
+      }
+
+      await fs.unlink(filePath);
+      await this.connection.sessionUpdate({
+        sessionId: sid,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: callId,
+          status: "completed",
+          rawOutput: { success: true, message: `Deleted ${name}` },
+        },
+      });
+      return true;
+    };
+
+    // -----------------------------------------------------------------------
+    // 1. Create LOREM_1.md (single tool call)
+    // -----------------------------------------------------------------------
+    await this.streamWords(
+      sid,
+      "Hello! Let me create three LOREM files. Starting with LOREM_1.md...",
+      signal,
+    );
+    if (signal.aborted) return { stopReason: "cancelled" };
+
+    const created1 = await createFile("LOREM_1.md");
+    if (!created1) {
       await this.streamWords(sid, "\nUnderstood — skipping file creation.", signal);
       session.pending = null;
       return { stopReason: "end_turn" };
     }
 
-    // Permission granted — actually write the file, then mark tool call completed
-    await fs.writeFile(filePath, loremContent, "utf8");
-
-    await this.connection.sessionUpdate({
-      sessionId: sid,
-      update: {
-        sessionUpdate: "tool_call_update",
-        toolCallId: createCallId,
-        status: "completed",
-        content: [{ type: "content", content: { type: "text", text: loremContent } }],
-        rawOutput: { success: true, message: "Created LOREM.md with 100 lines" },
-      },
-    });
-
     await new Promise((r) => setTimeout(r, 300));
 
     // -----------------------------------------------------------------------
-    // 3. Stream transition message
+    // 2. Edit LOREM_1.md (single tool call)
     // -----------------------------------------------------------------------
     await this.streamWords(
       sid,
-      "\nGreat, LOREM.md is created! Now I'll insert some boilerplate in the middle of the file.",
+      "\nGreat, LOREM_1.md is created! Now I'll insert some boilerplate into it.",
       signal,
     );
     if (signal.aborted) return { stopReason: "cancelled" };
 
-    // -----------------------------------------------------------------------
-    // 4. Tool call: insert boilerplate in the middle (needs permission)
-    // -----------------------------------------------------------------------
-    const lines = loremContent.split("\n");
-    const midpoint = Math.floor(lines.length / 2);
-    const boilerplateLines = BOILERPLATE.split("\n");
-    lines.splice(midpoint, 0, ...boilerplateLines);
-    const editedContent = lines.join("\n");
-
-    const editCallId = "call_" + crypto.randomUUID().slice(0, 8);
-
-    await this.connection.sessionUpdate({
-      sessionId: sid,
-      update: {
-        sessionUpdate: "tool_call",
-        toolCallId: editCallId,
-        title: "Insert boilerplate into LOREM.md",
-        kind: "edit",
-        status: "pending",
-        locations: [{ path: "./LOREM.md" }],
-        rawInput: {
-          path: "./LOREM.md",
-          insertAtLine: midpoint,
-          content: BOILERPLATE,
-        },
-      },
-    });
-
-    const editPermission = await this.connection.requestPermission({
-      sessionId: sid,
-      toolCall: {
-        toolCallId: editCallId,
-        title: "Insert boilerplate into LOREM.md",
-        kind: "edit",
-        status: "pending",
-        locations: [{ path: "./LOREM.md" }],
-        rawInput: {
-          path: "./LOREM.md",
-          insertAtLine: midpoint,
-          content: BOILERPLATE,
-        },
-      },
-      options: [
-        { kind: "allow_once", name: "Allow", optionId: "allow" },
-        { kind: "reject_once", name: "Reject", optionId: "reject" },
-      ],
-    });
-
-    if (editPermission.outcome.outcome === "cancelled") return { stopReason: "cancelled" };
-
-    if (editPermission.outcome.optionId === "reject") {
-      await this.connection.sessionUpdate({
-        sessionId: sid,
-        update: {
-          sessionUpdate: "tool_call_update",
-          toolCallId: editCallId,
-          status: "completed",
-          rawOutput: { success: false, message: "User rejected edit" },
-        },
-      });
-      await this.streamWords(sid, "\nSkipping the edit.", signal);
-    } else {
-      // Actually write the edited content
-      await fs.writeFile(filePath, editedContent, "utf8");
-
-      await this.connection.sessionUpdate({
-        sessionId: sid,
-        update: {
-          sessionUpdate: "tool_call_update",
-          toolCallId: editCallId,
-          status: "completed",
-          content: [{ type: "content", content: { type: "text", text: editedContent } }],
-          rawOutput: { success: true, message: "Inserted boilerplate at line " + midpoint },
-        },
-      });
-    }
+    await editFile("LOREM_1.md");
 
     await new Promise((r) => setTimeout(r, 300));
 
     // -----------------------------------------------------------------------
-    // 5. Stream transition message
+    // 3. Create LOREM_2.md and LOREM_3.md in parallel
     // -----------------------------------------------------------------------
-    await this.streamWords(sid, "\nAlright, now let me clean up by deleting LOREM.md.", signal);
+    await this.streamWords(sid, "\nNow I'll create LOREM_2.md and LOREM_3.md in parallel.", signal);
     if (signal.aborted) return { stopReason: "cancelled" };
 
+    await Promise.all([createFile("LOREM_2.md"), createFile("LOREM_3.md")]);
+
+    await new Promise((r) => setTimeout(r, 300));
+
     // -----------------------------------------------------------------------
-    // 6. Tool call: delete LOREM.md (needs permission)
+    // 4. Edit LOREM_2.md and LOREM_3.md in parallel
     // -----------------------------------------------------------------------
-    const deleteCallId = "call_" + crypto.randomUUID().slice(0, 8);
+    await this.streamWords(
+      sid,
+      "\nNow I'll insert boilerplate into LOREM_2.md and LOREM_3.md in parallel.",
+      signal,
+    );
+    if (signal.aborted) return { stopReason: "cancelled" };
 
-    await this.connection.sessionUpdate({
-      sessionId: sid,
-      update: {
-        sessionUpdate: "tool_call",
-        toolCallId: deleteCallId,
-        title: "Delete LOREM.md",
-        kind: "edit",
-        status: "pending",
-        locations: [{ path: "./LOREM.md" }],
-        rawInput: { path: "./LOREM.md", action: "delete" },
-      },
-    });
+    await Promise.all([editFile("LOREM_2.md"), editFile("LOREM_3.md")]);
 
-    const deletePermission = await this.connection.requestPermission({
-      sessionId: sid,
-      toolCall: {
-        toolCallId: deleteCallId,
-        title: "Delete LOREM.md",
-        kind: "edit",
-        status: "pending",
-        locations: [{ path: "./LOREM.md" }],
-        rawInput: { path: "./LOREM.md", action: "delete" },
-      },
-      options: [
-        { kind: "allow_once", name: "Allow", optionId: "allow" },
-        { kind: "reject_once", name: "Reject", optionId: "reject" },
-      ],
-    });
+    await new Promise((r) => setTimeout(r, 300));
 
-    if (deletePermission.outcome.outcome === "cancelled") return { stopReason: "cancelled" };
+    // -----------------------------------------------------------------------
+    // 5. Delete all three files in parallel
+    // -----------------------------------------------------------------------
+    await this.streamWords(
+      sid,
+      "\nAlright, now let me clean up by deleting all three files in parallel.",
+      signal,
+    );
+    if (signal.aborted) return { stopReason: "cancelled" };
 
-    if (deletePermission.outcome.optionId === "reject") {
-      await this.connection.sessionUpdate({
-        sessionId: sid,
-        update: {
-          sessionUpdate: "tool_call_update",
-          toolCallId: deleteCallId,
-          status: "completed",
-          rawOutput: { success: false, message: "User rejected deletion" },
-        },
-      });
-      await this.streamWords(sid, "\nOk, keeping LOREM.md in place.", signal);
-    } else {
-      // Actually delete the file
-      await fs.unlink(filePath);
+    await Promise.all([
+      deleteFile("LOREM_1.md"),
+      deleteFile("LOREM_2.md"),
+      deleteFile("LOREM_3.md"),
+    ]);
 
-      await this.connection.sessionUpdate({
-        sessionId: sid,
-        update: {
-          sessionUpdate: "tool_call_update",
-          toolCallId: deleteCallId,
-          status: "completed",
-          rawOutput: { success: true, message: "Deleted LOREM.md" },
-        },
-      });
-      await this.streamWords(sid, "\nDone! LOREM.md has been deleted. All clean.", signal);
-    }
+    await this.streamWords(sid, "\nDone! All LOREM files have been deleted. All clean.", signal);
 
     session.pending = null;
     return { stopReason: "end_turn" };
