@@ -132,7 +132,14 @@ function SessionDetailPage() {
     if (!isConnected) return;
     requestFsSnapshot()
       .then((snapshot) => {
-        setFileEntries(snapshot.entries as FileSystemEntry[]);
+        setFileEntries(
+          snapshot.entries.map((e) => ({
+            path: e.path,
+            type: (e.type === "file" || e.type === "directory" || e.type === "symlink"
+              ? e.type
+              : "other") satisfies FileSystemEntry["type"],
+          })),
+        );
         setWorkspaceRoot(snapshot.root);
       })
       .catch(() => {});
@@ -334,7 +341,10 @@ function SessionDetailPage() {
                   })
                 )}
                 {pendingPermissions.map((pending) => (
-                  <Card key={pending.requestId} className="max-w-2xl border-primary/50 bg-primary/5">
+                  <Card
+                    key={pending.requestId}
+                    className="max-w-2xl border-primary/50 bg-primary/5"
+                  >
                     <CardHeader>
                       <CardTitle className="text-base">Permission required</CardTitle>
                       <CardDescription>
@@ -510,7 +520,11 @@ function SessionDetailPage() {
             disabled={isSending || pendingPermissions.length > 0 || !prompt.trim()}
           >
             <SendIcon data-icon="inline-start" />
-            {pendingPermissions.length > 0 ? "Permission required" : isSending ? "Sending…" : "Send"}
+            {pendingPermissions.length > 0
+              ? "Permission required"
+              : isSending
+                ? "Sending…"
+                : "Send"}
           </Button>
         </div>
       </div>
