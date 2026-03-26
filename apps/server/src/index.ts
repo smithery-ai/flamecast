@@ -61,7 +61,7 @@ const flamecast = new Flamecast({
               provider: "e2b",
               setup: [
                 "npm install tsx @agentclientprotocol/sdk",
-                `cat > /workspace/agent.ts << 'AGENT_EOF'\n${agentSource}\nAGENT_EOF`,
+                `cat > agent.ts << 'AGENT_EOF'\n${agentSource}\nAGENT_EOF`,
               ].join(" && "),
             },
           },
