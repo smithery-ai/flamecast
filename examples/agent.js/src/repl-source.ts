@@ -1,4 +1,5 @@
-const STATEMENT_PREFIX = /^(?:return|const|let|var|if|for|while|switch|try|catch|finally|class|function|async function|import|export|throw|break|continue|do)\b/;
+const STATEMENT_PREFIX =
+  /^(?:return|const|let|var|if|for|while|switch|try|catch|finally|class|function|async function|import|export|throw|break|continue|do)\b/;
 
 function lastNonEmptyLineIndex(lines) {
   for (let index = lines.length - 1; index >= 0; index -= 1) {
