@@ -102,7 +102,8 @@ export class DockerRuntime implements Runtime {
     await Promise.allSettled(
       [...this.containers.values()].map(async (entry) => {
         const c = this.docker.getContainer(entry.containerId);
-        await c.kill();
+        await c.kill().catch(() => {});
+        await c.remove().catch(() => {});
       }),
     );
     this.containers.clear();
@@ -135,7 +136,6 @@ export class DockerRuntime implements Runtime {
         HostConfig: {
           Binds: [`${binaryPath}:${CONTAINER_BIN_PATH}:ro`],
           PortBindings: { [`${CONTAINER_PORT}/tcp`]: [{ HostPort: "0" }] },
-          AutoRemove: true,
         },
         WorkingDir: "/workspace",
       });
@@ -143,12 +143,25 @@ export class DockerRuntime implements Runtime {
       await container.start();
 
       const info = await container.inspect();
+
+      // Check if the container is actually running
+      if (!info.State.Running) {
+        const logs = await container.logs({ stdout: true, stderr: true, tail: 20 });
+        await container.remove().catch(() => {});
+        throw new Error(
+          `Container exited immediately (code=${info.State.ExitCode}). ` +
+            `Logs:\n${logs.toString()}`,
+        );
+      }
+
       const portBindings = info.NetworkSettings.Ports[`${CONTAINER_PORT}/tcp`];
       const port = parseInt(portBindings?.[0]?.HostPort ?? "0", 10);
 
       if (!port) {
+        const logs = await container.logs({ stdout: true, stderr: true, tail: 20 });
         await container.kill().catch(() => {});
-        throw new Error("Failed to get container port");
+        await container.remove().catch(() => {});
+        throw new Error(`Failed to get container port. Logs:\n${logs.toString()}`);
       }
 
       this.containers.set(sessionId, { containerId: container.id, port });
@@ -188,6 +201,7 @@ export class DockerRuntime implements Runtime {
       if (leaked) {
         const c = this.docker.getContainer(leaked.containerId);
         await c.kill().catch(() => {});
+        await c.remove().catch(() => {});
       }
       return jsonResponse(
         { error: err instanceof Error ? err.message : "Failed to start container" },
@@ -209,9 +223,10 @@ export class DockerRuntime implements Runtime {
 
     try {
       const c = this.docker.getContainer(entry.containerId);
-      await c.kill();
+      await c.kill().catch(() => {});
+      await c.remove().catch(() => {});
     } catch {
-      // Container may already be stopped (AutoRemove)
+      // Container may already be stopped
     }
     this.containers.delete(sessionId);
 
