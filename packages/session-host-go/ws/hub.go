@@ -3,7 +3,6 @@ package ws
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"sync"
 
@@ -19,6 +18,9 @@ type Hub struct {
 	clients        map[string]*client
 	nextID         int
 	controlHandler ControlHandler
+	// Append-only log so late-connecting clients receive the full history
+	// (initialize, session/new, available_commands_update, etc.).
+	eventLog [][]byte
 }
 
 type client struct {
@@ -40,14 +42,25 @@ func (h *Hub) SetControlHandler(fn ControlHandler) {
 
 // HandleUpgrade upgrades an HTTP request to a WebSocket connection.
 func (h *Hub) HandleUpgrade(w http.ResponseWriter, r *http.Request) {
-	handler := websocket.Handler(func(conn *websocket.Conn) {
+	server := websocket.Server{
+		Handler: func(conn *websocket.Conn) {
 		h.mu.Lock()
 		h.nextID++
 		id := json.Number(json.Number(string(rune('0' + h.nextID%10)))).String()
 		id = "ws-" + string(rune('0'+h.nextID/100%10)) + string(rune('0'+h.nextID/10%10)) + string(rune('0'+h.nextID%10))
 		c := &client{id: id, conn: conn}
 		h.clients[id] = c
+		// Snapshot event log for replay while holding the lock
+		replay := make([][]byte, len(h.eventLog))
+		copy(replay, h.eventLog)
 		h.mu.Unlock()
+
+		// Replay full event history to this late-connecting client
+		for _, entry := range replay {
+			if _, err := conn.Write(entry); err != nil {
+				break
+			}
+		}
 
 		defer func() {
 			h.mu.Lock()
@@ -68,23 +81,41 @@ func (h *Hub) HandleUpgrade(w http.ResponseWriter, r *http.Request) {
 				go handler(id, msg)
 			}
 		}
-	})
-	handler.ServeHTTP(w, r)
+		},
+		// Accept all origins — the bridge connects from the control plane
+		// without a browser Origin header, which the default check rejects.
+		Handshake: func(config *websocket.Config, r *http.Request) error {
+			return nil
+		},
+	}
+	server.ServeHTTP(w, r)
 }
 
-// Broadcast sends a JSON message to all connected clients.
+// Broadcast sends a JSON message to all connected clients and appends it
+// to the event log for replay to late-connecting clients.
 func (h *Hub) Broadcast(msg any) {
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return
 	}
+	h.mu.Lock()
+	h.eventLog = append(h.eventLog, data)
+	h.mu.Unlock()
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for _, c := range h.clients {
 		if _, err := c.conn.Write(data); err != nil {
-			log.Printf("[ws] write error to %s: %v", c.id, err)
+			_ = err
 		}
 	}
+}
+
+// ClearLog resets the event log. Call when starting a new session.
+func (h *Hub) ClearLog() {
+	h.mu.Lock()
+	h.eventLog = h.eventLog[:0]
+	h.mu.Unlock()
 }
 
 // SendTo sends a JSON message to a specific client.
@@ -98,7 +129,7 @@ func (h *Hub) SendTo(clientID string, msg any) {
 	h.mu.RUnlock()
 	if ok {
 		if _, err := c.conn.Write(data); err != nil {
-			log.Printf("[ws] write error to %s: %v", c.id, err)
+			_ = err
 		}
 	}
 }

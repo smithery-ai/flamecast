@@ -154,7 +154,9 @@ func (c *Conn) readLoop() {
 			continue
 		}
 
-		if msg.ID != nil && msg.Method == "" {
+		isResponse := msg.ID != nil && msg.Method == ""
+
+		if isResponse {
 			// Response to a pending request
 			var id int64
 			if err := json.Unmarshal(*msg.ID, &id); err == nil {

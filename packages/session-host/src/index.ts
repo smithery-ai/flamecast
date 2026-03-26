@@ -38,6 +38,11 @@ const permissionResolvers = new Map<string, (response: acp.RequestPermissionResp
 const promptQueue = new PromptQueue();
 let agentBusy = false;
 
+// Append-only log of every broadcast message so that late-connecting WS clients
+// (e.g. the browser, which connects after the bridge) receive the full history
+// including initialize, session/new, and available_commands_update events.
+const eventLog: string[] = [];
+
 // ---- Control plane callback ----
 
 /**
@@ -63,6 +68,7 @@ async function postCallback(event: SessionCallbackEvent): Promise<Record<string,
 
 function broadcast(msg: WsServerMessage): void {
   const data = JSON.stringify(msg);
+  eventLog.push(data);
   for (const ws of clients) {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(data);
@@ -374,6 +380,9 @@ async function startSession(
   if (agent) {
     throw new Error("Session already running");
   }
+
+  // Clear any leftover events from a previous session
+  eventLog.length = 0;
 
   const workspace = req.workspace ?? process.cwd();
   sessionWorkspace = workspace;
@@ -736,6 +745,12 @@ wss.on("connection", (ws) => {
   clients.add(ws);
   if (sessionId) {
     ws.send(JSON.stringify({ type: "connected", sessionId } satisfies WsServerMessage));
+  }
+
+  // Replay full event history so late-connecting clients see everything
+  // (initialize, session/new, available_commands_update, etc.)
+  for (const entry of eventLog) {
+    ws.send(entry);
   }
 
   ws.on("message", (data) => {

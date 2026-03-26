@@ -71,6 +71,24 @@ class EchoAgent implements acp.Agent {
   async newSession(params: acp.NewSessionRequest): Promise<acp.NewSessionResponse> {
     const sessionId = crypto.randomUUID();
     this.sessions.set(sessionId, { pending: null, cwd: params.cwd ?? process.cwd() });
+
+    // Advertise available slash commands to the client
+    void this.connection.sessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "available_commands_update",
+        availableCommands: [
+          { name: "help", description: "Show available commands" },
+          { name: "status", description: "Show current session status" },
+          {
+            name: "search",
+            description: "Search for files in the workspace",
+            input: { type: "unstructured", hint: "search query" },
+          },
+        ],
+      },
+    });
+
     return { sessionId };
   }
 

@@ -284,6 +284,9 @@ func startSession(req startRequest, serverPort int, hub *ws.Hub) (*startResponse
 		return nil, fmt.Errorf("session already running")
 	}
 
+	// Clear any leftover events from a previous session
+	hub.ClearLog()
+
 	workspace := req.Workspace
 	if workspace == "" {
 		workspace, _ = os.Getwd()
@@ -335,26 +338,32 @@ func startSession(req startRequest, serverPort int, hub *ws.Hub) (*startResponse
 	conn := acp.NewConnection(stdout, stdin, handler)
 
 	go func() {
-		_, err := conn.Initialize(acp.InitializeRequest{
+		initParams := acp.InitializeRequest{
 			ProtocolVersion: acp.ProtocolVersion,
 			ClientCapabilities: acp.ClientCapabilities{
 				FS:       &acp.FSCapabilities{ReadTextFile: true, WriteTextFile: true},
 				Terminal: true,
 			},
-		})
+		}
+		handler.emitRPC(acp.MethodInitialize, "client_to_agent", "request", initParams)
+		initResp, err := conn.Initialize(initParams)
 		if err != nil {
 			hsCh <- handshakeResult{err: fmt.Errorf("initialize: %w", err)}
 			return
 		}
+		handler.emitRPC(acp.MethodInitialize, "agent_to_client", "response", initResp)
 
-		sessResp, err := conn.NewSession(acp.NewSessionRequest{
+		newSessionParams := acp.NewSessionRequest{
 			CWD:        workspace,
 			MCPServers: json.RawMessage("[]"),
-		})
+		}
+		handler.emitRPC(acp.MethodNewSession, "client_to_agent", "request", newSessionParams)
+		sessResp, err := conn.NewSession(newSessionParams)
 		if err != nil {
 			hsCh <- handshakeResult{err: fmt.Errorf("new session: %w", err)}
 			return
 		}
+		handler.emitRPC(acp.MethodNewSession, "agent_to_client", "response", sessResp)
 		hsCh <- handshakeResult{sessionID: sessResp.SessionID}
 	}()
 
@@ -577,7 +586,6 @@ func main() {
 
 		resp, err := startSession(req, serverPort, hub)
 		if err != nil {
-			log.Printf("[session-host] start error: %s", err)
 			writeJSON(w, 500, map[string]any{"error": err.Error()})
 			return
 		}

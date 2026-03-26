@@ -10,7 +10,7 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch src/router.ts",
+    "dev": "SESSION_HOST_ENTRY=src/index.ts tsx watch src/router.ts",
     "dev:host": "tsx watch src/index.ts",
     "start": "node dist/router.js",
     "start:host": "node dist/index.js",

@@ -26,24 +26,20 @@ if (existsSync(output)) {
     const isELF =
       header[0] === 0x7f && header[1] === 0x45 && header[2] === 0x4c && header[3] === 0x46;
     if (isELF) {
-      console.log("[session-host-go] binary already exists (ELF), skipping build");
-      process.exit(0);
+      if (process.env.SKIP_BUILD) {
+        console.log("[session-host-go] binary already exists (ELF), skipping build");
+        process.exit(0);
+      }
+      else {
+        console.log("[session-host-go] binary already exists (ELF), rebuilding...");
+      }
     }
-    console.log("[session-host-go] binary exists but is not ELF (wrong platform), rebuilding...");
+    else {
+      console.log("[session-host-go] binary exists but is not ELF (wrong platform), rebuilding...");
+    }
   } catch {
     // Can't read header — rebuild to be safe
   }
-}
-
-// Check Go is available
-try {
-  execFileSync("go", ["version"], { stdio: "pipe" });
-} catch {
-  console.warn(
-    "[session-host-go] Go is not installed — skipping binary build.\n" +
-      "  Install Go (https://go.dev/dl/) and run: pnpm --filter @flamecast/session-host-go run postinstall",
-  );
-  process.exit(0);
 }
 
 // Map Node.js arch names to Go arch names

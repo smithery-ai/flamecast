@@ -83,7 +83,11 @@ const server = createServer(async (req, res) => {
       }
 
       const nodeBinDir = dirname(process.execPath);
-      const proc = spawn(process.execPath, [SESSION_HOST_ENTRY], {
+      // If entry is a .ts file (dev mode), use tsx to run it
+      const isTsEntry = SESSION_HOST_ENTRY.endsWith(".ts");
+      const spawnCmd = isTsEntry ? "tsx" : process.execPath;
+      const spawnArgs = [SESSION_HOST_ENTRY];
+      const proc = spawn(spawnCmd, spawnArgs, {
         env: {
           ...process.env,
           SESSION_HOST_PORT: "0", // random port
