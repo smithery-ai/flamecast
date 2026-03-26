@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --filter='!./examples/*'",
+    "dev:all": "turbo run dev",
     "dev:client": "turbo run dev --filter=@flamecast/sdk",
     "dev:server": "turbo run dev --filter=@acp/server",
     "build": "turbo run build",
