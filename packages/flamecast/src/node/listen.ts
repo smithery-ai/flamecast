@@ -7,8 +7,8 @@
  */
 import { serve } from "@hono/node-server";
 import type { Flamecast } from "../flamecast/index.js";
-import { SessionHostBridge } from "../flamecast/session-host-bridge.js";
-import { WsAdapter } from "../flamecast/ws-adapter.js";
+import { SessionHostBridge } from "./session-host-bridge.js";
+import { WsAdapter } from "./ws-adapter.js";
 
 /**
  * Start the Flamecast server on the given port.
@@ -37,6 +37,5 @@ export function listen(flamecast: Flamecast, port: number): void {
     flamecast,
   });
 
-  flamecast.hasWebSocket = true;
   console.log(`Flamecast running on http://localhost:${port}`);
 }

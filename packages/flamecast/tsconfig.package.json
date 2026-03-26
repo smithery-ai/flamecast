@@ -13,7 +13,7 @@
     "src/index.ts",
     "src/edge.ts",
     "src/worker.ts",
-    "src/server/**/*.ts",
+    "src/node/**/*.ts",
     "src/flamecast/**/*.ts",
     "src/shared/**/*.ts"
   ],

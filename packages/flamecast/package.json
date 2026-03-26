@@ -23,10 +23,6 @@
       "types": "./dist/flamecast/api.d.ts",
       "import": "./dist/flamecast/api.js"
     },
-    "./server/app": {
-      "types": "./dist/server/app.d.ts",
-      "import": "./dist/server/app.js"
-    },
     "./client": {
       "types": "./src/client/api.ts",
       "import": "./src/client/api.ts"

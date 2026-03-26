@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 import { createServer } from "node:http";
 import { WebSocket } from "ws";
 import { EventBus } from "../src/flamecast/event-bus.js";
-import { WsAdapter, type WsAdapterFlamecast } from "../src/flamecast/ws-adapter.js";
+import { WsAdapter, type WsAdapterFlamecast } from "../src/node/ws-adapter.js";
 import type { WsChannelServerMessage } from "@flamecast/protocol/ws/channels";
 
 // ---------------------------------------------------------------------------

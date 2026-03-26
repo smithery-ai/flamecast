@@ -9,7 +9,7 @@ import type {
   WebhookConfig,
   WebhookEventType,
 } from "../shared/session.js";
-import { createServerApp } from "../server/app.js";
+import { createServerApp } from "./app.js";
 import type { FlamecastStorage } from "./storage.js";
 import { MemoryFlamecastStorage } from "./storage/memory/index.js";
 import { SessionService } from "./session-service.js";
@@ -137,9 +137,6 @@ export class Flamecast<
   /** Event bus for lifecycle events and session history. Used by the Node
    *  `listen()` function to wire the WS adapter and session-host bridge. */
   readonly eventBus = new EventBus();
-
-  /** Whether the WS adapter has been wired (set by `listen()`). */
-  hasWebSocket = false;
 
   /** Registered event handlers. */
   readonly handlers: Readonly<FlamecastEventHandlers<R>>;

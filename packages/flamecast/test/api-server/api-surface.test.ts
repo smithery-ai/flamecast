@@ -5,8 +5,9 @@ import type {
   RegisterAgentTemplateBody,
   Session,
 } from "../../src/shared/session.js";
-import { createServerApp } from "../../src/server/app.js";
+import { createServerApp } from "../../src/flamecast/app.js";
 import type { FlamecastApi } from "../../src/flamecast/api.js";
+import { EventBus } from "../../src/flamecast/event-bus.js";
 
 const sampleAgentTemplate: AgentTemplate = {
   id: "codex",
@@ -32,6 +33,7 @@ const sampleAgentId = sampleSession.id;
 
 function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastApi {
   return {
+    eventBus: new EventBus(),
     terminateSession: vi.fn(async () => undefined),
     createSession: vi.fn(async (_body: CreateSessionBody) => sampleSession),
     getSession: vi.fn(
