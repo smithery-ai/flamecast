@@ -1,0 +1,21 @@
+{
+  "name": "@flamecast/agent-js",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --config wrangler.jsonc --local --ip 127.0.0.1 --port 8788 --show-interactive-dev-session=false",
+    "deploy": "wrangler deploy --config wrangler.jsonc",
+    "test": "vitest run",
+    "typecheck": "tsc --project tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "agents": "^0.8.5",
+    "ai": "^6.0.138",
+    "ai-gateway-provider": "^3.1.2"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.0",
+    "wrangler": "^4.77.0",
+    "ws": "^8.20.0"
+  }
+}
