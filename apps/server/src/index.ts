@@ -9,12 +9,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const agentSource = readFileSync(resolve(__dirname, "../agent.ts"), "utf8");
 
 const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
+const agentJsBaseUrl = process.env.FLAMECAST_AGENT_JS_BASE_URL;
 
 const flamecast = new Flamecast({
   storage: await createPsqlStorage(url ? { url } : undefined),
   runtimes: {
     default: new NodeRuntime(),
-    agentjs: new NodeRuntime(process.env.FLAMECAST_AGENT_JS_BASE_URL ?? "http://127.0.0.1:8787"),
+    ...(agentJsBaseUrl ? { agentjs: new NodeRuntime(agentJsBaseUrl) } : {}),
     // Base image defaults to "node:22-slim". Override with:
     //   new DockerRuntime({ baseImage: "node:20-slim" })
     docker: new DockerRuntime(),

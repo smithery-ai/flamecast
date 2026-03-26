@@ -154,7 +154,7 @@ export KEEP_RECENT_TURNS=6
 From the repo root, this starts the full dev stack:
 
 ```bash
-pnpm dev
+FLAMECAST_AGENT_JS_BASE_URL=http://127.0.0.1:8787 pnpm dev
 ```
 
 That brings up:
@@ -176,6 +176,8 @@ curl -X POST http://127.0.0.1:3001/api/agent-templates \
 ```
 
 Then create a session from that template through the API or UI. In local dev, `apps/server` registers `agentjs` as `new NodeRuntime("http://127.0.0.1:8787")`, so Flamecast talks to the worker through the worker's native SessionHost routes.
+
+`agentjs` is only registered when `FLAMECAST_AGENT_JS_BASE_URL` is set. That keeps the default server runtime list generic and avoids baking in a localhost-only endpoint.
 
 ## Run The End-to-End Test
 
@@ -248,12 +250,20 @@ import { Flamecast, NodeRuntime } from "@flamecast/sdk";
 const flamecast = new Flamecast({
   runtimes: {
     default: new NodeRuntime(),
-    agentjs: new NodeRuntime(process.env.FLAMECAST_AGENT_JS_BASE_URL),
+    ...(process.env.FLAMECAST_AGENT_JS_BASE_URL
+      ? { agentjs: new NodeRuntime(process.env.FLAMECAST_AGENT_JS_BASE_URL) }
+      : {}),
   },
 });
 ```
 
 After that, templates only need `runtime.provider = "agentjs"`. The base URL lives in the server/runtime registration, not in the template.
+
+For the deployed Wrangler-hosted Flamecast server, set:
+
+```bash
+FLAMECAST_AGENT_JS_BASE_URL=https://flamecast-agent-js.smithery.workers.dev
+```
 
 Example template registration:
 
