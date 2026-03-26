@@ -96,29 +96,6 @@ export class FlamecastSession {
   /** Respond to a permission request. */
   respondToPermission(requestId: string, body: PermissionResponseBody): void {
     this.sendControl({ action: "permission.respond", requestId, body });
-
-    // Push a synthetic resolution event so the UI can track which permissions
-    // have been resolved (the server-side resolution event doesn't always
-    // reach the client through the Flamecast HTTP proxy path).
-    const type =
-      "outcome" in body && body.outcome === "cancelled"
-        ? "permission_cancelled"
-        : "optionId" in body
-          ? "permission_responded"
-          : "permission_responded";
-    const syntheticEvent: SessionLog = {
-      type,
-      timestamp: new Date().toISOString(),
-      data: { requestId, ...body },
-    };
-    this.eventBuffer.push(syntheticEvent);
-    for (const listener of this.listeners) {
-      try {
-        listener(syntheticEvent);
-      } catch {
-        // Listener errors must not disrupt
-      }
-    }
   }
 
   /** Cancel a queued prompt. */
