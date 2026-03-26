@@ -44,7 +44,7 @@ export type {
 } from "@flamecast/protocol/session";
 export type { FileSystemEntry } from "@flamecast/protocol/session-host";
 
-export type { SessionMeta, FlamecastStorage } from "./storage.js";
+export type { SessionMeta, SessionRuntimeInfo, FlamecastStorage } from "./storage.js";
 export { NodeRuntime } from "./runtime-node.js";
 
 // ---------------------------------------------------------------------------
@@ -576,6 +576,46 @@ export class Flamecast<
       spawn: { command: meta.spawn.command, args: [...meta.spawn.args] },
       startedAt: meta.startedAt,
     };
+  }
+
+  /**
+   * Recover active sessions from storage after a server restart.
+   *
+   * For each session that was marked "active" in the database, attempts to
+   * reconnect to the still-running process/container. Sessions whose hosts
+   * are no longer alive are marked as killed.
+   *
+   * Returns the list of successfully recovered session IDs and their
+   * websocket URLs (so the bridge can re-establish connections).
+   */
+  async recoverSessions(): Promise<Array<{ sessionId: string; websocketUrl: string }>> {
+    await this.ensureReady();
+    const storage = this.requireStorage();
+    const activeSessions = await storage.listActiveSessionsWithRuntime();
+
+    const recovered: Array<{ sessionId: string; websocketUrl: string }> = [];
+
+    for (const session of activeSessions) {
+      if (!session.runtimeInfo) {
+        // No runtime info persisted — can't recover, mark as killed
+        await storage.finalizeSession(session.id, "terminated");
+        continue;
+      }
+
+      const ok = await this.sessionService.recoverSession(session.id, session.runtimeInfo);
+      if (ok) {
+        recovered.push({
+          sessionId: session.id,
+          websocketUrl: session.runtimeInfo.websocketUrl,
+        });
+        console.log(`[Flamecast] Recovered session "${session.id}"`);
+      } else {
+        await storage.finalizeSession(session.id, "terminated");
+        console.log(`[Flamecast] Session "${session.id}" no longer alive, marked as killed`);
+      }
+    }
+
+    return recovered;
   }
 
   private async ensureReady(): Promise<void> {

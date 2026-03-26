@@ -15,6 +15,13 @@
       "when": 1774470884025,
       "tag": "0001_majestic_ken_ellis",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774570000000,
+      "tag": "0002_process_persistence",
+      "breakpoints": true
     }
   ]
 }
