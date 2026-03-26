@@ -9,16 +9,20 @@
  *   cd examples/event-handlers
  *   npx tsx index.ts
  *
- * Then open http://localhost:3001 and create a session via the UI,
- * or use curl:
+ * Then test with curl (or run ./test.sh):
  *
- *   # Create a session using the example template
+ *   # Create a session
  *   curl -s -X POST http://localhost:3001/api/agents \
  *     -H 'Content-Type: application/json' \
  *     -d '{"agentTemplateId": "example"}' | jq .
  *
- *   # Send a prompt (use the session ID from above)
- *   # Prompts are sent via WebSocket — use the UI for this
+ *   # Send a prompt via REST (use the session ID from above)
+ *   curl -s -X POST http://localhost:3001/api/agents/SESSION_ID/prompts \
+ *     -H 'Content-Type: application/json' \
+ *     -d '{"text": "write a file to disk"}' | jq .
+ *
+ *   # Terminate
+ *   curl -s -X DELETE http://localhost:3001/api/agents/SESSION_ID | jq .
  *
  * Watch the terminal for handler output.
  */
@@ -33,7 +37,6 @@ const flamecast = new Flamecast({
   runtimes: {
     default: new NodeRuntime(),
   },
-  callbackUrl: CALLBACK_URL,
   agentTemplates: [
     {
       id: "example",
