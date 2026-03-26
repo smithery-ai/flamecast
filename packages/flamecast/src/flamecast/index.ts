@@ -147,6 +147,7 @@ export class Flamecast<
 
   private storage: FlamecastStorage | null = null;
   private readyPromise: Promise<void> | null = null;
+  private recoveryPromise: Promise<void> | null = null;
 
   /** The Hono app. Use with any runtime: Node, CF Workers, Vercel, etc. */
   readonly app;
@@ -279,6 +280,7 @@ export class Flamecast<
 
   /** Proxy a queue management request to the session-host. */
   async proxyQueueRequest(id: string, path: string, init: RequestInit): Promise<Response> {
+    await this.ensureReady();
     return this.sessionService.proxyRequest(id, path, init);
   }
 
@@ -588,38 +590,58 @@ export class Flamecast<
    * Returns the list of successfully recovered session IDs and their
    * websocket URLs (so the bridge can re-establish connections).
    */
-  async recoverSessions(): Promise<Array<{ sessionId: string; websocketUrl: string }>> {
-    await this.ensureReady();
-    const storage = this.requireStorage();
-    const activeSessions = await storage.listActiveSessionsWithRuntime();
+  async recoverSessions(
+    onRecovered?: (sessions: Array<{ sessionId: string; websocketUrl: string }>) => void,
+  ): Promise<Array<{ sessionId: string; websocketUrl: string }>> {
+    const doRecover = async (): Promise<Array<{ sessionId: string; websocketUrl: string }>> => {
+      // Initialize storage directly to avoid circular await (ensureReady waits on recovery).
+      // Also set readyPromise so ensureReady() skips re-initialization later.
+      if (!this.readyPromise) {
+        this.readyPromise = (async () => {
+          const storage = this.storageConfig ?? new MemoryFlamecastStorage();
+          this.storage = storage;
+          if (this.initialAgentTemplates) {
+            await storage.seedAgentTemplates(this.initialAgentTemplates);
+          }
+        })();
+      }
+      await this.readyPromise;
+      const storage = this.requireStorage();
+      const activeSessions = await storage.listActiveSessionsWithRuntime();
 
-    const recovered: Array<{ sessionId: string; websocketUrl: string }> = [];
+      const recovered: Array<{ sessionId: string; websocketUrl: string }> = [];
 
-    for (const session of activeSessions) {
-      if (!session.runtimeInfo) {
-        // No runtime info persisted — can't recover, mark as killed
-        await storage.finalizeSession(session.id, "terminated");
-        continue;
+      for (const session of activeSessions) {
+        if (!session.runtimeInfo) {
+          await storage.finalizeSession(session.id, "terminated");
+          continue;
+        }
+
+        const ok = await this.sessionService.recoverSession(session.id, session.runtimeInfo);
+        if (ok) {
+          recovered.push({
+            sessionId: session.id,
+            websocketUrl: session.runtimeInfo.websocketUrl,
+          });
+          console.log(`[Flamecast] Recovered session "${session.id}"`);
+        } else {
+          await storage.finalizeSession(session.id, "terminated");
+          console.log(`[Flamecast] Session "${session.id}" no longer alive, marked as killed`);
+        }
       }
 
-      const ok = await this.sessionService.recoverSession(session.id, session.runtimeInfo);
-      if (ok) {
-        recovered.push({
-          sessionId: session.id,
-          websocketUrl: session.runtimeInfo.websocketUrl,
-        });
-        console.log(`[Flamecast] Recovered session "${session.id}"`);
-      } else {
-        await storage.finalizeSession(session.id, "terminated");
-        console.log(`[Flamecast] Session "${session.id}" no longer alive, marked as killed`);
-      }
-    }
+      // Let the caller wire up bridge connections before the promise resolves,
+      // so API calls gated on recovery see sessions with active bridges.
+      onRecovered?.(recovered);
 
-    return recovered;
+      return recovered;
+    };
+    const promise = doRecover();
+    this.recoveryPromise = promise.then(() => {});
+    return promise;
   }
 
   private async ensureReady(): Promise<void> {
-    if (this.storage) return;
     if (!this.readyPromise) {
       this.readyPromise = (async () => {
         const storage = this.storageConfig ?? new MemoryFlamecastStorage();
@@ -630,6 +652,9 @@ export class Flamecast<
       })();
     }
     await this.readyPromise;
+    if (this.recoveryPromise) {
+      await this.recoveryPromise;
+    }
   }
 
   private requireStorage(): FlamecastStorage {

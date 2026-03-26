@@ -53,8 +53,9 @@ export function listen(
   });
 
   // Recover previously-active sessions and re-establish bridge connections.
-  // Runs asynchronously after the server is listening so it doesn't block startup.
-  void flamecast.recoverSessions().then((recovered) => {
+  // The onRecovered callback runs before the recovery promise resolves, so
+  // API calls gated on recovery already see sessions with active bridges.
+  void flamecast.recoverSessions((recovered) => {
     for (const { sessionId, websocketUrl } of recovered) {
       flamecast.bridgedSessions.add(sessionId);
       bridge.connect(sessionId, websocketUrl);
