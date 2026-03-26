@@ -11,7 +11,7 @@ Every example needs the session-host router running alongside. Use `pnpm --filte
 Fires 5 prompts at an agent and watches the queue drain in real time. Shows serial execution, automatic dequeue, and queue state polling.
 
 ```sh
-pnpm --filter @flamecast/session-host --filter @flamecast/example-queue-drain dev
+pnpm --filter @flamecast/session-host dev & pnpm --filter @flamecast/example-queue-drain start
 ```
 
 ### Webhooks and Signaling
@@ -19,7 +19,7 @@ pnpm --filter @flamecast/session-host --filter @flamecast/example-queue-drain de
 Demonstrates both event delivery tiers: in-process handlers (Tier 1) and external webhook delivery with HMAC signatures (Tier 2).
 
 ```sh
-pnpm --filter @flamecast/session-host --filter @flamecast/example-webhooks-and-signaling dev
+pnpm --filter @flamecast/session-host dev & pnpm --filter @flamecast/example-webhooks-and-signaling start
 ```
 
 ## Shared Config
@@ -72,4 +72,4 @@ await startServer(flamecast, async (apiUrl) => {
 });
 ```
 
-3. Run: `pnpm --filter @flamecast/session-host --filter @flamecast/example-your-example dev`
+3. Run: `pnpm --filter @flamecast/session-host dev & pnpm --filter @flamecast/example-your-example start`

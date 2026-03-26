@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx index.ts"
+    "start": "tsx index.ts"
   },
   "dependencies": {
     "@flamecast/example-shared": "workspace:*",
