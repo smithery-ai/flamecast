@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node ../../node_modules/wrangler/bin/wrangler.js dev --config wrangler.jsonc --local --ip 127.0.0.1 --port 8787 --show-interactive-dev-session=false",
-    "deploy": "node ../../node_modules/wrangler/bin/wrangler.js deploy --config wrangler.jsonc",
+    "dev": "wrangler dev --config wrangler.jsonc --local --ip 127.0.0.1 --port 8787 --show-interactive-dev-session=false",
+    "deploy": "wrangler deploy --config wrangler.jsonc",
     "test": "vitest run",
     "typecheck": "tsc --project tsconfig.json --noEmit"
   },
