@@ -1,11 +1,43 @@
+import { readFileSync, existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Sandbox } from "@e2b/code-interpreter";
 import type { Runtime } from "@flamecast/protocol/runtime";
+
+// ---------------------------------------------------------------------------
+// Session-host binary resolution (same as DockerRuntime)
+// ---------------------------------------------------------------------------
+
+function resolveSessionHostBinary(): string {
+  if (process.env.SESSION_HOST_BINARY) {
+    const p = process.env.SESSION_HOST_BINARY;
+    if (!existsSync(p)) {
+      throw new Error(`SESSION_HOST_BINARY points to "${p}" which does not exist`);
+    }
+    return p;
+  }
+
+  try {
+    const pkgJsonUrl = import.meta.resolve("@flamecast/session-host-go/package.json");
+    const pkgDir = dirname(fileURLToPath(pkgJsonUrl));
+    const binaryPath = join(pkgDir, "dist", "session-host");
+    if (existsSync(binaryPath)) return binaryPath;
+  } catch {
+    // Package not resolvable
+  }
+
+  throw new Error(
+    "No session-host binary found. Install Go and run: " +
+      "pnpm --filter @flamecast/session-host-go run postinstall",
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
+const SANDBOX_BIN_PATH = "/usr/local/bin/session-host";
 const DEFAULT_MAX_SESSIONS = 20;
 const DEFAULT_BASE_PORT = 9000;
 
@@ -41,9 +73,9 @@ interface SessionEntry {
 /**
  * E2BRuntime — one E2B sandbox per runtime instance.
  *
- * When `start(instanceId)` is called, an E2B sandbox is created and kept alive.
- * Sessions are started inside the sandbox via `sandbox.commands.run`, each
- * running its own session-host process on a unique port.
+ * When `start(instanceId)` is called, an E2B sandbox is created from the
+ * configured base template, and the session-host Go binary is uploaded into it.
+ * Sessions are started inside the sandbox by running the binary on a unique port.
  *
  * `pause(instanceId)` pauses the sandbox (freezing all session-hosts).
  * `stop(instanceId)` kills the sandbox entirely.
@@ -66,7 +98,7 @@ export class E2BRuntime implements Runtime {
     basePort?: number;
   }) {
     this.apiKey = opts.apiKey;
-    this.template = opts.template ?? "flamecast-session-host";
+    this.template = opts.template ?? "base";
     this.maxSessions = opts.maxSessionsPerInstance ?? DEFAULT_MAX_SESSIONS;
     this.basePort = opts.basePort ?? DEFAULT_BASE_PORT;
   }
@@ -78,16 +110,23 @@ export class E2BRuntime implements Runtime {
   async start(instanceId: string): Promise<void> {
     const existing = this.instances.get(instanceId);
     if (existing) {
-      // Resume a paused sandbox — Sandbox.connect auto-resumes paused sandboxes
+      // Resume a paused sandbox — Sandbox.connect auto-resumes
       await Sandbox.connect(existing.sandboxId, { apiKey: this.apiKey });
       return;
     }
 
+    // Create a new sandbox
     const sandbox = await Sandbox.create(this.template, {
       apiKey: this.apiKey,
       timeoutMs: 24 * 60 * 60 * 1000,
       metadata: { "flamecast.instance": instanceId },
     });
+
+    // Upload the session-host binary into the sandbox
+    const binaryPath = resolveSessionHostBinary();
+    const binaryBlob = new Blob([readFileSync(binaryPath)]);
+    await sandbox.files.write(SANDBOX_BIN_PATH, binaryBlob);
+    await sandbox.commands.run(`chmod +x ${SANDBOX_BIN_PATH}`);
 
     const ports: PortSlot[] = [];
     for (let i = 0; i < this.maxSessions; i++) {
@@ -104,7 +143,6 @@ export class E2BRuntime implements Runtime {
     const inst = this.instances.get(instanceId);
     if (!inst) return;
 
-    // Clean up session tracking
     for (const [sid, session] of this.sessions) {
       if (session.instanceName === instanceId) {
         this.sessions.delete(sid);
@@ -191,7 +229,6 @@ export class E2BRuntime implements Runtime {
     if (!instanceName || !sandboxId || !port || !hostUrl || !websocketUrl) return false;
 
     try {
-      // Ensure instance is tracked
       if (!this.instances.has(instanceName)) {
         const info = await Sandbox.getFullInfo(sandboxId, { apiKey: this.apiKey });
         if (info.state !== "running") return false;
@@ -203,11 +240,9 @@ export class E2BRuntime implements Runtime {
         this.instances.set(instanceName, { sandboxId, ports });
       }
 
-      // Verify session-host is responsive
       const resp = await fetch(`${hostUrl}/health`).catch(() => null);
       if (!resp?.ok) return false;
 
-      // Mark port as in use
       const inst = this.instances.get(instanceName);
       if (!inst) return false;
       const slot = inst.ports.find((p) => p.port === port);
@@ -252,7 +287,6 @@ export class E2BRuntime implements Runtime {
         return jsonResponse({ error: `Runtime instance "${instanceName}" not found` }, 404);
       }
 
-      // Allocate a port
       const slot = inst.ports.find((p) => !p.inUse);
       if (!slot) {
         return jsonResponse(
@@ -261,10 +295,10 @@ export class E2BRuntime implements Runtime {
         );
       }
 
-      // Connect to sandbox and start session-host
+      // Connect to sandbox and start session-host binary on the assigned port
       const sandbox = await Sandbox.connect(inst.sandboxId, { apiKey: this.apiKey });
       await sandbox.commands.run(
-        `SESSION_HOST_PORT=${slot.port} node /app/dist/index.js`,
+        `SESSION_HOST_PORT=${slot.port} RUNTIME_SETUP_ENABLED=1 ${SANDBOX_BIN_PATH}`,
         { background: true },
       );
 
@@ -277,7 +311,8 @@ export class E2BRuntime implements Runtime {
 
       await this.waitForReady(hostUrl);
 
-      // Forward to session-host (strip instanceName)
+      // Forward to session-host
+      parsed.workspace = "/home/user";
       delete parsed.instanceName;
 
       const resp = await fetch(`${hostUrl}/start`, {
@@ -306,7 +341,6 @@ export class E2BRuntime implements Runtime {
         headers: JSON_HEADERS,
       });
     } catch (err) {
-      // Clean up on failure
       const session = this.sessions.get(sessionId);
       if (session) {
         const inst = this.instances.get(session.instanceName);
@@ -332,7 +366,6 @@ export class E2BRuntime implements Runtime {
       headers: JSON_HEADERS,
     });
 
-    // Free the port
     const inst = this.instances.get(session.instanceName);
     const slot = inst?.ports.find((p) => p.port === session.port);
     if (slot) slot.inUse = false;

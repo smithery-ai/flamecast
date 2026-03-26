@@ -5,7 +5,9 @@ import { Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
 import { DockerRuntime } from "@flamecast/runtime-docker";
 import { E2BRuntime } from "@flamecast/runtime-e2b";
 import { createPsqlStorage } from "@flamecast/storage-psql";
+import dotenv from "dotenv";
 
+dotenv.config();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const agentSource = readFileSync(resolve(__dirname, "../agent.ts"), "utf8");
 

@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@e2b/code-interpreter": "^2.4.0",
-    "@flamecast/protocol": "workspace:*"
+    "@flamecast/protocol": "workspace:*",
+    "@flamecast/session-host-go": "workspace:*"
   }
 }
