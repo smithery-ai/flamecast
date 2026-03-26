@@ -1,12 +1,11 @@
 {
-  "name": "@flamecast/example-approval-queue",
+  "name": "@flamecast/example-headless",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tsx watch index.ts"
   },
   "dependencies": {
-    "@flamecast/protocol": "workspace:*",
     "@flamecast/sdk": "workspace:*",
     "@hono/node-server": "^1.19.11"
   },
