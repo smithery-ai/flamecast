@@ -17,11 +17,15 @@ function resolveSessionHostBinary(): string {
     return p;
   }
 
+  // E2B sandboxes are always x86_64 — resolve the amd64 binary specifically
   try {
     const pkgJsonUrl = import.meta.resolve("@flamecast/session-host-go/package.json");
     const pkgDir = dirname(fileURLToPath(pkgJsonUrl));
-    const binaryPath = join(pkgDir, "dist", "session-host");
-    if (existsSync(binaryPath)) return binaryPath;
+    const amd64Path = join(pkgDir, "dist", "session-host-amd64");
+    if (existsSync(amd64Path)) return amd64Path;
+    // Fall back to default binary
+    const defaultPath = join(pkgDir, "dist", "session-host");
+    if (existsSync(defaultPath)) return defaultPath;
   } catch {
     // Package not resolvable
   }
