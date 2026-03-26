@@ -429,7 +429,20 @@ export class Flamecast<
         result = { ok: true };
     }
 
-    // 2. Deliver to external webhooks (fire-and-forget, does not block response)
+    // 2. Push to EventBus (consumed by SSE + WS adapter). In Node mode the
+    //    bridge also pushes events — some overlap on permission/lifecycle events
+    //    is expected and fine (SSE clients dedup on stable IDs).
+    this.eventBus.pushEvent({
+      sessionId,
+      agentId: resolveAgentId(sessionId),
+      event: {
+        type: event.type,
+        data: { ...event.data },
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    // 3. Deliver to external webhooks (fire-and-forget, does not block response)
     this.deliverWebhooks(sessionId, event);
 
     return result;

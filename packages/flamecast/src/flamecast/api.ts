@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { streamSSE } from "hono/streaming";
 import { zValidator } from "@hono/zod-validator";
 import type { Flamecast } from "./index.js";
 import {
@@ -6,10 +7,12 @@ import {
   RegisterAgentTemplateBodySchema,
   createRegisterAgentTemplateBodySchema,
 } from "../shared/session.js";
+import { toWsChannelEvent } from "./channel-router.js";
 
 export type FlamecastApi = Pick<
   Flamecast,
   | "createSession"
+  | "eventBus"
   | "getSession"
   | "handleSessionEvent"
   | "listAgentTemplates"
@@ -188,6 +191,49 @@ export function createApi(flamecast: FlamecastApi) {
       })
       .post("/agents/:agentId/queue/resume", async (c) => {
         return proxyQueue(c, flamecast, "/queue/resume", "POST");
+      })
+      // ---- SSE event stream (universal — works in Node + edge) ----
+      .get("/agents/:agentId/stream", (c) => {
+        const agentId = c.req.param("agentId");
+        return streamSSE(c, async (stream) => {
+          const unsub = flamecast.eventBus.onEvent((event) => {
+            if (event.sessionId !== agentId) return;
+            const msg = toWsChannelEvent(event, `session:${event.sessionId}`);
+            stream.writeSSE({
+              data: JSON.stringify(msg),
+              event: event.event.type,
+              id: String(event.seq),
+            });
+          });
+
+          const unsubCreated = flamecast.eventBus.onSessionCreated((payload) => {
+            if (payload.sessionId !== agentId) return;
+            stream.writeSSE({
+              data: JSON.stringify({ type: "session.created", ...payload }),
+              event: "session.created",
+            });
+          });
+
+          const unsubTerminated = flamecast.eventBus.onSessionTerminated((payload) => {
+            if (payload.sessionId !== agentId) return;
+            stream.writeSSE({
+              data: JSON.stringify({ type: "session.terminated", ...payload }),
+              event: "session.terminated",
+            });
+            stream.close();
+          });
+
+          stream.onAbort(() => {
+            unsub();
+            unsubCreated();
+            unsubTerminated();
+          });
+
+          // Keep the stream open until aborted or session terminates
+          await new Promise<void>((resolve) => {
+            stream.onAbort(resolve);
+          });
+        });
       })
   );
 }
