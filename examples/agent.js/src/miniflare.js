@@ -129,7 +129,9 @@ async function main() {
 
   console.log(`Agent.js worker listening at ${local.baseUrl}`);
   console.log(`ACP WebSocket base: ${local.websocketUrl}/:sessionId`);
-  console.log(`Mode: ${bindings.AGENT_MODE}${bindings.CF_AI_MODEL ? ` (${bindings.CF_AI_MODEL})` : ""}`);
+  console.log(
+    `Mode: ${bindings.AGENT_MODE}${bindings.CF_AI_MODEL ? ` (${bindings.CF_AI_MODEL})` : ""}`,
+  );
   if (bindings.AGENT_MODE === "gateway" && !bindings.OPENAI_API_KEY) {
     console.log(
       "Gateway note: if prompts still fall back to scripted responses, configure a stored provider key on the gateway or set OPENAI_API_KEY locally.",

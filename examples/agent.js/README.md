@@ -38,6 +38,47 @@ In both cases, the Worker routes by session ID with `getAgentByName(...)`, and t
 
 The Agent SDK's own protocol/state-sync frames are disabled for ACP connections, so `/acp/:sessionId` carries ACP NDJSON only.
 
+## How It Works
+
+There are three layers:
+
+1. Flamecast uses `NodeRuntime` and talks to the worker as a normal SessionHost.
+2. The worker maps each `sessionId` to a named Cloudflare `Agent` instance.
+3. That `Agent` instance runs the prompt loop and persists transcript, compaction summary, and JSON-serializable globals in Durable Object SQLite.
+
+The important boundary is that Flamecast does not need a custom runtime plugin for `agentjs`. The hosted worker already exposes the SessionHost routes Flamecast expects:
+
+- `POST /sessions/:sessionId/start`
+- `POST /sessions/:sessionId/prompt`
+- `POST /sessions/:sessionId/terminate`
+- `GET /sessions/:sessionId/queue`
+- `WS /sessions/:sessionId`
+
+ACP is still available at `/acp/:sessionId`, but that is only for direct ACP clients. Flamecast itself talks to `/sessions/:sessionId`.
+
+### Prompt lifecycle
+
+For a Flamecast prompt:
+
+1. Flamecast sends `POST /sessions/:sessionId/prompt`.
+2. The worker resolves that `sessionId` with `getAgentByName(...)` and loads the matching `Agent` state.
+3. The worker runs the planner/tool loop for that session.
+4. If the model chooses `executeJS`, the worker emits normal session events over `WS /sessions/:sessionId`.
+5. `executeJS` runs either:
+   - through the local executor in Miniflare, or
+   - through a generated Dynamic Worker when `LOADER` is available in production.
+6. The updated serializable globals are written back to the session `Agent` state.
+7. Flamecast receives the final prompt response plus the streamed event trail.
+
+### Why ACP is still there
+
+ACP is still useful for two reasons:
+
+- you can connect ACP-native clients directly to the worker
+- it keeps the underlying agent loop interoperable outside Flamecast
+
+But for Flamecast integration, ACP is optional. The hosted worker owns the SessionHost compatibility layer itself, so Flamecast can use the same `NodeRuntime` shape it already uses for other remote session hosts.
+
 Context management is deliberately narrow. The only built-in primitive is compaction:
 
 - older transcript entries are summarized when the serialized context crosses `COMPACT_AT_CHARS`

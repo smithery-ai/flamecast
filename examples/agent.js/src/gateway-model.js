@@ -22,9 +22,7 @@ export async function getGatewayModel(env) {
     gateway,
     apiKey: token,
   });
-  const unified = createUnified(
-    env.OPENAI_API_KEY ? { apiKey: env.OPENAI_API_KEY } : undefined,
-  );
+  const unified = createUnified(env.OPENAI_API_KEY ? { apiKey: env.OPENAI_API_KEY } : undefined);
   const modelId = env.CF_AI_MODEL || DEFAULT_MODEL;
 
   return {

@@ -15,7 +15,10 @@ function collectCompletedResults(events) {
   return events
     .map((event) => event.update)
     .filter(Boolean)
-    .filter((update) => update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update")
+    .filter(
+      (update) =>
+        update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update",
+    )
     .filter((update) => update.status === "completed")
     .map((update) => update.rawOutput?.result);
 }

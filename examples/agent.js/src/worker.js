@@ -175,18 +175,12 @@ function truncate(text, maxChars = 1200) {
 
 function rewritePersistentBindings(source) {
   return source
-    .replace(
-      /(^|\n)(\s*)(const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g,
-      "$1$2scope.$4 =",
-    )
+    .replace(/(^|\n)(\s*)(const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/g, "$1$2scope.$4 =")
     .replace(
       /(^|\n)(\s*)async function\s+([A-Za-z_$][\w$]*)\s*\(/g,
       "$1$2scope.$3 = async function $3(",
     )
-    .replace(
-      /(^|\n)(\s*)function\s+([A-Za-z_$][\w$]*)\s*\(/g,
-      "$1$2scope.$3 = function $3(",
-    )
+    .replace(/(^|\n)(\s*)function\s+([A-Za-z_$][\w$]*)\s*\(/g, "$1$2scope.$3 = function $3(")
     .replace(/(^|\n)(\s*)class\s+([A-Za-z_$][\w$]*)\s*/g, "$1$2scope.$3 = class $3 ")
     .replace(/\bimport\s*\(/g, "__import__(");
 }
@@ -211,11 +205,13 @@ function serializeTranscript(session) {
         break;
       case "tool_result":
         parts.push(
-          `[Tool result]\n${truncate(jsonStringify({
-            result: entry.result,
-            logs: entry.logs,
-            error: entry.error,
-          }))}`,
+          `[Tool result]\n${truncate(
+            jsonStringify({
+              result: entry.result,
+              logs: entry.logs,
+              error: entry.error,
+            }),
+          )}`,
         );
         break;
     }
@@ -372,7 +368,7 @@ function toExecutionResult(execution, fallbackScope = {}) {
     ok,
     result: execution?.result ?? null,
     logs: Array.isArray(execution?.logs) ? execution.logs.map((entry) => String(entry)) : [],
-    error: ok ? null : execution?.error ?? { message: "Unknown executeJS failure" },
+    error: ok ? null : (execution?.error ?? { message: "Unknown executeJS failure" }),
     scope: execution?.scope ?? fallbackScope,
     scopeKeys: Object.keys(execution?.scope ?? fallbackScope),
   };
@@ -416,13 +412,15 @@ async function streamGatewayReply(agent, connection, sessionId, session, signal)
         description: EXECUTE_JS_TOOL_DESCRIPTION,
         inputSchema: jsonSchema(EXECUTE_JS_INPUT_SCHEMA),
         execute: async ({ code }) => {
-          const rawExecution = await runExecuteJS(agent.env, String(code), session).catch((error) => ({
-            ok: false,
-            result: null,
-            logs: [],
-            error: toErrorData(error),
-            scope: session.scope,
-          }));
+          const rawExecution = await runExecuteJS(agent.env, String(code), session).catch(
+            (error) => ({
+              ok: false,
+              result: null,
+              logs: [],
+              error: toErrorData(error),
+              scope: session.scope,
+            }),
+          );
           const execution = toExecutionResult(rawExecution, session.scope);
 
           session.scope = execution.scope;
@@ -695,7 +693,7 @@ async function promptSession(agent, connection, sessionId, params) {
       role: "tool_result",
       result: execution.result ?? null,
       logs: execution.logs ?? [],
-      error: execution.ok ? null : execution.error ?? { message: "Unknown executeJS failure" },
+      error: execution.ok ? null : (execution.error ?? { message: "Unknown executeJS failure" }),
     });
     agent.setState(session);
 
@@ -713,7 +711,7 @@ async function promptSession(agent, connection, sessionId, params) {
         content,
         rawOutput: {
           result: execution.result ?? null,
-          error: execution.ok ? null : execution.error ?? null,
+          error: execution.ok ? null : (execution.error ?? null),
           scopeKeys: Object.keys(session.scope),
         },
       },
