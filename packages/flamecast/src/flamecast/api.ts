@@ -195,9 +195,26 @@ export function createApi(flamecast: FlamecastApi) {
       // ---- SSE event stream (universal — works in Node + edge) ----
       .get("/agents/:agentId/stream", (c) => {
         const agentId = c.req.param("agentId");
+        const lastEventId = c.req.header("Last-Event-ID");
+        const since = lastEventId ? parseInt(lastEventId, 10) : undefined;
+
         return streamSSE(c, async (stream) => {
+          // Replay history (mirrors WS adapter's handleSubscribe behavior)
+          const history = flamecast.eventBus.getHistory(agentId, {
+            since: Number.isFinite(since) ? since : undefined,
+          });
+          for (const event of history) {
+            const msg = toWsChannelEvent(event, `session:${event.sessionId}`);
+            stream.writeSSE({
+              data: JSON.stringify(msg),
+              event: event.event.type,
+              id: String(event.seq),
+            });
+          }
+
+          // Live events
           const unsub = flamecast.eventBus.onEvent((event) => {
-            if (event.sessionId !== agentId) return;
+            if (event.agentId !== agentId) return;
             const msg = toWsChannelEvent(event, `session:${event.sessionId}`);
             stream.writeSSE({
               data: JSON.stringify(msg),
@@ -207,7 +224,7 @@ export function createApi(flamecast: FlamecastApi) {
           });
 
           const unsubCreated = flamecast.eventBus.onSessionCreated((payload) => {
-            if (payload.sessionId !== agentId) return;
+            if (payload.agentId !== agentId) return;
             stream.writeSSE({
               data: JSON.stringify({ type: "session.created", ...payload }),
               event: "session.created",
@@ -215,7 +232,7 @@ export function createApi(flamecast: FlamecastApi) {
           });
 
           const unsubTerminated = flamecast.eventBus.onSessionTerminated((payload) => {
-            if (payload.sessionId !== agentId) return;
+            if (payload.agentId !== agentId) return;
             stream.writeSSE({
               data: JSON.stringify({ type: "session.terminated", ...payload }),
               event: "session.terminated",
@@ -223,15 +240,14 @@ export function createApi(flamecast: FlamecastApi) {
             stream.close();
           });
 
-          stream.onAbort(() => {
-            unsub();
-            unsubCreated();
-            unsubTerminated();
-          });
-
-          // Keep the stream open until aborted or session terminates
+          // Single onAbort — cleanup + resolve the keep-alive promise
           await new Promise<void>((resolve) => {
-            stream.onAbort(resolve);
+            stream.onAbort(() => {
+              unsub();
+              unsubCreated();
+              unsubTerminated();
+              resolve();
+            });
           });
         });
       })

@@ -58,6 +58,10 @@ export interface WsChannelErrorMessage {
   channel?: Channel;
 }
 
+export interface WsPongMessage {
+  type: "pong";
+}
+
 export type WsChannelServerMessage =
   | WsChannelConnectedMessage
   | WsSubscribedMessage
@@ -65,7 +69,8 @@ export type WsChannelServerMessage =
   | WsChannelEventMessage
   | WsSessionCreatedMessage
   | WsSessionTerminatedMessage
-  | WsChannelErrorMessage;
+  | WsChannelErrorMessage
+  | WsPongMessage;
 
 // ---------------------------------------------------------------------------
 // Client → Server messages

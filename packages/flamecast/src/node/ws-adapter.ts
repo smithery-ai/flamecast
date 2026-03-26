@@ -208,7 +208,7 @@ export class WsAdapter {
           });
           break;
         case "ping":
-          // No-op; the connection itself serves as heartbeat
+          this.send(client.ws, { type: "pong" });
           break;
       }
     } catch (error) {
@@ -321,7 +321,7 @@ export class WsAdapter {
       // Queue: replay only latest state snapshot
       const last = this.eventBus.getLastEvent(sessionId, isQueueChannelEvent);
       events = last ? [last] : [];
-    } else if (channel.endsWith(":fs") || channel.includes(":fs")) {
+    } else if (channel.split(":").includes("fs")) {
       // FS: replay only latest snapshot
       const last = this.eventBus.getLastEvent(sessionId, isFsChannelEvent);
       events = last ? [last] : [];

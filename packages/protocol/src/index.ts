@@ -71,6 +71,7 @@ export type {
   WsSessionCreatedMessage,
   WsSessionTerminatedMessage,
   WsChannelErrorMessage,
+  WsPongMessage,
   WsSubscribeAction,
   WsUnsubscribeAction,
   WsChannelPromptAction,

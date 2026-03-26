@@ -13,22 +13,26 @@ import { WsAdapter } from "./ws-adapter.js";
 
 /**
  * Start the Flamecast server with HTTP API + WebSocket adapter.
+ * Returns a handle for graceful shutdown.
  *
  * @example
  * ```ts
  * import { Flamecast, listen } from "@flamecast/sdk";
  *
  * const flamecast = new Flamecast({ runtimes: { default: new NodeRuntime() } });
- * listen(flamecast, { port: 3001 }, (info) => {
+ * const handle = listen(flamecast, { port: 3001 }, (info) => {
  *   console.log(`Flamecast running on http://localhost:${info.port}`);
  * });
+ *
+ * // Graceful shutdown
+ * await handle.close();
  * ```
  */
 export function listen(
   flamecast: Flamecast,
   options: { port: number },
   listeningListener?: (info: AddressInfo) => void,
-): void {
+): { close(): Promise<void> } {
   const server = honoServe({ fetch: flamecast.app.fetch, port: options.port }, listeningListener);
 
   const bridge = new SessionHostBridge({ eventBus: flamecast.eventBus });
@@ -37,9 +41,17 @@ export function listen(
     bridge.connect(payload.sessionId, payload.websocketUrl);
   });
 
-  new WsAdapter({
+  const adapter = new WsAdapter({
     server,
     eventBus: flamecast.eventBus,
     flamecast,
   });
+
+  return {
+    async close() {
+      adapter.close();
+      bridge.disconnectAll();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
 }

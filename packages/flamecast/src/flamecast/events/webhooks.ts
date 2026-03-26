@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+const randomUUID = (): string => crypto.randomUUID();
 import type { WebhookConfig } from "@flamecast/protocol/session";
 import { signWebhookPayload } from "@flamecast/protocol/verify";
 

@@ -1,5 +1,27 @@
-import { EventEmitter } from "node:events";
 import type { ChannelEvent } from "./channels.js";
+
+// ---------------------------------------------------------------------------
+// Minimal edge-compatible pub/sub (replaces node:events EventEmitter)
+// ---------------------------------------------------------------------------
+
+type Listener<T> = (payload: T) => void;
+
+class Emitter<T> {
+  private listeners: Array<Listener<T>> = [];
+
+  on(listener: Listener<T>): () => void {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== listener);
+    };
+  }
+
+  emit(payload: T): void {
+    for (const listener of this.listeners) {
+      listener(payload);
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Per-category history buffer caps
@@ -46,12 +68,11 @@ interface SessionTerminatedPayload {
 // EventBus — lifecycle pub/sub + per-session event history
 // ---------------------------------------------------------------------------
 
-type EventListener = (event: ChannelEvent) => void;
-type SessionCreatedListener = (payload: SessionCreatedPayload) => void;
-type SessionTerminatedListener = (payload: SessionTerminatedPayload) => void;
-
 /**
  * Internal event bus for the WS adapter.
+ *
+ * Uses a minimal hand-rolled pub/sub (no node:events) so the Flamecast class
+ * can be imported in edge runtimes (CF Workers, Vercel) without Node builtins.
  *
  * - Lifecycle events (`session.created`, `session.terminated`) trigger bridge
  *   connect/disconnect.
@@ -60,14 +81,17 @@ type SessionTerminatedListener = (payload: SessionTerminatedPayload) => void;
  * - Each event gets a per-session monotonic `seq` number.
  */
 export class EventBus {
-  private readonly emitter = new EventEmitter();
+  private readonly eventEmitter = new Emitter<ChannelEvent>();
+  private readonly createdEmitter = new Emitter<SessionCreatedPayload>();
+  private readonly terminatedEmitter = new Emitter<SessionTerminatedPayload>();
+
   private readonly history = new Map<string, ChannelEvent[]>();
   private readonly seqCounters = new Map<string, number>();
+  private readonly categoryCounts = new Map<string, Map<keyof EventBusHistoryCaps, number>>();
   private readonly caps: EventBusHistoryCaps;
 
   constructor(opts?: EventBusOptions) {
     this.caps = { ...DEFAULT_CAPS, ...opts?.historyCaps };
-    this.emitter.setMaxListeners(0);
   }
 
   // -------------------------------------------------------------------------
@@ -75,22 +99,20 @@ export class EventBus {
   // -------------------------------------------------------------------------
 
   emitSessionCreated(payload: SessionCreatedPayload): void {
-    this.emitter.emit("session.created", payload);
+    this.createdEmitter.emit(payload);
   }
 
   emitSessionTerminated(payload: SessionTerminatedPayload): void {
-    this.emitter.emit("session.terminated", payload);
+    this.terminatedEmitter.emit(payload);
     this.clearHistory(payload.sessionId);
   }
 
-  onSessionCreated(listener: SessionCreatedListener): () => void {
-    this.emitter.on("session.created", listener);
-    return () => this.emitter.off("session.created", listener);
+  onSessionCreated(listener: (payload: SessionCreatedPayload) => void): () => void {
+    return this.createdEmitter.on(listener);
   }
 
-  onSessionTerminated(listener: SessionTerminatedListener): () => void {
-    this.emitter.on("session.terminated", listener);
-    return () => this.emitter.off("session.terminated", listener);
+  onSessionTerminated(listener: (payload: SessionTerminatedPayload) => void): () => void {
+    return this.terminatedEmitter.on(listener);
   }
 
   // -------------------------------------------------------------------------
@@ -105,13 +127,12 @@ export class EventBus {
     const seq = this.nextSeq(event.sessionId);
     const full: ChannelEvent = { ...event, seq };
     this.appendHistory(full);
-    this.emitter.emit("event", full);
+    this.eventEmitter.emit(full);
     return full;
   }
 
-  onEvent(listener: EventListener): () => void {
-    this.emitter.on("event", listener);
-    return () => this.emitter.off("event", listener);
+  onEvent(listener: (event: ChannelEvent) => void): () => void {
+    return this.eventEmitter.on(listener);
   }
 
   // -------------------------------------------------------------------------
@@ -157,6 +178,7 @@ export class EventBus {
   clearHistory(sessionId: string): void {
     this.history.delete(sessionId);
     this.seqCounters.delete(sessionId);
+    this.categoryCounts.delete(sessionId);
   }
 
   // -------------------------------------------------------------------------
@@ -179,42 +201,44 @@ export class EventBus {
 
     buf.push(event);
 
-    // Enforce per-category cap: count only events of the same category,
-    // and evict oldest events of that category when over cap. This prevents
-    // a single low-cap event (e.g. queue) from evicting unrelated events (e.g. RPC).
+    // O(1) category count tracking
     const category = this.categoryForEvent(event);
-    const cap = this.caps[category];
-    let categoryCount = 0;
-    for (const e of buf) {
-      if (this.categoryForEvent(e) === category) categoryCount++;
+    let counts = this.categoryCounts.get(event.sessionId);
+    if (!counts) {
+      counts = new Map();
+      this.categoryCounts.set(event.sessionId, counts);
     }
+    const count = (counts.get(category) ?? 0) + 1;
+    counts.set(category, count);
 
-    if (categoryCount > cap) {
-      const excess = categoryCount - cap;
+    // Evict oldest events of the same category when over cap
+    const cap = this.caps[category];
+    if (count > cap) {
+      const excess = count - cap;
       let removed = 0;
       for (let i = 0; i < buf.length && removed < excess; i++) {
         if (this.categoryForEvent(buf[i]) === category) {
           buf.splice(i, 1);
           removed++;
-          i--; // adjust index after splice
+          i--;
         }
       }
+      counts.set(category, count - removed);
     }
   }
 
-  private categoryForEvent(event: ChannelEvent): keyof EventBusHistoryCaps {
+  private categoryForEvent(event: ChannelEvent | undefined): keyof EventBusHistoryCaps {
+    if (!event) return "default";
     const type = event.event.type;
     const method =
       type === "rpc" && typeof event.event.data.method === "string"
         ? event.event.data.method
         : undefined;
 
-    // Terminal events
     if (type.startsWith("terminal.") || (method && method.startsWith("terminal."))) {
       return "terminal";
     }
 
-    // Queue / FS snapshot events
     if (
       type.startsWith("queue.") ||
       type.startsWith("filesystem.") ||
@@ -227,7 +251,6 @@ export class EventBus {
       return "snapshot";
     }
 
-    // RPC (streaming tokens, tool calls, etc.)
     if (type === "rpc" || type === "session_update") {
       return "rpc";
     }

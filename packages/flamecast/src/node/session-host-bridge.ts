@@ -38,6 +38,9 @@ export class SessionHostBridge {
     // Listen for session termination to stop reconnecting
     this.terminatedUnsubscribe = this.eventBus.onSessionTerminated(({ sessionId }) => {
       this.terminatedSessions.add(sessionId);
+      // Prune old entries after 60s (enough for any in-flight reconnect timers)
+      setTimeout(() => this.terminatedSessions.delete(sessionId), 60_000);
+
       const conn = this.connections.get(sessionId);
       if (conn) {
         conn.terminated = true;
