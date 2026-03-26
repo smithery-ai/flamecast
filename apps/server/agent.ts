@@ -37,19 +37,20 @@ function generateLoremIpsum(lines: number): string {
   return out.join("\n") + "\n";
 }
 
-const BOILERPLATE = [
-  "# ========================================",
-  "# BOILERPLATE SECTION — auto-generated",
-  "# ========================================",
-  "export const APP_NAME = 'LoremApp';",
-  "export const APP_VERSION = '0.1.0';",
-  "export const DEFAULT_LOCALE = 'en-US';",
-  "export const MAX_RETRIES = 3;",
-  "export const TIMEOUT_MS = 5000;",
-  "# ========================================",
-  "# END BOILERPLATE",
-  "# ========================================",
-].join("\n") + "\n";
+const BOILERPLATE =
+  [
+    "# ========================================",
+    "# BOILERPLATE SECTION — auto-generated",
+    "# ========================================",
+    "export const APP_NAME = 'LoremApp';",
+    "export const APP_VERSION = '0.1.0';",
+    "export const DEFAULT_LOCALE = 'en-US';",
+    "export const MAX_RETRIES = 3;",
+    "export const TIMEOUT_MS = 5000;",
+    "# ========================================",
+    "# END BOILERPLATE",
+    "# ========================================",
+  ].join("\n") + "\n";
 
 // ---------------------------------------------------------------------------
 // Agent
@@ -262,11 +263,7 @@ class EchoAgent implements acp.Agent {
     // -----------------------------------------------------------------------
     // 5. Stream transition message
     // -----------------------------------------------------------------------
-    await this.streamWords(
-      sid,
-      "\nAlright, now let me clean up by deleting LOREM.md.",
-      signal,
-    );
+    await this.streamWords(sid, "\nAlright, now let me clean up by deleting LOREM.md.", signal);
     if (signal.aborted) return { stopReason: "cancelled" };
 
     // -----------------------------------------------------------------------
@@ -337,11 +334,7 @@ class EchoAgent implements acp.Agent {
   }
 
   /** Stream text word-by-word as agent_message_chunk updates. */
-  private async streamWords(
-    sessionId: string,
-    text: string,
-    signal: AbortSignal,
-  ): Promise<void> {
+  private async streamWords(sessionId: string, text: string, signal: AbortSignal): Promise<void> {
     const words = text.split(" ");
     for (const word of words) {
       if (signal.aborted) return;

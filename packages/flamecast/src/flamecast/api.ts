@@ -11,8 +11,10 @@ export type FlamecastApi = Pick<
   Flamecast,
   | "createSession"
   | "getSession"
+  | "handleSessionEvent"
   | "listAgentTemplates"
   | "listSessions"
+  | "promptSession"
   | "registerAgentTemplate"
   | "terminateSession"
   | "runtimeNames"
@@ -94,7 +96,11 @@ export function createApi(flamecast: FlamecastApi) {
     .post("/agents", zValidator("json", CreateSessionBodySchema), async (c) => {
       try {
         const body = c.req.valid("json");
-        const session = await flamecast.createSession(body);
+        // Derive callback URL from the incoming request so the session-host
+        // can POST events back to the control plane
+        const reqUrl = new URL(c.req.url);
+        const callbackUrl = `${reqUrl.protocol}//${reqUrl.host}/api`;
+        const session = await flamecast.createSession(body, { callbackUrl });
         return c.json(session, 201);
       } catch (error) {
         console.error("Agent creation failed:", error);
@@ -104,6 +110,34 @@ export function createApi(flamecast: FlamecastApi) {
     })
     .get("/agents/:agentId", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
     .get("/agents/:agentId/", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
+    .post("/agents/:agentId/prompts", async (c) => {
+      try {
+        const agentId = c.req.param("agentId");
+        const { text } = await c.req.json();
+        if (!text || typeof text !== "string") {
+          return c.json({ error: "Missing 'text' field" }, 400);
+        }
+        const result = await flamecast.promptSession(agentId, text);
+        return c.json(result);
+      } catch (error) {
+        console.error("Prompt failed:", error);
+        const status = toErrorMessage(error).includes("not found") ? 404 : 500;
+        return c.json({ error: toErrorMessage(error) }, status);
+      }
+    })
+    .post("/agents/:agentId/events", async (c) => {
+      try {
+        const agentId = c.req.param("agentId");
+        const event = await c.req.json();
+        if (!event || typeof event.type !== "string" || !event.data) {
+          return c.json({ error: "Invalid event: missing type or data" }, 400);
+        }
+        return c.json(await flamecast.handleSessionEvent(agentId, event));
+      } catch (error) {
+        console.error("Session event callback failed:", error);
+        return c.json({ error: toErrorMessage(error) }, 500);
+      }
+    })
     .delete("/agents/:agentId", async (c) => {
       try {
         await flamecast.terminateSession(c.req.param("agentId"));

@@ -12,6 +12,10 @@ import type { FlamecastStorage } from "./storage.js";
 import { MemoryFlamecastStorage } from "./storage/memory/index.js";
 import { SessionService } from "./session-service.js";
 import type {
+  SessionCallbackEvent,
+  PermissionCallbackResponse,
+} from "@flamecast/protocol/session-host";
+import type {
   Runtime,
   RuntimeNames,
   SessionContext,
@@ -46,10 +50,10 @@ export type PermissionResponse = { optionId: string } | { outcome: "cancelled" }
 /**
  * Context passed to `onPermissionRequest`.
  *
- * NOTE (MVP limitation): `onPermissionRequest` is only invoked when the
- * control plane sits in the WebSocket proxy path (deployed mode). In local-dev
- * mode (direct WS between UI and session host), the permission request goes
- * straight to the UI and this handler is not called.
+ * The session-host POSTs permission requests to the control plane's callback URL.
+ * If the handler returns a response, it's sent back synchronously and the agent
+ * continues. If it returns `undefined`, the request is deferred to the WS-based
+ * UI flow.
  */
 export interface PermissionRequestContext<
   R extends Record<string, Runtime<Record<string, unknown>>>,
@@ -91,9 +95,7 @@ export interface FlamecastEventHandlers<
 > {
   onPermissionRequest?: (c: PermissionRequestContext<R>) => Promise<PermissionResponse | undefined>;
   onSessionEnd?: (c: SessionEndContext<R>) => Promise<void>;
-  /** Stub — not wired for MVP. */
   onAgentMessage?: (c: AgentMessageContext<R>) => Promise<void>;
-  /** Stub — not wired for MVP. */
   onError?: (c: ErrorContext<R>) => Promise<void>;
 }
 
@@ -107,6 +109,8 @@ export type FlamecastOptions<
   storage?: FlamecastStorage;
   runtimes: R;
   agentTemplates?: AgentTemplate[];
+  /** Override the auto-detected callback URL for session-host → control plane events. */
+  callbackUrl?: string;
 } & FlamecastEventHandlers<R>;
 
 export class Flamecast<
@@ -116,6 +120,7 @@ export class Flamecast<
   private readonly storageConfig?: FlamecastStorage;
   private readonly sessionService: SessionService;
   private readonly runtimesMap: Record<string, Runtime<Record<string, unknown>>>;
+  private readonly callbackUrl?: string;
 
   /** Registered event handlers. */
   readonly handlers: Readonly<FlamecastEventHandlers<R>>;
@@ -129,6 +134,7 @@ export class Flamecast<
   constructor(opts: FlamecastOptions<R>) {
     this.storageConfig = opts.storage;
     this.initialAgentTemplates = opts.agentTemplates;
+    this.callbackUrl = opts.callbackUrl;
     this.runtimesMap = opts.runtimes;
     this.sessionService = new SessionService(opts.runtimes);
     this.app = createServerApp(this);
@@ -188,12 +194,16 @@ export class Flamecast<
     return template;
   }
 
-  async createSession(opts: CreateSessionBody): Promise<Session> {
+  async createSession(
+    opts: CreateSessionBody,
+    internal?: { callbackUrl?: string },
+  ): Promise<Session> {
     await this.ensureReady();
 
     const cwd = opts.cwd ?? process.cwd();
     const { agentName, spawn, runtime } = await this.resolveSessionDefinition(opts);
     const startedAt = new Date().toISOString();
+    const callbackUrl = internal?.callbackUrl ?? this.callbackUrl;
 
     const { sessionId } = await this.sessionService.startSession(this.requireStorage(), {
       agentName,
@@ -201,6 +211,7 @@ export class Flamecast<
       cwd,
       runtime,
       startedAt,
+      callbackUrl,
     });
 
     return this.snapshotSession(sessionId);
@@ -222,6 +233,19 @@ export class Flamecast<
       if (!meta) throw new Error(`Session "${id}" not found`);
     }
     return this.snapshotSession(id, opts);
+  }
+
+  async promptSession(id: string, text: string): Promise<Record<string, unknown>> {
+    await this.ensureReady();
+    const response = await this.sessionService.proxyRequest(id, "/prompt", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "(unreadable)");
+      throw new Error(`Prompt failed (${response.status}): ${detail}`);
+    }
+    return response.json();
   }
 
   async terminateSession(id: string): Promise<void> {
@@ -248,6 +272,77 @@ export class Flamecast<
           err instanceof Error ? err.message : err,
         );
       }
+    }
+  }
+
+  /**
+   * Handle an event callback from the session-host.
+   * Dispatches to the appropriate handler based on event type.
+   */
+  async handleSessionEvent(
+    sessionId: string,
+    event: SessionCallbackEvent,
+  ): Promise<PermissionCallbackResponse | { ok: true }> {
+    switch (event.type) {
+      case "permission_request": {
+        const permResponse = await this.handlePermissionRequest(sessionId, event.data);
+        return permResponse ?? { deferred: true };
+      }
+
+      case "session_end": {
+        const ctx = await this.buildSessionContext(sessionId);
+        if (this.handlers.onSessionEnd && ctx) {
+          try {
+            await this.handlers.onSessionEnd({ session: ctx, reason: "agent_exit" });
+          } catch (err) {
+            console.warn(
+              `[Flamecast] onSessionEnd handler error:`,
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }
+        return { ok: true };
+      }
+
+      case "agent_message": {
+        const ctx = await this.buildSessionContext(sessionId);
+        if (this.handlers.onAgentMessage && ctx) {
+          try {
+            await this.handlers.onAgentMessage({
+              session: ctx,
+              type: "agent_message",
+              data: event.data.sessionUpdate,
+            });
+          } catch (err) {
+            console.warn(
+              `[Flamecast] onAgentMessage handler error:`,
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }
+        return { ok: true };
+      }
+
+      case "error": {
+        const ctx = await this.buildSessionContext(sessionId);
+        if (this.handlers.onError && ctx) {
+          try {
+            await this.handlers.onError({
+              session: ctx,
+              error: new Error(event.data.message),
+            });
+          } catch (err) {
+            console.warn(
+              `[Flamecast] onError handler error:`,
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }
+        return { ok: true };
+      }
+
+      default:
+        return { ok: true };
     }
   }
 

@@ -23,7 +23,8 @@ if (existsSync(output)) {
     const fd = openSync(output, "r");
     readSync(fd, header, 0, 4, 0);
     closeSync(fd);
-    const isELF = header[0] === 0x7f && header[1] === 0x45 && header[2] === 0x4c && header[3] === 0x46;
+    const isELF =
+      header[0] === 0x7f && header[1] === 0x45 && header[2] === 0x4c && header[3] === 0x46;
     if (isELF) {
       console.log("[session-host-go] binary already exists (ELF), skipping build");
       process.exit(0);
