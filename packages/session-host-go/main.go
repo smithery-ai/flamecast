@@ -469,11 +469,12 @@ func handleControl(clientID string, raw json.RawMessage, sess *session, handler 
 			sess.hub.Broadcast(map[string]any{"type": "error", "message": "No active session"})
 			return
 		}
-		handler.emitRPC(acp.MethodPrompt, "client_to_agent", "request", nil)
-		resp, err := sess.conn.Prompt(acp.PromptRequest{
+		promptReq := acp.PromptRequest{
 			SessionID: sess.id,
 			Prompt:    []acp.ContentPart{{Type: "text", Text: msg.Text}},
-		})
+		}
+		handler.emitRPC(acp.MethodPrompt, "client_to_agent", "request", promptReq)
+		resp, err := sess.conn.Prompt(promptReq)
 		if err != nil {
 			sess.hub.Broadcast(map[string]any{"type": "error", "message": err.Error()})
 			return
