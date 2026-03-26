@@ -56,9 +56,11 @@ listen(flamecast, { port: 3001 }, (info) => {
   console.log(`Flamecast running on http://localhost:${info.port}`);
 });
 
+// Graceful close: tear down in-process resources but leave sessions alive so
+// they can be recovered on the next startup via recoverSessions().
 process.on("SIGINT", () => {
-  flamecast.shutdown().then(() => process.exit(0));
+  flamecast.close().then(() => process.exit(0));
 });
 process.on("SIGTERM", () => {
-  flamecast.shutdown().then(() => process.exit(0));
+  flamecast.close().then(() => process.exit(0));
 });

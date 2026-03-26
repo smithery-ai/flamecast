@@ -173,16 +173,28 @@ export class Flamecast<
     return Object.keys(this.runtimesMap);
   }
 
-  /** Terminate all sessions and dispose all runtimes. */
+  /**
+   * Graceful close — tears down in-process resources (webhook retries, event
+   * bus) without terminating running sessions or disposing runtimes.
+   *
+   * Use this for server restarts: sessions and their host processes/containers
+   * stay alive and will be recovered via `recoverSessions()` on the next start.
+   */
+  async close(): Promise<void> {
+    for (const ac of this.webhookAbortControllers.values()) ac.abort();
+    this.webhookAbortControllers.clear();
+    this.webhookEngine.clear();
+  }
+
+  /**
+   * Hard shutdown — terminates all sessions, kills all containers/processes,
+   * and disposes all runtimes. Sessions will NOT be recoverable after this.
+   */
   async shutdown(): Promise<void> {
     for (const id of this.sessionService.listSessionIds()) {
       await this.terminateSession(id).catch(() => {});
     }
-    // Cancel any remaining webhook retries
-    for (const ac of this.webhookAbortControllers.values()) ac.abort();
-    this.webhookAbortControllers.clear();
-    this.webhookEngine.clear();
-
+    await this.close();
     for (const runtime of Object.values(this.runtimesMap)) {
       await runtime.dispose?.();
     }
