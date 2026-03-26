@@ -125,6 +125,8 @@ export class DockerRuntime implements Runtime {
         `[DockerRuntime] Starting container (image=${this.baseImage}, binary=${binaryPath})`,
       );
 
+      await this.ensureImage(this.baseImage);
+
       const container = await this.docker.createContainer({
         Image: this.baseImage,
         Cmd: [CONTAINER_BIN_PATH],
@@ -235,6 +237,28 @@ export class DockerRuntime implements Runtime {
     return new Response(await resp.text(), {
       status: resp.status,
       headers: JSON_HEADERS,
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Image management
+  // ---------------------------------------------------------------------------
+
+  /** Pull the image if it doesn't exist locally. */
+  private async ensureImage(image: string): Promise<void> {
+    try {
+      await this.docker.getImage(image).inspect();
+      return; // Already available
+    } catch {
+      // Not found locally — pull it
+    }
+
+    console.log(`[DockerRuntime] Pulling image ${image}...`);
+    const stream = await this.docker.pull(image);
+    await new Promise<void>((resolve, reject) => {
+      this.docker.modem.followProgress(stream, (err: Error | null) =>
+        err ? reject(err) : resolve(),
+      );
     });
   }
 
