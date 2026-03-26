@@ -1,8 +1,11 @@
 /* oxlint-disable no-type-assertion/no-type-assertion */
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import Docker from "dockerode";
 import type { Runtime } from "@flamecast/sdk/runtime";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ---------------------------------------------------------------------------
 // Session-host binary resolution
