@@ -426,7 +426,7 @@ describe("callbackUrl plumbing", () => {
 
       // The mock runtime captured the /start body
       expect(mock.startBodies).toHaveLength(1);
-      const startBody = mock.startBodies[0] as Record<string, unknown>;
+      const startBody = mock.startBodies[0];
 
       // sessionId should be the Flamecast-level ID
       expect(startBody.sessionId).toBe(session.id);

@@ -6,7 +6,7 @@ import { describe, it, expect, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
 import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import type { Runtime } from "@flamecast/protocol/runtime";
-import type { SessionHostStartResponse, SessionCallbackEvent } from "@flamecast/protocol/session-host";
+import type { SessionHostStartResponse } from "@flamecast/protocol/session-host";
 import type { PermissionRequestContext } from "../src/flamecast/index.js";
 
 // ---------------------------------------------------------------------------
@@ -345,10 +345,11 @@ describe("handleSessionEvent — edge cases", () => {
     const { flamecast, session } = await setup();
 
     try {
-      const result = await flamecast.handleSessionEvent(
-        session.id,
-        { type: "unknown_future_event", data: { foo: "bar" } } as unknown as SessionCallbackEvent,
+      // Simulate a future event type the server doesn't know about yet
+      const fakeEvent = JSON.parse(
+        JSON.stringify({ type: "unknown_future_event", data: { foo: "bar" } }),
       );
+      const result = await flamecast.handleSessionEvent(session.id, fakeEvent);
 
       expect(result).toEqual({ ok: true });
     } finally {
