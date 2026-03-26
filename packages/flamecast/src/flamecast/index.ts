@@ -44,7 +44,7 @@ export type {
 } from "@flamecast/protocol/session";
 export type { FileSystemEntry } from "@flamecast/protocol/session-host";
 
-export type { SessionMeta, FlamecastStorage } from "./storage.js";
+export type { SessionMeta, SessionRuntimeInfo, FlamecastStorage } from "./storage.js";
 export { NodeRuntime } from "./runtime-node.js";
 
 // ---------------------------------------------------------------------------
@@ -147,6 +147,7 @@ export class Flamecast<
 
   private storage: FlamecastStorage | null = null;
   private readyPromise: Promise<void> | null = null;
+  private recoveryPromise: Promise<void> | null = null;
 
   /** The Hono app. Use with any runtime: Node, CF Workers, Vercel, etc. */
   readonly app;
@@ -172,16 +173,28 @@ export class Flamecast<
     return Object.keys(this.runtimesMap);
   }
 
-  /** Terminate all sessions and dispose all runtimes. */
+  /**
+   * Graceful close — tears down in-process resources (webhook retries, event
+   * bus) without terminating running sessions or disposing runtimes.
+   *
+   * Use this for server restarts: sessions and their host processes/containers
+   * stay alive and will be recovered via `recoverSessions()` on the next start.
+   */
+  async close(): Promise<void> {
+    for (const ac of this.webhookAbortControllers.values()) ac.abort();
+    this.webhookAbortControllers.clear();
+    this.webhookEngine.clear();
+  }
+
+  /**
+   * Hard shutdown — terminates all sessions, kills all containers/processes,
+   * and disposes all runtimes. Sessions will NOT be recoverable after this.
+   */
   async shutdown(): Promise<void> {
     for (const id of this.sessionService.listSessionIds()) {
       await this.terminateSession(id).catch(() => {});
     }
-    // Cancel any remaining webhook retries
-    for (const ac of this.webhookAbortControllers.values()) ac.abort();
-    this.webhookAbortControllers.clear();
-    this.webhookEngine.clear();
-
+    await this.close();
     for (const runtime of Object.values(this.runtimesMap)) {
       await runtime.dispose?.();
     }
@@ -262,7 +275,8 @@ export class Flamecast<
   async listSessions(): Promise<Session[]> {
     await this.ensureReady();
     const allMetas = await this.requireStorage().listAllSessions();
-    return Promise.all(allMetas.map((meta) => this.snapshotSession(meta.id)));
+    const activeMetas = allMetas.filter((meta) => meta.status === "active");
+    return Promise.all(activeMetas.map((meta) => this.snapshotSession(meta.id)));
   }
 
   async getSession(
@@ -279,6 +293,7 @@ export class Flamecast<
 
   /** Proxy a queue management request to the session-host. */
   async proxyQueueRequest(id: string, path: string, init: RequestInit): Promise<Response> {
+    await this.ensureReady();
     return this.sessionService.proxyRequest(id, path, init);
   }
 
@@ -578,8 +593,68 @@ export class Flamecast<
     };
   }
 
+  /**
+   * Recover active sessions from storage after a server restart.
+   *
+   * For each session that was marked "active" in the database, attempts to
+   * reconnect to the still-running process/container. Sessions whose hosts
+   * are no longer alive are marked as killed.
+   *
+   * Returns the list of successfully recovered session IDs and their
+   * websocket URLs (so the bridge can re-establish connections).
+   */
+  async recoverSessions(
+    onRecovered?: (sessions: Array<{ sessionId: string; websocketUrl: string }>) => void,
+  ): Promise<Array<{ sessionId: string; websocketUrl: string }>> {
+    const doRecover = async (): Promise<Array<{ sessionId: string; websocketUrl: string }>> => {
+      // Initialize storage directly to avoid circular await (ensureReady waits on recovery).
+      // Also set readyPromise so ensureReady() skips re-initialization later.
+      if (!this.readyPromise) {
+        this.readyPromise = (async () => {
+          const storage = this.storageConfig ?? new MemoryFlamecastStorage();
+          this.storage = storage;
+          if (this.initialAgentTemplates) {
+            await storage.seedAgentTemplates(this.initialAgentTemplates);
+          }
+        })();
+      }
+      await this.readyPromise;
+      const storage = this.requireStorage();
+      const activeSessions = await storage.listActiveSessionsWithRuntime();
+
+      const recovered: Array<{ sessionId: string; websocketUrl: string }> = [];
+
+      for (const session of activeSessions) {
+        if (!session.runtimeInfo) {
+          await storage.finalizeSession(session.id, "terminated");
+          continue;
+        }
+
+        const ok = await this.sessionService.recoverSession(session.id, session.runtimeInfo);
+        if (ok) {
+          recovered.push({
+            sessionId: session.id,
+            websocketUrl: session.runtimeInfo.websocketUrl,
+          });
+          console.log(`[Flamecast] Recovered session "${session.id}"`);
+        } else {
+          await storage.finalizeSession(session.id, "terminated");
+          console.log(`[Flamecast] Session "${session.id}" no longer alive, marked as killed`);
+        }
+      }
+
+      // Let the caller wire up bridge connections before the promise resolves,
+      // so API calls gated on recovery see sessions with active bridges.
+      onRecovered?.(recovered);
+
+      return recovered;
+    };
+    const promise = doRecover();
+    this.recoveryPromise = promise.then(() => {});
+    return promise;
+  }
+
   private async ensureReady(): Promise<void> {
-    if (this.storage) return;
     if (!this.readyPromise) {
       this.readyPromise = (async () => {
         const storage = this.storageConfig ?? new MemoryFlamecastStorage();
@@ -590,6 +665,9 @@ export class Flamecast<
       })();
     }
     await this.readyPromise;
+    if (this.recoveryPromise) {
+      await this.recoveryPromise;
+    }
   }
 
   private requireStorage(): FlamecastStorage {

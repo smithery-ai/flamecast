@@ -1,5 +1,10 @@
 import { and, asc, desc, eq, inArray, not } from "drizzle-orm";
-import type { AgentTemplate, FlamecastStorage, SessionMeta } from "@flamecast/sdk";
+import type {
+  AgentTemplate,
+  FlamecastStorage,
+  SessionMeta,
+  SessionRuntimeInfo,
+} from "@flamecast/sdk";
 import { agentTemplates, sessions } from "./schema.js";
 import type { PsqlAppDb } from "./types.js";
 
@@ -118,7 +123,7 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
         });
     },
 
-    async createSession(meta: SessionMeta) {
+    async createSession(meta: SessionMeta, runtimeInfo?: SessionRuntimeInfo) {
       await db.insert(sessions).values({
         id: meta.id,
         agentName: meta.agentName,
@@ -127,6 +132,10 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
         lastUpdatedAt: meta.lastUpdatedAt,
         pendingPermission: meta.pendingPermission,
         status: "active",
+        hostUrl: runtimeInfo?.hostUrl ?? null,
+        websocketUrl: runtimeInfo?.websocketUrl ?? null,
+        runtimeName: runtimeInfo?.runtimeName ?? null,
+        runtimeMeta: runtimeInfo?.runtimeMeta ?? null,
       });
     },
 
@@ -147,6 +156,32 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
     async listAllSessions() {
       const rows = await db.select().from(sessions).orderBy(desc(sessions.lastUpdatedAt));
       return rows.map(rowToMeta).filter((meta): meta is SessionMeta => meta !== null);
+    },
+
+    async listActiveSessionsWithRuntime() {
+      const rows = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.status, "active"))
+        .orderBy(desc(sessions.lastUpdatedAt));
+      return rows.reduce<Array<SessionMeta & { runtimeInfo: SessionRuntimeInfo | null }>>(
+        (acc, row) => {
+          const meta = rowToMeta(row);
+          if (!meta) return acc;
+          const runtimeInfo: SessionRuntimeInfo | null =
+            row.hostUrl && row.websocketUrl && row.runtimeName
+              ? {
+                  hostUrl: row.hostUrl,
+                  websocketUrl: row.websocketUrl,
+                  runtimeName: row.runtimeName,
+                  runtimeMeta: row.runtimeMeta,
+                }
+              : null;
+          acc.push({ ...meta, runtimeInfo });
+          return acc;
+        },
+        [],
+      );
     },
 
     async finalizeSession(id: string, _reason: "terminated") {

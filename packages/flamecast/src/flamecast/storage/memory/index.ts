@@ -1,5 +1,5 @@
 import type { AgentTemplate } from "../../../shared/session.js";
-import type { FlamecastStorage, SessionMeta } from "../../storage.js";
+import type { FlamecastStorage, SessionMeta, SessionRuntimeInfo } from "../../storage.js";
 
 type StoredAgentTemplate = {
   template: AgentTemplate;
@@ -22,6 +22,7 @@ export class MemoryFlamecastStorage implements FlamecastStorage {
   private templates = new Map<string, StoredAgentTemplate>();
   private managedTemplateIds: string[] = [];
   private sessions = new Map<string, SessionMeta>();
+  private sessionRuntimeInfo = new Map<string, SessionRuntimeInfo>();
 
   async seedAgentTemplates(templates: AgentTemplate[]): Promise<void> {
     const nextManagedIds = templates.map((template) => template.id);
@@ -71,8 +72,11 @@ export class MemoryFlamecastStorage implements FlamecastStorage {
     });
   }
 
-  async createSession(meta: SessionMeta): Promise<void> {
+  async createSession(meta: SessionMeta, runtimeInfo?: SessionRuntimeInfo): Promise<void> {
     this.sessions.set(meta.id, { ...meta });
+    if (runtimeInfo) {
+      this.sessionRuntimeInfo.set(meta.id, { ...runtimeInfo });
+    }
   }
 
   async updateSession(
@@ -100,10 +104,23 @@ export class MemoryFlamecastStorage implements FlamecastStorage {
       .sort((a, b) => b.lastUpdatedAt.localeCompare(a.lastUpdatedAt));
   }
 
+  async listActiveSessionsWithRuntime(): Promise<
+    Array<SessionMeta & { runtimeInfo: SessionRuntimeInfo | null }>
+  > {
+    return [...this.sessions.values()]
+      .filter((row) => row.status === "active")
+      .map((row) => ({
+        ...row,
+        runtimeInfo: this.sessionRuntimeInfo.get(row.id) ?? null,
+      }))
+      .sort((a, b) => b.lastUpdatedAt.localeCompare(a.lastUpdatedAt));
+  }
+
   async finalizeSession(id: string, _reason: "terminated"): Promise<void> {
     const row = this.sessions.get(id);
     if (row) {
       this.sessions.set(id, { ...row, status: "killed" });
     }
+    this.sessionRuntimeInfo.delete(id);
   }
 }

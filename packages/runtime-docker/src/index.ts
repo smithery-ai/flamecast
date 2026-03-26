@@ -98,6 +98,37 @@ export class DockerRuntime implements Runtime {
     return this.proxyRequest(sessionId, path, request);
   }
 
+  getRuntimeMeta(sessionId: string): Record<string, unknown> | null {
+    const entry = this.containers.get(sessionId);
+    if (!entry) return null;
+    return { containerId: entry.containerId, port: entry.port };
+  }
+
+  async reconnect(
+    sessionId: string,
+    runtimeMeta: Record<string, unknown> | null,
+  ): Promise<boolean> {
+    if (!runtimeMeta) return false;
+    const containerId = runtimeMeta.containerId as string | undefined;
+    const port = runtimeMeta.port as number | undefined;
+    if (!containerId || !port) return false;
+
+    try {
+      const container = this.docker.getContainer(containerId);
+      const info = await container.inspect();
+      if (!info.State.Running) return false;
+
+      // Verify the session-host inside the container is responsive
+      const resp = await fetch(`http://localhost:${port}/health`).catch(() => null);
+      if (!resp?.ok) return false;
+
+      this.containers.set(sessionId, { containerId, port });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async dispose(): Promise<void> {
     await Promise.allSettled(
       [...this.containers.values()].map(async (entry) => {

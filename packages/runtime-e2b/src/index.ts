@@ -103,6 +103,35 @@ export class E2BRuntime implements Runtime {
     });
   }
 
+  getRuntimeMeta(sessionId: string): Record<string, unknown> | null {
+    const entry = this.sandboxes.get(sessionId);
+    if (!entry) return null;
+    return { sandboxId: entry.sandboxId, hostUrl: entry.hostUrl };
+  }
+
+  async reconnect(
+    sessionId: string,
+    runtimeMeta: Record<string, unknown> | null,
+  ): Promise<boolean> {
+    if (!runtimeMeta) return false;
+    const sandboxId = typeof runtimeMeta.sandboxId === "string" ? runtimeMeta.sandboxId : undefined;
+    const hostUrl = typeof runtimeMeta.hostUrl === "string" ? runtimeMeta.hostUrl : undefined;
+    if (!sandboxId || !hostUrl) return false;
+
+    try {
+      const sandbox = await Sandbox.connect(sandboxId, { apiKey: this.apiKey });
+      // Check if the sandbox is still running by probing health
+      const host = sandbox.getHost(8080);
+      const resp = await fetch(`https://${host}/health`).catch(() => null);
+      if (!resp?.ok) return false;
+
+      this.sandboxes.set(sessionId, { sandboxId, hostUrl });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async dispose(): Promise<void> {
     for (const [, entry] of this.sandboxes) {
       try {

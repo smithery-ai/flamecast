@@ -9,6 +9,22 @@
 export interface Runtime<TConfig extends Record<string, unknown> = {}> {
   fetchSession(sessionId: string, request: Request): Promise<Response>;
   dispose?(): Promise<void>;
+  /**
+   * Return runtime-specific metadata for a session that should be persisted
+   * for recovery after a server restart. Called after session creation.
+   */
+  getRuntimeMeta?(sessionId: string): Record<string, unknown> | null;
+  /**
+   * Re-register a previously-running session after a server restart.
+   *
+   * Called during recovery with the runtime-specific metadata that was persisted
+   * when the session was originally created. Returns `true` if the session is
+   * still alive and was successfully re-registered, `false` otherwise.
+   *
+   * Runtimes that don't support reconnection can omit this method; the recovery
+   * logic will fall back to a health-check probe against the persisted hostUrl.
+   */
+  reconnect?(sessionId: string, runtimeMeta: Record<string, unknown> | null): Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------------

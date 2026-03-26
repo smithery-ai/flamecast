@@ -11,6 +11,10 @@ export const sessions = flamecastSchema.table("sessions", {
   lastUpdatedAt: timestamp("last_updated_at", { withTimezone: true, mode: "string" }).notNull(),
   pendingPermission: jsonb("pending_permission").$type<PendingPermission | null>(),
   status: text("status").notNull().default("active"),
+  hostUrl: text("host_url"),
+  websocketUrl: text("websocket_url"),
+  runtimeName: text("runtime_name"),
+  runtimeMeta: jsonb("runtime_meta").$type<Record<string, unknown> | null>(),
 });
 
 export const agentTemplates = flamecastSchema.table(
