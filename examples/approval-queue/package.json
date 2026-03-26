@@ -1,5 +1,5 @@
 {
-  "name": "@flamecast/example-webhook-chat",
+  "name": "@flamecast/example-approval-queue",
   "private": true,
   "type": "module",
   "scripts": {

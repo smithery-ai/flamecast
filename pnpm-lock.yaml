@@ -90,8 +90,11 @@ importers:
         specifier: ^1.19.11
         version: 1.19.11(hono@4.12.8)
 
-  examples/event-handlers:
+  examples/approval-queue:
     dependencies:
+      '@flamecast/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@flamecast/sdk':
         specifier: workspace:*
         version: link:../../packages/flamecast
@@ -103,11 +106,8 @@ importers:
         specifier: ^4.21.0
         version: 4.21.0
 
-  examples/webhook-chat:
+  examples/event-handlers:
     dependencies:
-      '@flamecast/protocol':
-        specifier: workspace:*
-        version: link:../../packages/protocol
       '@flamecast/sdk':
         specifier: workspace:*
         version: link:../../packages/flamecast
