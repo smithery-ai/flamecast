@@ -1,33 +1,37 @@
 import * as acp from "@agentclientprotocol/sdk";
+import { jsonSchema, stepCountIs, tool } from "ai";
+import { Agent, getAgentByName, routeAgentRequest } from "agents";
+import { buildDynamicWorkerCode, hashText } from "./dynamic-worker-code.js";
+import { generateGatewayText, streamGatewayText } from "./gateway-model.js";
+import {
+  COMPACTION_PROMPT,
+  DEFAULT_ASSISTANT_REPLY,
+  EXECUTE_JS_INPUT_SCHEMA,
+  EXECUTE_JS_TOOL_DESCRIPTION,
+} from "./prompts.js";
 
-const DEFAULT_MODEL = "openai/gpt-5.2";
-const SYSTEM_PROMPT = [
-  "You are a JS-first ACP agent.",
-  "The only native tool is executeJS.",
-  "When you use executeJS, return JSON with a single key named executeJS whose value is JavaScript source.",
-  "Code runs in a shared session REPL-like scope and must end with an explicit return.",
-  "Keep persisted globals JSON-serializable.",
-  "If no tool call is needed, return JSON with a single key named assistant.",
-  'Return raw JSON only. Do not wrap it in markdown fences.',
-].join("\n");
-const FINAL_PROMPT = [
-  "You are a JS-first ACP agent.",
-  "Write the final assistant reply for the user after executeJS has run.",
-  "Be concise and factual.",
-].join("\n");
-const COMPACTION_PROMPT = [
-  "Summarize the older conversation context for a JS-first coding agent.",
-  "Keep only durable facts, important intermediate results, and globals the next turn should remember.",
-  "Write short bullet lines without markdown fences.",
-].join("\n");
+const ACP_BASE_PATH = "/acp";
 
-function createSession() {
+function createSessionState() {
   return {
-    pendingPrompt: null,
+    cwd: null,
     scope: {},
     summary: "",
     transcript: [],
   };
+}
+
+function cloneSession(session) {
+  return structuredClone(session);
+}
+
+function getSessionIdFromPath(pathname) {
+  if (!pathname.startsWith(`${ACP_BASE_PATH}/`)) {
+    return null;
+  }
+
+  const sessionId = pathname.slice(ACP_BASE_PATH.length + 1).split("/")[0];
+  return sessionId ? decodeURIComponent(sessionId) : null;
 }
 
 function getTextPrompt(params) {
@@ -68,7 +72,7 @@ function rewritePersistentBindings(source) {
     .replace(/\bimport\s*\(/g, "__import__(");
 }
 
-function serializeTranscript(session, nextUserText) {
+function serializeTranscript(session) {
   const parts = [];
 
   if (session.summary) {
@@ -98,17 +102,7 @@ function serializeTranscript(session, nextUserText) {
     }
   }
 
-  parts.push(`[User]\n${nextUserText}`);
   return parts.join("\n\n");
-}
-
-function parseJsonObject(text) {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1 || end < start) {
-    throw new Error("Model response did not contain JSON");
-  }
-  return JSON.parse(text.slice(start, end + 1));
 }
 
 function planScriptedTurn(text) {
@@ -162,43 +156,11 @@ function planScriptedTurn(text) {
   }
 
   return {
-    assistant:
-      "I can use executeJS against a shared session scope. Ask me to store a value, fetch data, or compute something.",
+    assistant: DEFAULT_ASSISTANT_REPLY,
   };
 }
 
-async function getGatewayModel(env) {
-  const accountId = env.CF_ACCOUNT_ID;
-  const gateway = env.CF_AI_GATEWAY;
-  const token = env.CF_AI_GATEWAY_TOKEN;
-
-  if (!accountId || !gateway || !token) {
-    return null;
-  }
-
-  const [{ generateText }, { createAiGateway, createUnified }] = await Promise.all([
-    import("ai"),
-    import("ai-gateway-provider"),
-  ]);
-
-  const aiGateway = createAiGateway({
-    accountId,
-    gateway,
-    apiKey: token,
-  });
-
-  const unifiedModel = createUnified()(env.CF_AI_MODEL || DEFAULT_MODEL);
-
-  return {
-    generateText: (options) =>
-      generateText({
-        ...options,
-        model: aiGateway(unifiedModel),
-      }),
-  };
-}
-
-async function summarizeForCompaction(env, session, entries, signal) {
+async function summarizeForCompaction(env, entries, signal) {
   const fallback = entries
     .map((entry) => {
       if (entry.role === "user" || entry.role === "assistant") {
@@ -215,15 +177,13 @@ async function summarizeForCompaction(env, session, entries, signal) {
     return truncate(fallback, 1200);
   }
 
-  const model = await getGatewayModel(env);
-  if (!model) {
-    return truncate(fallback, 1200);
-  }
-
-  const { text } = await model.generateText({
+  const text = await generateGatewayText(env, {
     abortSignal: signal,
     prompt: `${COMPACTION_PROMPT}\n\n${fallback}`,
   });
+  if (!text) {
+    return truncate(fallback, 1200);
+  }
 
   return truncate(text.trim(), 1200);
 }
@@ -231,7 +191,7 @@ async function summarizeForCompaction(env, session, entries, signal) {
 async function compactSessionIfNeeded(env, session, signal) {
   const compactAt = Number(env.COMPACT_AT_CHARS ?? "12000");
   const keepRecentTurns = Number(env.KEEP_RECENT_TURNS ?? "6");
-  const serialized = serializeTranscript(session, "");
+  const serialized = serializeTranscript(session);
 
   if (serialized.length <= compactAt || session.transcript.length <= keepRecentTurns) {
     return;
@@ -239,137 +199,18 @@ async function compactSessionIfNeeded(env, session, signal) {
 
   const older = session.transcript.slice(0, -keepRecentTurns);
   const recent = session.transcript.slice(-keepRecentTurns);
-  session.summary = [session.summary, await summarizeForCompaction(env, session, older, signal)]
+  session.summary = [session.summary, await summarizeForCompaction(env, older, signal)]
     .filter(Boolean)
     .join("\n");
   session.transcript = recent;
 }
 
-async function planGatewayTurn(env, session, userText, signal) {
-  const model = await getGatewayModel(env);
-  if (!model) {
-    return planScriptedTurn(userText);
-  }
-
-  const { text } = await model.generateText({
-    abortSignal: signal,
-    prompt: `${SYSTEM_PROMPT}\n\n${serializeTranscript(session, userText)}`,
-  });
-
-  return parseJsonObject(text);
-}
-
-async function createFinalGatewayReply(env, session, userText, toolResult, signal) {
-  const model = await getGatewayModel(env);
-  if (!model) {
-    if (toolResult?.error) {
-      return `executeJS failed: ${toolResult.error.message}`;
-    }
-    return `Done. ${truncate(jsonStringify(toolResult?.result ?? null), 240)}`;
-  }
-
-  const { text } = await model.generateText({
-    abortSignal: signal,
-    prompt: [
-      FINAL_PROMPT,
-      "",
-      serializeTranscript(session, userText),
-      "",
-      `[Tool result]\n${jsonStringify(toolResult)}`,
-    ].join("\n"),
-  });
-
-  return text.trim();
-}
-
-function buildDynamicWorkerSource(source) {
-  return `
-const SOURCE = ${JSON.stringify(source)};
-const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-const runner = new AsyncFunction("scope", "__console", "__import__", \`const console = __console;\\nwith (scope) {\\n\${SOURCE}\\n}\`);
-
-function normalizeValue(value, seen = new WeakSet()) {
-  if (
-    value === null ||
-    value === undefined ||
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) => normalizeValue(entry, seen));
-  }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-  if (value instanceof Error) {
-    return { name: value.name, message: value.message, stack: value.stack };
-  }
-  if (typeof value === "object") {
-    if (seen.has(value)) {
-      return "[Circular]";
-    }
-    seen.add(value);
-    const output = {};
-    for (const [key, entry] of Object.entries(value)) {
-      output[key] = normalizeValue(entry, seen);
-    }
-    return output;
-  }
-  return String(value);
-}
-
-function formatLogEntry(args) {
-  return args.map((value) => {
-    if (typeof value === "string") {
-      return value;
-    }
-    return JSON.stringify(normalizeValue(value));
-  }).join(" ");
-}
-
-export default {
-  async fetch(request) {
-    const { scope } = await request.json();
-    const logs = [];
-    const console = {
-      log: (...args) => logs.push(formatLogEntry(args)),
-      info: (...args) => logs.push(formatLogEntry(args)),
-      warn: (...args) => logs.push(formatLogEntry(args)),
-      error: (...args) => logs.push(formatLogEntry(args)),
-    };
-
-    try {
-      const result = await runner(scope, console, (specifier) => import(specifier));
-      return Response.json({
-        ok: true,
-        result: normalizeValue(result),
-        scope: normalizeValue(scope),
-        logs,
-      });
-    } catch (error) {
-      return Response.json({
-        ok: false,
-        error: normalizeValue(error),
-        scope: normalizeValue(scope),
-        logs,
-      });
-    }
-  },
-};
-`;
-}
-
 async function executeWithDynamicWorker(env, source, scope) {
-  const dynamicWorker = await env.LOADER.load({
-    compatibilityDate: "2026-03-25",
-    compatibilityFlags: ["nodejs_compat"],
-    mainModule: buildDynamicWorkerSource(source),
-  });
+  const dynamicWorker = env.LOADER.get(`executejs:${await hashText(source)}`, async () =>
+    buildDynamicWorkerCode(source),
+  );
 
-  const response = await dynamicWorker.fetch("https://worker.local/run", {
+  const response = await dynamicWorker.getEntrypoint().fetch("https://worker.local/run", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: jsonStringify({ scope }),
@@ -397,6 +238,183 @@ async function runExecuteJS(env, code, session) {
     return executeWithLocalExecutor(env, source, session.scope);
   }
   throw new Error("executeJS requires either a Dynamic Worker loader or a local executor URL");
+}
+
+function toErrorData(error) {
+  if (error && typeof error === "object" && "message" in error) {
+    return { message: String(error.message) };
+  }
+  return { message: String(error) };
+}
+
+function toExecutionResult(execution, fallbackScope = {}) {
+  const ok = execution?.ok !== false;
+  return {
+    ok,
+    result: execution?.result ?? null,
+    logs: Array.isArray(execution?.logs) ? execution.logs.map((entry) => String(entry)) : [],
+    error: ok ? null : execution?.error ?? { message: "Unknown executeJS failure" },
+    scope: execution?.scope ?? fallbackScope,
+    scopeKeys: Object.keys(execution?.scope ?? fallbackScope),
+  };
+}
+
+function toolUpdateContent(logs) {
+  return logs.map((text) => ({
+    type: "content",
+    content: { type: "text", text },
+  }));
+}
+
+function lastToolResult(session) {
+  for (let index = session.transcript.length - 1; index >= 0; index -= 1) {
+    const entry = session.transcript[index];
+    if (entry.role === "tool_result") {
+      return entry;
+    }
+  }
+
+  return null;
+}
+
+function fallbackToolReply(toolResult) {
+  if (!toolResult) {
+    return "Done.";
+  }
+  if (toolResult.error) {
+    return `executeJS failed: ${toolResult.error.message}`;
+  }
+  return `Done. ${truncate(jsonStringify(toolResult.result ?? null), 240)}`;
+}
+
+async function streamGatewayReply(agent, connection, sessionId, session, signal) {
+  const result = await streamGatewayText(agent.env, {
+    abortSignal: signal,
+    prompt: serializeTranscript(session),
+    stopWhen: stepCountIs(5),
+    tools: {
+      executeJS: tool({
+        description: EXECUTE_JS_TOOL_DESCRIPTION,
+        inputSchema: jsonSchema(EXECUTE_JS_INPUT_SCHEMA),
+        execute: async ({ code }) => {
+          const rawExecution = await runExecuteJS(agent.env, String(code), session).catch((error) => ({
+            ok: false,
+            result: null,
+            logs: [],
+            error: toErrorData(error),
+            scope: session.scope,
+          }));
+          const execution = toExecutionResult(rawExecution, session.scope);
+
+          session.scope = execution.scope;
+          session.transcript.push({
+            role: "tool_result",
+            result: execution.result,
+            logs: execution.logs,
+            error: execution.error,
+          });
+          agent.setState(session);
+
+          return {
+            ok: execution.ok,
+            result: execution.result,
+            logs: execution.logs,
+            error: execution.error,
+            scopeKeys: execution.scopeKeys,
+          };
+        },
+      }),
+    },
+    experimental_onToolCallStart: async ({ toolCall }) => {
+      if (toolCall.toolName !== "executeJS") {
+        return;
+      }
+
+      const code =
+        toolCall.input && typeof toolCall.input === "object" && "code" in toolCall.input
+          ? String(toolCall.input.code ?? "")
+          : "";
+
+      session.transcript.push({ role: "tool_call", code });
+      agent.setState(session);
+
+      await connection.sessionUpdate({
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: toolCall.toolCallId,
+          title: "executeJS",
+          kind: "execute",
+          status: "pending",
+          rawInput: { code },
+        },
+      });
+
+      await connection.sessionUpdate({
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: toolCall.toolCallId,
+          status: "in_progress",
+        },
+      });
+    },
+    experimental_onToolCallFinish: async ({ toolCall, success, output, error }) => {
+      if (toolCall.toolName !== "executeJS") {
+        return;
+      }
+
+      const execution = success
+        ? toExecutionResult(output, session.scope)
+        : toExecutionResult(
+            {
+              ok: false,
+              result: null,
+              logs: [],
+              error: toErrorData(error),
+              scope: session.scope,
+            },
+            session.scope,
+          );
+
+      await connection.sessionUpdate({
+        sessionId,
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: toolCall.toolCallId,
+          status: execution.ok ? "completed" : "failed",
+          content: toolUpdateContent(execution.logs),
+          rawOutput: {
+            result: execution.result,
+            error: execution.error,
+            scopeKeys: execution.scopeKeys,
+          },
+        },
+      });
+    },
+  });
+
+  if (!result) {
+    return null;
+  }
+
+  let assistant = "";
+  for await (const chunk of result.textStream) {
+    if (!chunk) {
+      continue;
+    }
+
+    assistant += chunk;
+    await connection.sessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: chunk },
+      },
+    });
+  }
+
+  return assistant.trim() || fallbackToolReply(lastToolResult(session));
 }
 
 async function streamText(connection, sessionId, text) {
@@ -427,40 +445,184 @@ function toUint8Array(data) {
   return new TextEncoder().encode(String(data));
 }
 
-function createAcpTransport(ws) {
+function createAcpConnectionTransport(connection) {
+  let controller = null;
+  let settled = false;
+
   const output = new ReadableStream({
-    start(controller) {
-      ws.addEventListener("message", async (event) => {
-        controller.enqueue(await toUint8Array(event.data));
-      });
-      ws.addEventListener("close", () => controller.close());
-      ws.addEventListener("error", () => controller.error(new Error("WebSocket error")));
+    start(next) {
+      controller = next;
     },
     cancel() {
-      ws.close(1000, "ACP transport closed");
+      if (!settled) {
+        settled = true;
+        connection.close(1000, "ACP transport closed");
+      }
     },
   });
 
   const input = new WritableStream({
     write(chunk) {
-      ws.send(chunk);
+      connection.send(chunk);
     },
     close() {
-      ws.close(1000, "ACP transport closed");
+      if (!settled) {
+        settled = true;
+        connection.close(1000, "ACP transport closed");
+      }
     },
     abort() {
-      ws.close(1011, "ACP transport aborted");
+      if (!settled) {
+        settled = true;
+        connection.close(1011, "ACP transport aborted");
+      }
     },
   });
 
-  return { input, output };
+  return {
+    input,
+    output,
+    async push(message) {
+      if (!controller || settled) {
+        return;
+      }
+      controller.enqueue(await toUint8Array(message));
+    },
+    close() {
+      if (!controller || settled) {
+        return;
+      }
+      settled = true;
+      controller.close();
+    },
+    error(error) {
+      if (!controller || settled) {
+        return;
+      }
+      settled = true;
+      controller.error(error);
+    },
+  };
 }
 
-class DynamicWorkerAgent {
-  constructor(connection, env) {
+async function promptSession(agent, connection, sessionId, params) {
+  agent.pendingPrompt?.abort();
+  agent.pendingPrompt = new AbortController();
+  const { signal } = agent.pendingPrompt;
+  const userText = getTextPrompt(params);
+  const session = cloneSession(agent.state);
+
+  try {
+    await compactSessionIfNeeded(agent.env, session, signal);
+    session.transcript.push({ role: "user", text: userText });
+    agent.setState(session);
+
+    const mode = agent.env.AGENT_MODE ?? "scripted";
+    if (mode !== "scripted") {
+      const assistant = await streamGatewayReply(agent, connection, sessionId, session, signal);
+      if (signal.aborted) {
+        return { stopReason: "cancelled" };
+      }
+      if (assistant) {
+        session.transcript.push({ role: "assistant", text: assistant });
+        agent.setState(session);
+        return { stopReason: "end_turn" };
+      }
+    }
+
+    const plan = planScriptedTurn(userText);
+
+    if (signal.aborted) {
+      return { stopReason: "cancelled" };
+    }
+
+    if (!plan.executeJS) {
+      const assistant = String(plan.assistant ?? "Done.");
+      session.transcript.push({ role: "assistant", text: assistant });
+      agent.setState(session);
+      await streamText(connection, sessionId, assistant);
+      return { stopReason: "end_turn" };
+    }
+
+    const toolCallId = crypto.randomUUID();
+    const code = String(plan.executeJS);
+    session.transcript.push({ role: "tool_call", code });
+    agent.setState(session);
+
+    await connection.sessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId,
+        title: "executeJS",
+        kind: "execute",
+        status: "pending",
+        rawInput: { code },
+      },
+    });
+
+    await connection.sessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId,
+        status: "in_progress",
+      },
+    });
+
+    const execution = await runExecuteJS(agent.env, code, session);
+    session.scope = execution.scope ?? {};
+    session.transcript.push({
+      role: "tool_result",
+      result: execution.result ?? null,
+      logs: execution.logs ?? [],
+      error: execution.ok ? null : execution.error ?? { message: "Unknown executeJS failure" },
+    });
+    agent.setState(session);
+
+    const content = (execution.logs ?? []).map((text) => ({
+      type: "content",
+      content: { type: "text", text },
+    }));
+
+    await connection.sessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId,
+        status: execution.ok ? "completed" : "failed",
+        content,
+        rawOutput: {
+          result: execution.result ?? null,
+          error: execution.ok ? null : execution.error ?? null,
+          scopeKeys: Object.keys(session.scope),
+        },
+      },
+    });
+
+    const assistant = execution.ok
+      ? `executeJS completed. ${truncate(jsonStringify(execution.result ?? null), 240)}`
+      : `executeJS failed: ${execution.error?.message ?? "Unknown error"}`;
+
+    session.transcript.push({ role: "assistant", text: assistant });
+    agent.setState(session);
+    await streamText(connection, sessionId, assistant);
+    return { stopReason: "end_turn" };
+  } catch (error) {
+    if (signal.aborted) {
+      return { stopReason: "cancelled" };
+    }
+    throw error;
+  } finally {
+    agent.pendingPrompt = null;
+  }
+}
+
+class AcpSessionProtocolHandler {
+  constructor(agent, connection, sessionId) {
+    this.agent = agent;
     this.connection = connection;
-    this.env = env;
-    this.sessions = new Map();
+    this.sessionId = sessionId;
   }
 
   async initialize() {
@@ -480,162 +642,114 @@ class DynamicWorkerAgent {
     return {};
   }
 
-  async newSession() {
-    const sessionId = crypto.randomUUID();
-    this.sessions.set(sessionId, createSession());
-    return { sessionId };
+  async newSession(params) {
+    const session = cloneSession(this.agent.state);
+    session.cwd = params.cwd;
+    this.agent.setState(session);
+    return { sessionId: this.sessionId };
   }
 
   async prompt(params) {
-    const session = this.sessions.get(params.sessionId);
-    if (!session) {
+    if (params.sessionId !== this.sessionId) {
       throw new Error(`Session ${params.sessionId} not found`);
     }
-
-    session.pendingPrompt?.abort();
-    session.pendingPrompt = new AbortController();
-    const { signal } = session.pendingPrompt;
-    const userText = getTextPrompt(params);
-
-    try {
-      await compactSessionIfNeeded(this.env, session, signal);
-      session.transcript.push({ role: "user", text: userText });
-
-      const mode = this.env.AGENT_MODE ?? "scripted";
-      const plan =
-        mode === "scripted"
-          ? planScriptedTurn(userText)
-          : await planGatewayTurn(this.env, session, userText, signal);
-
-      if (signal.aborted) {
-        return { stopReason: "cancelled" };
-      }
-
-      if (!plan.executeJS) {
-        const assistant = String(plan.assistant ?? "Done.");
-        session.transcript.push({ role: "assistant", text: assistant });
-        await streamText(this.connection, params.sessionId, assistant);
-        return { stopReason: "end_turn" };
-      }
-
-      const toolCallId = crypto.randomUUID();
-      const code = String(plan.executeJS);
-      session.transcript.push({ role: "tool_call", code });
-
-      await this.connection.sessionUpdate({
-        sessionId: params.sessionId,
-        update: {
-          sessionUpdate: "tool_call",
-          toolCallId,
-          title: "executeJS",
-          kind: "execute",
-          status: "pending",
-          rawInput: { code },
-        },
-      });
-
-      await this.connection.sessionUpdate({
-        sessionId: params.sessionId,
-        update: {
-          sessionUpdate: "tool_call_update",
-          toolCallId,
-          status: "in_progress",
-        },
-      });
-
-      const execution = await runExecuteJS(this.env, code, session);
-      session.scope = execution.scope ?? {};
-      session.transcript.push({
-        role: "tool_result",
-        result: execution.result ?? null,
-        logs: execution.logs ?? [],
-        error: execution.ok ? null : execution.error ?? { message: "Unknown executeJS failure" },
-      });
-
-      const content = (execution.logs ?? []).map((text) => ({
-        type: "content",
-        content: { type: "text", text },
-      }));
-
-      await this.connection.sessionUpdate({
-        sessionId: params.sessionId,
-        update: {
-          sessionUpdate: "tool_call_update",
-          toolCallId,
-          status: execution.ok ? "completed" : "failed",
-          content,
-          rawOutput: {
-            result: execution.result ?? null,
-            error: execution.ok ? null : execution.error ?? null,
-            scopeKeys: Object.keys(session.scope),
-          },
-        },
-      });
-
-      const assistant =
-        mode === "scripted"
-          ? execution.ok
-            ? `executeJS completed. ${truncate(jsonStringify(execution.result ?? null), 240)}`
-            : `executeJS failed: ${execution.error?.message ?? "Unknown error"}`
-          : await createFinalGatewayReply(this.env, session, userText, execution, signal);
-
-      session.transcript.push({ role: "assistant", text: assistant });
-      await streamText(this.connection, params.sessionId, assistant);
-      return { stopReason: "end_turn" };
-    } catch (error) {
-      if (signal.aborted) {
-        return { stopReason: "cancelled" };
-      }
-      throw error;
-    } finally {
-      session.pendingPrompt = null;
-    }
+    return promptSession(this.agent, this.connection, this.sessionId, params);
   }
 
   async cancel(params) {
-    this.sessions.get(params.sessionId)?.pendingPrompt?.abort();
+    if (params.sessionId === this.sessionId) {
+      this.agent.pendingPrompt?.abort();
+    }
+  }
+}
+
+export class AcpSessionAgent extends Agent {
+  static options = {
+    sendIdentityOnConnect: false,
+  };
+
+  initialState = createSessionState();
+
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.pendingPrompt = null;
+    this.acpTransports = new Map();
+  }
+
+  shouldSendProtocolMessages() {
+    return false;
+  }
+
+  async onConnect(connection, ctx) {
+    const sessionId = getSessionIdFromPath(new URL(ctx.request.url).pathname);
+    if (!sessionId) {
+      connection.close(1008, "Missing session ID");
+      return;
+    }
+
+    const transport = createAcpConnectionTransport(connection);
+    this.acpTransports.set(connection.id, transport);
+
+    new acp.AgentSideConnection(
+      (acpConnection) => new AcpSessionProtocolHandler(this, acpConnection, sessionId),
+      acp.ndJsonStream(transport.input, transport.output),
+    );
+  }
+
+  async onMessage(connection, message) {
+    await this.acpTransports.get(connection.id)?.push(message);
+  }
+
+  onClose(connection) {
+    this.acpTransports.get(connection.id)?.close();
+    this.acpTransports.delete(connection.id);
+    if (this.acpTransports.size === 0) {
+      this.pendingPrompt?.abort();
+    }
+  }
+
+  onError(connection, error) {
+    this.acpTransports.get(connection.id)?.error(error);
+    this.acpTransports.delete(connection.id);
+    if (this.acpTransports.size === 0) {
+      this.pendingPrompt?.abort();
+    }
   }
 }
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const sessionId = getSessionIdFromPath(url.pathname);
 
     if (url.pathname === "/health") {
       return Response.json({
         ok: true,
         mode: env.AGENT_MODE ?? "scripted",
+        agentSdk: true,
         dynamicWorkers: Boolean(env.LOADER),
       });
     }
 
-    if (url.pathname !== "/acp") {
-      return Response.json(
-        {
-          name: "flamecast-agent-js",
-          endpoints: {
-            health: "/health",
-            acp: "/acp",
-          },
+    if (sessionId) {
+      const stub = await getAgentByName(env.AcpSessionAgent, sessionId);
+      return stub.fetch(request);
+    }
+
+    const agentResponse = await routeAgentRequest(request, env);
+    if (agentResponse) {
+      return agentResponse;
+    }
+
+    return Response.json(
+      {
+        name: "flamecast-agent-js",
+        endpoints: {
+          health: "/health",
+          acp: "/acp/:sessionId",
         },
-        { status: 200 },
-      );
-    }
-
-    if (request.headers.get("Upgrade") !== "websocket") {
-      return new Response("Expected websocket upgrade", { status: 426 });
-    }
-
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
-    server.accept();
-
-    const transport = createAcpTransport(server);
-    new acp.AgentSideConnection(
-      (connection) => new DynamicWorkerAgent(connection, env),
-      acp.ndJsonStream(transport.input, transport.output),
+      },
+      { status: url.pathname === ACP_BASE_PATH ? 400 : 200 },
     );
-
-    return new Response(null, { status: 101, webSocket: client });
   },
 };

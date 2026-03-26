@@ -5,10 +5,11 @@
   "scripts": {
     "dev": "node src/miniflare.js",
     "deploy": "wrangler deploy --config wrangler.jsonc",
-    "test": "vitest run test/e2e.test.js"
+    "test": "vitest run"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.16.1",
+    "agents": "^0.8.5",
     "ai": "^6.0.138",
     "ai-gateway-provider": "^3.1.2",
     "ws": "^8.20.0"

@@ -143,6 +143,35 @@ describe("API server surface", () => {
     });
   });
 
+  it("registers agent templates with explicit runtime config", async () => {
+    const flamecast = createFlamecastStub({ runtimeNames: ["default", "agent.js"] });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/agent-templates", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Agent.js remote",
+        spawn: { command: "remote-acp", args: ["agent.js"] },
+        runtime: {
+          provider: "agent.js",
+          baseUrl: "https://flamecast-agent-js.smithery.workers.dev",
+        },
+      } satisfies RegisterAgentTemplateBody),
+    });
+
+    expect(response.status).toBe(201);
+    expect(await readJson(response)).toEqual({
+      id: "registered-template",
+      name: "Agent.js remote",
+      spawn: { command: "remote-acp", args: ["agent.js"] },
+      runtime: {
+        provider: "agent.js",
+        baseUrl: "https://flamecast-agent-js.smithery.workers.dev",
+      },
+    });
+  });
+
   it("rejects invalid agent template payloads", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);

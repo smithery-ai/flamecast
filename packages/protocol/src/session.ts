@@ -14,6 +14,8 @@ export interface AgentTemplateRuntime {
   image?: string;
   dockerfile?: string;
   setup?: string;
+  baseUrl?: string;
+  websocketUrl?: string;
 }
 
 export interface AgentTemplate {

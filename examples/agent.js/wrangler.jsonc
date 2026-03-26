@@ -1,13 +1,31 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "flamecast-agent-js",
+  "account_id": "c4cf21d8a5e8878bc3c92708b1f80193",
   "main": "src/worker.js",
   "compatibility_date": "2026-03-25",
   "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "AcpSessionAgent",
+        "class_name": "AcpSessionAgent"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["AcpSessionAgent"]
+    }
+  ],
   "worker_loaders": [{ "binding": "LOADER" }],
   "vars": {
-    "AGENT_MODE": "scripted",
+    "AGENT_MODE": "gateway",
     "COMPACT_AT_CHARS": "12000",
-    "KEEP_RECENT_TURNS": "6"
+    "KEEP_RECENT_TURNS": "6",
+    "CF_ACCOUNT_ID": "c4cf21d8a5e8878bc3c92708b1f80193",
+    "CF_AI_GATEWAY": "smithery-agent",
+    "CF_AI_MODEL": "openai/gpt-5.4"
   }
 }

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
+import { AgentJsRuntime, Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
 import { DockerRuntime } from "@flamecast/runtime-docker";
 import { createPsqlStorage } from "@flamecast/storage-psql";
 
@@ -14,6 +14,10 @@ const flamecast = new Flamecast({
   storage: await createPsqlStorage(url ? { url } : undefined),
   runtimes: {
     default: new NodeRuntime(),
+    "agent.js": new AgentJsRuntime({
+      baseUrl: process.env.FLAMECAST_AGENT_JS_BASE_URL,
+      websocketUrl: process.env.FLAMECAST_AGENT_JS_WEBSOCKET_URL,
+    }),
     // Base image defaults to "node:22-slim". Override with:
     //   new DockerRuntime({ baseImage: "node:20-slim" })
     docker: new DockerRuntime(),

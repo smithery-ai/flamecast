@@ -43,7 +43,9 @@ export class SessionService {
     }
 
     const sessionId = crypto.randomUUID();
+    const { provider: _provider, ...runtimeConfig } = opts.runtime;
     const body = {
+      ...runtimeConfig,
       sessionId,
       command: opts.spawn.command,
       args: opts.spawn.args ?? [],

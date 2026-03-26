@@ -68,10 +68,27 @@ async function executeSource(source, scope) {
   const logs = [];
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   const runner = new AsyncFunction(
-    "scope",
+    "__scope",
     "__console",
     "__import__",
-    `const console = __console;\nwith (scope) {\n${source}\n}`,
+    [
+      "const scope = __scope;",
+      "const globals = new Proxy(scope, {",
+      '  has(_target, key) { return key !== "console" && key !== "__import__" && key !== "scope"; },',
+      "  get(target, key) {",
+      "    if (key === Symbol.unscopables) return undefined;",
+      "    return key in target ? target[key] : globalThis[key];",
+      "  },",
+      "  set(target, key, value) {",
+      "    target[key] = value;",
+      "    return true;",
+      "  },",
+      "});",
+      "const console = __console;",
+      "with (globals) {",
+      source,
+      "}",
+    ].join("\n"),
   );
 
   try {

@@ -75,7 +75,23 @@ export async function openWorkerAcpTransport(url, init = {}) {
       }
 
       await new Promise((resolve) => {
-        ws.once("close", () => resolve());
+        const finish = () => {
+          clearTimeout(timeout);
+          ws.off("close", finish);
+          resolve();
+        };
+        const timeout = setTimeout(() => {
+          ws.terminate();
+          finish();
+        }, 250);
+
+        ws.once("close", finish);
+
+        if (ws.readyState === WebSocket.CONNECTING) {
+          ws.once("open", () => ws.close(1000, "ACP transport disposed"));
+          return;
+        }
+
         ws.close(1000, "ACP transport disposed");
       });
     },
@@ -83,19 +99,24 @@ export async function openWorkerAcpTransport(url, init = {}) {
 }
 
 export function createCloudflareWorkerRuntimeProvider({ baseUrl, websocketUrl, headers } = {}) {
-  const resolvedUrl =
-    websocketUrl ??
-    (() => {
-      if (!baseUrl) {
-        throw new Error("Provide either websocketUrl or baseUrl");
-      }
-      const url = new URL("/acp", baseUrl);
-      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-      return url.toString();
-    })();
-
   return {
-    async start() {
+    async start(request) {
+      const resolvedUrl =
+        websocketUrl != null
+          ? (() => {
+              const url = new URL(websocketUrl);
+              url.pathname = `${url.pathname.replace(/\/$/, "")}/${encodeURIComponent(request.sessionId)}`;
+              return url.toString();
+            })()
+          : (() => {
+              if (!baseUrl) {
+                throw new Error("Provide either websocketUrl or baseUrl");
+              }
+              const url = new URL(`/acp/${encodeURIComponent(request.sessionId)}`, baseUrl);
+              url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+              return url.toString();
+            })();
+
       const transport = await openWorkerAcpTransport(resolvedUrl, headers ? { headers } : {});
       return {
         transport,
