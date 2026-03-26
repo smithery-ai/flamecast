@@ -85,10 +85,6 @@ importers:
       '@flamecast/storage-psql':
         specifier: workspace:*
         version: link:../../packages/flamecast-psql
-    devDependencies:
-      '@hono/node-server':
-        specifier: ^1.19.11
-        version: 1.19.11(hono@4.12.8)
 
   examples/queue-drain:
     dependencies:
