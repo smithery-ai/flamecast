@@ -305,16 +305,26 @@ export class E2BRuntime implements Runtime {
         throw new Error(`Session-host binary not found in sandbox: ${checkResult.stderr}`);
       }
 
-      // Start session-host; capture stderr for diagnostics
+      // Start session-host in background, capturing output to a log file for diagnostics
+      const logFile = `/tmp/session-host-${slot.port}.log`;
       console.log(`[E2BRuntime] Starting session-host on port ${slot.port}...`);
-      const proc = await sandbox.commands.run(
-        `SESSION_HOST_PORT=${slot.port} RUNTIME_SETUP_ENABLED=1 ${SANDBOX_BIN_PATH} 2>&1 &
-         sleep 1 && echo "PROCESS_CHECK" && ps aux | grep session-host | grep -v grep`,
-        { timeoutMs: 10_000 },
+      await sandbox.commands.run(
+        `SESSION_HOST_PORT=${slot.port} RUNTIME_SETUP_ENABLED=1 nohup ${SANDBOX_BIN_PATH} > ${logFile} 2>&1 &`,
+        { timeoutMs: 5_000 },
       );
-      console.log(`[E2BRuntime] Startup output: ${proc.stdout.trim()}`);
-      if (proc.stderr) {
-        console.warn(`[E2BRuntime] Startup stderr: ${proc.stderr.trim()}`);
+
+      // Give it a moment to start (or crash), then check
+      await new Promise((r) => setTimeout(r, 2_000));
+      const checkProc = await sandbox.commands.run(
+        `ps aux | grep session-host | grep -v grep; echo "---LOG---"; cat ${logFile}`,
+        { timeoutMs: 5_000 },
+      );
+      console.log(`[E2BRuntime] Process + log check:\n${checkProc.stdout.trim()}`);
+
+      // If the process isn't running, it crashed — surface the log
+      if (!checkProc.stdout.includes(SANDBOX_BIN_PATH)) {
+        const logContent = checkProc.stdout.split("---LOG---")[1]?.trim() ?? "(no output)";
+        throw new Error(`Session-host crashed on startup. Log:\n${logContent}`);
       }
 
       const host = sandbox.getHost(slot.port);
