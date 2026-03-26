@@ -11,14 +11,14 @@ afterEach(() => {
 function mockGatewayDeps({
   generateText = vi.fn(),
   streamText = vi.fn(),
-  createUnified,
+  createAiGateway = vi.fn(() => vi.fn((model) => model)),
+  createUnified = vi.fn(() => vi.fn((modelId) => ({ modelId }))),
 } = {}) {
   vi.resetModules();
   vi.doMock("ai", () => ({ generateText, streamText }));
-  if (createUnified) {
-    vi.doMock("ai-gateway-provider/providers/unified", () => ({ createUnified }));
-  }
-  return { generateText, streamText, createUnified };
+  vi.doMock("ai-gateway-provider", () => ({ createAiGateway }));
+  vi.doMock("ai-gateway-provider/providers/unified", () => ({ createUnified }));
+  return { generateText, streamText, createAiGateway, createUnified };
 }
 
 describe("gateway model helpers", () => {

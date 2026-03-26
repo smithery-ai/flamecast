@@ -1,4 +1,4 @@
-# `@flamecast/example-agent-js`
+# `@flamecast/agent-js`
 
 This example runs a Flamecast-compatible ACP agent as a Cloudflare Worker.
 
@@ -76,7 +76,7 @@ pnpm install
 Start the example worker:
 
 ```bash
-pnpm --filter @flamecast/example-agent-js dev
+pnpm --filter @flamecast/agent-js dev
 ```
 
 That starts Miniflare and prints:
@@ -139,7 +139,7 @@ Then create a session from that template through the API or UI. The local provid
 ## Run The End-to-End Test
 
 ```bash
-pnpm --filter @flamecast/example-agent-js test
+pnpm --filter @flamecast/agent-js test
 ```
 
 The test starts Miniflare, connects Flamecast’s local runtime client to the worker over ACP/WebSocket, sends two prompts, and verifies that `executeJS` preserves session scope between turns. It also includes a direct ACP reconnect test to confirm that the same `sessionId` resumes the same Agent-backed session state.
@@ -161,7 +161,7 @@ The worker uses [`ai`](https://www.npmjs.com/package/ai) and [`ai-gateway-provid
 ## Deploy To Cloudflare
 
 ```bash
-pnpm --filter @flamecast/example-agent-js deploy
+pnpm --filter @flamecast/agent-js deploy
 ```
 
 The worker name is `flamecast-agent-js`. The Wrangler config enables both the Agent Durable Object and the Dynamic Workers binding:

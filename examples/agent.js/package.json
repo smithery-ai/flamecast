@@ -1,5 +1,5 @@
 {
-  "name": "@flamecast/example-agent-js",
+  "name": "@flamecast/agent-js",
   "private": true,
   "type": "module",
   "scripts": {
