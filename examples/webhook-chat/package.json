@@ -1,0 +1,16 @@
+{
+  "name": "@flamecast/example-webhook-chat",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch index.ts"
+  },
+  "dependencies": {
+    "@flamecast/protocol": "workspace:*",
+    "@flamecast/sdk": "workspace:*",
+    "@hono/node-server": "^1.19.11"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
+}
