@@ -6,7 +6,7 @@ import {
   isQueueChannelEvent,
   isFsChannelEvent,
   type ChannelEvent,
-} from "../src/flamecast/channel-router.js";
+} from "../src/flamecast/events/channels.js";
 
 function makeEvent(
   overrides: Partial<ChannelEvent> & { event: ChannelEvent["event"] },

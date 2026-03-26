@@ -7,7 +7,7 @@ import type {
 } from "../../src/shared/session.js";
 import { createServerApp } from "../../src/flamecast/app.js";
 import type { FlamecastApi } from "../../src/flamecast/api.js";
-import { EventBus } from "../../src/flamecast/event-bus.js";
+import { EventBus } from "../../src/flamecast/events/bus.js";
 
 const sampleAgentTemplate: AgentTemplate = {
   id: "codex",

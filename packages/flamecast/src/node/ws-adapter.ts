@@ -6,7 +6,7 @@ import type {
   WsChannelServerMessage,
   WsChannelControlMessage,
 } from "@flamecast/protocol/ws/channels";
-import type { EventBus } from "../flamecast/event-bus.js";
+import type { EventBus } from "../flamecast/events/bus.js";
 import {
   eventToChannels,
   toWsChannelEvent,
@@ -14,7 +14,7 @@ import {
   isQueueChannelEvent,
   isFsChannelEvent,
   type ChannelEvent,
-} from "../flamecast/channel-router.js";
+} from "../flamecast/events/channels.js";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -7,7 +7,7 @@ import {
   RegisterAgentTemplateBodySchema,
   createRegisterAgentTemplateBodySchema,
 } from "../shared/session.js";
-import { toWsChannelEvent } from "./channel-router.js";
+import { toWsChannelEvent } from "./events/channels.js";
 
 export type FlamecastApi = Pick<
   Flamecast,

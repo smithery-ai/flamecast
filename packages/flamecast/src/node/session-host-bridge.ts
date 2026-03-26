@@ -1,7 +1,7 @@
 import WebSocket from "ws";
 import type { WsServerMessage } from "@flamecast/protocol/ws";
-import { resolveAgentId } from "../flamecast/channel-router.js";
-import type { EventBus } from "../flamecast/event-bus.js";
+import { resolveAgentId } from "../flamecast/events/channels.js";
+import type { EventBus } from "../flamecast/events/bus.js";
 
 // ---------------------------------------------------------------------------
 // SessionHostBridge

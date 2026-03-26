@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { EventBus } from "../src/flamecast/event-bus.js";
-import type { ChannelEvent } from "../src/flamecast/channel-router.js";
+import { EventBus } from "../src/flamecast/events/bus.js";
+import type { ChannelEvent } from "../src/flamecast/events/channels.js";
 
 function makeRawEvent(
   sessionId: string,

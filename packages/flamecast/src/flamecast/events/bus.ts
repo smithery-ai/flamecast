@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import type { ChannelEvent } from "./channel-router.js";
+import type { ChannelEvent } from "./channels.js";
 
 // ---------------------------------------------------------------------------
 // Per-category history buffer caps

@@ -13,9 +13,9 @@ import { createServerApp } from "./app.js";
 import type { FlamecastStorage } from "./storage.js";
 import { MemoryFlamecastStorage } from "./storage/memory/index.js";
 import { SessionService } from "./session-service.js";
-import { WebhookDeliveryEngine } from "./webhook-delivery.js";
-import { EventBus } from "./event-bus.js";
-import { resolveAgentId } from "./channel-router.js";
+import { WebhookDeliveryEngine } from "./events/webhooks.js";
+import { EventBus } from "./events/bus.js";
+import { resolveAgentId } from "./events/channels.js";
 import type {
   SessionCallbackEvent,
   PermissionCallbackResponse,
@@ -45,7 +45,7 @@ export type {
 export type { FileSystemEntry } from "@flamecast/protocol/session-host";
 
 export type { SessionMeta, FlamecastStorage } from "./storage.js";
-export { NodeRuntime } from "./runtimes/node.js";
+export { NodeRuntime } from "./runtime-node.js";
 
 // ---------------------------------------------------------------------------
 // Event handler context types

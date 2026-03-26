@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
-import { NodeRuntime } from "../src/flamecast/runtimes/node.js";
+import { NodeRuntime } from "../src/flamecast/runtime-node.js";
 
 /** Start a simple HTTP server that records incoming requests and responds. */
 function startMockServer(
