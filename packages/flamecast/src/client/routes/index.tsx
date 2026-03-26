@@ -1,6 +1,11 @@
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createSession, fetchAgentTemplates, fetchRuntimes, registerAgentTemplate } from "@/client/lib/api";
+import {
+  createSession,
+  fetchAgentTemplates,
+  fetchRuntimes,
+  registerAgentTemplate,
+} from "@/client/lib/api";
 import { Button } from "@/client/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/client/components/ui/card";
 import { Input } from "@/client/components/ui/input";
@@ -69,8 +74,13 @@ function SessionsPage() {
     : allTemplates;
 
   const createMutation = useMutation({
-    mutationFn: ({ agentTemplateId, runtimeInstance }: { agentTemplateId: string; runtimeInstance?: string }) =>
-      createSession({ agentTemplateId, cwd: undefined, runtimeInstance }),
+    mutationFn: ({
+      agentTemplateId,
+      runtimeInstance,
+    }: {
+      agentTemplateId: string;
+      runtimeInstance?: string;
+    }) => createSession({ agentTemplateId, cwd: undefined, runtimeInstance }),
     onSuccess: (session) => {
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
       navigate({ to: "/sessions/$id", params: { id: session.id } });
@@ -229,7 +239,10 @@ function SessionsPage() {
                   onStartSession={(runtimeInstance) =>
                     createMutation.mutate({ agentTemplateId: template.id, runtimeInstance })
                   }
-                  isStartingSession={createMutation.isPending && createMutation.variables?.agentTemplateId === template.id}
+                  isStartingSession={
+                    createMutation.isPending &&
+                    createMutation.variables?.agentTemplateId === template.id
+                  }
                   isAnyStarting={createMutation.isPending}
                 />
               ))}

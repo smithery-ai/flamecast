@@ -138,9 +138,7 @@ export class E2BRuntime implements Runtime {
     }
 
     this.instances.set(instanceId, { sandboxId: sandbox.sandboxId, ports });
-    console.log(
-      `[E2BRuntime] Instance "${instanceId}" started (sandbox=${sandbox.sandboxId})`,
-    );
+    console.log(`[E2BRuntime] Instance "${instanceId}" started (sandbox=${sandbox.sandboxId})`);
   }
 
   async stop(instanceId: string): Promise<void> {
@@ -225,11 +223,13 @@ export class E2BRuntime implements Runtime {
     runtimeMeta: Record<string, unknown> | null,
   ): Promise<boolean> {
     if (!runtimeMeta) return false;
-    const instanceName = typeof runtimeMeta.instanceName === "string" ? runtimeMeta.instanceName : undefined;
+    const instanceName =
+      typeof runtimeMeta.instanceName === "string" ? runtimeMeta.instanceName : undefined;
     const sandboxId = typeof runtimeMeta.sandboxId === "string" ? runtimeMeta.sandboxId : undefined;
     const port = typeof runtimeMeta.port === "number" ? runtimeMeta.port : undefined;
     const hostUrl = typeof runtimeMeta.hostUrl === "string" ? runtimeMeta.hostUrl : undefined;
-    const websocketUrl = typeof runtimeMeta.websocketUrl === "string" ? runtimeMeta.websocketUrl : undefined;
+    const websocketUrl =
+      typeof runtimeMeta.websocketUrl === "string" ? runtimeMeta.websocketUrl : undefined;
     if (!instanceName || !sandboxId || !port || !hostUrl || !websocketUrl) return false;
 
     try {
@@ -277,7 +277,8 @@ export class E2BRuntime implements Runtime {
 
     try {
       const parsed: Record<string, unknown> = JSON.parse(await request.text());
-      const instanceName = typeof parsed.instanceName === "string" ? parsed.instanceName : undefined;
+      const instanceName =
+        typeof parsed.instanceName === "string" ? parsed.instanceName : undefined;
 
       if (!instanceName) {
         return jsonResponse(
@@ -294,7 +295,9 @@ export class E2BRuntime implements Runtime {
       const slot = inst.ports.find((p) => !p.inUse);
       if (!slot) {
         return jsonResponse(
-          { error: `No available ports in instance "${instanceName}" (max ${this.maxSessions} sessions)` },
+          {
+            error: `No available ports in instance "${instanceName}" (max ${this.maxSessions} sessions)`,
+          },
           503,
         );
       }
@@ -303,7 +306,9 @@ export class E2BRuntime implements Runtime {
       const sandbox = await Sandbox.connect(inst.sandboxId, { apiKey: this.apiKey });
 
       // Verify the binary exists and is executable
-      const checkResult = await sandbox.commands.run(`ls -la ${SANDBOX_BIN_PATH} && file ${SANDBOX_BIN_PATH}`);
+      const checkResult = await sandbox.commands.run(
+        `ls -la ${SANDBOX_BIN_PATH} && file ${SANDBOX_BIN_PATH}`,
+      );
       console.log(`[E2BRuntime] Binary check: ${checkResult.stdout.trim()}`);
       if (checkResult.exitCode !== 0) {
         throw new Error(`Session-host binary not found in sandbox: ${checkResult.stderr}`);
@@ -408,11 +413,7 @@ export class E2BRuntime implements Runtime {
     });
   }
 
-  private async proxyRequest(
-    sessionId: string,
-    path: string,
-    request: Request,
-  ): Promise<Response> {
+  private async proxyRequest(sessionId: string, path: string, request: Request): Promise<Response> {
     const session = this.sessions.get(sessionId);
     if (!session) {
       return jsonResponse({ error: `Session "${sessionId}" not found` }, 404);
@@ -450,11 +451,15 @@ export class E2BRuntime implements Runtime {
         console.log(`[E2BRuntime] Health check attempt ${attempts}: status ${resp.status}`);
       } catch (err) {
         if (attempts % 5 === 0) {
-          console.log(`[E2BRuntime] Health check attempt ${attempts}: ${err instanceof Error ? err.message : "connection failed"}`);
+          console.log(
+            `[E2BRuntime] Health check attempt ${attempts}: ${err instanceof Error ? err.message : "connection failed"}`,
+          );
         }
       }
       await new Promise((r) => setTimeout(r, 500));
     }
-    throw new Error(`SessionHost at ${hostUrl} not ready after ${timeoutMs}ms (${attempts} attempts)`);
+    throw new Error(
+      `SessionHost at ${hostUrl} not ready after ${timeoutMs}ms (${attempts} attempts)`,
+    );
   }
 }

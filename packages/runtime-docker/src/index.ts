@@ -271,9 +271,12 @@ export class DockerRuntime implements Runtime {
     runtimeMeta: Record<string, unknown> | null,
   ): Promise<boolean> {
     if (!runtimeMeta) return false;
-    const instanceName = typeof runtimeMeta.instanceName === "string" ? runtimeMeta.instanceName : undefined;
-    const containerId = typeof runtimeMeta.containerId === "string" ? runtimeMeta.containerId : undefined;
-    const containerPort = typeof runtimeMeta.containerPort === "number" ? runtimeMeta.containerPort : undefined;
+    const instanceName =
+      typeof runtimeMeta.instanceName === "string" ? runtimeMeta.instanceName : undefined;
+    const containerId =
+      typeof runtimeMeta.containerId === "string" ? runtimeMeta.containerId : undefined;
+    const containerPort =
+      typeof runtimeMeta.containerPort === "number" ? runtimeMeta.containerPort : undefined;
     const hostPort = typeof runtimeMeta.hostPort === "number" ? runtimeMeta.hostPort : undefined;
     if (!instanceName || !containerId || !containerPort || !hostPort) return false;
 
@@ -332,7 +335,8 @@ export class DockerRuntime implements Runtime {
 
     try {
       const parsed: Record<string, unknown> = JSON.parse(await request.text());
-      const instanceName = typeof parsed.instanceName === "string" ? parsed.instanceName : undefined;
+      const instanceName =
+        typeof parsed.instanceName === "string" ? parsed.instanceName : undefined;
 
       if (!instanceName) {
         return jsonResponse(
@@ -444,11 +448,7 @@ export class DockerRuntime implements Runtime {
     });
   }
 
-  private async proxyRequest(
-    sessionId: string,
-    path: string,
-    request: Request,
-  ): Promise<Response> {
+  private async proxyRequest(sessionId: string, path: string, request: Request): Promise<Response> {
     const session = this.sessions.get(sessionId);
     if (!session) {
       return jsonResponse({ error: `Session "${sessionId}" not found` }, 404);

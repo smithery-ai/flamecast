@@ -22,7 +22,14 @@ import {
   SidebarMenuItem,
   SidebarMenuSkeleton,
 } from "@/client/components/ui/sidebar";
-import { LoaderCircleIcon, PauseIcon, PlayIcon, PlusIcon, SquareIcon, Trash2Icon } from "lucide-react";
+import {
+  LoaderCircleIcon,
+  PauseIcon,
+  PlayIcon,
+  PlusIcon,
+  SquareIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import type { RuntimeInfo } from "@flamecast/protocol/runtime";
