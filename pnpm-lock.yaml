@@ -79,6 +79,9 @@ importers:
       '@flamecast/runtime-docker':
         specifier: workspace:*
         version: link:../../packages/runtime-docker
+      '@flamecast/runtime-e2b':
+        specifier: workspace:*
+        version: link:../../packages/runtime-e2b
       '@flamecast/sdk':
         specifier: workspace:*
         version: link:../../packages/flamecast
