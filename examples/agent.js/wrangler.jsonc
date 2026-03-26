@@ -2,7 +2,7 @@
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "flamecast-agent-js",
   "account_id": "c4cf21d8a5e8878bc3c92708b1f80193",
-  "main": "src/worker.js",
+  "main": "src/worker.ts",
   "compatibility_date": "2026-03-25",
   "compatibility_flags": ["nodejs_compat"],
   "durable_objects": {

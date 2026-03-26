@@ -7,7 +7,17 @@ export const EXECUTE_JS_TOOL_DESCRIPTION = [
   "Do not claim network access is blocked or unavailable unless an actual fetch call fails.",
 ].join(" ");
 
-export const EXECUTE_JS_INPUT_SCHEMA = {
+export const EXECUTE_JS_INPUT_SCHEMA: {
+  type: "object";
+  properties: {
+    code: {
+      type: "string";
+      description: string;
+    };
+  };
+  required: string[];
+  additionalProperties: false;
+} = {
   type: "object",
   properties: {
     code: {

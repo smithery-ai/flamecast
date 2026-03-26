@@ -1,6 +1,13 @@
 import * as acp from "@agentclientprotocol/sdk";
 import { jsonSchema, stepCountIs, tool } from "ai";
-import { Agent, getAgentByName, routeAgentRequest } from "agents";
+import {
+  Agent,
+  getAgentByName,
+  routeAgentRequest,
+  type AgentContext,
+  type Connection,
+  type ConnectionContext,
+} from "agents";
 import { buildDynamicWorkerCode, hashText } from "./dynamic-worker-code.js";
 import { generateGatewayText, streamGatewayText } from "./gateway-model.js";
 import { makeReplFriendlySource } from "./repl-source.js";
@@ -14,7 +21,47 @@ import {
 const ACP_BASE_PATH = "/acp";
 const SESSION_BASE_PATH = "/sessions";
 
-function createSessionState() {
+type TranscriptEntry =
+  | { role: "user"; text: string }
+  | { role: "assistant"; text: string }
+  | { role: "tool_call"; code: string }
+  | { role: "tool_result"; result: unknown; logs: string[]; error: { message: string } | null };
+
+type SessionState = {
+  cwd: string | null;
+  scope: Record<string, unknown>;
+  summary: string;
+  transcript: TranscriptEntry[];
+};
+
+type SessionClient = {
+  sessionUpdate(params: { sessionId: string; update: unknown }): Promise<void>;
+};
+
+type AgentNamespace = Parameters<typeof getAgentByName>[0];
+
+type AgentEnv = Record<string, unknown> & {
+  AGENT_MODE?: string;
+  COMPACT_AT_CHARS?: string;
+  KEEP_RECENT_TURNS?: string;
+  CF_ACCOUNT_ID?: string;
+  CF_AI_GATEWAY?: string;
+  CF_AI_GATEWAY_TOKEN?: string;
+  CF_AI_MODEL?: string;
+  OPENAI_API_KEY?: string;
+  LOCAL_EXECUTOR_URL?: string;
+  LOADER?: {
+    get(
+      key: string,
+      builder: () => unknown | Promise<unknown>,
+    ): { getEntrypoint(): { fetch(url: string, init: RequestInit): Promise<Response> } };
+  };
+  AcpSessionAgent: AgentNamespace;
+};
+
+type SessionHostPromptResult = { stopReason: "end_turn" | "cancelled" };
+
+function createSessionState(): SessionState {
   return {
     cwd: null,
     scope: {},
@@ -23,7 +70,7 @@ function createSessionState() {
   };
 }
 
-function cloneSession(session) {
+function cloneSession(session: SessionState): SessionState {
   return structuredClone(session);
 }
 
@@ -623,7 +670,12 @@ function createAcpConnectionTransport(connection) {
   };
 }
 
-async function promptSession(agent, connection, sessionId, params) {
+async function promptSession(
+  agent: AcpSessionAgent,
+  connection: SessionClient,
+  sessionId: string,
+  params: acp.PromptRequest,
+): Promise<SessionHostPromptResult> {
   agent.pendingPrompt?.abort();
   agent.pendingPrompt = new AbortController();
   const { signal } = agent.pendingPrompt;
@@ -737,7 +789,11 @@ async function promptSession(agent, connection, sessionId, params) {
 }
 
 class AcpSessionProtocolHandler {
-  constructor(agent, connection, sessionId) {
+  agent: AcpSessionAgent;
+  connection: SessionClient;
+  sessionId: string;
+
+  constructor(agent: AcpSessionAgent, connection: SessionClient, sessionId: string) {
     this.agent = agent;
     this.connection = connection;
     this.sessionId = sessionId;
@@ -767,39 +823,40 @@ class AcpSessionProtocolHandler {
     return { sessionId: this.sessionId };
   }
 
-  async prompt(params) {
+  async prompt(params: acp.PromptRequest): Promise<acp.PromptResponse> {
     if (params.sessionId !== this.sessionId) {
       throw new Error(`Session ${params.sessionId} not found`);
     }
     return promptSession(this.agent, this.connection, this.sessionId, params);
   }
 
-  async cancel(params) {
+  async cancel(params: acp.CancelNotification): Promise<void> {
     if (params.sessionId === this.sessionId) {
       this.agent.pendingPrompt?.abort();
     }
   }
 }
 
-export class AcpSessionAgent extends Agent {
+export class AcpSessionAgent extends Agent<AgentEnv, SessionState> {
   static options = {
     sendIdentityOnConnect: false,
   };
 
-  initialState = createSessionState();
+  declare env: AgentEnv;
+  pendingPrompt: AbortController | null = null;
+  acpTransports = new Map<string, ReturnType<typeof createAcpConnectionTransport>>();
+  sessionConnections = new Map<string, Connection>();
+  initialState: SessionState = createSessionState();
 
-  constructor(ctx, env) {
+  constructor(ctx: AgentContext, env: AgentEnv) {
     super(ctx, env);
-    this.pendingPrompt = null;
-    this.acpTransports = new Map();
-    this.sessionConnections = new Map();
   }
 
   shouldSendProtocolMessages() {
     return false;
   }
 
-  async onRequest(request) {
+  async onRequest(request: Request) {
     const url = new URL(request.url);
     const match = getSessionHostMatch(url.pathname);
     if (!match || match.sessionId !== this.name) {
@@ -841,7 +898,7 @@ export class AcpSessionAgent extends Agent {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 
-  async onConnect(connection, ctx) {
+  async onConnect(connection: Connection, ctx: ConnectionContext) {
     const pathname = new URL(ctx.request.url).pathname;
     const acpSessionId = getAcpSessionIdFromPath(pathname);
     if (acpSessionId === this.name) {
@@ -865,7 +922,7 @@ export class AcpSessionAgent extends Agent {
     connection.close(1008, "Missing session ID");
   }
 
-  async onMessage(connection, message) {
+  async onMessage(connection: Connection, message: unknown) {
     const transport = this.acpTransports.get(connection.id);
     if (transport) {
       await transport.push(message);
@@ -896,7 +953,7 @@ export class AcpSessionAgent extends Agent {
     }
   }
 
-  onClose(connection) {
+  onClose(connection: Connection) {
     const transport = this.acpTransports.get(connection.id);
     transport?.close();
     this.acpTransports.delete(connection.id);
@@ -906,17 +963,30 @@ export class AcpSessionAgent extends Agent {
     }
   }
 
-  onError(connection, error) {
-    const transport = this.acpTransports.get(connection.id);
+  onError(error: unknown): void;
+  onError(connection: Connection, error: unknown): void;
+  onError(connectionOrError: Connection | unknown, error?: unknown) {
+    if (error === undefined) {
+      return;
+    }
+    if (
+      !connectionOrError ||
+      typeof connectionOrError !== "object" ||
+      !("id" in connectionOrError) ||
+      typeof connectionOrError.id !== "string"
+    ) {
+      return;
+    }
+    const transport = this.acpTransports.get(connectionOrError.id);
     transport?.error(error);
-    this.acpTransports.delete(connection.id);
-    this.sessionConnections.delete(connection.id);
+    this.acpTransports.delete(connectionOrError.id);
+    this.sessionConnections.delete(connectionOrError.id);
     if (transport && this.acpTransports.size === 0) {
       this.pendingPrompt?.abort();
     }
   }
 
-  async handleSessionHostStart(request) {
+  async handleSessionHostStart(request: Request) {
     if (this.state.cwd !== null) {
       return Response.json({ error: `Session "${this.name}" already exists` }, { status: 409 });
     }
@@ -960,7 +1030,7 @@ export class AcpSessionAgent extends Agent {
     return Response.json({ ok: true });
   }
 
-  async handleSessionHostPrompt(request) {
+  async handleSessionHostPrompt(request: Request) {
     if (this.state.cwd === null) {
       return Response.json({ error: `Session "${this.name}" not found` }, { status: 404 });
     }
@@ -997,15 +1067,15 @@ export class AcpSessionAgent extends Agent {
     });
   }
 
-  async handleSessionHostPermission(requestId, request) {
+  async handleSessionHostPermission(requestId: string, request: Request) {
     parsePermissionBody(JSON.parse(await request.text()));
     return Response.json({ error: `Permission request "${requestId}" not found` }, { status: 404 });
   }
 
-  async executeSessionHostPrompt(text) {
-    const params = {
+  async executeSessionHostPrompt(text: string): Promise<SessionHostPromptResult> {
+    const params: acp.PromptRequest = {
       sessionId: this.name,
-      prompt: [{ type: "text", text }],
+      prompt: [{ type: "text", text } as const],
     };
 
     this.emitSessionHostRpc(acp.AGENT_METHODS.session_prompt, "client_to_agent", "request", params);
@@ -1042,7 +1112,7 @@ export class AcpSessionAgent extends Agent {
     }
   }
 
-  async handleSessionHostControl(message) {
+  async handleSessionHostControl(message: ReturnType<typeof parseWsControlMessage>) {
     switch (message.action) {
       case "prompt":
         if (this.state.cwd === null) {
@@ -1065,7 +1135,7 @@ export class AcpSessionAgent extends Agent {
     }
   }
 
-  emitSessionHostEvent(type, data) {
+  emitSessionHostEvent(type: string, data: unknown) {
     const timestamp = new Date().toISOString();
     this.broadcastSessionMessage({
       type: "event",
@@ -1074,15 +1144,19 @@ export class AcpSessionAgent extends Agent {
     });
   }
 
-  emitSessionHostRpc(method, direction, phase, payload) {
-    const data = { method, direction, phase };
+  emitSessionHostRpc(method: string, direction: string, phase: string, payload?: unknown) {
+    const data: { method: string; direction: string; phase: string; payload?: unknown } = {
+      method,
+      direction,
+      phase,
+    };
     if (payload !== undefined) {
       data.payload = payload;
     }
     this.emitSessionHostEvent("rpc", data);
   }
 
-  broadcastSessionMessage(message) {
+  broadcastSessionMessage(message: unknown) {
     const data = JSON.stringify(message);
     for (const connection of this.sessionConnections.values()) {
       connection.send(data);
@@ -1091,7 +1165,7 @@ export class AcpSessionAgent extends Agent {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request: Request, env: AgentEnv) {
     const url = new URL(request.url);
     const sessionId =
       getAcpSessionIdFromPath(url.pathname) ?? getSessionHostMatch(url.pathname)?.sessionId;

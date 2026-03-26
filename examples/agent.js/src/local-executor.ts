@@ -128,33 +128,41 @@ export async function startLocalExecutor() {
     response.end(JSON.stringify(result));
   });
 
-  await new Promise((resolve, reject) => {
-    server.listen(0, "127.0.0.1", (error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => {
+      server.off("error", onError);
+      reject(error);
+    };
+
+    server.once("error", onError);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", onError);
       resolve();
     });
   });
 
+  const closeServer = async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  };
+
   const address = server.address();
   if (!address || typeof address === "string") {
+    await closeServer();
     throw new Error("Local executor did not expose a TCP port");
   }
 
   return {
     url: `http://127.0.0.1:${address.port}/execute`,
     dispose: async () => {
-      await new Promise((resolve, reject) => {
-        server.close((error) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-          resolve();
-        });
-      });
+      await closeServer();
     },
   };
 }

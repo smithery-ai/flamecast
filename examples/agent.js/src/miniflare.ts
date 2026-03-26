@@ -6,12 +6,18 @@ import { Miniflare } from "miniflare";
 import { startLocalExecutor } from "./local-executor.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const workerPath = resolve(here, "worker.js");
+const workerPath = resolve(here, "worker.ts");
 const localEnvPath = resolve(here, "../.env");
 const DEFAULT_LOCAL_GATEWAY = {
   CF_ACCOUNT_ID: "c4cf21d8a5e8878bc3c92708b1f80193",
   CF_AI_GATEWAY: "smithery-agent",
   CF_AI_MODEL: "openai/gpt-5.4",
+};
+
+type Bindings = Record<string, string>;
+type StartExampleMiniflareOptions = {
+  bindings?: Bindings;
+  port?: number;
 };
 
 export function loadExampleEnv(target = process.env) {
@@ -49,7 +55,7 @@ export function loadExampleEnv(target = process.env) {
   }
 }
 
-export function createBindings(env = process.env, overrides = {}) {
+export function createBindings(env = process.env, overrides: Bindings = {}) {
   const gatewayToken = env.CF_AI_GATEWAY_TOKEN ?? "";
   const mode = env.AGENT_MODE ?? (gatewayToken ? "gateway" : "scripted");
 
@@ -66,7 +72,10 @@ export function createBindings(env = process.env, overrides = {}) {
   };
 }
 
-export async function startExampleMiniflare({ bindings = {}, port } = {}) {
+export async function startExampleMiniflare({
+  bindings = {},
+  port,
+}: StartExampleMiniflareOptions = {}) {
   loadExampleEnv();
   const executor = await startLocalExecutor();
   const { outputFiles } = await build({

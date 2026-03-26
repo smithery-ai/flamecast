@@ -1,5 +1,15 @@
 import { WebSocket } from "ws";
 
+type WorkerRuntimeProviderOptions = {
+  baseUrl?: string;
+  websocketUrl?: string;
+  headers?: Record<string, string>;
+};
+
+type WorkerRuntimeStartRequest = {
+  sessionId: string;
+};
+
 function toUint8Array(data) {
   if (data instanceof Uint8Array) {
     return data;
@@ -19,7 +29,7 @@ function toUint8Array(data) {
 export async function openWorkerAcpTransport(url, init = {}) {
   const ws = new WebSocket(url, init);
 
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const onOpen = () => {
       ws.off("error", onError);
       resolve();
@@ -48,7 +58,7 @@ export async function openWorkerAcpTransport(url, init = {}) {
 
   const input = new WritableStream({
     write(chunk) {
-      return new Promise((resolve, reject) => {
+      return new Promise<void>((resolve, reject) => {
         ws.send(Buffer.from(chunk), (error) => {
           if (error) {
             reject(error);
@@ -74,7 +84,7 @@ export async function openWorkerAcpTransport(url, init = {}) {
         return;
       }
 
-      await new Promise((resolve) => {
+      await new Promise<void>((resolve) => {
         const finish = () => {
           clearTimeout(timeout);
           ws.off("close", finish);
@@ -98,9 +108,13 @@ export async function openWorkerAcpTransport(url, init = {}) {
   };
 }
 
-export function createCloudflareWorkerRuntimeProvider({ baseUrl, websocketUrl, headers } = {}) {
+export function createCloudflareWorkerRuntimeProvider({
+  baseUrl,
+  websocketUrl,
+  headers,
+}: WorkerRuntimeProviderOptions = {}) {
   return {
-    async start(request) {
+    async start(request: WorkerRuntimeStartRequest) {
       const resolvedUrl =
         websocketUrl != null
           ? (() => {
