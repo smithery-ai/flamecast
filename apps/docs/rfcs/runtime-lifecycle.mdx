@@ -45,19 +45,34 @@ Multi-instance runtimes (Docker, E2B) follow a **container-per-instance** model:
 - **`pause(instanceId)`** freezes the container/sandbox, suspending all sessions without terminating them.
 - **`stop(instanceId)`** kills the container/sandbox entirely.
 
+```mermaid
+graph TD
+    subgraph Instance["Runtime Instance &quot;staging&quot;<br/>(Docker container / E2B sandbox)"]
+        BIN["session-host binary (Go, static)"]
+        POOL["Pre-allocated port pool (20 ports)"]
+        SH1["session-host :9000"]
+        SH2["session-host :9001"]
+        SH3["session-host :9002"]
+    end
+
+    FC[Flamecast Server] -->|"docker exec / sandbox.commands.run"| SH1
+    FC -->|"docker exec / sandbox.commands.run"| SH2
+    FC -->|"docker exec / sandbox.commands.run"| SH3
+
+    style Instance fill:#f9f9f9,stroke:#333
+    style SH1 fill:#d4edda,stroke:#28a745
+    style SH2 fill:#d4edda,stroke:#28a745
+    style SH3 fill:#e2e3e5,stroke:#6c757d,stroke-dasharray: 5 5
 ```
-┌─────────────────────────────────────────┐
-│  Runtime Instance "staging"             │
-│  (Docker container / E2B sandbox)       │
-│                                         │
-│  ┌──────────┐  ┌──────────┐             │
-│  │ session-  │  │ session-  │            │
-│  │ host :9000│  │ host :9001│  ...       │
-│  └──────────┘  └──────────┘             │
-│                                         │
-│  session-host binary (Go, static)       │
-│  Pre-allocated port pool (20 ports)     │
-└─────────────────────────────────────────┘
+
+```mermaid
+stateDiagram-v2
+    [*] --> stopped
+    stopped --> running : start()
+    running --> paused : pause()
+    running --> stopped : stop()
+    paused --> running : start() (resume)
+    paused --> stopped : stop()
 ```
 
 ### Runtime interface
