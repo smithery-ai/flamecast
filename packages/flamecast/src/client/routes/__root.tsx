@@ -1,9 +1,15 @@
 import { createRootRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { z } from "zod";
 import { ChevronRightIcon } from "lucide-react";
 import { SessionsSidebar } from "@/client/components/sessions-sidebar";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/client/components/ui/sidebar";
 
+const rootSearchSchema = z.object({
+  runtime: z.string().optional(),
+});
+
 export const Route = createRootRoute({
+  validateSearch: rootSearchSchema,
   component: RootLayout,
 });
 

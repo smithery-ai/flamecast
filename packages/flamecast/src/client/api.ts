@@ -2,6 +2,7 @@ import { hc } from "hono/client";
 import { z } from "zod";
 import type { AppType } from "../flamecast/api.js";
 import { AgentTemplateSchema, PromptQueueStateSchema, SessionSchema } from "../shared/session.js";
+import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
 import type {
   AgentTemplate,
   CreateSessionBody,
@@ -63,6 +64,11 @@ export type FlamecastClient = {
   reorderQueue(id: string, order: string[]): Promise<void>;
   pauseQueue(id: string): Promise<void>;
   resumeQueue(id: string): Promise<void>;
+
+  // Runtimes
+  fetchRuntimes(): Promise<RuntimeInfo[]>;
+  startRuntime(typeName: string, name?: string): Promise<RuntimeInstance>;
+  stopRuntime(instanceName: string): Promise<void>;
 };
 
 async function assertOk(response: Response, message: string): Promise<void> {
@@ -186,6 +192,30 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
         param: { agentId: id },
       });
       await assertOk(response, "Failed to resume queue");
+    },
+
+    // -- Runtimes --
+
+    async fetchRuntimes() {
+      const response = await rpc.runtimes.$get();
+      await assertOk(response, "Failed to fetch runtimes");
+      const data: RuntimeInfo[] = await response.json();
+      return data;
+    },
+    async startRuntime(typeName, name?) {
+      const response = await rpc.runtimes[":typeName"].start.$post({
+        param: { typeName },
+        json: name ? { name } : {},
+      });
+      await assertOk(response, "Failed to start runtime");
+      const data: RuntimeInstance = await response.json();
+      return data;
+    },
+    async stopRuntime(instanceName) {
+      const response = await rpc.runtimes[":instanceName"].stop.$post({
+        param: { instanceName },
+      });
+      await assertOk(response, "Failed to stop runtime");
     },
   };
 }

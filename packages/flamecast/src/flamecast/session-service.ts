@@ -29,6 +29,7 @@ export class SessionService {
       spawn: AgentSpawn;
       cwd: string;
       runtime: AgentTemplateRuntime;
+      runtimeInstance?: string;
       startedAt: string;
       callbackUrl?: string;
       webhooks?: WebhookConfig[];
@@ -93,6 +94,7 @@ export class SessionService {
           lastUpdatedAt: new Date().toISOString(),
           status: "active",
           pendingPermission: null,
+          runtime: opts.runtimeInstance ?? providerName,
         },
         runtimeInfo,
       );

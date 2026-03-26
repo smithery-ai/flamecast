@@ -7,7 +7,13 @@
  */
 // oxlint-disable-next-line no-unused-vars -- TConfig is used by RuntimeConfigFor via `Runtime<infer C>`
 export interface Runtime<TConfig extends Record<string, unknown> = {}> {
+  /** If true, only a single instance is allowed (e.g., local/node runtimes). Default: false. */
+  readonly onlyOne?: boolean;
   fetchSession(sessionId: string, request: Request): Promise<Response>;
+  /** Start a runtime instance. For hasMultiple runtimes, instanceId identifies which instance. */
+  start?(instanceId: string): Promise<void>;
+  /** Stop a specific runtime instance. */
+  stop?(instanceId: string): Promise<void>;
   dispose?(): Promise<void>;
   /**
    * Return runtime-specific metadata for a session that should be persisted
@@ -25,6 +31,20 @@ export interface Runtime<TConfig extends Record<string, unknown> = {}> {
    * logic will fall back to a health-check probe against the persisted hostUrl.
    */
   reconnect?(sessionId: string, runtimeMeta: Record<string, unknown> | null): Promise<boolean>;
+}
+
+/** Persisted state of a runtime instance. */
+export interface RuntimeInstance {
+  name: string;
+  typeName: string;
+  status: "running" | "stopped";
+}
+
+/** Aggregated info for a runtime type and its instances. */
+export interface RuntimeInfo {
+  typeName: string;
+  onlyOne: boolean;
+  instances: RuntimeInstance[];
 }
 
 // ---------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import type { RuntimeInstance } from "@flamecast/protocol/runtime";
 import type { AgentTemplate } from "../../../shared/session.js";
 import type { FlamecastStorage, SessionMeta, SessionRuntimeInfo } from "../../storage.js";
 
@@ -23,6 +24,7 @@ export class MemoryFlamecastStorage implements FlamecastStorage {
   private managedTemplateIds: string[] = [];
   private sessions = new Map<string, SessionMeta>();
   private sessionRuntimeInfo = new Map<string, SessionRuntimeInfo>();
+  private runtimeInstances = new Map<string, RuntimeInstance>();
 
   async seedAgentTemplates(templates: AgentTemplate[]): Promise<void> {
     const nextManagedIds = templates.map((template) => template.id);
@@ -122,5 +124,17 @@ export class MemoryFlamecastStorage implements FlamecastStorage {
       this.sessions.set(id, { ...row, status: "killed" });
     }
     this.sessionRuntimeInfo.delete(id);
+  }
+
+  async saveRuntimeInstance(instance: RuntimeInstance): Promise<void> {
+    this.runtimeInstances.set(instance.name, { ...instance });
+  }
+
+  async listRuntimeInstances(): Promise<RuntimeInstance[]> {
+    return [...this.runtimeInstances.values()].map((r) => ({ ...r }));
+  }
+
+  async deleteRuntimeInstance(name: string): Promise<void> {
+    this.runtimeInstances.delete(name);
   }
 }

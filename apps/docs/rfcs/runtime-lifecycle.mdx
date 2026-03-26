@@ -1,0 +1,231 @@
+---
+title: "RFC: Runtime lifecycle & instance management"
+description: "Start, stop, and manage named runtime instances with UI visibility and session scoping"
+tag: "RFC"
+---
+
+<Info>
+  This is a design proposal, not a shipped feature. Feedback is welcome on [GitHub](https://github.com/anthropics/flamecast).
+</Info>
+
+## Background
+
+The Flamecast constructor accepts a `runtimes` map that registers execution environments:
+
+```typescript
+const fc = new Flamecast({
+  runtimes: {
+    default: new NodeRuntime(),
+    docker: new DockerRuntime(),
+  },
+});
+```
+
+Runtimes handle session lifecycle — starting agent processes, routing HTTP/WS traffic, and tearing down containers. But they are passive: always-on, invisible to the UI, and limited to a single logical instance per registered name.
+
+## Problem
+
+1. **No lifecycle management.** Runtimes are always-on with no start/stop semantics. You can't spin up a Docker environment on demand or shut one down to reclaim resources.
+
+2. **No UI visibility.** The dashboard shows sessions and templates, but has no concept of runtimes. Operators can't see which runtimes are available, which are running, or what sessions belong to which runtime.
+
+3. **Single instance per type.** Each registered name maps to exactly one runtime object. You can't run multiple Docker environments (e.g., `staging` and `prod`) from the same `DockerRuntime` without registering them as separate keys at construction time.
+
+4. **No session scoping.** Sessions don't track which runtime instance they belong to. There's no way to filter the UI to "show me only the sessions running on staging" or deep-link to a runtime-specific view.
+
+## Proposed solution
+
+### Runtime interface changes
+
+Add optional lifecycle methods and a single-instance flag to the `Runtime` interface:
+
+```typescript
+export interface Runtime<TConfig extends Record<string, unknown> = {}> {
+  /** If true, only a single instance is allowed (e.g., local/node runtimes). Default: false. */
+  readonly onlyOne?: boolean;
+
+  fetchSession(sessionId: string, request: Request): Promise<Response>;
+
+  /** Start a runtime instance. For multi-instance runtimes, instanceId identifies which instance. */
+  start?(instanceId: string): Promise<void>;
+
+  /** Stop a specific runtime instance. */
+  stop?(instanceId: string): Promise<void>;
+
+  dispose?(): Promise<void>;
+}
+```
+
+### Instance model
+
+| Runtime type | `onlyOne` | Instance naming | Behavior |
+|---|---|---|---|
+| Single-instance (e.g., `NodeRuntime`) | `true` | Instance name = type name (e.g., `"default"`) | `start()`/`stop()` are optional no-ops. One logical instance. |
+| Multi-instance (e.g., `DockerRuntime`) | `false` (default) | User-provided name (e.g., `"staging"`, `"prod"`) | `start("staging")` creates an instance. `stop("staging")` tears down only that instance. |
+
+Single-instance runtimes (`onlyOne: true`) work exactly as they do today — the lifecycle methods are optional and the instance is implicitly "running" when the server starts.
+
+### Runtime instance status
+
+Each instance has a status:
+
+| Status | Meaning |
+|---|---|
+| `running` | Instance is active and can accept sessions |
+| `stopped` | Instance has been stopped |
+
+### Flamecast lifecycle API
+
+Three new methods on the `Flamecast` class:
+
+```typescript
+class Flamecast {
+  /** Start a runtime instance. For onlyOne types, instanceName defaults to typeName. */
+  async startRuntime(typeName: string, instanceName?: string): Promise<RuntimeInstance>;
+
+  /** Stop a runtime instance. Terminates all sessions on that instance first. */
+  async stopRuntime(instanceName: string): Promise<void>;
+
+  /** List all runtime types with their instances and statuses. */
+  async listRuntimes(): Promise<RuntimeInfo[]>;
+}
+```
+
+Types:
+
+```typescript
+interface RuntimeInstance {
+  name: string;
+  typeName: string;
+  status: "running" | "stopped";
+}
+
+interface RuntimeInfo {
+  typeName: string;
+  onlyOne: boolean;
+  instances: RuntimeInstance[];
+}
+```
+
+### Persistence
+
+Runtime instance state is persisted via the storage interface so statuses survive server restarts.
+
+**Storage additions:**
+
+```typescript
+interface FlamecastStorage {
+  // ... existing methods ...
+
+  /** Save or update a runtime instance record. */
+  saveRuntimeInstance(instance: RuntimeInstance): Promise<void>;
+
+  /** List all runtime instances. */
+  listRuntimeInstances(): Promise<RuntimeInstance[]>;
+
+  /** Delete a runtime instance record. */
+  deleteRuntimeInstance(name: string): Promise<void>;
+}
+```
+
+**Postgres schema:**
+
+```sql
+CREATE TABLE flamecast.runtime_instances (
+  name       TEXT PRIMARY KEY,
+  type_name  TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'running'
+);
+```
+
+On server restart, instances with `status = 'running'` are re-started via `runtime.start(instanceId)`.
+
+### Session scoping
+
+Sessions gain a `runtime` field that records which runtime instance they belong to:
+
+```typescript
+interface Session {
+  // ... existing fields ...
+  runtime?: string;  // runtime instance name
+}
+```
+
+This field is set when the session is created (derived from the template's `runtime.provider` or the resolved runtime). It enables filtering sessions by runtime instance in the UI and API.
+
+### REST API
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/runtimes` | List runtime types with instances |
+| `POST` | `/api/runtimes/:typeName/start` | Start an instance. Body: `{ name?: string }` |
+| `POST` | `/api/runtimes/:instanceName/stop` | Stop an instance |
+
+**`GET /api/runtimes` response:**
+
+```json
+[
+  {
+    "typeName": "default",
+    "onlyOne": true,
+    "instances": [
+      { "name": "default", "typeName": "default", "status": "running" }
+    ]
+  },
+  {
+    "typeName": "docker",
+    "onlyOne": false,
+    "instances": [
+      { "name": "staging", "typeName": "docker", "status": "running" },
+      { "name": "prod", "typeName": "docker", "status": "stopped" }
+    ]
+  }
+]
+```
+
+**`POST /api/runtimes/docker/start` request:**
+
+```json
+{ "name": "staging" }
+```
+
+For `onlyOne` runtimes, `name` is omitted and defaults to the type name.
+
+**`POST /api/runtimes/staging/stop` response:**
+
+```json
+{ "ok": true }
+```
+
+Stopping an instance terminates all active sessions on that instance before calling `runtime.stop()`.
+
+### UI changes
+
+The sidebar gains a "Runtimes" group above the sessions list:
+
+- **`onlyOne` types** show a play/stop toggle button
+- **Multi-instance types** show a "+" button to create a named instance, and each instance has its own stop button
+- **Clicking an instance** filters the sessions list and templates page to only show items scoped to that runtime
+- **`?runtime=X`** URL parameter enables deep linking to a runtime-filtered view
+
+### Client SDK
+
+Three new methods on the client:
+
+```typescript
+interface FlamecastClient {
+  // ... existing methods ...
+
+  fetchRuntimes(): Promise<RuntimeInfo[]>;
+  startRuntime(typeName: string, name?: string): Promise<RuntimeInstance>;
+  stopRuntime(instanceName: string): Promise<void>;
+}
+```
+
+## Open questions
+
+1. **Session cleanup on stop.** When a runtime instance is stopped, should all sessions be terminated immediately, or should new session creation be blocked while existing sessions drain? The current proposal terminates all sessions.
+
+2. **Per-instance config.** Should multi-instance runtimes accept per-instance configuration at `start()` time, or do all instances share the config from the constructor? For example, should `start("staging", { memory: "4g" })` be possible?
+
+3. **Routing for multi-instance runtimes.** Should `fetchSession()` for multi-instance runtimes route based on a session→instance mapping maintained by the control plane, or should each instance be a separate runtime object? The current proposal keeps a single runtime object per type and passes the instance ID through.

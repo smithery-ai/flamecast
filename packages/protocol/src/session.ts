@@ -93,6 +93,8 @@ export interface Session {
   fileSystem: FileSystemSnapshot | null;
   promptQueue: PromptQueueState | null;
   websocketUrl?: string;
+  /** Runtime instance name this session is scoped to. */
+  runtime?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +106,8 @@ export interface CreateSessionBody {
   agentTemplateId?: string;
   spawn?: AgentSpawn;
   name?: string;
+  /** Runtime instance name to run this session on. Required for multi-instance runtimes. */
+  runtimeInstance?: string;
   webhooks?: Omit<WebhookConfig, "id">[];
 }
 

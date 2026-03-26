@@ -15,6 +15,7 @@ export const sessions = flamecastSchema.table("sessions", {
   websocketUrl: text("websocket_url"),
   runtimeName: text("runtime_name"),
   runtimeMeta: jsonb("runtime_meta").$type<Record<string, unknown> | null>(),
+  runtime: text("runtime"),
 });
 
 export const agentTemplates = flamecastSchema.table(
@@ -33,3 +34,9 @@ export const agentTemplates = flamecastSchema.table(
   },
   (t) => [index("idx_agent_templates_list").on(t.managed, t.sortOrder, t.createdAt, t.id)],
 );
+
+export const runtimeInstances = flamecastSchema.table("runtime_instances", {
+  name: text("name").primaryKey(),
+  typeName: text("type_name").notNull(),
+  status: text("status").notNull().default("running"),
+});

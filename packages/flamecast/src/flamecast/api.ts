@@ -16,11 +16,14 @@ export type FlamecastApi = Pick<
   | "getSession"
   | "handleSessionEvent"
   | "listAgentTemplates"
+  | "listRuntimes"
   | "listSessions"
   | "promptSession"
   | "proxyQueueRequest"
   | "resolvePermission"
   | "registerAgentTemplate"
+  | "startRuntime"
+  | "stopRuntime"
   | "terminateSession"
   | "runtimeNames"
 >;
@@ -89,6 +92,39 @@ export function createApi(flamecast: FlamecastApi) {
         } catch (error) {
           console.error("Register agent template failed:", error);
           return c.json({ error: toErrorMessage(error) }, 500);
+        }
+      })
+      // ---- Runtime lifecycle ----
+      .get("/runtimes", async (c) => {
+        try {
+          return c.json(await flamecast.listRuntimes());
+        } catch (error) {
+          console.error("List runtimes failed:", error);
+          return c.json({ error: toErrorMessage(error) }, 500);
+        }
+      })
+      .post("/runtimes/:typeName/start", async (c) => {
+        try {
+          const typeName = c.req.param("typeName");
+          const body = await c.req.json().catch(() => ({}));
+          const name = body && typeof body === "object" && "name" in body ? body.name : undefined;
+          const instance = await flamecast.startRuntime(typeName, name);
+          return c.json(instance, 201);
+        } catch (error) {
+          const msg = toErrorMessage(error);
+          const status = isClientError(error) ? 400 : 500;
+          return c.json({ error: msg }, status);
+        }
+      })
+      .post("/runtimes/:instanceName/stop", async (c) => {
+        try {
+          const instanceName = c.req.param("instanceName");
+          await flamecast.stopRuntime(instanceName);
+          return c.json({ ok: true });
+        } catch (error) {
+          const msg = toErrorMessage(error);
+          const status = msg.includes("not found") ? 404 : 500;
+          return c.json({ error: msg }, status);
         }
       })
       .get("/agents", async (c) => {

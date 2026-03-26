@@ -70,7 +70,8 @@
               "rfcs/prebuilt-images",
               "rfcs/queue-management",
               "rfcs/terminal-sessions",
-              "rfcs/multi-session-websocket"
+              "rfcs/multi-session-websocket",
+              "rfcs/runtime-lifecycle"
             ]
           }
         ]

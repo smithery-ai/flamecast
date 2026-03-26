@@ -2,6 +2,8 @@ export type {
   Runtime,
   RuntimeNames,
   RuntimeConfigFor,
+  RuntimeInstance,
+  RuntimeInfo,
   SessionContext,
   SessionEndReason,
 } from "./runtime.js";

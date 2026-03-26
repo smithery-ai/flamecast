@@ -22,6 +22,8 @@ import type {
 } from "@flamecast/protocol/session-host";
 import type {
   Runtime,
+  RuntimeInfo,
+  RuntimeInstance,
   RuntimeNames,
   SessionContext,
   SessionEndReason,
@@ -44,6 +46,7 @@ export type {
 } from "@flamecast/protocol/session";
 export type { FileSystemEntry } from "@flamecast/protocol/session-host";
 
+export type { RuntimeInstance, RuntimeInfo } from "@flamecast/protocol/runtime";
 export type { SessionMeta, SessionRuntimeInfo, FlamecastStorage } from "./storage.js";
 export { NodeRuntime } from "./runtime-node.js";
 
@@ -205,6 +208,77 @@ export class Flamecast<
     return this.requireStorage().listAgentTemplates();
   }
 
+  // ---------------------------------------------------------------------------
+  // Runtime lifecycle
+  // ---------------------------------------------------------------------------
+
+  async listRuntimes(): Promise<RuntimeInfo[]> {
+    await this.ensureReady();
+    const storage = this.requireStorage();
+    const instances = await storage.listRuntimeInstances();
+    const instancesByType = new Map<string, RuntimeInstance[]>();
+    for (const inst of instances) {
+      const list = instancesByType.get(inst.typeName) ?? [];
+      list.push(inst);
+      instancesByType.set(inst.typeName, list);
+    }
+
+    return Object.entries(this.runtimesMap).map(([typeName, runtime]) => ({
+      typeName,
+      onlyOne: runtime.onlyOne ?? false,
+      instances: instancesByType.get(typeName) ?? [],
+    }));
+  }
+
+  async startRuntime(typeName: string, instanceName?: string): Promise<RuntimeInstance> {
+    await this.ensureReady();
+    const runtime = this.runtimesMap[typeName];
+    if (!runtime) {
+      throw new Error(
+        `Unknown runtime type: "${typeName}". Available: ${this.runtimeNames.join(", ")}`,
+      );
+    }
+
+    const name = instanceName ?? typeName;
+
+    if (runtime.onlyOne && name !== typeName) {
+      throw new Error(`Runtime "${typeName}" only supports a single instance`);
+    }
+
+    if (runtime.start) {
+      await runtime.start(name);
+    }
+
+    const instance: RuntimeInstance = { name, typeName, status: "running" };
+    await this.requireStorage().saveRuntimeInstance(instance);
+    return instance;
+  }
+
+  async stopRuntime(instanceName: string): Promise<void> {
+    await this.ensureReady();
+    const storage = this.requireStorage();
+    const instances = await storage.listRuntimeInstances();
+    const instance = instances.find((i) => i.name === instanceName);
+    if (!instance) {
+      throw new Error(`Runtime instance "${instanceName}" not found`);
+    }
+
+    // Terminate all active sessions on this instance
+    const allSessions = await storage.listAllSessions();
+    for (const session of allSessions) {
+      if (session.status === "active" && session.runtime === instanceName) {
+        await this.terminateSession(session.id).catch(() => {});
+      }
+    }
+
+    const runtime = this.runtimesMap[instance.typeName];
+    if (runtime?.stop) {
+      await runtime.stop(instanceName);
+    }
+
+    await storage.saveRuntimeInstance({ ...instance, status: "stopped" });
+  }
+
   async registerAgentTemplate(
     body: RegisterAgentTemplateBody & {
       runtime?: { provider: RuntimeNames<R> } & Record<string, unknown>;
@@ -249,11 +323,19 @@ export class Flamecast<
       (w) => ({ ...w, id: randomUUID() }),
     );
 
+    // Resolve the runtime instance name. For onlyOne runtimes, instance = type name.
+    // For multi-instance runtimes, use the explicitly provided instance or fall back to type name.
+    const runtimeObj = this.runtimesMap[runtime.provider];
+    const runtimeInstance = runtimeObj?.onlyOne
+      ? runtime.provider
+      : (opts.runtimeInstance ?? runtime.provider);
+
     const { sessionId } = await this.sessionService.startSession(this.requireStorage(), {
       agentName,
       spawn,
       cwd,
       runtime,
+      runtimeInstance,
       startedAt,
       callbackUrl,
       webhooks: sessionWebhooks,
@@ -746,6 +828,7 @@ export class Flamecast<
       fileSystem: null,
       promptQueue,
       websocketUrl,
+      runtime: meta.runtime,
     };
   }
 }

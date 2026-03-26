@@ -141,6 +141,7 @@ export const SessionSchema = z.object({
   fileSystem: FileSystemSnapshotSchema.nullable(),
   promptQueue: PromptQueueStateSchema.nullable(),
   websocketUrl: z.string().optional(),
+  runtime: z.string().optional(),
 }) satisfies z.ZodType<Session>;
 
 export type { CreateSessionBody } from "@flamecast/protocol/session";
@@ -151,6 +152,7 @@ export const CreateSessionBodySchema = z
     agentTemplateId: z.string().optional(),
     spawn: AgentSpawnSchema.optional(),
     name: z.string().optional(),
+    runtimeInstance: z.string().optional(),
   })
   .refine((b) => Boolean(b.agentTemplateId) !== Boolean(b.spawn), {
     message: "Provide exactly one of agentTemplateId or spawn",
