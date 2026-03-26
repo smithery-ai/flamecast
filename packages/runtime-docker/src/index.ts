@@ -5,22 +5,17 @@ import { fileURLToPath } from "node:url";
 import Docker from "dockerode";
 import type { Runtime } from "@flamecast/sdk/runtime";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
 // ---------------------------------------------------------------------------
 // Session-host binary resolution
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the path to the session-host static binary on the host filesystem.
+ * Resolve the path to the session-host static Go binary.
  *
  * Lookup order:
  *   1. `SESSION_HOST_BINARY` env var (explicit override)
- *   2. Go binary next to session-host-go package
- *      (`packages/session-host-go/dist/session-host`)
- *
- * The Go binary is statically linked (CGO_ENABLED=0), works on any Linux
- * distro (glibc or musl), and weighs ~6MB.
+ *   2. Via the @flamecast/session-host-go package dependency
+ *      (resolves through node_modules, works in monorepo and standalone)
  */
 function resolveSessionHostBinary(): string {
   // 1. Explicit env var
@@ -32,20 +27,20 @@ function resolveSessionHostBinary(): string {
     return p;
   }
 
-  // 2. Go binary relative to this package (monorepo layout)
-  // runtime-docker lives at packages/runtime-docker — go binary is at packages/session-host-go/dist/
-  const candidates = [
-    join(__dirname, "../../session-host-go/dist/session-host"),
-    join(__dirname, "../../../packages/session-host-go/dist/session-host"),
-  ];
-
-  for (const p of candidates) {
-    if (existsSync(p)) return p;
+  // 2. Resolve via @flamecast/session-host-go package
+  // import.meta.resolve gives us the package.json path; the binary is at dist/session-host
+  try {
+    const pkgJsonUrl = import.meta.resolve("@flamecast/session-host-go/package.json");
+    const pkgDir = dirname(fileURLToPath(pkgJsonUrl));
+    const binaryPath = join(pkgDir, "dist", "session-host");
+    if (existsSync(binaryPath)) return binaryPath;
+  } catch {
+    // Package not resolvable
   }
 
   throw new Error(
-    "No session-host binary found. Build it with: " +
-      "cd packages/session-host-go && CGO_ENABLED=0 go build -o dist/session-host -ldflags='-s -w' .",
+    "No session-host binary found. Install Go and run: " +
+      "pnpm --filter @flamecast/session-host-go run postinstall",
   );
 }
 

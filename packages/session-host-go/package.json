@@ -1,0 +1,8 @@
+{
+  "name": "@flamecast/session-host-go",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "postinstall": "node scripts/build.mjs"
+  }
+}
