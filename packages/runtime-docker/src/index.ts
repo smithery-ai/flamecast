@@ -79,7 +79,7 @@ export class DockerRuntime implements Runtime {
   private readonly containers = new Map<string, { containerId: string; port: number }>();
 
   constructor(opts?: { baseImage?: string; docker?: Docker }) {
-    this.baseImage = opts?.baseImage ?? "ubuntu:24.04";
+    this.baseImage = opts?.baseImage ?? "node:22-slim";
     this.docker = opts?.docker ?? new Docker();
   }
 
