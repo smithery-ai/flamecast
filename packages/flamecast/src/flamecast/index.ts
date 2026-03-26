@@ -39,7 +39,6 @@ export type {
   RegisterAgentTemplateBody,
   WebhookConfig,
   WebhookEventType,
-  WebhookPayload,
 } from "@flamecast/protocol/session";
 export type { FileSystemEntry } from "@flamecast/protocol/session-host";
 
@@ -223,10 +222,9 @@ export class Flamecast<
     const callbackUrl = internal?.callbackUrl ?? this.callbackUrl;
 
     // Merge global + per-session webhooks, assign stable IDs
-    const sessionWebhooks: WebhookConfig[] = [
-      ...this.globalWebhooks,
-      ...(opts.webhooks ?? []),
-    ].map((w) => ({ ...w, id: randomUUID() }));
+    const sessionWebhooks: WebhookConfig[] = [...this.globalWebhooks, ...(opts.webhooks ?? [])].map(
+      (w) => ({ ...w, id: randomUUID() }),
+    );
 
     const { sessionId } = await this.sessionService.startSession(this.requireStorage(), {
       agentName,

@@ -21,9 +21,7 @@ export class WebhookDeliveryEngine {
     webhooks: WebhookConfig[],
     signal?: AbortSignal,
   ): Promise<void> {
-    const matching = webhooks.filter(
-      (w) => !w.events || w.events.some((e) => e === eventType),
-    );
+    const matching = webhooks.filter((w) => !w.events || w.events.some((e) => e === eventType));
     if (matching.length === 0) return;
 
     const eventId = randomUUID();
@@ -38,9 +36,7 @@ export class WebhookDeliveryEngine {
     await Promise.allSettled(
       matching.map((webhook) => {
         const key = `${sessionId}:${webhook.id}`;
-        return this.enqueue(key, () =>
-          this.deliverToWebhook(webhook, payload, signal),
-        );
+        return this.enqueue(key, () => this.deliverToWebhook(webhook, payload, signal));
       }),
     );
   }
@@ -65,7 +61,12 @@ export class WebhookDeliveryEngine {
 
   private async deliverToWebhook(
     webhook: WebhookConfig,
-    payload: { sessionId: string; eventId: string; timestamp: string; event: { type: string; data: Record<string, unknown> } },
+    payload: {
+      sessionId: string;
+      eventId: string;
+      timestamp: string;
+      event: { type: string; data: Record<string, unknown> };
+    },
     signal?: AbortSignal,
   ): Promise<void> {
     const body = JSON.stringify(payload);
@@ -130,12 +131,19 @@ export class WebhookDeliveryEngine {
 
   private sleep(ms: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve) => {
-      if (signal?.aborted) { resolve(); return; }
-      const timer = setTimeout(resolve, ms);
-      signal?.addEventListener("abort", () => {
-        clearTimeout(timer);
+      if (signal?.aborted) {
         resolve();
-      }, { once: true });
+        return;
+      }
+      const timer = setTimeout(resolve, ms);
+      signal?.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true },
+      );
     });
   }
 }

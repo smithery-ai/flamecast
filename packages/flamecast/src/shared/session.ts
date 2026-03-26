@@ -29,7 +29,6 @@ export type {
   SessionLog,
   WebhookConfig,
   WebhookEventType,
-  WebhookPayload,
 } from "@flamecast/protocol/session";
 export type { FileSystemEntry } from "@flamecast/protocol/session-host";
 // CreateSessionBody re-exported below (after the refined schema definition)

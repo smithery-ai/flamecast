@@ -382,11 +382,9 @@ describe("API server surface", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(flamecast.resolvePermission).toHaveBeenCalledWith(
-      sampleAgentId,
-      "request-1",
-      { optionId: "allow" },
-    );
+    expect(flamecast.resolvePermission).toHaveBeenCalledWith(sampleAgentId, "request-1", {
+      optionId: "allow",
+    });
   });
 
   it("does not expose the removed queue route", async () => {

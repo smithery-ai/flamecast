@@ -31,14 +31,19 @@ function mockFetch() {
 
   function install() {
     // Monkey-patch fetch — avoids type assertion issues with vi.fn
-    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    globalThis.fetch = async (
+      url: string | URL | Request,
+      init?: RequestInit,
+    ): Promise<Response> => {
       const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
       const body = typeof init?.body === "string" ? init.body : "";
       const headers: Record<string, string> = {};
       if (init?.headers) {
         const h = init.headers;
         if (h instanceof Headers) {
-          h.forEach((v, k) => { headers[k] = v; });
+          h.forEach((v, k) => {
+            headers[k] = v;
+          });
         } else if (Array.isArray(h)) {
           for (const [k, v] of h) headers[k] = v;
         } else {
