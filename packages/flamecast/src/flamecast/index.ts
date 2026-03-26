@@ -14,11 +14,8 @@ import type { FlamecastStorage } from "./storage.js";
 import { MemoryFlamecastStorage } from "./storage/memory/index.js";
 import { SessionService } from "./session-service.js";
 import { WebhookDeliveryEngine } from "./webhook-delivery.js";
-import { serve } from "@hono/node-server";
 import { EventBus } from "./event-bus.js";
 import { resolveAgentId } from "./channel-router.js";
-import { SessionHostBridge } from "./session-host-bridge.js";
-import { WsAdapter } from "./ws-adapter.js";
 import type {
   SessionCallbackEvent,
   PermissionCallbackResponse,
@@ -137,10 +134,9 @@ export class Flamecast<
   private readonly webhookEngine = new WebhookDeliveryEngine();
   private readonly webhookAbortControllers = new Map<string, AbortController>();
 
-  private readonly eventBus = new EventBus();
-
-  private wsAdapter: WsAdapter | null = null;
-  private bridge: SessionHostBridge | null = null;
+  /** Event bus for lifecycle events and session history. Used by the Node
+   *  `listen()` function to wire the WS adapter and session-host bridge. */
+  readonly eventBus = new EventBus();
 
   /** Registered event handlers. */
   readonly handlers: Readonly<FlamecastEventHandlers<R>>;
@@ -182,35 +178,9 @@ export class Flamecast<
     this.webhookAbortControllers.clear();
     this.webhookEngine.clear();
 
-    // Clean up WS adapter + bridge
-    this.wsAdapter?.close();
-    this.bridge?.disconnectAll();
-
     for (const runtime of Object.values(this.runtimesMap)) {
       await runtime.dispose?.();
     }
-  }
-
-  /**
-   * Start the Flamecast server on the given port.
-   * Sets up the HTTP API and the multiplexed WebSocket adapter at `/ws`.
-   */
-  async listen(port: number): Promise<void> {
-    const server = serve({ fetch: this.app.fetch, port });
-
-    this.bridge = new SessionHostBridge({ eventBus: this.eventBus });
-
-    this.eventBus.onSessionCreated((payload) => {
-      this.bridge?.connect(payload.sessionId, payload.websocketUrl);
-    });
-
-    this.wsAdapter = new WsAdapter({
-      server,
-      eventBus: this.eventBus,
-      flamecast: this,
-    });
-
-    console.log(`Flamecast running on http://localhost:${port}`);
   }
 
   async listAgentTemplates(): Promise<AgentTemplate[]> {

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Flamecast, NodeRuntime } from "@flamecast/sdk";
+import { Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
 import { DockerRuntime } from "@flamecast/runtime-docker";
 import { createPsqlStorage } from "@flamecast/storage-psql";
 
@@ -40,7 +40,7 @@ const flamecast = new Flamecast({
   ],
 });
 
-await flamecast.listen(3001);
+listen(flamecast, 3001);
 
 process.on("SIGINT", () => {
   flamecast.shutdown().then(() => process.exit(0));
