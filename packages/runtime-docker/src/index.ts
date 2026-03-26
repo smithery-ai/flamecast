@@ -104,7 +104,10 @@ export class DockerRuntime implements Runtime {
     return { containerId: entry.containerId, port: entry.port };
   }
 
-  async reconnect(sessionId: string, runtimeMeta: Record<string, unknown> | null): Promise<boolean> {
+  async reconnect(
+    sessionId: string,
+    runtimeMeta: Record<string, unknown> | null,
+  ): Promise<boolean> {
     if (!runtimeMeta) return false;
     const containerId = runtimeMeta.containerId as string | undefined;
     const port = runtimeMeta.port as number | undefined;

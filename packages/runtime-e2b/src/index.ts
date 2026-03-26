@@ -109,7 +109,10 @@ export class E2BRuntime implements Runtime {
     return { sandboxId: entry.sandboxId, hostUrl: entry.hostUrl };
   }
 
-  async reconnect(sessionId: string, runtimeMeta: Record<string, unknown> | null): Promise<boolean> {
+  async reconnect(
+    sessionId: string,
+    runtimeMeta: Record<string, unknown> | null,
+  ): Promise<boolean> {
     if (!runtimeMeta) return false;
     const sandboxId = typeof runtimeMeta.sandboxId === "string" ? runtimeMeta.sandboxId : undefined;
     const hostUrl = typeof runtimeMeta.hostUrl === "string" ? runtimeMeta.hostUrl : undefined;

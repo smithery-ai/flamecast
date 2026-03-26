@@ -104,7 +104,9 @@ export class MemoryFlamecastStorage implements FlamecastStorage {
       .sort((a, b) => b.lastUpdatedAt.localeCompare(a.lastUpdatedAt));
   }
 
-  async listActiveSessionsWithRuntime(): Promise<Array<SessionMeta & { runtimeInfo: SessionRuntimeInfo | null }>> {
+  async listActiveSessionsWithRuntime(): Promise<
+    Array<SessionMeta & { runtimeInfo: SessionRuntimeInfo | null }>
+  > {
     return [...this.sessions.values()]
       .filter((row) => row.status === "active")
       .map((row) => ({

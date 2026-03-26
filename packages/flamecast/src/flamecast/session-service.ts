@@ -127,10 +127,7 @@ export class SessionService {
    * Verifies that the session-host process is still alive before re-registering.
    * Returns `true` if the session was successfully recovered.
    */
-  async recoverSession(
-    sessionId: string,
-    runtimeInfo: SessionRuntimeInfo,
-  ): Promise<boolean> {
+  async recoverSession(sessionId: string, runtimeInfo: SessionRuntimeInfo): Promise<boolean> {
     if (this.sessions.has(sessionId)) return true;
 
     const runtime = this.runtimes[runtimeInfo.runtimeName];
@@ -139,7 +136,9 @@ export class SessionService {
     // Try runtime-specific reconnection first (re-populates internal tracking)
     let alive = false;
     if (runtime.reconnect) {
-      alive = await runtime.reconnect(sessionId, runtimeInfo.runtimeMeta ?? null).catch(() => false);
+      alive = await runtime
+        .reconnect(sessionId, runtimeInfo.runtimeMeta ?? null)
+        .catch(() => false);
     }
 
     // Fall back to a health-check probe against the persisted hostUrl

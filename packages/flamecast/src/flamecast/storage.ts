@@ -34,6 +34,8 @@ export type FlamecastStorage = {
   /** Return all sessions (active + killed), ordered by lastUpdatedAt desc. */
   listAllSessions(): Promise<SessionMeta[]>;
   /** Return active sessions with their persisted runtime connection info for recovery. */
-  listActiveSessionsWithRuntime(): Promise<Array<SessionMeta & { runtimeInfo: SessionRuntimeInfo | null }>>;
+  listActiveSessionsWithRuntime(): Promise<
+    Array<SessionMeta & { runtimeInfo: SessionRuntimeInfo | null }>
+  >;
   finalizeSession(id: string, reason: "terminated"): Promise<void>;
 };

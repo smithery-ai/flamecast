@@ -1,5 +1,10 @@
 import { and, asc, desc, eq, inArray, not } from "drizzle-orm";
-import type { AgentTemplate, FlamecastStorage, SessionMeta, SessionRuntimeInfo } from "@flamecast/sdk";
+import type {
+  AgentTemplate,
+  FlamecastStorage,
+  SessionMeta,
+  SessionRuntimeInfo,
+} from "@flamecast/sdk";
 import { agentTemplates, sessions } from "./schema.js";
 import type { PsqlAppDb } from "./types.js";
 
@@ -159,21 +164,24 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
         .from(sessions)
         .where(eq(sessions.status, "active"))
         .orderBy(desc(sessions.lastUpdatedAt));
-      return rows.reduce<Array<SessionMeta & { runtimeInfo: SessionRuntimeInfo | null }>>((acc, row) => {
-        const meta = rowToMeta(row);
-        if (!meta) return acc;
-        const runtimeInfo: SessionRuntimeInfo | null =
-          row.hostUrl && row.websocketUrl && row.runtimeName
-            ? {
-                hostUrl: row.hostUrl,
-                websocketUrl: row.websocketUrl,
-                runtimeName: row.runtimeName,
-                runtimeMeta: row.runtimeMeta,
-              }
-            : null;
-        acc.push({ ...meta, runtimeInfo });
-        return acc;
-      }, []);
+      return rows.reduce<Array<SessionMeta & { runtimeInfo: SessionRuntimeInfo | null }>>(
+        (acc, row) => {
+          const meta = rowToMeta(row);
+          if (!meta) return acc;
+          const runtimeInfo: SessionRuntimeInfo | null =
+            row.hostUrl && row.websocketUrl && row.runtimeName
+              ? {
+                  hostUrl: row.hostUrl,
+                  websocketUrl: row.websocketUrl,
+                  runtimeName: row.runtimeName,
+                  runtimeMeta: row.runtimeMeta,
+                }
+              : null;
+          acc.push({ ...meta, runtimeInfo });
+          return acc;
+        },
+        [],
+      );
     },
 
     async finalizeSession(id: string, _reason: "terminated") {
