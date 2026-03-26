@@ -9,7 +9,7 @@
     "dev:server": "turbo run dev --filter=@acp/server",
     "build": "turbo run build",
     "start": "pnpm dev",
-    "knip": "knip --config knip.json --workspace packages/flamecast --workspace examples/agent.js --workspace apps/server --no-config-hints",
+    "knip": "knip --config knip.json --workspace packages/flamecast --workspace examples/agent.js --workspace apps/server --workspace apps/client --no-config-hints",
     "ci:lint": "pnpm lint && pnpm format:check",
     "lint": "oxlint --config .oxlintrc.json --deny-warnings .",
     "lint:fix": "oxlint --config .oxlintrc.json --fix --fix-suggestions --deny-warnings .",

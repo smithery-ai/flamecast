@@ -24,8 +24,8 @@
       "import": "./dist/flamecast/api.js"
     },
     "./client": {
-      "types": "./dist/client/api.d.ts",
-      "import": "./dist/client/api.js"
+      "types": "./src/client/api.ts",
+      "import": "./src/client/api.ts"
     },
     "./session": {
       "types": "./dist/shared/session.d.ts",
@@ -47,7 +47,6 @@
     "@hono/zod-validator": "^0.7.6",
     "hono": "^4.12.8",
     "ws": "^8.20.0",
-    "yaml": "^2.8.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {

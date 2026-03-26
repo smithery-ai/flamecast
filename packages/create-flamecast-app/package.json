@@ -1,11 +1,14 @@
 {
   "name": "create-flamecast-app",
   "version": "0.0.0",
-  "type": "module",
   "bin": {
     "create-flamecast-app": "./dist/index.js"
   },
-  "files": ["dist", "template"],
+  "files": [
+    "dist",
+    "template"
+  ],
+  "type": "module",
   "scripts": {
     "build": "tsc",
     "build:package": "tsc"

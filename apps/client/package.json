@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^0.16.1",
     "@base-ui/react": "^1.3.0",
     "@flamecast/protocol": "workspace:*",
     "@flamecast/sdk": "workspace:*",
