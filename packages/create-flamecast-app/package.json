@@ -1,0 +1,19 @@
+{
+  "name": "create-flamecast-app",
+  "version": "0.0.0",
+  "type": "module",
+  "bin": {
+    "create-flamecast-app": "./dist/index.js"
+  },
+  "files": ["dist", "template"],
+  "scripts": {
+    "build": "tsc",
+    "build:package": "tsc"
+  },
+  "dependencies": {
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/prompts": "^2.4.9"
+  }
+}
