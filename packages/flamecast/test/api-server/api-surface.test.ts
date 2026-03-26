@@ -48,6 +48,13 @@ function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastAp
     })),
     handleSessionEvent: vi.fn(async () => ({ ok: true })),
     promptSession: vi.fn(async () => ({ stopReason: "end_turn" })),
+    proxyQueueRequest: vi.fn(
+      async () =>
+        new Response(JSON.stringify({ processing: false, paused: false, items: [], size: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    ),
     resolvePermission: vi.fn(async () => ({ ok: true })),
     runtimeNames: ["default"],
     ...overrides,
@@ -387,23 +394,37 @@ describe("API server surface", () => {
     });
   });
 
-  it("does not expose the removed queue route", async () => {
+  it("exposes the queue state route", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
     const response = await app.request(`/api/agents/${sampleAgentId}/queue`);
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual({
+      processing: false,
+      paused: false,
+      items: [],
+      size: 0,
+    });
   });
 
-  it("does not expose the removed queue cancel route", async () => {
-    const flamecast = createFlamecastStub();
+  it("exposes the queue cancel route", async () => {
+    const flamecast = createFlamecastStub({
+      proxyQueueRequest: vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    });
     const app = createServerApp(flamecast);
 
     const response = await app.request(`/api/agents/${sampleAgentId}/queue/q1`, {
       method: "DELETE",
     });
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(200);
   });
 });

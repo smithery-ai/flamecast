@@ -11,6 +11,7 @@ import { resolve } from "node:path";
 import { startFileWatcher, type FileChange } from "./file-watcher.js";
 import { readBody, jsonResponse, handleCors } from "./http-utils.js";
 import { walkDirectory } from "./walk-directory.js";
+import { PromptQueue } from "./prompt-queue.js";
 import type {
   SessionHostStartRequest,
   SessionHostStartResponse,
@@ -34,6 +35,8 @@ let connection: acp.ClientSideConnection | null = null;
 let fileWatcher: ReturnType<typeof startFileWatcher> | undefined;
 const clients = new Set<WebSocket>();
 const permissionResolvers = new Map<string, (response: acp.RequestPermissionResponse) => void>();
+const promptQueue = new PromptQueue();
+let agentBusy = false;
 
 // ---- Control plane callback ----
 
@@ -85,6 +88,56 @@ function emitRpc(
   const data: Record<string, unknown> = { method, direction, phase };
   if (payload !== undefined) data.payload = payload;
   emitEvent("rpc", data);
+}
+
+// ---- Prompt execution with queue draining ----
+
+function broadcastQueueState(): void {
+  const state = promptQueue.getState();
+  emitEvent("queue.updated", {
+    processing: state.processing,
+    paused: state.paused,
+    items: state.items,
+    size: state.size,
+  });
+}
+
+/**
+ * Execute a prompt against the ACP connection. Sets agentBusy, runs the prompt,
+ * then auto-dequeues the next item on completion.
+ */
+async function executePrompt(text: string): Promise<acp.PromptResponse> {
+  if (!connection) throw new Error("No active session");
+  agentBusy = true;
+  const params: acp.PromptRequest = {
+    sessionId,
+    prompt: [{ type: "text", text }],
+  };
+  emitRpc(acp.AGENT_METHODS.session_prompt, "client_to_agent", "request", params);
+  try {
+    const result = await connection.prompt(params);
+    emitRpc(acp.AGENT_METHODS.session_prompt, "agent_to_client", "response", result);
+    void postCallback({ type: "end_turn", data: { promptResponse: result } });
+    return result;
+  } finally {
+    // Synchronous: completeProcessing + dequeueNext + markProcessing in one microtask.
+    // Node's single-threaded event loop guarantees no WS handler can interleave here.
+    agentBusy = false;
+    promptQueue.completeProcessing();
+    const next = promptQueue.dequeueNext();
+    if (next) {
+      promptQueue.markProcessing(next.queueId);
+      broadcastQueueState();
+      // Fire-and-forget — errors handled inside executePrompt's try/catch on next call
+      void executePrompt(next.text).catch((err) => {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        broadcast({ type: "error", message });
+        void postCallback({ type: "error", data: { message } });
+      });
+    } else {
+      broadcastQueueState();
+    }
+  }
 }
 
 // ---- ACP Client implementation (agent → client calls) ----
@@ -211,13 +264,63 @@ async function handleControl(ws: WebSocket, msg: WsControlMessage): Promise<void
     switch (msg.action) {
       case "prompt": {
         if (!connection) throw new Error("No active session");
-        const params: acp.PromptRequest = {
-          sessionId,
-          prompt: [{ type: "text", text: msg.text }],
-        };
-        emitRpc(acp.AGENT_METHODS.session_prompt, "client_to_agent", "request", params);
-        const result = await connection.prompt(params);
-        emitRpc(acp.AGENT_METHODS.session_prompt, "agent_to_client", "response", result);
+        if (agentBusy) {
+          const { queueId, position } = promptQueue.enqueue(msg.text);
+          broadcastQueueState();
+          ws.send(JSON.stringify({ queued: true, queueId, position }));
+        } else {
+          promptQueue.enqueue(msg.text);
+          const next = promptQueue.dequeueNext();
+          if (!next) throw new Error("Queue unexpectedly empty after enqueue");
+          promptQueue.markProcessing(next.queueId);
+          broadcastQueueState();
+          await executePrompt(next.text);
+        }
+        break;
+      }
+
+      case "cancel": {
+        if (msg.queueId) {
+          const cancelled = promptQueue.cancel(msg.queueId);
+          if (cancelled) broadcastQueueState();
+        }
+        break;
+      }
+
+      case "queue.reorder": {
+        promptQueue.reorder(msg.order);
+        broadcastQueueState();
+        break;
+      }
+
+      case "queue.clear": {
+        promptQueue.clear();
+        broadcastQueueState();
+        break;
+      }
+
+      case "queue.pause": {
+        promptQueue.pause();
+        emitEvent("queue.paused", {});
+        break;
+      }
+
+      case "queue.resume": {
+        promptQueue.resume();
+        emitEvent("queue.resumed", {});
+        // If not busy, dequeue next item
+        if (!agentBusy) {
+          const next = promptQueue.dequeueNext();
+          if (next) {
+            promptQueue.markProcessing(next.queueId);
+            broadcastQueueState();
+            void executePrompt(next.text).catch((err) => {
+              const message = err instanceof Error ? err.message : "Unknown error";
+              broadcast({ type: "error", message });
+              void postCallback({ type: "error", data: { message } });
+            });
+          }
+        }
         break;
       }
 
@@ -409,7 +512,9 @@ function resetSession(): void {
   flamecastSessionId = "";
   sessionWorkspace = "";
   callbackUrl = "";
+  agentBusy = false;
   permissionResolvers.clear();
+  promptQueue.clear();
   fileWatcher?.close();
   fileWatcher = undefined;
 }
@@ -464,14 +569,18 @@ const httpServer = createServer(async (req, res) => {
         jsonResponse(res, 400, { error: "Missing 'text' field" });
         return;
       }
-      const params: acp.PromptRequest = {
-        sessionId,
-        prompt: [{ type: "text", text }],
-      };
-      emitRpc(acp.AGENT_METHODS.session_prompt, "client_to_agent", "request", params);
-      const result = await connection.prompt(params);
-      emitRpc(acp.AGENT_METHODS.session_prompt, "agent_to_client", "response", result);
-      void postCallback({ type: "end_turn", data: { promptResponse: result } });
+      if (agentBusy) {
+        const { queueId, position } = promptQueue.enqueue(text);
+        broadcastQueueState();
+        jsonResponse(res, 202, { queued: true, queueId, position });
+        return;
+      }
+      promptQueue.enqueue(text);
+      const next = promptQueue.dequeueNext();
+      if (!next) throw new Error("Queue unexpectedly empty after enqueue");
+      promptQueue.markProcessing(next.queueId);
+      broadcastQueueState();
+      const result = await executePrompt(next.text);
       jsonResponse(res, 200, result);
       return;
     }
@@ -493,6 +602,78 @@ const httpServer = createServer(async (req, res) => {
           : { outcome: { outcome: "cancelled" } };
       emitRpc(acp.CLIENT_METHODS.session_request_permission, "client_to_agent", "response", body);
       resolver(response);
+      jsonResponse(res, 200, { ok: true });
+      return;
+    }
+
+    // ---- Queue management endpoints ----
+
+    if (req.method === "GET" && req.url === "/queue") {
+      jsonResponse(res, 200, promptQueue.getState());
+      return;
+    }
+
+    if (req.method === "DELETE" && req.url?.match(/^\/queue\/[^/]+$/)) {
+      const queueId = req.url.split("/")[2];
+      const cancelled = promptQueue.cancel(queueId);
+      if (cancelled) {
+        broadcastQueueState();
+        jsonResponse(res, 200, { ok: true });
+      } else {
+        jsonResponse(res, 404, {
+          error: `Queue item "${queueId}" not found or currently processing`,
+        });
+      }
+      return;
+    }
+
+    if (req.method === "DELETE" && req.url === "/queue") {
+      const count = promptQueue.clear();
+      broadcastQueueState();
+      jsonResponse(res, 200, { ok: true, cleared: count });
+      return;
+    }
+
+    if (req.method === "PUT" && req.url === "/queue") {
+      const body = JSON.parse(await readBody(req));
+      const order = Array.isArray(body.order) ? body.order : null;
+      if (!order) {
+        jsonResponse(res, 400, { error: "Missing 'order' array" });
+        return;
+      }
+      try {
+        promptQueue.reorder(order);
+        broadcastQueueState();
+        jsonResponse(res, 200, { ok: true });
+      } catch (err) {
+        jsonResponse(res, 400, { error: err instanceof Error ? err.message : "Invalid reorder" });
+      }
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/queue/pause") {
+      promptQueue.pause();
+      emitEvent("queue.paused", {});
+      jsonResponse(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/queue/resume") {
+      promptQueue.resume();
+      emitEvent("queue.resumed", {});
+      // If not busy, dequeue next item
+      if (!agentBusy) {
+        const next = promptQueue.dequeueNext();
+        if (next) {
+          promptQueue.markProcessing(next.queueId);
+          broadcastQueueState();
+          void executePrompt(next.text).catch((err) => {
+            const message = err instanceof Error ? err.message : "Unknown error";
+            broadcast({ type: "error", message });
+            void postCallback({ type: "error", data: { message } });
+          });
+        }
+      }
       jsonResponse(res, 200, { ok: true });
       return;
     }

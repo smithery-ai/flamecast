@@ -15,6 +15,7 @@ export type FlamecastApi = Pick<
   | "listAgentTemplates"
   | "listSessions"
   | "promptSession"
+  | "proxyQueueRequest"
   | "resolvePermission"
   | "registerAgentTemplate"
   | "terminateSession"
@@ -97,8 +98,6 @@ export function createApi(flamecast: FlamecastApi) {
     .post("/agents", zValidator("json", CreateSessionBodySchema), async (c) => {
       try {
         const body = c.req.valid("json");
-        // Derive callback URL from the incoming request so the session-host
-        // can POST events back to the control plane
         const reqUrl = new URL(c.req.url);
         const callbackUrl = `${reqUrl.protocol}//${reqUrl.host}/api`;
         const session = await flamecast.createSession(body, { callbackUrl });
@@ -169,7 +168,49 @@ export function createApi(flamecast: FlamecastApi) {
         console.error("Agent termination failed:", error);
         return c.json({ error: msg }, 500);
       }
+    })
+    // ---- Queue management (proxy to session-host) ----
+    .get("/agents/:agentId/queue", async (c) => {
+      return proxyQueue(c, flamecast, "/queue", "GET");
+    })
+    .delete("/agents/:agentId/queue/:queueId", async (c) => {
+      return proxyQueue(c, flamecast, `/queue/${c.req.param("queueId")}`, "DELETE");
+    })
+    .delete("/agents/:agentId/queue", async (c) => {
+      return proxyQueue(c, flamecast, "/queue", "DELETE");
+    })
+    .put("/agents/:agentId/queue", async (c) => {
+      return proxyQueue(c, flamecast, "/queue", "PUT", await c.req.text());
+    })
+    .post("/agents/:agentId/queue/pause", async (c) => {
+      return proxyQueue(c, flamecast, "/queue/pause", "POST");
+    })
+    .post("/agents/:agentId/queue/resume", async (c) => {
+      return proxyQueue(c, flamecast, "/queue/resume", "POST");
     });
+}
+
+async function proxyQueue(
+  c: Context,
+  flamecast: FlamecastApi,
+  path: string,
+  method: string,
+  body?: string,
+): Promise<Response> {
+  try {
+    const agentId = c.req.param("agentId") ?? "";
+    const resp = await flamecast.proxyQueueRequest(agentId, path, {
+      method,
+      ...(body ? { body } : {}),
+    });
+    const data = await resp.json().catch(() => null);
+    // oxlint-disable-next-line no-type-assertion/no-type-assertion -- Hono's StatusCode requires a literal; resp.status is dynamic
+    return c.json(data ?? { error: "Invalid response from session-host" }, resp.status as 200);
+  } catch (error) {
+    const msg = toErrorMessage(error);
+    const status = msg.includes("not found") ? 404 : 500;
+    return c.json({ error: msg }, status);
+  }
 }
 
 export type AppType = ReturnType<typeof createApi>;

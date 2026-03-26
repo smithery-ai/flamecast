@@ -54,4 +54,8 @@ export type {
   WsCancelAction,
   WsTerminateAction,
   WsPingAction,
+  WsQueueReorderAction,
+  WsQueueClearAction,
+  WsQueuePauseAction,
+  WsQueueResumeAction,
 } from "./ws.js";
