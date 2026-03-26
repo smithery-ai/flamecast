@@ -23,6 +23,10 @@
       "types": "./dist/ws.d.ts",
       "import": "./dist/ws.js"
     },
+    "./ws/channels": {
+      "types": "./dist/ws-channels.d.ts",
+      "import": "./dist/ws-channels.js"
+    },
     "./ws/zod": {
       "types": "./dist/ws-zod.d.ts",
       "import": "./dist/ws-zod.js"

@@ -14,6 +14,11 @@ import type { FlamecastStorage } from "./storage.js";
 import { MemoryFlamecastStorage } from "./storage/memory/index.js";
 import { SessionService } from "./session-service.js";
 import { WebhookDeliveryEngine } from "./webhook-delivery.js";
+import { EventBus } from "./event-bus.js";
+import { resolveAgentId } from "./channel-router.js";
+import { SessionHostBridge } from "./session-host-bridge.js";
+import { WsAdapter } from "./ws-adapter.js";
+import type { Server as HttpServer } from "node:http";
 import type {
   SessionCallbackEvent,
   PermissionCallbackResponse,
@@ -132,6 +137,12 @@ export class Flamecast<
   private readonly webhookEngine = new WebhookDeliveryEngine();
   private readonly webhookAbortControllers = new Map<string, AbortController>();
 
+  /** Internal event bus for WS adapter lifecycle + history. */
+  readonly eventBus = new EventBus();
+
+  private wsAdapter: WsAdapter | null = null;
+  private bridge: SessionHostBridge | null = null;
+
   /** Registered event handlers. */
   readonly handlers: Readonly<FlamecastEventHandlers<R>>;
 
@@ -172,9 +183,36 @@ export class Flamecast<
     this.webhookAbortControllers.clear();
     this.webhookEngine.clear();
 
+    // Clean up WS adapter + bridge
+    this.wsAdapter?.close();
+    this.bridge?.disconnectAll();
+
     for (const runtime of Object.values(this.runtimesMap)) {
       await runtime.dispose?.();
     }
+  }
+
+  /**
+   * Attach the multiplexed WebSocket adapter to an HTTP server.
+   * Creates the SessionHostBridge and WsAdapter, wires lifecycle events.
+   */
+  attachWebSocket(server: HttpServer): WsAdapter {
+    if (this.wsAdapter) return this.wsAdapter;
+
+    this.bridge = new SessionHostBridge({ eventBus: this.eventBus });
+
+    // Wire lifecycle events to bridge connect/disconnect
+    this.eventBus.onSessionCreated((payload) => {
+      this.bridge!.connect(payload.sessionId, payload.websocketUrl);
+    });
+
+    this.wsAdapter = new WsAdapter({
+      server,
+      eventBus: this.eventBus,
+      flamecast: this,
+    });
+
+    return this.wsAdapter;
   }
 
   async listAgentTemplates(): Promise<AgentTemplate[]> {
@@ -235,6 +273,16 @@ export class Flamecast<
       callbackUrl,
       webhooks: sessionWebhooks,
     });
+
+    // Emit lifecycle event for WS adapter bridge
+    const websocketUrl = this.sessionService.getWebsocketUrl(sessionId);
+    if (websocketUrl) {
+      this.eventBus.emitSessionCreated({
+        sessionId,
+        agentId: resolveAgentId(sessionId),
+        websocketUrl,
+      });
+    }
 
     return this.snapshotSession(sessionId);
   }
@@ -306,6 +354,12 @@ export class Flamecast<
     const sessionCtx = await this.buildSessionContext(id);
 
     await this.sessionService.terminateSession(this.requireStorage(), id);
+
+    // Emit lifecycle event for WS adapter bridge
+    this.eventBus.emitSessionTerminated({
+      sessionId: id,
+      agentId: resolveAgentId(id),
+    });
 
     // Cancel in-flight webhook retries for this session
     this.webhookAbortControllers.get(id)?.abort();
