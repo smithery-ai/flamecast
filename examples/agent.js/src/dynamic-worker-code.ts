@@ -1,4 +1,4 @@
-const DYNAMIC_WORKER_COMPATIBILITY_DATE = "2026-03-25";
+const DYNAMIC_WORKER_COMPATIBILITY_DATE = "2026-03-24";
 const DYNAMIC_WORKER_MAIN_MODULE = "execute-js.js";
 
 function buildDynamicWorkerSource(source) {

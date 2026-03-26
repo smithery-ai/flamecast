@@ -1,9 +1,7 @@
-import * as acp from "@agentclientprotocol/sdk";
 import { jsonSchema, stepCountIs, tool } from "ai";
 import {
   Agent,
   getAgentByName,
-  routeAgentRequest,
   type AgentContext,
   type Connection,
   type ConnectionContext,
@@ -18,8 +16,9 @@ import {
   EXECUTE_JS_TOOL_DESCRIPTION,
 } from "./prompts.js";
 
-const ACP_BASE_PATH = "/acp";
 const SESSION_BASE_PATH = "/sessions";
+const SESSION_PROMPT_METHOD = "session/prompt";
+const SESSION_UPDATE_METHOD = "session/update";
 
 type TranscriptEntry =
   | { role: "user"; text: string }
@@ -49,7 +48,6 @@ type AgentEnv = Record<string, unknown> & {
   CF_AI_GATEWAY_TOKEN?: string;
   CF_AI_MODEL?: string;
   OPENAI_API_KEY?: string;
-  LOCAL_EXECUTOR_URL?: string;
   LOADER?: {
     get(
       key: string,
@@ -57,6 +55,11 @@ type AgentEnv = Record<string, unknown> & {
     ): { getEntrypoint(): { fetch(url: string, init: RequestInit): Promise<Response> } };
   };
   AcpSessionAgent: AgentNamespace;
+};
+
+type PromptRequest = {
+  sessionId: string;
+  prompt: Array<{ type: "text"; text: string }>;
 };
 
 type SessionHostPromptResult = { stopReason: "end_turn" | "cancelled" };
@@ -72,15 +75,6 @@ function createSessionState(): SessionState {
 
 function cloneSession(session: SessionState): SessionState {
   return structuredClone(session);
-}
-
-function getAcpSessionIdFromPath(pathname) {
-  if (!pathname.startsWith(`${ACP_BASE_PATH}/`)) {
-    return null;
-  }
-
-  const sessionId = pathname.slice(ACP_BASE_PATH.length + 1).split("/")[0];
-  return sessionId ? decodeURIComponent(sessionId) : null;
 }
 
 function getSessionHostMatch(pathname) {
@@ -382,25 +376,12 @@ async function executeWithDynamicWorker(env, source, scope) {
   return response.json();
 }
 
-async function executeWithLocalExecutor(env, source, scope) {
-  const response = await fetch(env.LOCAL_EXECUTOR_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: jsonStringify({ source, scope }),
-  });
-
-  return response.json();
-}
-
 async function runExecuteJS(env, code, session) {
   const source = rewritePersistentBindings(makeReplFriendlySource(code));
   if (env.LOADER) {
     return executeWithDynamicWorker(env, source, session.scope);
   }
-  if (env.LOCAL_EXECUTOR_URL) {
-    return executeWithLocalExecutor(env, source, session.scope);
-  }
-  throw new Error("executeJS requires either a Dynamic Worker loader or a local executor URL");
+  throw new Error("executeJS requires a Dynamic Worker loader binding");
 }
 
 function toErrorData(error) {
@@ -594,87 +575,11 @@ async function streamText(connection, sessionId, text) {
   }
 }
 
-function toUint8Array(data) {
-  if (typeof data === "string") {
-    return new TextEncoder().encode(data);
-  }
-  if (typeof Blob !== "undefined" && data instanceof Blob) {
-    return data.arrayBuffer().then((value) => new Uint8Array(value));
-  }
-  if (data instanceof ArrayBuffer) {
-    return new Uint8Array(data);
-  }
-  if (ArrayBuffer.isView(data)) {
-    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-  }
-  return new TextEncoder().encode(String(data));
-}
-
-function createAcpConnectionTransport(connection) {
-  let controller = null;
-  let settled = false;
-
-  const output = new ReadableStream({
-    start(next) {
-      controller = next;
-    },
-    cancel() {
-      if (!settled) {
-        settled = true;
-        connection.close(1000, "ACP transport closed");
-      }
-    },
-  });
-
-  const input = new WritableStream({
-    write(chunk) {
-      connection.send(chunk);
-    },
-    close() {
-      if (!settled) {
-        settled = true;
-        connection.close(1000, "ACP transport closed");
-      }
-    },
-    abort() {
-      if (!settled) {
-        settled = true;
-        connection.close(1011, "ACP transport aborted");
-      }
-    },
-  });
-
-  return {
-    input,
-    output,
-    async push(message) {
-      if (!controller || settled) {
-        return;
-      }
-      controller.enqueue(await toUint8Array(message));
-    },
-    close() {
-      if (!controller || settled) {
-        return;
-      }
-      settled = true;
-      controller.close();
-    },
-    error(error) {
-      if (!controller || settled) {
-        return;
-      }
-      settled = true;
-      controller.error(error);
-    },
-  };
-}
-
 async function promptSession(
   agent: AcpSessionAgent,
   connection: SessionClient,
   sessionId: string,
-  params: acp.PromptRequest,
+  params: PromptRequest,
 ): Promise<SessionHostPromptResult> {
   agent.pendingPrompt?.abort();
   agent.pendingPrompt = new AbortController();
@@ -788,55 +693,6 @@ async function promptSession(
   }
 }
 
-class AcpSessionProtocolHandler {
-  agent: AcpSessionAgent;
-  connection: SessionClient;
-  sessionId: string;
-
-  constructor(agent: AcpSessionAgent, connection: SessionClient, sessionId: string) {
-    this.agent = agent;
-    this.connection = connection;
-    this.sessionId = sessionId;
-  }
-
-  async initialize() {
-    return {
-      protocolVersion: acp.PROTOCOL_VERSION,
-      agentCapabilities: {
-        loadSession: false,
-      },
-    };
-  }
-
-  async authenticate() {
-    return {};
-  }
-
-  async setSessionMode() {
-    return {};
-  }
-
-  async newSession(params) {
-    const session = cloneSession(this.agent.state);
-    session.cwd = params.cwd;
-    this.agent.setState(session);
-    return { sessionId: this.sessionId };
-  }
-
-  async prompt(params: acp.PromptRequest): Promise<acp.PromptResponse> {
-    if (params.sessionId !== this.sessionId) {
-      throw new Error(`Session ${params.sessionId} not found`);
-    }
-    return promptSession(this.agent, this.connection, this.sessionId, params);
-  }
-
-  async cancel(params: acp.CancelNotification): Promise<void> {
-    if (params.sessionId === this.sessionId) {
-      this.agent.pendingPrompt?.abort();
-    }
-  }
-}
-
 export class AcpSessionAgent extends Agent<AgentEnv, SessionState> {
   static options = {
     sendIdentityOnConnect: false,
@@ -844,7 +700,6 @@ export class AcpSessionAgent extends Agent<AgentEnv, SessionState> {
 
   declare env: AgentEnv;
   pendingPrompt: AbortController | null = null;
-  acpTransports = new Map<string, ReturnType<typeof createAcpConnectionTransport>>();
   sessionConnections = new Map<string, Connection>();
   initialState: SessionState = createSessionState();
 
@@ -900,18 +755,6 @@ export class AcpSessionAgent extends Agent<AgentEnv, SessionState> {
 
   async onConnect(connection: Connection, ctx: ConnectionContext) {
     const pathname = new URL(ctx.request.url).pathname;
-    const acpSessionId = getAcpSessionIdFromPath(pathname);
-    if (acpSessionId === this.name) {
-      const transport = createAcpConnectionTransport(connection);
-      this.acpTransports.set(connection.id, transport);
-
-      new acp.AgentSideConnection(
-        (acpConnection) => new AcpSessionProtocolHandler(this, acpConnection, acpSessionId),
-        acp.ndJsonStream(transport.input, transport.output),
-      );
-      return;
-    }
-
     const sessionMatch = getSessionHostMatch(pathname);
     if (sessionMatch?.sessionId === this.name && sessionMatch.resource.length === 0) {
       this.sessionConnections.set(connection.id, connection);
@@ -923,12 +766,6 @@ export class AcpSessionAgent extends Agent<AgentEnv, SessionState> {
   }
 
   async onMessage(connection: Connection, message: unknown) {
-    const transport = this.acpTransports.get(connection.id);
-    if (transport) {
-      await transport.push(message);
-      return;
-    }
-
     if (!this.sessionConnections.has(connection.id)) {
       return;
     }
@@ -954,13 +791,7 @@ export class AcpSessionAgent extends Agent<AgentEnv, SessionState> {
   }
 
   onClose(connection: Connection) {
-    const transport = this.acpTransports.get(connection.id);
-    transport?.close();
-    this.acpTransports.delete(connection.id);
     this.sessionConnections.delete(connection.id);
-    if (transport && this.acpTransports.size === 0) {
-      this.pendingPrompt?.abort();
-    }
   }
 
   onError(error: unknown): void;
@@ -977,13 +808,7 @@ export class AcpSessionAgent extends Agent<AgentEnv, SessionState> {
     ) {
       return;
     }
-    const transport = this.acpTransports.get(connectionOrError.id);
-    transport?.error(error);
-    this.acpTransports.delete(connectionOrError.id);
     this.sessionConnections.delete(connectionOrError.id);
-    if (transport && this.acpTransports.size === 0) {
-      this.pendingPrompt?.abort();
-    }
   }
 
   async handleSessionHostStart(request: Request) {
@@ -1073,12 +898,12 @@ export class AcpSessionAgent extends Agent<AgentEnv, SessionState> {
   }
 
   async executeSessionHostPrompt(text: string): Promise<SessionHostPromptResult> {
-    const params: acp.PromptRequest = {
+    const params: PromptRequest = {
       sessionId: this.name,
       prompt: [{ type: "text", text } as const],
     };
 
-    this.emitSessionHostRpc(acp.AGENT_METHODS.session_prompt, "client_to_agent", "request", params);
+    this.emitSessionHostRpc(SESSION_PROMPT_METHOD, "client_to_agent", "request", params);
 
     try {
       const result = await promptSession(
@@ -1086,7 +911,7 @@ export class AcpSessionAgent extends Agent<AgentEnv, SessionState> {
         {
           sessionUpdate: async (payload) => {
             this.emitSessionHostRpc(
-              acp.CLIENT_METHODS.session_update,
+              SESSION_UPDATE_METHOD,
               "agent_to_client",
               "notification",
               payload,
@@ -1096,12 +921,7 @@ export class AcpSessionAgent extends Agent<AgentEnv, SessionState> {
         this.name,
         params,
       );
-      this.emitSessionHostRpc(
-        acp.AGENT_METHODS.session_prompt,
-        "agent_to_client",
-        "response",
-        result,
-      );
+      this.emitSessionHostRpc(SESSION_PROMPT_METHOD, "agent_to_client", "response", result);
       return result;
     } catch (error) {
       this.broadcastSessionMessage({
@@ -1167,8 +987,7 @@ export class AcpSessionAgent extends Agent<AgentEnv, SessionState> {
 export default {
   async fetch(request: Request, env: AgentEnv) {
     const url = new URL(request.url);
-    const sessionId =
-      getAcpSessionIdFromPath(url.pathname) ?? getSessionHostMatch(url.pathname)?.sessionId;
+    const sessionId = getSessionHostMatch(url.pathname)?.sessionId;
 
     if (url.pathname === "/health") {
       return Response.json({
@@ -1184,21 +1003,15 @@ export default {
       return stub.fetch(request);
     }
 
-    const agentResponse = await routeAgentRequest(request, env);
-    if (agentResponse) {
-      return agentResponse;
-    }
-
     return Response.json(
       {
         name: "flamecast-agent-js",
         endpoints: {
           health: "/health",
-          acp: "/acp/:sessionId",
           sessionHost: "/sessions/:sessionId",
         },
       },
-      { status: url.pathname === ACP_BASE_PATH || url.pathname === SESSION_BASE_PATH ? 400 : 200 },
+      { status: url.pathname === SESSION_BASE_PATH ? 400 : 200 },
     );
   },
 };

@@ -6,7 +6,7 @@ describe("dynamic worker code", () => {
     const code = buildDynamicWorkerCode("return 1;");
 
     expect(code).toMatchObject({
-      compatibilityDate: "2026-03-25",
+      compatibilityDate: "2026-03-24",
       compatibilityFlags: ["nodejs_compat"],
       mainModule: "execute-js.js",
     });

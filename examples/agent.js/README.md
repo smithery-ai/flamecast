@@ -2,110 +2,99 @@
 
 This example runs a Flamecast-compatible JS agent as a Cloudflare Worker.
 
-It keeps the harness minimal:
+It keeps the runtime surface small:
 
-- ACP over WebSocket at `/acp/:sessionId`
 - Flamecast SessionHost routes at `/sessions/:sessionId`
-- one Cloudflare `Agent` instance per Flamecast session
+- one Cloudflare `Agent` instance per session
 - one native tool exposed to the model: `executeJS`
-- shared session scope across turns
-- built-in transcript compaction
-- local Miniflare mode for development
-- Dynamic Workers in production when the `LOADER` binding is available
+- shared REPL-like JS scope across turns
+- transcript compaction
+- Dynamic Workers for `executeJS`
 
-## Design
+## How It Works
 
-This example intentionally does not expose shell, filesystem, or a typed tool SDK to the model.
+Flamecast talks to this worker through the normal SessionHost contract. There is no Flamecast-specific runtime bridge inside this package.
+
+The flow is:
+
+1. Flamecast points `NodeRuntime` at the worker base URL.
+2. Flamecast starts a session with `POST /sessions/:sessionId/start`.
+3. The worker resolves that `sessionId` to a named Cloudflare `Agent` instance with `getAgentByName(...)`.
+4. That `Agent` instance owns the session transcript, compaction summary, and JSON-serializable globals in Durable Object SQLite.
+5. Prompts stream over `WS /sessions/:sessionId` as normal SessionHost events.
+6. When the model chooses `executeJS`, the worker runs the code in a Dynamic Worker and writes the updated scope back to the session state.
+
+So the important boundary is:
+
+- Flamecast sees a normal remote SessionHost
+- the Cloudflare Worker owns the agent loop
+- `executeJS` is the only model-visible capability
+
+## Execution Model
 
 The model contract is:
 
 - respond directly when no tool is needed
-- otherwise use the single native tool, `executeJS`, as many times as needed before answering
-- in gateway mode, the `executeJS` tool description carries the runtime capability contract; there is no separate planner/finalizer prompt layer
-- `executeJS` code runs in a shared session scope with REPL-like result semantics: a final expression is returned automatically, and explicit `return` still works
-- `executeJS` code can use `fetch(...)` for outbound HTTP(S) requests and external web access
-- `executeJS` code can use `await import("node:fs")` for the Worker virtual filesystem
+- otherwise use `executeJS`, as many times as needed, until it is ready to answer
+- `executeJS` runs in a shared session scope with REPL-like semantics
+- a final expression is returned automatically, and explicit `return` still works
+- `executeJS` can use `fetch(...)` for outbound HTTP(S) requests
+- `executeJS` can use `await import("node:fs")` for the Worker virtual filesystem
 - persisted globals should stay JSON-serializable
 
-The session mental model is “real REPL-like globals across turns.” Internally, the harness checkpoints and restores serializable state so the behavior survives local executor hops, Dynamic Worker invocations, and cold starts.
+Example:
 
-The worker exposes two surfaces:
+```js
+counter = typeof counter === "number" ? counter : 0;
+counter += 1;
+counter
+```
 
-- ACP at `/acp/:sessionId` for direct ACP clients
-- Flamecast SessionHost routes at `/sessions/:sessionId` so Flamecast can point `NodeRuntime` at the worker directly
+The session mental model is “real globals across turns.” Internally, the harness checkpoints serializable state between executions so that behavior survives Dynamic Worker hops and cold starts.
 
-In both cases, the Worker routes by session ID with `getAgentByName(...)`, and the corresponding `Agent` instance stores the session transcript, compaction summary, and JSON-serializable globals in Durable Object SQLite.
+## Context Management
 
-The Agent SDK's own protocol/state-sync frames are disabled for ACP connections, so `/acp/:sessionId` carries ACP NDJSON only.
+The only built-in context primitive is compaction:
 
-## How It Works
+- when serialized transcript size crosses `COMPACT_AT_CHARS`, older turns are summarized
+- the most recent turns are kept verbatim according to `KEEP_RECENT_TURNS`
+- recent `[User]`, `[Assistant]`, and `[Tool result]` blocks stay in context after compaction
 
-There are three layers:
+## SessionHost Surface
 
-1. Flamecast uses `NodeRuntime` and talks to the worker as a normal SessionHost.
-2. The worker maps each `sessionId` to a named Cloudflare `Agent` instance.
-3. That `Agent` instance runs the prompt loop and persists transcript, compaction summary, and JSON-serializable globals in Durable Object SQLite.
+The worker exposes:
 
-The important boundary is that Flamecast does not need a custom runtime plugin for `agentjs`. The hosted worker already exposes the SessionHost routes Flamecast expects:
-
+- `GET /health`
 - `POST /sessions/:sessionId/start`
 - `POST /sessions/:sessionId/prompt`
 - `POST /sessions/:sessionId/terminate`
 - `GET /sessions/:sessionId/queue`
+- `GET /sessions/:sessionId/fs/snapshot`
 - `WS /sessions/:sessionId`
 
-ACP is still available at `/acp/:sessionId`, but that is only for direct ACP clients. Flamecast itself talks to `/sessions/:sessionId`.
-
-### Prompt lifecycle
-
-For a Flamecast prompt:
-
-1. Flamecast sends `POST /sessions/:sessionId/prompt`.
-2. The worker resolves that `sessionId` with `getAgentByName(...)` and loads the matching `Agent` state.
-3. The worker runs the planner/tool loop for that session.
-4. If the model chooses `executeJS`, the worker emits normal session events over `WS /sessions/:sessionId`.
-5. `executeJS` runs either:
-   - through the local executor in Miniflare, or
-   - through a generated Dynamic Worker when `LOADER` is available in production.
-6. The updated serializable globals are written back to the session `Agent` state.
-7. Flamecast receives the final prompt response plus the streamed event trail.
-
-In gateway mode, that loop is multi-step. The model can call `executeJS`, inspect the tool result, call it again, and only stop when it is ready to answer, subject to a bounded step limit in the harness.
-
-### Why ACP is still there
-
-ACP is still useful for two reasons:
-
-- you can connect ACP-native clients directly to the worker
-- it keeps the underlying agent loop interoperable outside Flamecast
-
-But for Flamecast integration, ACP is optional. The hosted worker owns the SessionHost compatibility layer itself, so Flamecast can use the same `NodeRuntime` shape it already uses for other remote session hosts.
-
-Context management is deliberately narrow. The only built-in primitive is compaction:
-
-- older transcript entries are summarized when the serialized context crosses `COMPACT_AT_CHARS`
-- recent turns are kept verbatim according to `KEEP_RECENT_TURNS`
-- the model still sees recent `[User]`, `[Assistant]`, and `[Tool result]` blocks after compaction
-
-`executeJS` is surfaced over ACP as a normal tool call lifecycle:
-
-- `tool_call` when execution starts
-- `tool_call_update` while it is running
-- final `tool_call_update` with result, logs, and the surviving scope keys
+`/start` returns `hostUrl`, `websocketUrl`, and `acpSessionId` because that is part of Flamecast’s existing SessionHost start response shape. Here `acpSessionId` is just the session ID.
 
 ## What Runs Where
 
-Local Miniflare development runs the ACP worker plus a tiny companion HTTP executor on `127.0.0.1`. The Worker itself still uses the Cloudflare Agent SDK locally, with an in-process Durable Object + SQLite state store. The separate executor is only for `executeJS`, because standard Workers disallow string-based code generation and Miniflare does not expose the Dynamic Workers `LOADER` binding.
+Each Flamecast session maps to a named Cloudflare `Agent` instance. That `Agent` stores:
 
-Deployed Cloudflare Workers keep the same Agent-backed ACP shape, but use the `LOADER` binding from Dynamic Workers so each `executeJS` run executes in a generated worker program instead of in the parent ACP loop.
+- transcript
+- compaction summary
+- current working directory
+- shared JS globals
 
-Persisted session globals should stay JSON-serializable. That is what survives across turns and cold starts.
+Each `executeJS` step runs in a generated Dynamic Worker. The parent worker stays responsible for:
 
-The deployed worker enables `nodejs_compat`, so `executeJS` can use Cloudflare's virtual `node:fs` support:
+- prompt orchestration
+- tool-call streaming
+- compaction
+- persistence
+
+`node:fs` support comes from the Cloudflare Worker runtime:
 
 - `/tmp` is writable scratch space for a single request
-- `/bundle` is read-only bundle content
-- `/tmp` contents do not persist across turns, so cross-turn state should still live in session globals instead of the filesystem
+- `/bundle` is read-only bundled content
+- cross-turn state should live in session globals, not the filesystem
 
 ## Install
 
@@ -115,83 +104,87 @@ From the repo root:
 pnpm install
 ```
 
-## Run Locally With Miniflare
+## Run Locally
 
-Start the example worker:
+Start the worker with Wrangler:
 
 ```bash
 pnpm --filter @flamecast/agent-js dev
 ```
 
-That starts Miniflare and prints:
-
-- the base HTTP URL
-- the ACP WebSocket endpoint
-- the current agent mode
+This runs the worker locally at `http://127.0.0.1:8787`.
 
 Useful endpoints:
 
 - `GET /health`
-- `WS /acp/:sessionId`
 - `POST /sessions/:sessionId/start`
 - `WS /sessions/:sessionId`
 
-Local dev now auto-switches to `AGENT_MODE=gateway` when `CF_AI_GATEWAY_TOKEN` is available in `examples/agent.js/.env` or the shell. Otherwise it falls back to `scripted`, which gives deterministic `executeJS` behavior for smoke tests.
+The checked-in Wrangler config already includes the non-secret gateway vars:
 
-If you still see the canned scripted reply path locally, the Worker reached the fallback planner. In practice that means one of these is true:
+- `AGENT_MODE=gateway`
+- `CF_ACCOUNT_ID=c4cf21d8a5e8878bc3c92708b1f80193`
+- `CF_AI_GATEWAY=smithery-agent`
+- `CF_AI_MODEL=openai/gpt-5.4`
 
-- `CF_AI_GATEWAY_TOKEN` was not loaded
-- the gateway is missing a stored upstream provider key
-- `OPENAI_API_KEY` is needed locally and was not set
-
-Useful local knobs:
+For local gateway mode, provide `CF_AI_GATEWAY_TOKEN` in your shell before starting Wrangler:
 
 ```bash
-export COMPACT_AT_CHARS=12000
-export KEEP_RECENT_TURNS=6
+export CF_AI_GATEWAY_TOKEN=...
+pnpm --filter @flamecast/agent-js dev
+```
+
+For deterministic smoke tests, override the mode:
+
+```bash
+AGENT_MODE=scripted pnpm --filter @flamecast/agent-js dev
 ```
 
 ## Run It Through Flamecast Locally
 
-From the repo root, this starts the full dev stack:
+Start the worker:
+
+```bash
+pnpm --filter @flamecast/agent-js dev
+```
+
+Then start Flamecast with the worker URL registered:
 
 ```bash
 FLAMECAST_AGENT_JS_BASE_URL=http://127.0.0.1:8787 pnpm dev
 ```
 
-That brings up:
+`agentjs` is only registered when `FLAMECAST_AGENT_JS_BASE_URL` is set. That keeps the default Flamecast runtime list generic.
 
-- Flamecast UI at `http://127.0.0.1:3000`
-- Flamecast API at `http://127.0.0.1:3001`
-- local `agent.js` worker at `http://127.0.0.1:8787`
-
-The current "Add agent template" dialog only captures local subprocess spawn settings, so for now the local `agent.js` runtime should be registered through the Flamecast API:
+If you want to register a template through the API:
 
 ```bash
 curl -X POST http://127.0.0.1:3001/api/agent-templates \
   -H 'content-type: application/json' \
   -d '{
     "name": "Agent.js local",
-    "spawn": { "command": "remote-acp", "args": ["agent.js"] },
+    "spawn": { "command": "remote-sessionhost", "args": ["agentjs"] },
     "runtime": { "provider": "agentjs" }
   }'
 ```
 
-Then create a session from that template through the API or UI. In local dev, `apps/server` registers `agentjs` as `new NodeRuntime("http://127.0.0.1:8787")`, so Flamecast talks to the worker through the worker's native SessionHost routes.
-
-`agentjs` is only registered when `FLAMECAST_AGENT_JS_BASE_URL` is set. That keeps the default server runtime list generic and avoids baking in a localhost-only endpoint.
-
-## Run The End-to-End Test
+## Test
 
 ```bash
 pnpm --filter @flamecast/agent-js test
 ```
 
-The test starts Miniflare, points Flamecast's `NodeRuntime` at the worker, sends two prompts through the Flamecast API surface, and verifies that `executeJS` preserves session scope between turns. It also includes a direct ACP reconnect test to confirm that the same `sessionId` resumes the same Agent-backed session state.
+The integration tests start the worker with local Wrangler, then verify:
 
-## Use AI Gateway With The Vercel AI SDK
+- SessionHost prompts work end to end
+- `executeJS` preserves shared scope across turns
+- `node:fs` works against the Worker virtual filesystem
+- reconnecting the same session preserves state
+- Flamecast can talk to the worker through `NodeRuntime`
 
-Set these environment variables before starting the worker:
+## Use AI Gateway
+
+Set these environment variables before starting the worker if you want to override the checked-in defaults:
 
 ```bash
 export AGENT_MODE=gateway
@@ -201,15 +194,15 @@ export CF_AI_GATEWAY_TOKEN=...
 export CF_AI_MODEL=openai/gpt-5.4
 ```
 
-The worker uses [`ai`](https://www.npmjs.com/package/ai) and [`ai-gateway-provider`](https://www.npmjs.com/package/ai-gateway-provider) only in gateway mode. In scripted mode they stay out of the request path.
+The worker uses [`ai`](https://www.npmjs.com/package/ai) and [`ai-gateway-provider`](https://www.npmjs.com/package/ai-gateway-provider) only in gateway mode.
 
-## Deploy To Cloudflare
+## Deploy
 
 ```bash
 pnpm --filter @flamecast/agent-js deploy
 ```
 
-The worker name is `flamecast-agent-js`. The Wrangler config enables both the Agent Durable Object and the Dynamic Workers binding:
+The worker name is `flamecast-agent-js`. The Wrangler config enables both the Agent Durable Object and the Dynamic Worker loader:
 
 ```json
 {
@@ -221,22 +214,13 @@ The worker name is `flamecast-agent-js`. The Wrangler config enables both the Ag
 }
 ```
 
-The checked-in Wrangler config already sets the non-secret gateway vars for deploy:
-
-- `account_id = c4cf21d8a5e8878bc3c92708b1f80193`
-- `AGENT_MODE = gateway`
-- `CF_ACCOUNT_ID = c4cf21d8a5e8878bc3c92708b1f80193`
-- `CF_AI_GATEWAY = smithery-agent`
-- `CF_AI_MODEL = openai/gpt-5.4`
-
-`CF_AI_GATEWAY_TOKEN` should be injected as a secret before deploy:
+`CF_AI_GATEWAY_TOKEN` should be configured as a Worker secret before deploy:
 
 ```bash
-source .env
 printf %s "$CF_AI_GATEWAY_TOKEN" | pnpm wrangler secret put CF_AI_GATEWAY_TOKEN
 ```
 
-If the `smithery-agent` gateway does not already have a stored OpenAI key configured, also inject `OPENAI_API_KEY` so unified OpenAI routes like `openai/gpt-5.4` can resolve at runtime:
+If your gateway does not already have a stored OpenAI key configured, also set `OPENAI_API_KEY`:
 
 ```bash
 printf %s "$OPENAI_API_KEY" | pnpm wrangler secret put OPENAI_API_KEY
@@ -244,7 +228,7 @@ printf %s "$OPENAI_API_KEY" | pnpm wrangler secret put OPENAI_API_KEY
 
 ## Flamecast Integration
 
-Because the hosted worker now exposes Flamecast's SessionHost contract directly, Flamecast does not need a custom `agentjs` bridge runtime. Register it with a normal [`NodeRuntime`](/Users/henry/.codex/worktrees/6f43/flamecast-v2/packages/flamecast/src/flamecast/runtime-node.ts) that points at the worker base URL:
+Because the worker already exposes the SessionHost contract, Flamecast can use a normal [`NodeRuntime`](/Users/henry/.codex/worktrees/6f43/flamecast-v2/packages/flamecast/src/flamecast/runtime-node.ts):
 
 ```ts
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
@@ -257,24 +241,4 @@ const flamecast = new Flamecast({
       : {}),
   },
 });
-```
-
-After that, templates only need `runtime.provider = "agentjs"`. The base URL lives in the server/runtime registration, not in the template.
-
-For the deployed Wrangler-hosted Flamecast server, set:
-
-```bash
-FLAMECAST_AGENT_JS_BASE_URL=https://flamecast-agent-js.smithery.workers.dev
-```
-
-Example template registration:
-
-```bash
-curl -X POST http://localhost:3001/api/agent-templates \
-  -H 'content-type: application/json' \
-  -d '{
-    "name": "Agent.js remote",
-    "spawn": { "command": "remote-acp", "args": ["agent.js"] },
-    "runtime": { "provider": "agentjs" }
-  }'
 ```
