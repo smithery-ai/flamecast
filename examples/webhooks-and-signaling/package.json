@@ -1,11 +1,12 @@
 {
-  "name": "@flamecast/example-event-handlers",
+  "name": "@flamecast/example-webhooks-and-signaling",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tsx watch index.ts"
   },
   "dependencies": {
+    "@flamecast/protocol": "workspace:*",
     "@flamecast/sdk": "workspace:*",
     "@hono/node-server": "^1.19.11"
   },
