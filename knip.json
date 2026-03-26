@@ -36,7 +36,7 @@
       ]
     },
     "apps/server": {
-      "entry": ["src/**/*.ts", "test/**/*.test.ts"],
+      "entry": ["src/**/*.ts", "agent.ts", "test/**/*.test.ts"],
       "ignoreBinaries": ["drizzle-kit", "tsx", "vitest"]
     }
   }
