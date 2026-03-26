@@ -46,9 +46,7 @@ const server = serve({ fetch: flamecast.app.fetch, port: 3001 }, (info) => {
   console.log(`WebSocket adapter available at ws://localhost:${info.port}/ws`);
 });
 
-// serve() returns ServerType (Server | Http2Server | Http2SecureServer).
-// Default config returns http.Server which supports the upgrade event.
-flamecast.attachWebSocket(server as import("node:http").Server);
+flamecast.attachWebSocket(server);
 
 process.on("SIGINT", () => {
   flamecast.shutdown().then(() => process.exit(0));

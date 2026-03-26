@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import type { IncomingMessage } from "node:http";
-import type { Server as HttpServer } from "node:http";
+import type { Duplex } from "node:stream";
 import type {
   WsChannelServerMessage,
   WsChannelControlMessage,
@@ -19,6 +19,18 @@ import {
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/** Any HTTP server that supports the `upgrade` event. */
+export interface UpgradeableServer {
+  on(
+    event: "upgrade",
+    listener: (req: IncomingMessage, socket: Duplex, head: Buffer) => void,
+  ): this;
+  off(
+    event: "upgrade",
+    listener: (req: IncomingMessage, socket: Duplex, head: Buffer) => void,
+  ): this;
+}
 
 interface ClientConnection {
   id: string;
@@ -38,8 +50,8 @@ export interface WsAdapterFlamecast {
   proxyQueueRequest(id: string, path: string, init: RequestInit): Promise<Response>;
 }
 
-export interface WsAdapterOptions {
-  server: HttpServer;
+interface WsAdapterOptions {
+  server: UpgradeableServer;
   path?: string;
   eventBus: EventBus;
   flamecast: WsAdapterFlamecast;
@@ -68,7 +80,7 @@ export class WsAdapter {
     this.wss = new WebSocketServer({ noServer: true });
 
     // Handle HTTP upgrade at the configured path
-    const onUpgrade = (request: IncomingMessage, socket: any, head: Buffer) => {
+    const onUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
       const url = new URL(request.url ?? "/", "http://localhost");
       if (url.pathname === wsPath) {
         this.wss.handleUpgrade(request, socket, head, (ws) => {
@@ -177,7 +189,7 @@ export class WsAdapter {
           await this.flamecast.terminateSession(msg.sessionId);
           break;
         case "queue.reorder":
-          await this.flamecast.proxyQueueRequest(msg.sessionId, "/queue/reorder", {
+          await this.flamecast.proxyQueueRequest(msg.sessionId, "/queue", {
             method: "PUT",
             body: JSON.stringify({ order: msg.order }),
           });

@@ -18,7 +18,7 @@ interface BridgeConnection {
   terminated: boolean;
 }
 
-export interface SessionHostBridgeOptions {
+interface SessionHostBridgeOptions {
   eventBus: EventBus;
   /** Maximum reconnect attempts before giving up (default: 5). */
   maxReconnectAttempts?: number;
@@ -26,6 +26,7 @@ export interface SessionHostBridgeOptions {
 
 export class SessionHostBridge {
   private readonly connections = new Map<string, BridgeConnection>();
+  private readonly terminatedSessions = new Set<string>();
   private readonly eventBus: EventBus;
   private readonly maxReconnectAttempts: number;
   private readonly terminatedUnsubscribe: () => void;
@@ -36,6 +37,7 @@ export class SessionHostBridge {
 
     // Listen for session termination to stop reconnecting
     this.terminatedUnsubscribe = this.eventBus.onSessionTerminated(({ sessionId }) => {
+      this.terminatedSessions.add(sessionId);
       const conn = this.connections.get(sessionId);
       if (conn) {
         conn.terminated = true;
@@ -152,7 +154,8 @@ export class SessionHostBridge {
     // Exponential backoff: 1s, 2s, 4s, 8s, 16s (capped at 16s)
     const delay = Math.min(1000 * Math.pow(2, prevAttempts), 16_000);
     setTimeout(() => {
-      // Check the session wasn't terminated while we were waiting
+      // Don't reconnect if the session was terminated during the backoff delay
+      if (this.terminatedSessions.has(sessionId)) return;
       if (this.connections.has(sessionId)) return; // already reconnected
       this.openConnection(sessionId, websocketUrl, nextAttempt);
     }, delay);

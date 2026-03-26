@@ -2,7 +2,7 @@
  * Integration tests for the WS adapter (multiplexed WebSocket endpoint).
  */
 import { describe, it, expect } from "vitest";
-import { createServer, type Server as HttpServer } from "node:http";
+import { createServer } from "node:http";
 import { WebSocket } from "ws";
 import { EventBus } from "../src/flamecast/event-bus.js";
 import { WsAdapter, type WsAdapterFlamecast } from "../src/flamecast/ws-adapter.js";
@@ -55,7 +55,8 @@ async function setup(opts?: { maxSubscriptionsPerConnection?: number }) {
   const eventBus = new EventBus();
   const server = createServer();
   await new Promise<void>((r) => server.listen(0, r));
-  const port = (server.address() as any).port;
+  const addr = server.address();
+  const port = typeof addr === "object" && addr ? addr.port : 0;
   const adapter = new WsAdapter({ server, eventBus, flamecast: noop, ...opts });
   const clients: WebSocket[] = [];
 
@@ -196,9 +197,9 @@ describe("WsAdapter", () => {
     const ws = await t.connect();
     ws.send(JSON.stringify({ action: "subscribe", channel: "session:s1" }));
     const msgs = await collect(ws, 3);
-    expect(msgs[0]!.type).toBe("event");
-    expect(msgs[1]!.type).toBe("event");
-    expect(msgs[2]!.type).toBe("subscribed");
+    expect(msgs[0].type).toBe("event");
+    expect(msgs[1].type).toBe("event");
+    expect(msgs[2].type).toBe("subscribed");
     await t.teardown();
   });
 
@@ -223,9 +224,9 @@ describe("WsAdapter", () => {
     const ws = await t.connect();
     ws.send(JSON.stringify({ action: "subscribe", channel: "session:s1", since: 2 }));
     const msgs = await collect(ws, 2);
-    expect(msgs[0]!.type).toBe("event");
-    if (msgs[0]!.type === "event") expect(msgs[0]!.seq).toBe(3);
-    expect(msgs[1]!.type).toBe("subscribed");
+    expect(msgs[0].type).toBe("event");
+    if (msgs[0].type === "event") expect(msgs[0].seq).toBe(3);
+    expect(msgs[1].type).toBe("subscribed");
     await t.teardown();
   });
 

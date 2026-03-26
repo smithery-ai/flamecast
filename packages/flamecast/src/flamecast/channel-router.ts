@@ -42,7 +42,13 @@ const TERMINAL_EVENT_TYPES = new Set([
 
 const QUEUE_EVENT_TYPES = new Set(["queue.updated", "queue.paused", "queue.resumed"]);
 
-const FS_EVENT_TYPES = new Set(["filesystem.changed", "filesystem.snapshot", "file.preview"]);
+const FS_EVENT_TYPES = new Set([
+  "filesystem.changed",
+  "filesystem.snapshot",
+  "file.preview",
+  "fs.read_text_file",
+  "fs.write_text_file",
+]);
 
 function isTerminalEvent(event: ChannelEvent): boolean {
   // Direct terminal events

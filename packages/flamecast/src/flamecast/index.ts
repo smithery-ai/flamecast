@@ -17,8 +17,7 @@ import { WebhookDeliveryEngine } from "./webhook-delivery.js";
 import { EventBus } from "./event-bus.js";
 import { resolveAgentId } from "./channel-router.js";
 import { SessionHostBridge } from "./session-host-bridge.js";
-import { WsAdapter } from "./ws-adapter.js";
-import type { Server as HttpServer } from "node:http";
+import { WsAdapter, type UpgradeableServer } from "./ws-adapter.js";
 import type {
   SessionCallbackEvent,
   PermissionCallbackResponse,
@@ -137,8 +136,7 @@ export class Flamecast<
   private readonly webhookEngine = new WebhookDeliveryEngine();
   private readonly webhookAbortControllers = new Map<string, AbortController>();
 
-  /** Internal event bus for WS adapter lifecycle + history. */
-  readonly eventBus = new EventBus();
+  private readonly eventBus = new EventBus();
 
   private wsAdapter: WsAdapter | null = null;
   private bridge: SessionHostBridge | null = null;
@@ -196,7 +194,7 @@ export class Flamecast<
    * Attach the multiplexed WebSocket adapter to an HTTP server.
    * Creates the SessionHostBridge and WsAdapter, wires lifecycle events.
    */
-  attachWebSocket(server: HttpServer): WsAdapter {
+  attachWebSocket(server: UpgradeableServer): WsAdapter {
     if (this.wsAdapter) return this.wsAdapter;
 
     this.bridge = new SessionHostBridge({ eventBus: this.eventBus });

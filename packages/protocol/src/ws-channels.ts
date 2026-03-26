@@ -31,7 +31,7 @@ export interface WsChannelEventMessage {
   type: "event";
   channel: Channel;
   sessionId: string;
-  agentId?: string;
+  agentId: string;
   seq: number;
   event: {
     type: string;

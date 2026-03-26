@@ -107,7 +107,7 @@ describe("EventBus", () => {
 
       const since2 = bus.getHistory("s1", { since: 2 });
       expect(since2).toHaveLength(1);
-      expect(since2[0]!.seq).toBe(3);
+      expect(since2[0]?.seq).toBe(3);
     });
 
     it("filters history with custom filter", () => {
@@ -120,7 +120,7 @@ describe("EventBus", () => {
         filter: (e) => e.event.type === "queue.updated",
       });
       expect(queueOnly).toHaveLength(1);
-      expect(queueOnly[0]!.event.type).toBe("queue.updated");
+      expect(queueOnly[0]?.event.type).toBe("queue.updated");
     });
 
     it("combines since and filter", () => {
@@ -134,7 +134,7 @@ describe("EventBus", () => {
         filter: (e) => e.event.type === "queue.updated",
       });
       expect(result).toHaveLength(1);
-      expect(result[0]!.seq).toBe(3);
+      expect(result[0]?.seq).toBe(3);
     });
 
     it("getLastEvent returns most recent matching event", () => {
@@ -145,7 +145,7 @@ describe("EventBus", () => {
 
       const last = bus.getLastEvent("s1", (e) => e.event.type === "queue.updated");
       expect(last).toBeDefined();
-      expect(last!.seq).toBe(3);
+      expect(last?.seq).toBe(3);
     });
 
     it("getLastEvent returns undefined when no match", () => {
@@ -182,8 +182,8 @@ describe("EventBus", () => {
       const history = bus.getHistory("s1");
       expect(history).toHaveLength(5);
       // Should keep the most recent events
-      expect(history[0]!.seq).toBe(6);
-      expect(history[4]!.seq).toBe(10);
+      expect(history[0]?.seq).toBe(6);
+      expect(history[4]?.seq).toBe(10);
     });
 
     it("enforces terminal cap separately", () => {
@@ -191,11 +191,27 @@ describe("EventBus", () => {
       for (let i = 0; i < 10; i++) {
         bus.pushEvent(makeRawEvent("s1", "terminal.output"));
       }
-      // Note: since all events share the same buffer, the cap is applied
-      // per-event based on the latest event type. The buffer is trimmed to
-      // the cap of the most recent event's category.
+      // Only terminal events are capped at 3; other categories unaffected
       const history = bus.getHistory("s1");
       expect(history).toHaveLength(3);
+    });
+
+    it("does not evict events from other categories", () => {
+      const bus = new EventBus({ historyCaps: { rpc: 100, snapshot: 2 } });
+      // Push 50 RPC events
+      for (let i = 0; i < 50; i++) {
+        bus.pushEvent(makeRawEvent("s1", "rpc"));
+      }
+      // Push 5 queue events (snapshot category, cap 2)
+      for (let i = 0; i < 5; i++) {
+        bus.pushEvent(makeRawEvent("s1", "queue.updated"));
+      }
+      const history = bus.getHistory("s1");
+      // Should have 50 RPC + 2 queue = 52 total
+      const rpcCount = history.filter((e) => e.event.type === "rpc").length;
+      const queueCount = history.filter((e) => e.event.type === "queue.updated").length;
+      expect(rpcCount).toBe(50);
+      expect(queueCount).toBe(2);
     });
 
     it("enforces rpc cap", () => {

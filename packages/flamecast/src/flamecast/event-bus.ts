@@ -5,7 +5,7 @@ import type { ChannelEvent } from "./channel-router.js";
 // Per-category history buffer caps
 // ---------------------------------------------------------------------------
 
-export interface EventBusHistoryCaps {
+interface EventBusHistoryCaps {
   /** Default cap for unclassified events. */
   default: number;
   /** Cap for terminal events (high-frequency output). */
@@ -23,7 +23,7 @@ const DEFAULT_CAPS: EventBusHistoryCaps = {
   snapshot: 100,
 };
 
-export interface EventBusOptions {
+interface EventBusOptions {
   historyCaps?: Partial<EventBusHistoryCaps>;
 }
 
@@ -31,13 +31,13 @@ export interface EventBusOptions {
 // Lifecycle event payloads
 // ---------------------------------------------------------------------------
 
-export interface SessionCreatedPayload {
+interface SessionCreatedPayload {
   sessionId: string;
   agentId: string;
   websocketUrl: string;
 }
 
-export interface SessionTerminatedPayload {
+interface SessionTerminatedPayload {
   sessionId: string;
   agentId: string;
 }
@@ -178,18 +178,30 @@ export class EventBus {
 
     buf.push(event);
 
-    // Enforce per-category cap
-    const cap = this.capForEvent(event);
-    if (buf.length > cap) {
-      // Remove oldest events to get back under cap.
-      // Simple approach: trim from the front. This is O(n) but only triggers
-      // when the buffer overflows, which is infrequent relative to event rate.
-      const excess = buf.length - cap;
-      buf.splice(0, excess);
+    // Enforce per-category cap: count only events of the same category,
+    // and evict oldest events of that category when over cap. This prevents
+    // a single low-cap event (e.g. queue) from evicting unrelated events (e.g. RPC).
+    const category = this.categoryForEvent(event);
+    const cap = this.caps[category];
+    let categoryCount = 0;
+    for (const e of buf) {
+      if (this.categoryForEvent(e) === category) categoryCount++;
+    }
+
+    if (categoryCount > cap) {
+      const excess = categoryCount - cap;
+      let removed = 0;
+      for (let i = 0; i < buf.length && removed < excess; i++) {
+        if (this.categoryForEvent(buf[i]) === category) {
+          buf.splice(i, 1);
+          removed++;
+          i--; // adjust index after splice
+        }
+      }
     }
   }
 
-  private capForEvent(event: ChannelEvent): number {
+  private categoryForEvent(event: ChannelEvent): keyof EventBusHistoryCaps {
     const type = event.event.type;
     const method =
       type === "rpc" && typeof event.event.data.method === "string"
@@ -198,7 +210,7 @@ export class EventBus {
 
     // Terminal events
     if (type.startsWith("terminal.") || (method && method.startsWith("terminal."))) {
-      return this.caps.terminal;
+      return "terminal";
     }
 
     // Queue / FS snapshot events
@@ -211,14 +223,14 @@ export class EventBus {
           method.startsWith("filesystem.") ||
           method === "file.preview"))
     ) {
-      return this.caps.snapshot;
+      return "snapshot";
     }
 
     // RPC (streaming tokens, tool calls, etc.)
     if (type === "rpc" || type === "session_update") {
-      return this.caps.rpc;
+      return "rpc";
     }
 
-    return this.caps.default;
+    return "default";
   }
 }
