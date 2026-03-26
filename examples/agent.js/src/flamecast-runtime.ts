@@ -1,20 +1,15 @@
 import { createServer, type IncomingMessage, type Server as HttpServer } from "node:http";
 import * as acp from "@agentclientprotocol/sdk";
-import { WebSocketServer, WebSocket, type ClientOptions, type RawData } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 import type { Runtime } from "@flamecast/protocol/runtime";
 import type {
   SessionHostStartRequest,
   SessionHostStartResponse,
 } from "@flamecast/protocol/session-host";
 import type { WsControlMessage, WsServerMessage } from "@flamecast/protocol/ws";
+import { openWorkerAcpTransport } from "./runtime-provider.js";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
-
-type RemoteAcpTransport = {
-  input: WritableStream<Uint8Array>;
-  output: ReadableStream<Uint8Array>;
-  dispose?: () => Promise<void>;
-};
 
 type AgentJsRuntimeOptions = {
   baseUrl?: string;
@@ -40,7 +35,7 @@ type ManagedSession = {
   id: string;
   agentSessionId: string;
   connection: acp.ClientSideConnection | null;
-  transport: RemoteAcpTransport;
+  transport: Awaited<ReturnType<typeof openWorkerAcpTransport>>;
   clients: Set<WebSocket>;
   permissionResolvers: Map<string, (response: acp.RequestPermissionResponse) => void>;
   promptInFlight: boolean;
@@ -48,107 +43,6 @@ type ManagedSession = {
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
-}
-
-function toUint8Array(data: RawData): Uint8Array | Promise<Uint8Array> {
-  if (data instanceof Uint8Array) {
-    return data;
-  }
-  if (typeof Blob !== "undefined" && data instanceof Blob) {
-    return data.arrayBuffer().then((value) => new Uint8Array(value));
-  }
-  if (data instanceof ArrayBuffer) {
-    return new Uint8Array(data);
-  }
-  if (ArrayBuffer.isView(data)) {
-    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-  }
-  return new TextEncoder().encode(String(data));
-}
-
-async function openWorkerAcpTransport(
-  url: string,
-  init?: ClientOptions,
-): Promise<RemoteAcpTransport> {
-  const ws = new WebSocket(url, init);
-
-  await new Promise<void>((resolve, reject) => {
-    const onOpen = () => {
-      ws.off("error", onError);
-      resolve();
-    };
-    const onError = (error: Error) => {
-      ws.off("open", onOpen);
-      reject(error);
-    };
-
-    ws.once("open", onOpen);
-    ws.once("error", onError);
-  });
-
-  const output = new ReadableStream<Uint8Array>({
-    start(controller) {
-      ws.on("message", (data) => {
-        void Promise.resolve(toUint8Array(data)).then((value) => controller.enqueue(value));
-      });
-      ws.once("close", () => controller.close());
-      ws.once("error", (error) => controller.error(error));
-    },
-    cancel() {
-      ws.close();
-    },
-  });
-
-  const input = new WritableStream<Uint8Array>({
-    write(chunk) {
-      return new Promise<void>((resolve, reject) => {
-        ws.send(Buffer.from(chunk), (error) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-          resolve();
-        });
-      });
-    },
-    close() {
-      ws.close(1000, "ACP transport closed");
-    },
-    abort() {
-      ws.close(1011, "ACP transport aborted");
-    },
-  });
-
-  return {
-    input,
-    output,
-    dispose: async () => {
-      if (ws.readyState === WebSocket.CLOSED) {
-        return;
-      }
-
-      await new Promise<void>((resolve) => {
-        const finish = () => {
-          clearTimeout(timeout);
-          ws.off("close", finish);
-          resolve();
-        };
-        const timeout = setTimeout(() => {
-          ws.terminate();
-          finish();
-        }, 250);
-
-        ws.once("close", finish);
-
-        if (ws.readyState === WebSocket.CONNECTING) {
-          ws.once("open", () => ws.close(1000, "ACP transport disposed"));
-          return;
-        }
-
-        ws.close(1000, "ACP transport disposed");
-      });
-    },
-  };
 }
 
 function readRequestBody(req: IncomingMessage): Promise<string> {
@@ -489,7 +383,10 @@ export class AgentJsRuntime implements Runtime<Pick<StartBody, "baseUrl" | "webs
     return jsonResponse({ ok: true });
   }
 
-  private createManagedSession(sessionId: string, transport: RemoteAcpTransport): ManagedSession {
+  private createManagedSession(
+    sessionId: string,
+    transport: Awaited<ReturnType<typeof openWorkerAcpTransport>>,
+  ): ManagedSession {
     const session: ManagedSession = {
       id: sessionId,
       agentSessionId: sessionId,

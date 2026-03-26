@@ -11,11 +11,8 @@ export interface AgentSpawn {
 
 export interface AgentTemplateRuntime {
   provider: string;
-  image?: string;
-  dockerfile?: string;
   setup?: string;
-  baseUrl?: string;
-  websocketUrl?: string;
+  [key: string]: unknown;
 }
 
 export interface AgentTemplate {

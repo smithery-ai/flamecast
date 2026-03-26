@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { WebSocket } from "ws";
-import { createServerApp } from "../src/flamecast/app.js";
-import { AgentJsRuntime, Flamecast } from "../src/flamecast/index.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
-import { startExampleMiniflare } from "../../../examples/agent.js/src/miniflare.js";
+import { Flamecast } from "../../../packages/flamecast/src/flamecast/index.ts";
+import { MemoryFlamecastStorage } from "../../../packages/flamecast/src/flamecast/storage/memory/index.ts";
+import { AgentJsRuntime } from "../src/flamecast-runtime.js";
+import { startExampleMiniflare } from "../src/miniflare.js";
 
 const cleanup: Array<() => Promise<void>> = [];
 
@@ -120,10 +120,8 @@ describe("agent.js runtime", () => {
     });
     cleanup.push(() => flamecast.shutdown());
 
-    const app = createServerApp(flamecast);
-
     const template = await readJson(
-      await app.request("/api/agent-templates", {
+      await flamecast.app.request("/api/agent-templates", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -135,14 +133,14 @@ describe("agent.js runtime", () => {
     );
 
     const firstSession = await readJson(
-      await app.request("/api/agents", {
+      await flamecast.app.request("/api/agents", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ agentTemplateId: template.id }),
       }),
     );
     const secondSession = await readJson(
-      await app.request("/api/agents", {
+      await flamecast.app.request("/api/agents", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ agentTemplateId: template.id }),

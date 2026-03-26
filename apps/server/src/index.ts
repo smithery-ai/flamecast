@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AgentJsRuntime, Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
+import { Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
 import { DockerRuntime } from "@flamecast/runtime-docker";
 import { createPsqlStorage } from "@flamecast/storage-psql";
+import { AgentJsRuntime } from "./agentjs-runtime.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const agentSource = readFileSync(resolve(__dirname, "../agent.ts"), "utf8");

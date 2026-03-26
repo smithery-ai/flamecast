@@ -199,14 +199,31 @@ printf %s "$OPENAI_API_KEY" | pnpm wrangler secret put OPENAI_API_KEY
 
 ## Flamecast Integration
 
-The example includes a tiny runtime provider adapter at [`src/runtime-provider.js`](/Users/henry/.codex/worktrees/6f43/flamecast-v2/examples/agent.js/src/runtime-provider.js).
+Flamecast core does not bundle this runtime. Register it where you construct `Flamecast`, then templates can refer to it by any provider key you choose.
 
-Use it with Flamecast by pointing the provider at the worker base URL or the `/acp` WebSocket base path. The provider appends the Flamecast session ID automatically and connects to `/acp/:sessionId`.
+This example includes:
 
-Flamecast now also ships a built-in runtime provider named `agentjs`. Register a template over the Flamecast API with either:
+- a low-level ACP transport helper at [`src/runtime-provider.js`](/Users/henry/.codex/worktrees/6f43/flamecast-v2/examples/agent.js/src/runtime-provider.js)
+- a Flamecast runtime implementation at [`src/flamecast-runtime.ts`](/Users/henry/.codex/worktrees/6f43/flamecast-v2/examples/agent.js/src/flamecast-runtime.ts)
 
-- `runtime.provider = "agentjs"` plus `FLAMECAST_AGENT_JS_BASE_URL` set on the Flamecast server
-- or `runtime.provider = "agentjs"` plus `runtime.baseUrl` on the template itself
+To wire it into the local Flamecast server, register it explicitly:
+
+```ts
+import { Flamecast, NodeRuntime } from "@flamecast/sdk";
+import { AgentJsRuntime } from "../../../examples/agent.js/src/flamecast-runtime.js";
+
+const flamecast = new Flamecast({
+  runtimes: {
+    default: new NodeRuntime(),
+    agentjs: new AgentJsRuntime({
+      baseUrl: process.env.FLAMECAST_AGENT_JS_BASE_URL,
+      websocketUrl: process.env.FLAMECAST_AGENT_JS_WEBSOCKET_URL,
+    }),
+  },
+});
+```
+
+After that, templates can use `runtime.provider = "agentjs"` and either inherit the server defaults above or override them per template with `runtime.baseUrl` / `runtime.websocketUrl`.
 
 Example template registration:
 

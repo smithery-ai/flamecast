@@ -46,7 +46,6 @@ export type { FileSystemEntry } from "@flamecast/protocol/session-host";
 
 export type { SessionMeta, FlamecastStorage } from "./storage.js";
 export { NodeRuntime } from "./runtime-node.js";
-export { AgentJsRuntime } from "./agent-js-runtime.js";
 export type { AppType } from "./api.js";
 
 // ---------------------------------------------------------------------------

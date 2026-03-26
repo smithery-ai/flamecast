@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { serve } from "@hono/node-server";
-import { AgentJsRuntime, Flamecast, NodeRuntime } from "./index.js";
+import { Flamecast, NodeRuntime } from "./index.js";
 
 function parsePort(value: string | undefined): number {
   if (!value) return 3001;
@@ -15,13 +15,7 @@ function parsePort(value: string | undefined): number {
 const port = parsePort(process.env.FLAMECAST_PORT ?? process.env.PORT);
 
 const flamecast = new Flamecast({
-  runtimes: {
-    default: new NodeRuntime(),
-    agentjs: new AgentJsRuntime({
-      baseUrl: process.env.FLAMECAST_AGENT_JS_BASE_URL,
-      websocketUrl: process.env.FLAMECAST_AGENT_JS_WEBSOCKET_URL,
-    }),
-  },
+  runtimes: { default: new NodeRuntime() },
 });
 
 const server = serve({ fetch: flamecast.app.fetch, port }, () => {

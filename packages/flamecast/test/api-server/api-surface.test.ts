@@ -144,18 +144,18 @@ describe("API server surface", () => {
   });
 
   it("registers agent templates with explicit runtime config", async () => {
-    const flamecast = createFlamecastStub({ runtimeNames: ["default", "agentjs"] });
+    const flamecast = createFlamecastStub({ runtimeNames: ["default", "custom"] });
     const app = createServerApp(flamecast);
 
     const response = await app.request("/api/agent-templates", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        name: "Agent.js remote",
-        spawn: { command: "remote-acp", args: ["agent.js"] },
+        name: "Remote custom runtime",
+        spawn: { command: "remote-acp", args: ["custom-agent"] },
         runtime: {
-          provider: "agentjs",
-          baseUrl: "https://flamecast-agent-js.smithery.workers.dev",
+          provider: "custom",
+          endpoint: "https://runtime.example.com",
         },
       } satisfies RegisterAgentTemplateBody),
     });
@@ -163,11 +163,11 @@ describe("API server surface", () => {
     expect(response.status).toBe(201);
     expect(await readJson(response)).toEqual({
       id: "registered-template",
-      name: "Agent.js remote",
-      spawn: { command: "remote-acp", args: ["agent.js"] },
+      name: "Remote custom runtime",
+      spawn: { command: "remote-acp", args: ["custom-agent"] },
       runtime: {
-        provider: "agentjs",
-        baseUrl: "https://flamecast-agent-js.smithery.workers.dev",
+        provider: "custom",
+        endpoint: "https://runtime.example.com",
       },
     });
   });
