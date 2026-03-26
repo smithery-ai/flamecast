@@ -15,6 +15,7 @@ export type FlamecastApi = Pick<
   | "listAgentTemplates"
   | "listSessions"
   | "promptSession"
+  | "resolvePermission"
   | "registerAgentTemplate"
   | "terminateSession"
   | "runtimeNames"
@@ -136,6 +137,22 @@ export function createApi(flamecast: FlamecastApi) {
       } catch (error) {
         console.error("Session event callback failed:", error);
         return c.json({ error: toErrorMessage(error) }, 500);
+      }
+    })
+    .post("/agents/:agentId/permissions/:requestId", async (c) => {
+      try {
+        const agentId = c.req.param("agentId");
+        const requestId = c.req.param("requestId");
+        const body = await c.req.json();
+        if (!body || (!("optionId" in body) && !("outcome" in body))) {
+          return c.json({ error: "Missing optionId or outcome field" }, 400);
+        }
+        const result = await flamecast.resolvePermission(agentId, requestId, body);
+        return c.json(result);
+      } catch (error) {
+        const msg = toErrorMessage(error);
+        const status = msg.includes("not found") ? 404 : 500;
+        return c.json({ error: msg }, status);
       }
     })
     .delete("/agents/:agentId", async (c) => {
