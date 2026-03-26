@@ -272,6 +272,24 @@ export class Flamecast<
     return response.json();
   }
 
+  async resolvePermission(
+    sessionId: string,
+    requestId: string,
+    body: { optionId: string } | { outcome: "cancelled" },
+  ): Promise<Record<string, unknown>> {
+    await this.ensureReady();
+    const response = await this.sessionService.proxyRequest(
+      sessionId,
+      `/permissions/${requestId}`,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "(unreadable)");
+      throw new Error(`Permission resolve failed (${response.status}): ${detail}`);
+    }
+    return response.json();
+  }
+
   async terminateSession(id: string): Promise<void> {
     await this.ensureReady();
     if (!this.sessionService.hasSession(id)) {

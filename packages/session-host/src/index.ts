@@ -476,6 +476,30 @@ const httpServer = createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && req.url?.startsWith("/permissions/")) {
+      const requestId = req.url.slice("/permissions/".length);
+      const resolver = permissionResolvers.get(requestId);
+      if (!resolver) {
+        jsonResponse(res, 404, { error: `Permission request ${requestId} not found or already resolved` });
+        return;
+      }
+      const body = JSON.parse(await readBody(req));
+      permissionResolvers.delete(requestId);
+      const response: acp.RequestPermissionResponse =
+        "optionId" in body && typeof body.optionId === "string"
+          ? { outcome: { outcome: "selected", optionId: body.optionId } }
+          : { outcome: { outcome: "cancelled" } };
+      emitRpc(
+        acp.CLIENT_METHODS.session_request_permission,
+        "client_to_agent",
+        "response",
+        body,
+      );
+      resolver(response);
+      jsonResponse(res, 200, { ok: true });
+      return;
+    }
+
     if (req.method === "GET" && req.url?.startsWith("/files")) {
       if (!sessionWorkspace) {
         jsonResponse(res, 400, { error: "No active session" });
