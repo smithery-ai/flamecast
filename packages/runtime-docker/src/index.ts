@@ -1,7 +1,6 @@
 /* oxlint-disable no-type-assertion/no-type-assertion */
-import { dirname, join } from "node:path";
 import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import Docker from "dockerode";
 import type { Runtime } from "@flamecast/sdk/runtime";
 
@@ -14,47 +13,36 @@ import type { Runtime } from "@flamecast/sdk/runtime";
  *
  * Lookup order:
  *   1. `SESSION_HOST_BINARY` env var (explicit override)
- *   2. Pre-built SEA binary next to the session-host package
- *      (`@flamecast/session-host/dist/session-host-linux-x64`)
- *   3. The self-contained esbuild bundle
- *      (`@flamecast/session-host/dist/session-host.bundle.cjs`)
+ *   2. Go binary next to session-host-go package
+ *      (`packages/session-host-go/dist/session-host`)
  *
- * Returns `{ path, needsNode }` — `needsNode` is true when the resolved
- * artifact is a JS bundle (not a compiled binary) and requires `node` inside
- * the container to execute.
+ * The Go binary is statically linked (CGO_ENABLED=0), works on any Linux
+ * distro (glibc or musl), and weighs ~6MB.
  */
-function resolveSessionHostArtifact(): { path: string; needsNode: boolean } {
+function resolveSessionHostBinary(): string {
   // 1. Explicit env var
   if (process.env.SESSION_HOST_BINARY) {
     const p = process.env.SESSION_HOST_BINARY;
     if (!existsSync(p)) {
       throw new Error(`SESSION_HOST_BINARY points to "${p}" which does not exist`);
     }
-    // Heuristic: .cjs/.mjs/.js files need node; everything else is a binary
-    return { path: p, needsNode: /\.(c|m)?js$/u.test(p) };
+    return p;
   }
 
-  // Resolve the @flamecast/session-host package root
-  const resolved = import.meta.resolve("@flamecast/session-host");
-  const pkgDir = dirname(dirname(fileURLToPath(resolved)));
-  const distDir = join(pkgDir, "dist");
+  // 2. Go binary relative to this package (monorepo layout)
+  // runtime-docker lives at packages/runtime-docker — go binary is at packages/session-host-go/dist/
+  const candidates = [
+    join(__dirname, "../../session-host-go/dist/session-host"),
+    join(__dirname, "../../../packages/session-host-go/dist/session-host"),
+  ];
 
-  // 2. Pre-built SEA binary (e.g. session-host-linux-x64)
-  const arch = process.arch; // x64, arm64
-  const binaryPath = join(distDir, `session-host-linux-${arch}`);
-  if (existsSync(binaryPath)) {
-    return { path: binaryPath, needsNode: false };
-  }
-
-  // 3. Self-contained esbuild bundle (fallback — requires node in the container)
-  const bundlePath = join(distDir, "session-host.bundle.cjs");
-  if (existsSync(bundlePath)) {
-    return { path: bundlePath, needsNode: true };
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
   }
 
   throw new Error(
-    "No session-host artifact found. Run `pnpm --filter @flamecast/session-host build:binary` " +
-      "or `pnpm --filter @flamecast/session-host build:bundle` first.",
+    "No session-host binary found. Build it with: " +
+      "cd packages/session-host-go && CGO_ENABLED=0 go build -o dist/session-host -ldflags='-s -w' .",
   );
 }
 
@@ -64,7 +52,6 @@ function resolveSessionHostArtifact(): { path: string; needsNode: boolean } {
 
 const CONTAINER_PORT = "8080";
 const CONTAINER_BIN_PATH = "/usr/local/bin/session-host";
-const CONTAINER_BUNDLE_PATH = "/usr/local/lib/session-host.bundle.cjs";
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
@@ -78,16 +65,15 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
 /**
  * DockerRuntime — spawns a new container per session.
  *
- * Instead of generating a Dockerfile and building a custom image, this runtime
- * bind-mounts the session-host static binary (or JS bundle) into any
- * user-provided base image. This avoids:
+ * Bind-mounts the session-host static Go binary into any user-provided base
+ * image. The binary is statically linked and has zero dependencies, so it
+ * works on any Linux distro (Debian, Alpine, Ubuntu, etc.) without requiring
+ * Node.js or any other runtime.
  *
+ * This avoids:
  *   - Dockerfile generation overhead
  *   - CMD/entrypoint conflicts with user images
- *   - Requiring Node.js in the base image (when using the SEA binary)
- *
- * The user's optional `setup` script runs inside the container before the
- * agent is spawned, allowing full control over the environment.
+ *   - Runtime dependencies in the base image
  */
 export class DockerRuntime implements Runtime {
   private readonly baseImage: string;
@@ -95,7 +81,7 @@ export class DockerRuntime implements Runtime {
   private readonly containers = new Map<string, { containerId: string; port: number }>();
 
   constructor(opts?: { baseImage?: string; docker?: Docker }) {
-    this.baseImage = opts?.baseImage ?? "node:22-slim";
+    this.baseImage = opts?.baseImage ?? "ubuntu:24.04";
     this.docker = opts?.docker ?? new Docker();
   }
 
@@ -135,25 +121,19 @@ export class DockerRuntime implements Runtime {
 
     try {
       const parsed = JSON.parse(await request.text()) as Record<string, unknown>;
-      const setup = parsed.setup as string | undefined;
-      const artifact = resolveSessionHostArtifact();
+      const binaryPath = resolveSessionHostBinary();
 
       console.log(
-        `[DockerRuntime] Starting container (image=${this.baseImage}, ` +
-          `binary=${artifact.path}, needsNode=${artifact.needsNode})`,
+        `[DockerRuntime] Starting container (image=${this.baseImage}, binary=${binaryPath})`,
       );
-
-      // Bind-mount the session-host artifact into the container as read-only.
-      const containerArtifactPath = artifact.needsNode ? CONTAINER_BUNDLE_PATH : CONTAINER_BIN_PATH;
-      const cmd = artifact.needsNode ? ["node", CONTAINER_BUNDLE_PATH] : [CONTAINER_BIN_PATH];
 
       const container = await this.docker.createContainer({
         Image: this.baseImage,
-        Cmd: cmd,
+        Cmd: [CONTAINER_BIN_PATH],
         ExposedPorts: { [`${CONTAINER_PORT}/tcp`]: {} },
         Env: [`SESSION_HOST_PORT=${CONTAINER_PORT}`, "RUNTIME_SETUP_ENABLED=1"],
         HostConfig: {
-          Binds: [`${artifact.path}:${containerArtifactPath}:ro`],
+          Binds: [`${binaryPath}:${CONTAINER_BIN_PATH}:ro`],
           PortBindings: { [`${CONTAINER_PORT}/tcp`]: [{ HostPort: "0" }] },
           AutoRemove: true,
         },
@@ -176,9 +156,6 @@ export class DockerRuntime implements Runtime {
 
       // Override workspace to the container's agent workspace.
       parsed.workspace = "/workspace";
-      if (setup) {
-        parsed.setup = setup;
-      }
 
       const resp = await fetch(`http://localhost:${port}/start`, {
         method: "POST",

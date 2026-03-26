@@ -241,9 +241,6 @@ importers:
       '@flamecast/sdk':
         specifier: workspace:*
         version: link:../flamecast
-      '@flamecast/session-host':
-        specifier: workspace:*
-        version: link:../session-host
       dockerode:
         specifier: ^4.0.6
         version: 4.0.10
@@ -276,9 +273,6 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
-      esbuild:
-        specifier: ^0.27.4
-        version: 0.27.4
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
