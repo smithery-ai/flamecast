@@ -8,7 +8,12 @@ import { startExampleMiniflare } from "../../../examples/agent.js/src/miniflare.
 const cleanup: Array<() => Promise<void>> = [];
 
 afterEach(async () => {
-  await Promise.allSettled(cleanup.splice(0).reverse().map((fn) => fn()));
+  await Promise.allSettled(
+    cleanup
+      .splice(0)
+      .reverse()
+      .map((fn) => fn()),
+  );
 });
 
 async function readJson(response: Response) {
@@ -110,7 +115,7 @@ describe("agent.js runtime", () => {
     const flamecast = new Flamecast({
       storage: new MemoryFlamecastStorage(),
       runtimes: {
-        "agent.js": new AgentJsRuntime(),
+        agentjs: new AgentJsRuntime(),
       },
     });
     cleanup.push(() => flamecast.shutdown());
@@ -124,7 +129,7 @@ describe("agent.js runtime", () => {
         body: JSON.stringify({
           name: "Agent.js remote",
           spawn: { command: "remote-acp", args: ["agent.js"] },
-          runtime: { provider: "agent.js", baseUrl: remoteAgent.baseUrl },
+          runtime: { provider: "agentjs", baseUrl: remoteAgent.baseUrl },
         }),
       }),
     );

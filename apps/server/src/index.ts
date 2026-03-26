@@ -14,7 +14,7 @@ const flamecast = new Flamecast({
   storage: await createPsqlStorage(url ? { url } : undefined),
   runtimes: {
     default: new NodeRuntime(),
-    "agent.js": new AgentJsRuntime({
+    agentjs: new AgentJsRuntime({
       baseUrl: process.env.FLAMECAST_AGENT_JS_BASE_URL,
       websocketUrl: process.env.FLAMECAST_AGENT_JS_WEBSOCKET_URL,
     }),

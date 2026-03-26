@@ -144,7 +144,7 @@ describe("API server surface", () => {
   });
 
   it("registers agent templates with explicit runtime config", async () => {
-    const flamecast = createFlamecastStub({ runtimeNames: ["default", "agent.js"] });
+    const flamecast = createFlamecastStub({ runtimeNames: ["default", "agentjs"] });
     const app = createServerApp(flamecast);
 
     const response = await app.request("/api/agent-templates", {
@@ -154,7 +154,7 @@ describe("API server surface", () => {
         name: "Agent.js remote",
         spawn: { command: "remote-acp", args: ["agent.js"] },
         runtime: {
-          provider: "agent.js",
+          provider: "agentjs",
           baseUrl: "https://flamecast-agent-js.smithery.workers.dev",
         },
       } satisfies RegisterAgentTemplateBody),
@@ -166,7 +166,7 @@ describe("API server surface", () => {
       name: "Agent.js remote",
       spawn: { command: "remote-acp", args: ["agent.js"] },
       runtime: {
-        provider: "agent.js",
+        provider: "agentjs",
         baseUrl: "https://flamecast-agent-js.smithery.workers.dev",
       },
     });

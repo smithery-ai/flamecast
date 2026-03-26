@@ -1,32 +1,35 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { generateGatewayText, getGatewayModel, streamGatewayText } from "../src/gateway-model.js";
 
-afterEach(() => {
-  vi.resetModules();
-  vi.clearAllMocks();
-  vi.doUnmock("ai");
-  vi.doUnmock("ai-gateway-provider");
-  vi.doUnmock("ai-gateway-provider/providers/unified");
+const generateTextMock = vi.fn();
+const streamTextMock = vi.fn();
+const createAiGatewayMock = vi.fn();
+const createUnifiedMock = vi.fn();
+
+vi.mock("ai", () => ({
+  generateText: (...args) => generateTextMock(...args),
+  streamText: (...args) => streamTextMock(...args),
+}));
+
+vi.mock("ai-gateway-provider", () => ({
+  createAiGateway: (...args) => createAiGatewayMock(...args),
+}));
+
+vi.mock("ai-gateway-provider/providers/unified", () => ({
+  createUnified: (...args) => createUnifiedMock(...args),
+}));
+
+beforeEach(() => {
+  generateTextMock.mockReset();
+  streamTextMock.mockReset();
+  createAiGatewayMock.mockReset().mockImplementation(() => (model) => model);
+  createUnifiedMock.mockReset().mockImplementation(() => (modelId) => ({ modelId }));
 });
-
-function mockGatewayDeps({
-  generateText = vi.fn(),
-  streamText = vi.fn(),
-  createAiGateway = vi.fn(() => vi.fn((model) => model)),
-  createUnified = vi.fn(() => vi.fn((modelId) => ({ modelId }))),
-} = {}) {
-  vi.resetModules();
-  vi.doMock("ai", () => ({ generateText, streamText }));
-  vi.doMock("ai-gateway-provider", () => ({ createAiGateway }));
-  vi.doMock("ai-gateway-provider/providers/unified", () => ({ createUnified }));
-  return { generateText, streamText, createAiGateway, createUnified };
-}
 
 describe("gateway model helpers", () => {
   test("wraps the unified gateway model through AI Gateway", async () => {
-    const generateText = vi.fn().mockResolvedValue({ text: "ok" });
-    mockGatewayDeps({ generateText });
+    generateTextMock.mockResolvedValue({ text: "ok" });
 
-    const { getGatewayModel } = await import("../src/gateway-model.js");
     const model = await getGatewayModel({
       CF_ACCOUNT_ID: "acct",
       CF_AI_GATEWAY: "gateway",
@@ -38,31 +41,25 @@ describe("gateway model helpers", () => {
 
     await model.generateText({ prompt: "hi" });
 
-    expect(generateText).toHaveBeenCalledWith({
+    expect(generateTextMock).toHaveBeenCalledWith({
       prompt: "hi",
       model: expect.anything(),
     });
   });
 
   test("returns null when gateway env is incomplete", async () => {
-    mockGatewayDeps();
-    const { getGatewayModel } = await import("../src/gateway-model.js");
     await expect(getGatewayModel({})).resolves.toBeNull();
   });
 
   test("passes an OpenAI API key to the unified provider when present", async () => {
-    const generateText = vi.fn().mockResolvedValue({ text: "ok" });
-    const createUnifiedCalls = [];
+    generateTextMock.mockResolvedValue({ text: "ok" });
 
-    mockGatewayDeps({
-      generateText,
-      createUnified: (options) => {
-        createUnifiedCalls.push(options);
-        return vi.fn((modelId) => ({ modelId }));
-      },
+    const createUnifiedCalls = [];
+    createUnifiedMock.mockImplementation((options) => {
+      createUnifiedCalls.push(options);
+      return (modelId) => ({ modelId });
     });
 
-    const { getGatewayModel } = await import("../src/gateway-model.js");
     const model = await getGatewayModel({
       CF_ACCOUNT_ID: "acct",
       CF_AI_GATEWAY: "gateway",
@@ -74,14 +71,12 @@ describe("gateway model helpers", () => {
     await model.generateText({ prompt: "hi" });
 
     expect(createUnifiedCalls).toEqual([{ apiKey: "openai-key" }]);
-    expect(generateText).toHaveBeenCalledWith({ prompt: "hi", model: expect.anything() });
+    expect(generateTextMock).toHaveBeenCalledWith({ prompt: "hi", model: expect.anything() });
   });
 
   test("generateGatewayText falls back to null when inference fails", async () => {
-    const generateText = vi.fn().mockRejectedValue(new Error("gateway down"));
-    mockGatewayDeps({ generateText });
+    generateTextMock.mockRejectedValue(new Error("gateway down"));
 
-    const { generateGatewayText } = await import("../src/gateway-model.js");
     await expect(
       generateGatewayText(
         {
@@ -97,15 +92,8 @@ describe("gateway model helpers", () => {
 
   test("streamGatewayText wraps AI Gateway streaming", async () => {
     const streamResult = { textStream: ["ok"] };
-    const streamText = vi.fn().mockReturnValue(streamResult);
+    streamTextMock.mockReturnValue(streamResult);
 
-    mockGatewayDeps({
-      generateText: vi.fn(),
-      streamText,
-      createUnified: () => vi.fn((modelId) => ({ modelId })),
-    });
-
-    const { streamGatewayText } = await import("../src/gateway-model.js");
     const result = await streamGatewayText(
       {
         CF_ACCOUNT_ID: "acct",
@@ -117,6 +105,6 @@ describe("gateway model helpers", () => {
     );
 
     expect(result).toBe(streamResult);
-    expect(streamText).toHaveBeenCalledWith({ prompt: "hi", model: expect.anything() });
+    expect(streamTextMock).toHaveBeenCalledWith({ prompt: "hi", model: expect.anything() });
   });
 });

@@ -1,8 +1,11 @@
 import { createServer, type IncomingMessage, type Server as HttpServer } from "node:http";
 import * as acp from "@agentclientprotocol/sdk";
-import { WebSocketServer, WebSocket, type RawData } from "ws";
+import { WebSocketServer, WebSocket, type ClientOptions, type RawData } from "ws";
 import type { Runtime } from "@flamecast/protocol/runtime";
-import type { SessionHostStartRequest, SessionHostStartResponse } from "@flamecast/protocol/session-host";
+import type {
+  SessionHostStartRequest,
+  SessionHostStartResponse,
+} from "@flamecast/protocol/session-host";
 import type { WsControlMessage, WsServerMessage } from "@flamecast/protocol/ws";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -22,6 +25,15 @@ type AgentJsRuntimeOptions = {
 type StartBody = SessionHostStartRequest & {
   baseUrl?: string;
   websocketUrl?: string;
+};
+
+type PromptBody = {
+  text?: string;
+};
+
+type PermissionBody = {
+  optionId?: string;
+  outcome?: "cancelled";
 };
 
 type ManagedSession = {
@@ -56,7 +68,7 @@ function toUint8Array(data: RawData): Uint8Array | Promise<Uint8Array> {
 
 async function openWorkerAcpTransport(
   url: string,
-  init: ConstructorParameters<typeof WebSocket>[1] = {},
+  init?: ClientOptions,
 ): Promise<RemoteAcpTransport> {
   const ws = new WebSocket(url, init);
 
@@ -148,6 +160,109 @@ function readRequestBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseStartBody(value: unknown): StartBody {
+  if (!isRecord(value)) {
+    throw new Error("Invalid start request");
+  }
+
+  const args = value.args;
+  if (
+    typeof value.command !== "string" ||
+    !Array.isArray(args) ||
+    args.some((arg) => typeof arg !== "string") ||
+    typeof value.workspace !== "string"
+  ) {
+    throw new Error("Invalid start request");
+  }
+
+  return {
+    command: value.command,
+    args,
+    workspace: value.workspace,
+    sessionId: typeof value.sessionId === "string" ? value.sessionId : undefined,
+    setup: typeof value.setup === "string" ? value.setup : undefined,
+    callbackUrl: typeof value.callbackUrl === "string" ? value.callbackUrl : undefined,
+    baseUrl: typeof value.baseUrl === "string" ? value.baseUrl : undefined,
+    websocketUrl: typeof value.websocketUrl === "string" ? value.websocketUrl : undefined,
+  };
+}
+
+function parsePromptBody(value: unknown): PromptBody {
+  if (!isRecord(value)) {
+    throw new Error("Invalid prompt request");
+  }
+
+  return {
+    text: typeof value.text === "string" ? value.text : undefined,
+  };
+}
+
+function parsePermissionBody(value: unknown): PermissionBody {
+  if (!isRecord(value)) {
+    throw new Error("Invalid permission response");
+  }
+
+  return {
+    optionId: typeof value.optionId === "string" ? value.optionId : undefined,
+    outcome: value.outcome === "cancelled" ? value.outcome : undefined,
+  };
+}
+
+function parseWsControlMessage(value: unknown): WsControlMessage {
+  if (!isRecord(value) || typeof value.action !== "string") {
+    throw new Error("Invalid control message");
+  }
+
+  const queueId = typeof value.queueId === "string" ? value.queueId : undefined;
+
+  switch (value.action) {
+    case "prompt":
+      if (typeof value.text !== "string") {
+        throw new Error("Invalid control message");
+      }
+      return { action: "prompt", text: value.text };
+    case "permission.respond":
+      if (
+        typeof value.requestId !== "string" ||
+        !isRecord(value.body) ||
+        !("optionId" in value.body || value.body.outcome === "cancelled")
+      ) {
+        throw new Error("Invalid control message");
+      }
+      return {
+        action: "permission.respond",
+        requestId: value.requestId,
+        body:
+          typeof value.body.optionId === "string"
+            ? { optionId: value.body.optionId }
+            : { outcome: "cancelled" },
+      };
+    case "cancel":
+      return queueId ? { action: "cancel", queueId } : { action: "cancel" };
+    case "terminate":
+      return { action: "terminate" };
+    case "ping":
+      return { action: "ping" };
+    case "queue.clear":
+      return { action: "queue.clear" };
+    case "queue.pause":
+      return { action: "queue.pause" };
+    case "queue.resume":
+      return { action: "queue.resume" };
+    case "queue.reorder":
+      if (!Array.isArray(value.order) || value.order.some((item) => typeof item !== "string")) {
+        throw new Error("Invalid control message");
+      }
+      return { action: "queue.reorder", order: value.order };
+    default:
+      throw new Error("Invalid control message");
+  }
+}
+
 function resolveRemoteAcpUrl(
   sessionId: string,
   runtime: StartBody,
@@ -198,14 +313,20 @@ export class AgentJsRuntime implements Runtime<Pick<StartBody, "baseUrl" | "webs
       return this.handleQueue(sessionId);
     }
     if (path.startsWith("/permissions/") && request.method === "POST") {
-      return this.handlePermission(sessionId, decodeURIComponent(path.slice("/permissions/".length)), request);
+      return this.handlePermission(
+        sessionId,
+        decodeURIComponent(path.slice("/permissions/".length)),
+        request,
+      );
     }
 
     return jsonResponse({ error: `Unsupported path "${path}"` }, 404);
   }
 
   async dispose(): Promise<void> {
-    await Promise.allSettled([...this.sessions.keys()].map((sessionId) => this.closeSession(sessionId)));
+    await Promise.allSettled(
+      [...this.sessions.keys()].map((sessionId) => this.closeSession(sessionId)),
+    );
     this.sessions.clear();
 
     if (this.wss) {
@@ -229,7 +350,7 @@ export class AgentJsRuntime implements Runtime<Pick<StartBody, "baseUrl" | "webs
     try {
       await this.ensureServer();
 
-      const body = JSON.parse(await request.text()) as StartBody;
+      const body = parseStartBody(JSON.parse(await request.text()));
       const transport = await openWorkerAcpTransport(
         resolveRemoteAcpUrl(sessionId, body, this.defaults),
         this.defaults.headers ? { headers: this.defaults.headers } : undefined,
@@ -297,7 +418,7 @@ export class AgentJsRuntime implements Runtime<Pick<StartBody, "baseUrl" | "webs
     }
 
     try {
-      const body = JSON.parse(await request.text()) as { text?: string };
+      const body = parsePromptBody(JSON.parse(await request.text()));
       if (!body.text) {
         return jsonResponse({ error: "Missing 'text' field" }, 400);
       }
@@ -308,10 +429,7 @@ export class AgentJsRuntime implements Runtime<Pick<StartBody, "baseUrl" | "webs
         headers: JSON_HEADERS,
       });
     } catch (error) {
-      return jsonResponse(
-        { error: error instanceof Error ? error.message : "Prompt failed" },
-        500,
-      );
+      return jsonResponse({ error: error instanceof Error ? error.message : "Prompt failed" }, 500);
     }
   }
 
@@ -344,7 +462,7 @@ export class AgentJsRuntime implements Runtime<Pick<StartBody, "baseUrl" | "webs
       return jsonResponse({ error: `Permission request "${requestId}" not found` }, 404);
     }
 
-    const body = JSON.parse(await request.text()) as { optionId?: string; outcome?: "cancelled" };
+    const body = parsePermissionBody(JSON.parse(await request.text()));
     session.permissionResolvers.delete(requestId);
 
     const response: acp.RequestPermissionResponse =
@@ -352,12 +470,22 @@ export class AgentJsRuntime implements Runtime<Pick<StartBody, "baseUrl" | "webs
         ? { outcome: { outcome: "selected", optionId: body.optionId } }
         : { outcome: { outcome: "cancelled" } };
 
-    this.emitRpc(session, acp.CLIENT_METHODS.session_request_permission, "client_to_agent", "response", response);
-    resolver(response);
-    this.emitEvent(session, response.outcome.outcome === "selected" ? "permission_approved" : "permission_rejected", {
-      requestId,
+    this.emitRpc(
+      session,
+      acp.CLIENT_METHODS.session_request_permission,
+      "client_to_agent",
+      "response",
       response,
-    });
+    );
+    resolver(response);
+    this.emitEvent(
+      session,
+      response.outcome.outcome === "selected" ? "permission_approved" : "permission_rejected",
+      {
+        requestId,
+        response,
+      },
+    );
     return jsonResponse({ ok: true });
   }
 
@@ -374,7 +502,13 @@ export class AgentJsRuntime implements Runtime<Pick<StartBody, "baseUrl" | "webs
 
     const client: acp.Client = {
       sessionUpdate: async (params) => {
-        this.emitRpc(session, acp.CLIENT_METHODS.session_update, "agent_to_client", "notification", params);
+        this.emitRpc(
+          session,
+          acp.CLIENT_METHODS.session_update,
+          "agent_to_client",
+          "notification",
+          params,
+        );
       },
       requestPermission: async (params) => {
         this.emitRpc(
@@ -393,7 +527,7 @@ export class AgentJsRuntime implements Runtime<Pick<StartBody, "baseUrl" | "webs
             toolCallId: params.toolCall.toolCallId,
             title: params.toolCall.title ?? "",
             kind: params.toolCall.kind ?? undefined,
-            options: params.options.map((option) => ({
+            options: params.options.map((option: acp.PermissionOption) => ({
               optionId: option.optionId,
               name: option.name,
               kind: String(option.kind),
@@ -437,7 +571,13 @@ export class AgentJsRuntime implements Runtime<Pick<StartBody, "baseUrl" | "webs
       }
 
       const result = await session.connection.prompt(params);
-      this.emitRpc(session, acp.AGENT_METHODS.session_prompt, "agent_to_client", "response", result);
+      this.emitRpc(
+        session,
+        acp.AGENT_METHODS.session_prompt,
+        "agent_to_client",
+        "response",
+        result,
+      );
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Prompt failed";
@@ -508,7 +648,9 @@ export class AgentJsRuntime implements Runtime<Pick<StartBody, "baseUrl" | "webs
       const server = createServer(async (req, res) => {
         try {
           const url = new URL(req.url ?? "/", "http://127.0.0.1");
-          const match = url.pathname.match(/^\/sessions\/([^/]+)(?:\/(queue|files|fs\/snapshot))?$/);
+          const match = url.pathname.match(
+            /^\/sessions\/([^/]+)(?:\/(queue|files|fs\/snapshot))?$/,
+          );
           if (!match) {
             res.writeHead(404, JSON_HEADERS);
             res.end(JSON.stringify({ error: "Not found" }));
@@ -556,7 +698,7 @@ export class AgentJsRuntime implements Runtime<Pick<StartBody, "baseUrl" | "webs
           }
 
           if (req.method === "POST" && resource === "") {
-            const body = JSON.parse(await readRequestBody(req)) as WsControlMessage;
+            const body = parseWsControlMessage(JSON.parse(await readRequestBody(req)));
             await this.handleWsControl(session, body);
             res.writeHead(200, JSON_HEADERS);
             res.end(JSON.stringify({ ok: true }));
@@ -593,13 +735,20 @@ export class AgentJsRuntime implements Runtime<Pick<StartBody, "baseUrl" | "webs
 
         wss.handleUpgrade(request, socket, head, (ws) => {
           session.clients.add(ws);
-          ws.send(JSON.stringify({ type: "connected", sessionId: session.id } satisfies WsServerMessage));
+          ws.send(
+            JSON.stringify({ type: "connected", sessionId: session.id } satisfies WsServerMessage),
+          );
           ws.on("message", (message) => {
             let body: WsControlMessage;
             try {
               body = JSON.parse(String(message));
             } catch {
-              ws.send(JSON.stringify({ type: "error", message: "Invalid message format" } satisfies WsServerMessage));
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: "Invalid message format",
+                } satisfies WsServerMessage),
+              );
               return;
             }
 

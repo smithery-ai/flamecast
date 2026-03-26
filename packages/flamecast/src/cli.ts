@@ -17,7 +17,7 @@ const port = parsePort(process.env.FLAMECAST_PORT ?? process.env.PORT);
 const flamecast = new Flamecast({
   runtimes: {
     default: new NodeRuntime(),
-    "agent.js": new AgentJsRuntime({
+    agentjs: new AgentJsRuntime({
       baseUrl: process.env.FLAMECAST_AGENT_JS_BASE_URL,
       websocketUrl: process.env.FLAMECAST_AGENT_JS_WEBSOCKET_URL,
     }),

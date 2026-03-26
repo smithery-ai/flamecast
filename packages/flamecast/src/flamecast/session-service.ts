@@ -43,7 +43,9 @@ export class SessionService {
     }
 
     const sessionId = crypto.randomUUID();
-    const { provider: _provider, ...runtimeConfig } = opts.runtime;
+    const runtimeConfig = Object.fromEntries(
+      Object.entries(opts.runtime).filter(([key]) => key !== "provider"),
+    );
     const body = {
       ...runtimeConfig,
       sessionId,

@@ -128,7 +128,7 @@ curl -X POST http://127.0.0.1:3001/api/agent-templates \
     "name": "Agent.js local",
     "spawn": { "command": "remote-acp", "args": ["agent.js"] },
     "runtime": {
-      "provider": "agent.js",
+      "provider": "agentjs",
       "baseUrl": "http://127.0.0.1:8787"
     }
   }'
@@ -203,10 +203,10 @@ The example includes a tiny runtime provider adapter at [`src/runtime-provider.j
 
 Use it with Flamecast by pointing the provider at the worker base URL or the `/acp` WebSocket base path. The provider appends the Flamecast session ID automatically and connects to `/acp/:sessionId`.
 
-Flamecast now also ships a built-in runtime provider named `agent.js`. Register a template over the Flamecast API with either:
+Flamecast now also ships a built-in runtime provider named `agentjs`. Register a template over the Flamecast API with either:
 
-- `runtime.provider = "agent.js"` plus `FLAMECAST_AGENT_JS_BASE_URL` set on the Flamecast server
-- or `runtime.provider = "agent.js"` plus `runtime.baseUrl` on the template itself
+- `runtime.provider = "agentjs"` plus `FLAMECAST_AGENT_JS_BASE_URL` set on the Flamecast server
+- or `runtime.provider = "agentjs"` plus `runtime.baseUrl` on the template itself
 
 Example template registration:
 
@@ -217,7 +217,7 @@ curl -X POST http://localhost:3001/api/agent-templates \
     "name": "Agent.js remote",
     "spawn": { "command": "remote-acp", "args": ["agent.js"] },
     "runtime": {
-      "provider": "agent.js",
+      "provider": "agentjs",
       "baseUrl": "https://flamecast-agent-js.smithery.workers.dev"
     }
   }'
