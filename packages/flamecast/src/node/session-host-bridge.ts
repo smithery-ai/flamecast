@@ -108,8 +108,10 @@ export class SessionHostBridge {
       this.maybeReconnect(sessionId, websocketUrl, conn.attempts);
     });
 
-    ws.on("error", () => {
-      // Error is followed by close, which handles reconnection
+    ws.on("error", (err) => {
+      console.warn(
+        `[SessionHostBridge] WS error for "${sessionId}" (${websocketUrl}): ${err.message}`,
+      );
     });
   }
 
