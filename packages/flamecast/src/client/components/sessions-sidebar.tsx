@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchRuntimes,
   fetchSessions,
+  pauseRuntime,
   startRuntime,
   stopRuntime,
   terminateSession,
@@ -21,8 +22,9 @@ import {
   SidebarMenuItem,
   SidebarMenuSkeleton,
 } from "@/client/components/ui/sidebar";
-import { PlusIcon, SquareIcon, Trash2Icon } from "lucide-react";
+import { LoaderCircleIcon, PauseIcon, PlayIcon, PlusIcon, SquareIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 
 /**
@@ -210,24 +212,50 @@ function RuntimeTypeItem({
   const navigate = useNavigate();
   const [newInstanceName, setNewInstanceName] = useState("");
   const [showInput, setShowInput] = useState(false);
+  // Track which instance name has an in-flight action
+  const [pendingInstance, setPendingInstance] = useState<string | null>(null);
 
   const startMutation = useMutation({
     mutationFn: ({ typeName, name }: { typeName: string; name?: string }) =>
       startRuntime(typeName, name),
+    onMutate: ({ name }) => setPendingInstance(name ?? null),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["runtimes"] });
       setNewInstanceName("");
       setShowInput(false);
     },
+    onError: (err) => {
+      toast.error("Failed to start runtime", { description: String(err.message) });
+    },
+    onSettled: () => setPendingInstance(null),
   });
 
   const stopMutation = useMutation({
     mutationFn: stopRuntime,
+    onMutate: (name) => setPendingInstance(name),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["runtimes"] });
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
     },
+    onError: (err) => {
+      toast.error("Failed to stop runtime", { description: String(err.message) });
+    },
+    onSettled: () => setPendingInstance(null),
   });
+
+  const pauseMutation = useMutation({
+    mutationFn: pauseRuntime,
+    onMutate: (name) => setPendingInstance(name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["runtimes"] });
+    },
+    onError: (err) => {
+      toast.error("Failed to pause runtime", { description: String(err.message) });
+    },
+    onSettled: () => setPendingInstance(null),
+  });
+
+  const isBusy = startMutation.isPending || stopMutation.isPending || pauseMutation.isPending;
 
   const setFilter = (value: string) => {
     void navigate({
@@ -302,42 +330,91 @@ function RuntimeTypeItem({
         </SidebarMenuItem>
       )}
 
-      {runtime.instances.map((instance) => (
-        <SidebarMenuItem key={instance.name}>
-          <SidebarMenuButton
-            className="pl-6 text-sm"
-            isActive={activeFilter === instance.name}
-            onClick={() => setFilter(instance.name)}
-          >
-            <span className="truncate">{instance.name}</span>
-            <span
-              className={cn(
-                "ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none",
-                instance.status === "running"
-                  ? "bg-green-500/15 text-green-700 dark:text-green-400"
-                  : "bg-muted text-muted-foreground",
-              )}
+      {runtime.instances.map((instance) => {
+        const isThisPending = pendingInstance === instance.name && isBusy;
+        return (
+          <SidebarMenuItem key={instance.name}>
+            <SidebarMenuButton
+              className="pl-6 text-sm"
+              isActive={activeFilter === instance.name}
+              onClick={() => setFilter(instance.name)}
             >
-              {instance.status}
-            </span>
-          </SidebarMenuButton>
-          {instance.status === "running" && (
-            <SidebarMenuAction
-              showOnHover
-              title="Stop instance"
-              disabled={stopMutation.isPending}
-              className="z-10 !top-1/2 right-1 !-translate-y-1/2 size-7 cursor-pointer rounded-md hover:bg-muted"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                stopMutation.mutate(instance.name);
-              }}
-            >
-              <SquareIcon className="size-3.5 shrink-0" />
-            </SidebarMenuAction>
-          )}
-        </SidebarMenuItem>
-      ))}
+              <span className="truncate">{instance.name}</span>
+              <span
+                className={cn(
+                  "ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none",
+                  instance.status === "running"
+                    ? "bg-green-500/15 text-green-700 dark:text-green-400"
+                    : instance.status === "paused"
+                      ? "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400"
+                      : "bg-muted text-muted-foreground",
+                )}
+              >
+                {instance.status}
+              </span>
+            </SidebarMenuButton>
+            {/* Action buttons: shown on hover, one at a time based on status */}
+            {instance.status === "running" ? (
+              // Running: show pause + stop
+              <span className="absolute right-0.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100">
+                <button
+                  type="button"
+                  title="Pause instance"
+                  disabled={isBusy}
+                  className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    pauseMutation.mutate(instance.name);
+                  }}
+                >
+                  {isThisPending && pauseMutation.isPending ? (
+                    <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
+                  ) : (
+                    <PauseIcon className="size-3.5 shrink-0" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  title="Stop instance"
+                  disabled={isBusy}
+                  className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    stopMutation.mutate(instance.name);
+                  }}
+                >
+                  {isThisPending && stopMutation.isPending ? (
+                    <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
+                  ) : (
+                    <SquareIcon className="size-3.5 shrink-0" />
+                  )}
+                </button>
+              </span>
+            ) : (
+              // Stopped or paused: show play (resume)
+              <SidebarMenuAction
+                showOnHover
+                title="Resume instance"
+                disabled={isBusy}
+                className="z-10 !top-1/2 right-1 !-translate-y-1/2 size-7 cursor-pointer rounded-md hover:bg-muted"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  startMutation.mutate({ typeName: runtime.typeName, name: instance.name });
+                }}
+              >
+                {isThisPending && startMutation.isPending ? (
+                  <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
+                ) : (
+                  <PlayIcon className="size-3.5 shrink-0" />
+                )}
+              </SidebarMenuAction>
+            )}
+          </SidebarMenuItem>
+        );
+      })}
     </>
   );
 }

@@ -211,7 +211,8 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
     async listRuntimeInstances() {
       const rows = await db.select().from(runtimeInstances);
       return rows.map((row) => {
-        const status = row.status === "stopped" ? "stopped" : "running";
+        const status =
+          row.status === "stopped" ? "stopped" : row.status === "paused" ? "paused" : "running";
         return { name: row.name, typeName: row.typeName, status };
       });
     },

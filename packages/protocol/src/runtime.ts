@@ -10,10 +10,14 @@ export interface Runtime<TConfig extends Record<string, unknown> = {}> {
   /** If true, only a single instance is allowed (e.g., local/node runtimes). Default: false. */
   readonly onlyOne?: boolean;
   fetchSession(sessionId: string, request: Request): Promise<Response>;
-  /** Start a runtime instance. For hasMultiple runtimes, instanceId identifies which instance. */
+  /** Start (or resume) a runtime instance. Creates the instance if it doesn't exist. */
   start?(instanceId: string): Promise<void>;
-  /** Stop a specific runtime instance. */
+  /** Stop a specific runtime instance and tear down its resources. */
   stop?(instanceId: string): Promise<void>;
+  /** Pause a runtime instance (sessions survive, resources freeze). */
+  pause?(instanceId: string): Promise<void>;
+  /** Query the live status of an instance from the actual runtime (e.g. Docker). */
+  getInstanceStatus?(instanceId: string): Promise<"running" | "stopped" | "paused" | undefined>;
   dispose?(): Promise<void>;
   /**
    * Return runtime-specific metadata for a session that should be persisted
@@ -37,7 +41,7 @@ export interface Runtime<TConfig extends Record<string, unknown> = {}> {
 export interface RuntimeInstance {
   name: string;
   typeName: string;
-  status: "running" | "stopped";
+  status: "running" | "stopped" | "paused";
 }
 
 /** Aggregated info for a runtime type and its instances. */

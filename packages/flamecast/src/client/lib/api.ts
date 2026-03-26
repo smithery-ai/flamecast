@@ -8,6 +8,7 @@ export const {
   fetchRuntimes,
   fetchSession,
   fetchSessions,
+  pauseRuntime,
   registerAgentTemplate,
   startRuntime,
   stopRuntime,

@@ -216,8 +216,29 @@ export class Flamecast<
     await this.ensureReady();
     const storage = this.requireStorage();
     const instances = await storage.listRuntimeInstances();
-    const instancesByType = new Map<string, RuntimeInstance[]>();
+
+    // Resolve live status for instances whose runtime supports it
+    const resolvedInstances: RuntimeInstance[] = [];
     for (const inst of instances) {
+      const runtime = this.runtimesMap[inst.typeName];
+      let status = inst.status;
+
+      if (runtime?.getInstanceStatus) {
+        const liveStatus = await runtime.getInstanceStatus(inst.name).catch(() => undefined);
+        if (liveStatus) {
+          status = liveStatus;
+          // Sync DB if it drifted (e.g. someone paused via Docker Desktop)
+          if (status !== inst.status) {
+            await storage.saveRuntimeInstance({ ...inst, status }).catch(() => {});
+          }
+        }
+      }
+
+      resolvedInstances.push({ ...inst, status });
+    }
+
+    const instancesByType = new Map<string, RuntimeInstance[]>();
+    for (const inst of resolvedInstances) {
       const list = instancesByType.get(inst.typeName) ?? [];
       list.push(inst);
       instancesByType.set(inst.typeName, list);
@@ -277,6 +298,24 @@ export class Flamecast<
     }
 
     await storage.saveRuntimeInstance({ ...instance, status: "stopped" });
+  }
+
+  async pauseRuntime(instanceName: string): Promise<void> {
+    await this.ensureReady();
+    const storage = this.requireStorage();
+    const instances = await storage.listRuntimeInstances();
+    const instance = instances.find((i) => i.name === instanceName);
+    if (!instance) {
+      throw new Error(`Runtime instance "${instanceName}" not found`);
+    }
+
+    const runtime = this.runtimesMap[instance.typeName];
+    if (!runtime?.pause) {
+      throw new Error(`Runtime "${instance.typeName}" does not support pause`);
+    }
+
+    await runtime.pause(instanceName);
+    await storage.saveRuntimeInstance({ ...instance, status: "paused" });
   }
 
   async registerAgentTemplate(

@@ -51,6 +51,7 @@ export class SessionService {
       workspace: opts.cwd,
       setup: opts.runtime.setup,
       callbackUrl: opts.callbackUrl,
+      instanceName: opts.runtimeInstance,
     } satisfies SessionHostStartRequest & Record<string, unknown>;
 
     let response: Response;

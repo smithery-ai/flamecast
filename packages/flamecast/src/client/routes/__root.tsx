@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ChevronRightIcon } from "lucide-react";
 import { SessionsSidebar } from "@/client/components/sessions-sidebar";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/client/components/ui/sidebar";
+import { Toaster } from "@/client/components/ui/sonner";
 
 const rootSearchSchema = z.object({
   runtime: z.string().optional(),
@@ -19,6 +20,7 @@ function RootLayout() {
   });
 
   return (
+    <>
     <SidebarProvider className="h-svh !min-h-0">
       <SessionsSidebar />
       <SidebarInset className="min-h-0 overflow-hidden">
@@ -49,5 +51,7 @@ function RootLayout() {
         </main>
       </SidebarInset>
     </SidebarProvider>
+    <Toaster />
+  </>
   );
 }

@@ -69,6 +69,7 @@ export type FlamecastClient = {
   fetchRuntimes(): Promise<RuntimeInfo[]>;
   startRuntime(typeName: string, name?: string): Promise<RuntimeInstance>;
   stopRuntime(instanceName: string): Promise<void>;
+  pauseRuntime(instanceName: string): Promise<void>;
 };
 
 async function assertOk(response: Response, message: string): Promise<void> {
@@ -216,6 +217,12 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
         param: { instanceName },
       });
       await assertOk(response, "Failed to stop runtime");
+    },
+    async pauseRuntime(instanceName) {
+      const response = await rpc.runtimes[":instanceName"].pause.$post({
+        param: { instanceName },
+      });
+      await assertOk(response, "Failed to pause runtime");
     },
   };
 }
