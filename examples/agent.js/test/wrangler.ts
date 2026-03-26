@@ -59,6 +59,7 @@ export async function startExampleWorker({
   port?: number;
 } = {}) {
   const resolvedPort = port ?? (await getFreePort());
+  const inspectorPort = await getFreePort();
   const args = [
     wranglerBin,
     "dev",
@@ -69,6 +70,8 @@ export async function startExampleWorker({
     "127.0.0.1",
     "--port",
     String(resolvedPort),
+    "--inspector-port",
+    String(inspectorPort),
     "--show-interactive-dev-session=false",
   ];
 

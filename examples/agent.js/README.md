@@ -56,7 +56,9 @@ The session mental model is “real globals across turns.” Internally, the har
 
 The only built-in context primitive is compaction:
 
-- when serialized transcript size crosses `COMPACT_AT_CHARS`, older turns are summarized
+- transcript size is estimated in tokens, not raw characters
+- compaction triggers at roughly 80% of the model context window
+- for `gpt-5.4`, that default threshold is `840000` estimated tokens out of `1050000`
 - the most recent turns are kept verbatim according to `KEEP_RECENT_TURNS`
 - recent `[User]`, `[Assistant]`, and `[Tool result]` blocks stay in context after compaction
 

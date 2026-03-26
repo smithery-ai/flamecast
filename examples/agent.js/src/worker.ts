@@ -15,6 +15,7 @@ import {
   EXECUTE_JS_INPUT_SCHEMA,
   EXECUTE_JS_TOOL_DESCRIPTION,
 } from "./prompts.js";
+import { serializeTranscript, shouldCompactSession } from "./compaction.js";
 
 const SESSION_BASE_PATH = "/sessions";
 const SESSION_PROMPT_METHOD = "session/prompt";
@@ -41,8 +42,9 @@ type AgentNamespace = Parameters<typeof getAgentByName>[0];
 
 type AgentEnv = Record<string, unknown> & {
   AGENT_MODE?: string;
-  COMPACT_AT_CHARS?: string;
   KEEP_RECENT_TURNS?: string;
+  MAX_CONTEXT_TOKENS?: string;
+  COMPACT_AT_CONTEXT_RATIO?: string;
   CF_ACCOUNT_ID?: string;
   CF_AI_GATEWAY?: string;
   CF_AI_GATEWAY_TOKEN?: string;
@@ -227,41 +229,6 @@ function rewritePersistentBindings(source) {
     .replace(/\bimport\s*\(/g, "__import__(");
 }
 
-function serializeTranscript(session) {
-  const parts = [];
-
-  if (session.summary) {
-    parts.push(`[Compaction]\n${session.summary}`);
-  }
-
-  for (const entry of session.transcript) {
-    switch (entry.role) {
-      case "user":
-        parts.push(`[User]\n${entry.text}`);
-        break;
-      case "assistant":
-        parts.push(`[Assistant]\n${entry.text}`);
-        break;
-      case "tool_call":
-        parts.push(`[Assistant]\n<executeJS>\n${entry.code}`);
-        break;
-      case "tool_result":
-        parts.push(
-          `[Tool result]\n${truncate(
-            jsonStringify({
-              result: entry.result,
-              logs: entry.logs,
-              error: entry.error,
-            }),
-          )}`,
-        );
-        break;
-    }
-  }
-
-  return parts.join("\n\n");
-}
-
 function planScriptedTurn(text) {
   const normalized = text.toLowerCase();
   const tmpFsRequest =
@@ -346,11 +313,8 @@ async function summarizeForCompaction(env, entries, signal) {
 }
 
 async function compactSessionIfNeeded(env, session, signal) {
-  const compactAt = Number(env.COMPACT_AT_CHARS ?? "12000");
   const keepRecentTurns = Number(env.KEEP_RECENT_TURNS ?? "6");
-  const serialized = serializeTranscript(session);
-
-  if (serialized.length <= compactAt || session.transcript.length <= keepRecentTurns) {
+  if (!shouldCompactSession(env, session)) {
     return;
   }
 
