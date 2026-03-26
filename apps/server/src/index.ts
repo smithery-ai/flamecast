@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Flamecast, NodeRuntime, serve } from "@flamecast/sdk";
+import { Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
 import { DockerRuntime } from "@flamecast/runtime-docker";
 import { createPsqlStorage } from "@flamecast/storage-psql";
 
@@ -40,7 +40,7 @@ const flamecast = new Flamecast({
   ],
 });
 
-serve(flamecast, { port: 3001 }, (info) => {
+listen(flamecast, { port: 3001 }, (info) => {
   console.log(`Flamecast running on http://localhost:${info.port}`);
 });
 

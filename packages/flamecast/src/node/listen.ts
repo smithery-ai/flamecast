@@ -16,15 +16,15 @@ import { WsAdapter } from "./ws-adapter.js";
  *
  * @example
  * ```ts
- * import { Flamecast, serve } from "@flamecast/sdk";
+ * import { Flamecast, listen } from "@flamecast/sdk";
  *
  * const flamecast = new Flamecast({ runtimes: { default: new NodeRuntime() } });
- * serve(flamecast, { port: 3001 }, (info) => {
+ * listen(flamecast, { port: 3001 }, (info) => {
  *   console.log(`Flamecast running on http://localhost:${info.port}`);
  * });
  * ```
  */
-export function serve(
+export function listen(
   flamecast: Flamecast,
   options: { port: number },
   listeningListener?: (info: AddressInfo) => void,
