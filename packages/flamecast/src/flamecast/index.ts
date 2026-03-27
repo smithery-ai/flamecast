@@ -450,6 +450,38 @@ export class Flamecast<
     return this.sessionService.proxyRequest(id, path, init);
   }
 
+  async fetchRuntimeFilePreview(instanceName: string, path: string): Promise<FilePreview> {
+    await this.ensureReady();
+    const response = await this.proxyRuntimeInstanceRequest(
+      instanceName,
+      `/files?path=${encodeURIComponent(path)}`,
+      { method: "GET" },
+    );
+    if (!response.ok) {
+      const detail = await readProxyErrorDetail(response);
+      throw new ProxyRequestError(response.status, detail);
+    }
+    const preview: FilePreview = await response.json();
+    return preview;
+  }
+
+  async fetchRuntimeFileSystem(
+    instanceName: string,
+    opts: { showAllFiles?: boolean } = {},
+  ): Promise<FileSystemSnapshot> {
+    await this.ensureReady();
+    const query = opts.showAllFiles ? "?showAllFiles=true" : "";
+    const response = await this.proxyRuntimeInstanceRequest(instanceName, `/fs/snapshot${query}`, {
+      method: "GET",
+    });
+    if (!response.ok) {
+      const detail = await readProxyErrorDetail(response);
+      throw new ProxyRequestError(response.status, detail);
+    }
+    const snapshot: FileSystemSnapshot = await response.json();
+    return snapshot;
+  }
+
   async fetchSessionFilePreview(id: string, path: string): Promise<FilePreview> {
     await this.ensureReady();
     const response = await this.sessionService.proxyRequest(
@@ -465,9 +497,15 @@ export class Flamecast<
     return preview;
   }
 
-  async fetchSessionFileSystem(id: string): Promise<FileSystemSnapshot> {
+  async fetchSessionFileSystem(
+    id: string,
+    opts: { showAllFiles?: boolean } = {},
+  ): Promise<FileSystemSnapshot> {
     await this.ensureReady();
-    const response = await this.sessionService.proxyRequest(id, "/fs/snapshot", { method: "GET" });
+    const query = opts.showAllFiles ? "?showAllFiles=true" : "";
+    const response = await this.sessionService.proxyRequest(id, `/fs/snapshot${query}`, {
+      method: "GET",
+    });
     if (!response.ok) {
       const detail = await readProxyErrorDetail(response);
       throw new ProxyRequestError(response.status, detail);
@@ -925,7 +963,9 @@ export class Flamecast<
 
     const fileSystem =
       opts.includeFileSystem && this.sessionService.hasSession(id)
-        ? await this.fetchSessionFileSystem(id).catch(() => null)
+        ? await this.fetchSessionFileSystem(id, { showAllFiles: opts.showAllFiles }).catch(
+            () => null,
+          )
         : null;
 
     return {
@@ -942,5 +982,32 @@ export class Flamecast<
       websocketUrl,
       runtime: meta.runtime,
     };
+  }
+
+  private async proxyRuntimeInstanceRequest(
+    instanceName: string,
+    path: string,
+    init: RequestInit,
+  ): Promise<Response> {
+    const storage = this.requireStorage();
+    const instances = await storage.listRuntimeInstances();
+    const instance = instances.find((candidate) => candidate.name === instanceName);
+
+    const typeName = instance?.typeName ?? instanceName;
+    const runtime = this.runtimesMap[typeName];
+    if (!runtime) {
+      return new Response("Runtime instance not found", { status: 404 });
+    }
+    if (!runtime.fetchInstance) {
+      return new Response("Runtime instance proxy is not supported", { status: 400 });
+    }
+
+    return runtime.fetchInstance(
+      instanceName,
+      new Request(`http://runtime${path}`, {
+        ...init,
+        headers: { "Content-Type": "application/json", ...init.headers },
+      }),
+    );
   }
 }

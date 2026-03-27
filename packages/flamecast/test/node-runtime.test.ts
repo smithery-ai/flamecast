@@ -109,4 +109,25 @@ describe("NodeRuntime", () => {
     expect(requests[0].url).toBe("/sessions/abc/files?path=agent.ts");
     expect(requests[0].body).toBe("");
   });
+
+  it("forwards runtime-instance requests without a session prefix", async () => {
+    const { url, server, requests } = await startMockServer(() => ({
+      status: 200,
+      body: JSON.stringify({ ok: true }),
+    }));
+    serverToCleanup = server;
+
+    const runtime = new NodeRuntime(url);
+
+    const response = await runtime.fetchInstance?.(
+      "local",
+      new Request("http://host/fs/snapshot?showAllFiles=true", { method: "GET" }),
+    );
+
+    expect(response?.status).toBe(200);
+    expect(requests.length).toBe(1);
+    expect(requests[0].method).toBe("GET");
+    expect(requests[0].url).toBe("/fs/snapshot?showAllFiles=true");
+    expect(requests[0].body).toBe("");
+  });
 });

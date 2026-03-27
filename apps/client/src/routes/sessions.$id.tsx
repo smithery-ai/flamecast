@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { fetchSession } from "@/lib/api";
-import { FileTree, FileTreeFile, FileTreeFolder } from "@/components/ai-elements/file-tree";
+import { FileSystemPanel } from "@/components/filesystem-panel";
 import { sessionLogsToSegments } from "@/lib/logs-markdown";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -10,19 +10,12 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Streamdown } from "streamdown";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
-import {
-  ArrowLeftIcon,
-  ChevronDownIcon,
-  FileCode2Icon,
-  FolderTreeIcon,
-  SendIcon,
-} from "lucide-react";
+import { ArrowLeftIcon, ChevronDownIcon, SendIcon } from "lucide-react";
 import type { FileSystemEntry, SessionLog } from "@flamecast/sdk/session";
-import { FileSystemEntrySchema, PendingPermissionSchema } from "@flamecast/sdk/session";
+import { PendingPermissionSchema } from "@flamecast/sdk/session";
 import type { PermissionRequestEvent } from "@flamecast/protocol/session-host";
 import { useFlamecastSession } from "@/hooks/use-flamecast-session";
 
@@ -30,18 +23,9 @@ export const Route = createFileRoute("/sessions/$id")({
   component: SessionDetailPage,
 });
 
-type TreeNode = {
-  name: string;
-  path: string;
-  type: FileSystemEntry["type"];
-  children: TreeNode[];
-};
-
 function SessionDetailPage() {
   const { id } = Route.useParams();
   const [prompt, setPrompt] = useState("");
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [showAllFiles, setShowAllFiles] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
@@ -115,71 +99,14 @@ function SessionDetailPage() {
 
   useEffect(() => {
     if (!session) return;
-    requestFsSnapshot()
+    requestFsSnapshot({ showAllFiles })
       .then((snapshot) => {
-        setFileEntries(
-          snapshot.entries.flatMap((e) => {
-            const parsed = FileSystemEntrySchema.safeParse(e);
-            return parsed.success ? [parsed.data] : [];
-          }),
-        );
+        setFileEntries(snapshot.entries);
         setWorkspaceRoot(snapshot.root);
       })
       .catch(() => {});
-  }, [fsChangeCount, requestFsSnapshot, session]);
-  const fileEntryMap = useMemo(
-    () => new Map(fileEntries.map((entry) => [entry.path, entry])),
-    [fileEntries],
-  );
-  const fileTree = useMemo(() => buildTree(fileEntries), [fileEntries]);
+  }, [fsChangeCount, requestFsSnapshot, session, showAllFiles]);
   const markdownSegments = useMemo(() => sessionLogsToSegments(logs), [logs]);
-
-  useEffect(() => {
-    setExpandedPaths((current) => (current.size > 0 ? current : getInitialExpandedPaths(fileTree)));
-  }, [fileTree]);
-
-  useEffect(() => {
-    if (selectedPath && fileEntryMap.get(selectedPath)?.type === "file") {
-      return;
-    }
-
-    const firstFile = fileEntries.find((entry) => entry.type === "file");
-    setSelectedPath(firstFile?.path ?? null);
-  }, [fileEntries, fileEntryMap, selectedPath]);
-
-  const selectedEntry = selectedPath ? (fileEntryMap.get(selectedPath) ?? null) : null;
-
-  // File preview via Flamecast API
-  const [filePreview, setFilePreview] = useState<{ content: string; truncated: boolean } | null>(
-    null,
-  );
-  const [filePreviewLoading, setFilePreviewLoading] = useState(false);
-
-  useEffect(() => {
-    if (!selectedPath || !selectedEntry || selectedEntry.type !== "file") {
-      setFilePreview(null);
-      return;
-    }
-    let cancelled = false;
-    setFilePreviewLoading(true);
-    requestFilePreview(selectedPath)
-      .then((result) => {
-        if (!cancelled) {
-          setFilePreview({ content: result.content, truncated: result.truncated });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setFilePreview(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setFilePreviewLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedPath, selectedEntry, requestFilePreview]);
 
   const handlePermission = (
     requestId: string,
@@ -195,21 +122,6 @@ function SessionDetailPage() {
     setPrompt("");
     // Reset sending state after a short delay (the WS is fire-and-forget)
     setTimeout(() => setIsSending(false), 500);
-  };
-
-  const handleTreeSelect = (path: string) => {
-    setSelectedPath(path);
-    setExpandedPaths((current) => {
-      const next = new Set(current);
-      for (const parentPath of getParentPaths(path)) {
-        next.add(parentPath);
-      }
-      const entry = fileEntryMap.get(path);
-      if (entry?.type === "directory") {
-        next.add(path);
-      }
-      return next;
-    });
   };
 
   if (isLoading) {
@@ -413,79 +325,13 @@ function SessionDetailPage() {
         </TabsContent>
 
         <TabsContent value="files" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
-            <aside className="flex w-96 shrink-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-card">
-              <div className="flex shrink-0 items-center gap-3 border-b px-4 py-3">
-                <FolderTreeIcon className="size-4 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">Files</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {workspaceRoot ?? "No workspace root"}
-                  </p>
-                </div>
-                <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                  <span>Show all</span>
-                  <Switch
-                    aria-label="Show ignored files"
-                    checked={showAllFiles}
-                    onCheckedChange={setShowAllFiles}
-                    size="sm"
-                  />
-                </label>
-              </div>
-              <div className="min-h-0 flex-1 overflow-auto p-3">
-                {fileTree.length === 0 ? (
-                  <p className="py-8 text-center text-sm text-muted-foreground">
-                    No filesystem entries returned.
-                  </p>
-                ) : (
-                  <FileTree
-                    className="border-none bg-transparent"
-                    expanded={expandedPaths}
-                    onExpandedChange={setExpandedPaths}
-                    onSelect={handleTreeSelect}
-                    selectedPath={selectedPath ?? undefined}
-                  >
-                    {renderTree(fileTree)}
-                  </FileTree>
-                )}
-              </div>
-            </aside>
-
-            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-card">
-              <div className="flex shrink-0 items-center gap-3 border-b px-4 py-3">
-                <FileCode2Icon className="size-4 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">
-                    {selectedPath ?? "Select a file to preview"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {selectedEntry?.type === "file"
-                      ? "Previewing current workspace file"
-                      : "Select a file from the tree"}
-                  </p>
-                </div>
-              </div>
-              <div className="min-h-0 flex-1 overflow-auto">
-                {!selectedEntry ? (
-                  <EmptyPreview message="No file selected." />
-                ) : selectedEntry.type !== "file" ? (
-                  <EmptyPreview message="Select a file to preview its contents." />
-                ) : filePreviewLoading ? (
-                  <EmptyPreview message="Loading..." />
-                ) : filePreview ? (
-                  <pre className="whitespace-pre-wrap break-all p-4 text-xs font-mono">
-                    {filePreview.content}
-                    {filePreview.truncated && (
-                      <span className="text-muted-foreground">{"\n\n--- File truncated ---"}</span>
-                    )}
-                  </pre>
-                ) : (
-                  <EmptyPreview message="Could not load file preview." />
-                )}
-              </div>
-            </section>
-          </div>
+          <FileSystemPanel
+            workspaceRoot={workspaceRoot}
+            entries={fileEntries}
+            showAllFiles={showAllFiles}
+            onShowAllFilesChange={setShowAllFiles}
+            loadPreview={requestFilePreview}
+          />
         </TabsContent>
       </Tabs>
 
@@ -515,14 +361,6 @@ function SessionDetailPage() {
   );
 }
 
-function EmptyPreview({ message }: { message: string }) {
-  return (
-    <div className="flex h-full min-h-[20rem] items-center justify-center p-6 text-sm text-muted-foreground">
-      {message}
-    </div>
-  );
-}
-
 function StickToBottomFab() {
   const { isAtBottom, scrollToBottom } = useStickToBottomContext();
   if (isAtBottom) return null;
@@ -538,85 +376,6 @@ function StickToBottomFab() {
       <ChevronDownIcon />
     </Button>
   );
-}
-
-function renderTree(nodes: TreeNode[]) {
-  return nodes.map((node) =>
-    node.type === "directory" ? (
-      <FileTreeFolder key={node.path} name={node.name} path={node.path}>
-        {renderTree(node.children)}
-      </FileTreeFolder>
-    ) : (
-      <FileTreeFile key={node.path} name={node.name} path={node.path} />
-    ),
-  );
-}
-
-function buildTree(entries: FileSystemEntry[]): TreeNode[] {
-  const root: TreeNode = {
-    name: "",
-    path: "",
-    type: "directory",
-    children: [],
-  };
-
-  for (const entry of entries) {
-    const segments = entry.path.split("/").filter(Boolean);
-    let current = root;
-
-    segments.forEach((segment, index) => {
-      const path = segments.slice(0, index + 1).join("/");
-      let child = current.children.find((candidate) => candidate.path === path);
-
-      if (!child) {
-        child = {
-          name: segment,
-          path,
-          type: index === segments.length - 1 ? entry.type : "directory",
-          children: [],
-        };
-        current.children.push(child);
-      }
-
-      if (index === segments.length - 1) {
-        child.type = entry.type;
-      }
-
-      current = child;
-    });
-  }
-
-  sortTree(root.children);
-  return root.children;
-}
-
-function sortTree(nodes: TreeNode[]) {
-  nodes.sort((a, b) => {
-    if (a.type === "directory" && b.type !== "directory") return -1;
-    if (a.type !== "directory" && b.type === "directory") return 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  nodes.forEach((node) => {
-    if (node.children.length > 0) {
-      sortTree(node.children);
-    }
-  });
-}
-
-function getInitialExpandedPaths(nodes: TreeNode[]) {
-  return new Set(nodes.filter((node) => node.type === "directory").map((node) => node.path));
-}
-
-function getParentPaths(path: string) {
-  const segments = path.split("/").filter(Boolean);
-  const parents: string[] = [];
-
-  for (let index = 0; index < segments.length - 1; index += 1) {
-    parents.push(segments.slice(0, index + 1).join("/"));
-  }
-
-  return parents;
 }
 
 function getLogVariant(type: string): "default" | "secondary" | "destructive" | "outline" {

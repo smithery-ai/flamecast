@@ -10,6 +10,13 @@ export interface Runtime<TConfig extends Record<string, unknown> = {}> {
   /** If true, only a single instance is allowed (e.g., local/node runtimes). Default: false. */
   readonly onlyOne?: boolean;
   fetchSession(sessionId: string, request: Request): Promise<Response>;
+  /**
+   * Proxy an instance-scoped request directly to the runtime instance.
+   *
+   * This is intended for runtime-level surfaces such as filesystem browsing
+   * or aggregate traces that should exist independently of any one session.
+   */
+  fetchInstance?(instanceId: string, request: Request): Promise<Response>;
   /** Start (or resume) a runtime instance. Creates the instance if it doesn't exist. */
   start?(instanceId: string): Promise<void>;
   /** Stop a specific runtime instance and tear down its resources. */

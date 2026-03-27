@@ -7,11 +7,10 @@ import { Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import { WebSocketServer, WebSocket } from "ws";
 import { readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import { startFileWatcher, type FileChange } from "./file-watcher.js";
 import { readBody, jsonResponse, handleCors } from "./http-utils.js";
-import { walkDirectory } from "./walk-directory.js";
 import { PromptQueue } from "./prompt-queue.js";
+import { readWorkspaceFile, snapshotWorkspace } from "./workspace-files.js";
 import type {
   SessionHostStartRequest,
   SessionHostStartResponse,
@@ -699,20 +698,8 @@ const httpServer = createServer(async (req, res) => {
         jsonResponse(res, 400, { error: "Missing ?path= parameter" });
         return;
       }
-      const resolved = resolve(sessionWorkspace, filePath);
-      if (!resolved.startsWith(sessionWorkspace)) {
-        jsonResponse(res, 403, { error: "Path outside workspace" });
-        return;
-      }
-      try {
-        const raw = await readFile(resolved, "utf8");
-        const maxChars = 100_000;
-        const truncated = raw.length > maxChars;
-        const content = truncated ? raw.slice(0, maxChars) : raw;
-        jsonResponse(res, 200, { path: filePath, content, truncated, maxChars });
-      } catch {
-        jsonResponse(res, 404, { error: `Cannot read: ${filePath}` });
-      }
+      const result = await readWorkspaceFile(sessionWorkspace, filePath);
+      jsonResponse(res, result.status, result.body);
       return;
     }
 
@@ -721,11 +708,10 @@ const httpServer = createServer(async (req, res) => {
         jsonResponse(res, 400, { error: "No active session" });
         return;
       }
-      const entries = await walkDirectory(sessionWorkspace);
-      const maxEntries = 10_000;
-      const truncated = entries.length > maxEntries;
-      const limited = truncated ? entries.slice(0, maxEntries) : entries;
-      jsonResponse(res, 200, { root: sessionWorkspace, entries: limited, truncated, maxEntries });
+      const snapshotUrl = new URL(req.url, "http://localhost");
+      const showAllFiles = snapshotUrl.searchParams.get("showAllFiles") === "true";
+      const result = await snapshotWorkspace(sessionWorkspace, { showAllFiles });
+      jsonResponse(res, result.status, result.body);
       return;
     }
 
