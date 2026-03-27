@@ -164,14 +164,14 @@ export function SessionsSidebar() {
                     <SidebarMenuButton
                       asChild
                       isActive={session.id === activeSessionId}
-                      tooltip={`${session.agentName} · …${session.id.slice(-5)}`}
+                      tooltip={`${session.agentName} · ...${session.id.slice(-5)}`}
                       className="!h-auto min-h-8 items-start py-2 pr-10"
                     >
                       <Link to="/sessions/$id" params={{ id: session.id }}>
                         <span className="grid min-w-0 flex-1 gap-1 leading-snug">
                           <span className="truncate font-medium">{session.agentName}</span>
                           <span className="truncate text-xs text-sidebar-foreground/65">
-                            {session.id.slice(-5)}
+                            ...{session.id.slice(-5)}
                             {session.runtime && (() => {
                               const rt = runtimes?.find((r) =>
                                 r.typeName === session.runtime ||
