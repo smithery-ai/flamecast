@@ -261,27 +261,33 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
 
     // -- Runtime-level filesystem --
 
+    // Runtime-level endpoints use plain fetch (not RPC client) because
+    // Hono's type inference struggles with mixed param names on the same
+    // path segment (:typeName vs :instanceName).
     async fetchRuntimeFsSnapshot(instanceName) {
-      const response = await rpc.runtimes[":instanceName"].fs.snapshot.$get({
-        param: { instanceName },
-      });
+      const response = await fetch(
+        `${baseUrl}/runtimes/${encodeURIComponent(instanceName)}/fs/snapshot`,
+      );
       await assertOk(response, "Failed to fetch runtime filesystem snapshot");
       return response.json();
     },
     async fetchRuntimeFile(instanceName, filePath) {
-      const response = await rpc.runtimes[":instanceName"].files.$get({
-        param: { instanceName },
-        query: { path: filePath },
-      });
+      const response = await fetch(
+        `${baseUrl}/runtimes/${encodeURIComponent(instanceName)}/files?path=${encodeURIComponent(filePath)}`,
+      );
       await assertOk(response, "Failed to fetch runtime file");
       return response.json();
     },
 
     async execOnRuntime(instanceName, command) {
-      const response = await rpc.runtimes[":instanceName"].exec.$post({
-        param: { instanceName },
-        json: { command },
-      });
+      const response = await fetch(
+        `${baseUrl}/runtimes/${encodeURIComponent(instanceName)}/exec`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ command }),
+        },
+      );
       await assertOk(response, "Failed to execute command on runtime");
       return response.json();
     },

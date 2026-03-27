@@ -202,11 +202,12 @@ function FilesystemTab({ instanceName }: { instanceName: string }) {
     refetchInterval: 15_000,
   });
 
-  const fileEntries = fsSnapshot?.entries ?? [];
+  const fileEntries = fsSnapshot?.entries;
   const workspaceRoot = fsSnapshot?.root ?? null;
-  const fileTree = useMemo(() => buildTree(fileEntries), [fileEntries]);
+  const fileTree = useMemo(() => buildTree(fileEntries ?? []), [fileEntries]);
 
   useEffect(() => {
+    if (!fileTree.length) return;
     setExpandedPaths((current) =>
       current.size > 0 ? current : getInitialExpandedPaths(fileTree),
     );
@@ -214,7 +215,7 @@ function FilesystemTab({ instanceName }: { instanceName: string }) {
 
   // File preview when selecting a file
   useEffect(() => {
-    if (!selectedPath) {
+    if (!selectedPath || !fileEntries) {
       setFilePreview(null);
       return;
     }
@@ -263,7 +264,7 @@ function FilesystemTab({ instanceName }: { instanceName: string }) {
     );
   }
 
-  if (fileEntries.length === 0) {
+  if (!fileEntries || fileEntries.length === 0) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
         <div className="space-y-2 text-center">
@@ -407,16 +408,18 @@ function TerminalTabsContainer({ instanceName }: { instanceName: string }) {
       {/* Terminal tab bar */}
       <div className="flex shrink-0 items-center gap-0.5 border-b bg-muted/30 px-2 pt-1">
         {tabs.map((tab) => (
-          <button
+          <div
             key={tab.id}
-            type="button"
+            role="tab"
+            tabIndex={0}
             className={cn(
-              "group/tab flex items-center gap-1.5 rounded-t-md px-3 py-1.5 text-xs font-medium transition-colors",
+              "group/tab flex cursor-pointer items-center gap-1.5 rounded-t-md px-3 py-1.5 text-xs font-medium transition-colors",
               activeTerminal === tab.id
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",
             )}
             onClick={() => setActiveTerminal(tab.id)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setActiveTerminal(tab.id); }}
           >
             <TerminalIcon className="size-3" />
             <span>{tab.label}</span>
@@ -434,7 +437,7 @@ function TerminalTabsContainer({ instanceName }: { instanceName: string }) {
             >
               <XIcon className="size-3" />
             </button>
-          </button>
+          </div>
         ))}
         <button
           type="button"
