@@ -172,16 +172,18 @@ export function SessionsSidebar() {
                           <span className="truncate font-medium">{session.agentName}</span>
                           <span className="truncate text-xs text-sidebar-foreground/65">
                             ...{session.id.slice(-5)}
-                            {session.runtime && (() => {
-                              const rt = runtimes?.find((r) =>
-                                r.typeName === session.runtime ||
-                                r.instances.some((i) => i.name === session.runtime),
-                              );
-                              const typeName = rt?.typeName;
-                              if (!typeName) return ` · ${session.runtime}`;
-                              if (typeName === session.runtime) return ` · ${typeName}`;
-                              return ` · ${typeName}/${session.runtime}`;
-                            })()}
+                            {session.runtime &&
+                              (() => {
+                                const rt = runtimes?.find(
+                                  (r) =>
+                                    r.typeName === session.runtime ||
+                                    r.instances.some((i) => i.name === session.runtime),
+                                );
+                                const typeName = rt?.typeName;
+                                if (!typeName) return ` · ${session.runtime}`;
+                                if (typeName === session.runtime) return ` · ${typeName}`;
+                                return ` · ${typeName}/${session.runtime}`;
+                              })()}
                           </span>
                         </span>
                       </Link>
