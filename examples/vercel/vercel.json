@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "framework": null,
+  "installCommand": "pnpm install --ignore-scripts",
+  "buildCommand": "pnpm --filter @flamecast/example-vercel... run build",
+  "outputDirectory": ".",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api" }
+  ]
+}
