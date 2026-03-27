@@ -1,4 +1,6 @@
 {
   "version": 2,
-  "framework": "hono"
+  "framework": "hono",
+  "buildCommand": "pnpm -w turbo run build:package --filter=@flamecast/example-vercel...",
+  "outputDirectory": "public"
 }
