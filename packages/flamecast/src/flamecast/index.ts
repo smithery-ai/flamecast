@@ -13,7 +13,7 @@ import type {
   WebhookEventType,
 } from "../shared/session.js";
 import { createServerApp } from "./app.js";
-import type { FlamecastStorage } from "./storage.js";
+import type { FlamecastStorage, StoredSession } from "./storage.js";
 import { MemoryFlamecastStorage } from "./storage/memory/index.js";
 import { SessionService } from "./session-service.js";
 import { WebhookDeliveryEngine } from "./events/webhooks.js";
@@ -70,7 +70,12 @@ export type {
 export type { FileSystemEntry } from "@flamecast/protocol/session-host";
 
 export type { RuntimeInstance, RuntimeInfo } from "@flamecast/protocol/runtime";
-export type { SessionMeta, SessionRuntimeInfo, FlamecastStorage } from "./storage.js";
+export type {
+  SessionMeta,
+  SessionRuntimeInfo,
+  FlamecastStorage,
+  StoredSession,
+} from "./storage.js";
 export { NodeRuntime } from "./runtime-node.js";
 
 // ---------------------------------------------------------------------------
@@ -429,7 +434,8 @@ export class Flamecast<
     await this.ensureReady();
     const allMetas = await this.requireStorage().listAllSessions();
     const activeMetas = allMetas.filter((meta) => meta.status === "active");
-    return Promise.all(activeMetas.map((meta) => this.snapshotSession(meta.id)));
+    const sessions = await Promise.all(activeMetas.map((meta) => this.snapshotSession(meta.id)));
+    return sessions.filter((session) => session.status === "active");
   }
 
   async getSession(
@@ -437,16 +443,15 @@ export class Flamecast<
     opts: { includeFileSystem?: boolean; showAllFiles?: boolean } = {},
   ): Promise<Session> {
     await this.ensureReady();
-    if (!this.sessionService.hasSession(id)) {
-      const meta = await this.requireStorage().getSessionMeta(id);
-      if (!meta) throw new Error(`Session "${id}" not found`);
-    }
+    const stored = await this.ensureSessionRegistered(id);
+    if (!stored) throw new Error(`Session "${id}" not found`);
     return this.snapshotSession(id, { ...opts, includeLogs: true });
   }
 
   /** Proxy a queue management request to the session-host. */
   async proxyQueueRequest(id: string, path: string, init: RequestInit): Promise<Response> {
     await this.ensureReady();
+    await this.ensureSessionRegistered(id);
     return this.sessionService.proxyRequest(id, path, init);
   }
 
@@ -484,6 +489,7 @@ export class Flamecast<
 
   async fetchSessionFilePreview(id: string, path: string): Promise<FilePreview> {
     await this.ensureReady();
+    await this.ensureSessionRegistered(id);
     const response = await this.sessionService.proxyRequest(
       id,
       `/files?path=${encodeURIComponent(path)}`,
@@ -502,6 +508,7 @@ export class Flamecast<
     opts: { showAllFiles?: boolean } = {},
   ): Promise<FileSystemSnapshot> {
     await this.ensureReady();
+    await this.ensureSessionRegistered(id);
     const query = opts.showAllFiles ? "?showAllFiles=true" : "";
     const response = await this.sessionService.proxyRequest(id, `/fs/snapshot${query}`, {
       method: "GET",
@@ -516,6 +523,7 @@ export class Flamecast<
 
   async promptSession(id: string, text: string): Promise<Record<string, unknown>> {
     await this.ensureReady();
+    await this.ensureSessionRegistered(id);
     const response = await this.sessionService.proxyRequest(id, "/prompt", {
       method: "POST",
       body: JSON.stringify({ text }),
@@ -533,6 +541,7 @@ export class Flamecast<
     body: { optionId: string } | { outcome: "cancelled" },
   ): Promise<Record<string, unknown>> {
     await this.ensureReady();
+    await this.ensureSessionRegistered(sessionId);
     const response = await this.sessionService.proxyRequest(
       sessionId,
       `/permissions/${requestId}`,
@@ -560,13 +569,19 @@ export class Flamecast<
       },
     });
 
+    await this.requireStorage().updateSession(sessionId, {
+      lastUpdatedAt: new Date().toISOString(),
+      pendingPermission: null,
+    });
+
     return response.json();
   }
 
   async terminateSession(id: string): Promise<void> {
     await this.ensureReady();
+    const stored = await this.ensureSessionRegistered(id);
     if (!this.sessionService.hasSession(id)) {
-      const meta = await this.requireStorage().getSessionMeta(id);
+      const meta = stored?.meta ?? (await this.requireStorage().getSessionMeta(id));
       if (meta?.status === "killed") {
         throw new Error("Cannot terminate an already-killed session");
       }
@@ -608,23 +623,45 @@ export class Flamecast<
     sessionId: string,
     event: SessionCallbackEvent,
   ): Promise<PermissionCallbackResponse | { ok: true }> {
+    await this.ensureReady();
+    await this.ensureSessionRegistered(sessionId);
+    const storage = this.requireStorage();
+    const lastUpdatedAt = new Date().toISOString();
+    const persistSessionState = async (
+      patch: Partial<Pick<Session, "lastUpdatedAt" | "pendingPermission">>,
+    ): Promise<void> => {
+      await storage.updateSession(sessionId, patch).catch(() => {});
+    };
+
     // 1. Dispatch to in-process handler
     let result: PermissionCallbackResponse | { ok: true };
 
     switch (event.type) {
       case "permission_request": {
+        await persistSessionState({
+          lastUpdatedAt,
+          pendingPermission: {
+            requestId: event.data.requestId,
+            toolCallId: event.data.toolCallId,
+            title: event.data.title,
+            ...(event.data.kind ? { kind: event.data.kind } : {}),
+            options: event.data.options.map((option) => ({ ...option })),
+          },
+        });
         const permResponse = await this.handlePermissionRequest(sessionId, event.data);
         result = permResponse ?? { deferred: true };
         break;
       }
 
       case "end_turn": {
+        await persistSessionState({ lastUpdatedAt });
         // REST-prompt end_turn — delivered to webhooks only (no in-process handler yet)
         result = { ok: true };
         break;
       }
 
       case "session_end": {
+        await persistSessionState({ lastUpdatedAt, pendingPermission: null });
         const ctx = await this.buildSessionContext(sessionId);
         if (this.handlers.onSessionEnd && ctx) {
           try {
@@ -641,6 +678,7 @@ export class Flamecast<
       }
 
       case "agent_message": {
+        await persistSessionState({ lastUpdatedAt });
         const ctx = await this.buildSessionContext(sessionId);
         if (this.handlers.onAgentMessage && ctx) {
           try {
@@ -661,6 +699,7 @@ export class Flamecast<
       }
 
       case "error": {
+        await persistSessionState({ lastUpdatedAt });
         const ctx = await this.buildSessionContext(sessionId);
         if (this.handlers.onError && ctx) {
           try {
@@ -680,6 +719,7 @@ export class Flamecast<
       }
 
       default:
+        await persistSessionState({ lastUpdatedAt });
         result = { ok: true };
     }
 
@@ -807,6 +847,40 @@ export class Flamecast<
     };
   }
 
+  private async loadStoredSession(sessionId: string): Promise<StoredSession | null> {
+    return this.requireStorage().getStoredSession(sessionId);
+  }
+
+  private async ensureSessionRegistered(sessionId: string): Promise<StoredSession | null> {
+    const stored = await this.loadStoredSession(sessionId);
+    if (!stored) return null;
+    if (stored.meta.status !== "active") return stored;
+    if (this.sessionService.hasSession(sessionId)) return stored;
+
+    if (!stored.runtimeInfo) {
+      await this.requireStorage().finalizeSession(sessionId, "terminated");
+      return {
+        ...stored,
+        meta: { ...stored.meta, status: "killed" },
+        runtimeInfo: null,
+      };
+    }
+
+    const recovered = await this.sessionService.recoverSession(
+      sessionId,
+      stored.runtimeInfo,
+      stored.webhooks,
+    );
+
+    if (recovered) return stored;
+
+    await this.requireStorage().finalizeSession(sessionId, "terminated");
+    return {
+      ...stored,
+      meta: { ...stored.meta, status: "killed" },
+    };
+  }
+
   /**
    * Recover active sessions from storage after a server restart.
    *
@@ -840,20 +914,24 @@ export class Flamecast<
 
       for (const session of activeSessions) {
         if (!session.runtimeInfo) {
-          await storage.finalizeSession(session.id, "terminated");
+          await storage.finalizeSession(session.meta.id, "terminated");
           continue;
         }
 
-        const ok = await this.sessionService.recoverSession(session.id, session.runtimeInfo);
+        const ok = await this.sessionService.recoverSession(
+          session.meta.id,
+          session.runtimeInfo,
+          session.webhooks,
+        );
         if (ok) {
           recovered.push({
-            sessionId: session.id,
+            sessionId: session.meta.id,
             websocketUrl: session.runtimeInfo.websocketUrl,
           });
-          console.log(`[Flamecast] Recovered session "${session.id}"`);
+          console.log(`[Flamecast] Recovered session "${session.meta.id}"`);
         } else {
-          await storage.finalizeSession(session.id, "terminated");
-          console.log(`[Flamecast] Session "${session.id}" no longer alive, marked as killed`);
+          await storage.finalizeSession(session.meta.id, "terminated");
+          console.log(`[Flamecast] Session "${session.meta.id}" no longer alive, marked as killed`);
         }
       }
 
@@ -937,13 +1015,13 @@ export class Flamecast<
     id: string,
     opts: { includeFileSystem?: boolean; includeLogs?: boolean; showAllFiles?: boolean } = {},
   ): Promise<Session> {
-    const storage = this.requireStorage();
-    const meta = await storage.getSessionMeta(id);
-    if (!meta) {
+    const stored = await this.ensureSessionRegistered(id);
+    if (!stored) {
       throw new Error(`Session "${id}" not found`);
     }
+    const { meta, runtimeInfo } = stored;
 
-    const websocketUrl = this.sessionService.getWebsocketUrl(id);
+    const websocketUrl = this.sessionService.getWebsocketUrl(id) ?? runtimeInfo?.websocketUrl;
 
     // Fetch queue state from session-host if the session is active
     const promptQueue = this.sessionService.hasSession(id)
@@ -969,7 +1047,15 @@ export class Flamecast<
         : null;
 
     return {
-      ...meta,
+      id: meta.id,
+      agentName: meta.agentName,
+      spawn: {
+        command: meta.spawn.command,
+        args: [...meta.spawn.args],
+      },
+      startedAt: meta.startedAt,
+      lastUpdatedAt: meta.lastUpdatedAt,
+      status: meta.status,
       logs,
       pendingPermission: meta.pendingPermission
         ? {

@@ -1,6 +1,11 @@
 import type { RuntimeInstance } from "@flamecast/protocol/runtime";
-import type { AgentTemplate } from "../../../shared/session.js";
-import type { FlamecastStorage, SessionMeta, SessionRuntimeInfo } from "../../storage.js";
+import type { AgentTemplate, WebhookConfig } from "../../../shared/session.js";
+import type {
+  FlamecastStorage,
+  SessionMeta,
+  SessionRuntimeInfo,
+  StoredSession,
+} from "../../storage.js";
 
 type StoredAgentTemplate = {
   template: AgentTemplate;
@@ -25,6 +30,7 @@ export class MemoryFlamecastStorage implements FlamecastStorage {
   private managedTemplateIds: string[] = [];
   private sessions = new Map<string, SessionMeta>();
   private sessionRuntimeInfo = new Map<string, SessionRuntimeInfo>();
+  private sessionWebhooks = new Map<string, WebhookConfig[]>();
   private runtimeInstances = new Map<string, RuntimeInstance>();
 
   async seedAgentTemplates(templates: AgentTemplate[]): Promise<void> {
@@ -100,11 +106,19 @@ export class MemoryFlamecastStorage implements FlamecastStorage {
     });
   }
 
-  async createSession(meta: SessionMeta, runtimeInfo?: SessionRuntimeInfo): Promise<void> {
+  async createSession(
+    meta: SessionMeta,
+    runtimeInfo?: SessionRuntimeInfo,
+    webhooks: WebhookConfig[] = [],
+  ): Promise<void> {
     this.sessions.set(meta.id, { ...meta });
     if (runtimeInfo) {
       this.sessionRuntimeInfo.set(meta.id, { ...runtimeInfo });
     }
+    this.sessionWebhooks.set(
+      meta.id,
+      webhooks.map((webhook) => ({ ...webhook })),
+    );
   }
 
   async updateSession(
@@ -126,22 +140,32 @@ export class MemoryFlamecastStorage implements FlamecastStorage {
     return row ? { ...row } : null;
   }
 
+  async getStoredSession(id: string): Promise<StoredSession | null> {
+    const meta = this.sessions.get(id);
+    if (!meta) return null;
+
+    return {
+      meta: { ...meta },
+      runtimeInfo: this.sessionRuntimeInfo.get(id) ?? null,
+      webhooks: (this.sessionWebhooks.get(id) ?? []).map((webhook) => ({ ...webhook })),
+    };
+  }
+
   async listAllSessions(): Promise<SessionMeta[]> {
     return [...this.sessions.values()]
       .map((row) => ({ ...row }))
       .sort((a, b) => b.lastUpdatedAt.localeCompare(a.lastUpdatedAt));
   }
 
-  async listActiveSessionsWithRuntime(): Promise<
-    Array<SessionMeta & { runtimeInfo: SessionRuntimeInfo | null }>
-  > {
+  async listActiveSessionsWithRuntime(): Promise<StoredSession[]> {
     return [...this.sessions.values()]
       .filter((row) => row.status === "active")
       .map((row) => ({
-        ...row,
+        meta: { ...row },
         runtimeInfo: this.sessionRuntimeInfo.get(row.id) ?? null,
+        webhooks: (this.sessionWebhooks.get(row.id) ?? []).map((webhook) => ({ ...webhook })),
       }))
-      .sort((a, b) => b.lastUpdatedAt.localeCompare(a.lastUpdatedAt));
+      .sort((a, b) => b.meta.lastUpdatedAt.localeCompare(a.meta.lastUpdatedAt));
   }
 
   async finalizeSession(id: string, _reason: "terminated"): Promise<void> {
@@ -150,6 +174,7 @@ export class MemoryFlamecastStorage implements FlamecastStorage {
       this.sessions.set(id, { ...row, status: "killed" });
     }
     this.sessionRuntimeInfo.delete(id);
+    this.sessionWebhooks.delete(id);
   }
 
   async saveRuntimeInstance(instance: RuntimeInstance): Promise<void> {

@@ -5,6 +5,7 @@ import type {
   RuntimeInstance,
   SessionMeta,
   SessionRuntimeInfo,
+  StoredSession,
 } from "@flamecast/sdk";
 import { agentTemplates, runtimeInstances, sessions } from "./schema.js";
 import type { PsqlAppDb } from "./types.js";
@@ -103,7 +104,15 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
       return rows[0] ? rowToTemplate(rows[0]) : null;
     },
 
-    async updateAgentTemplate(id, patch) {
+    async updateAgentTemplate(
+      id: string,
+      patch: {
+        name?: string;
+        spawn?: AgentTemplate["spawn"];
+        runtime?: Partial<AgentTemplate["runtime"]>;
+        env?: Record<string, string>;
+      },
+    ) {
       const existing = await db
         .select()
         .from(agentTemplates)
@@ -166,7 +175,11 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
         });
     },
 
-    async createSession(meta: SessionMeta, runtimeInfo?: SessionRuntimeInfo) {
+    async createSession(
+      meta: SessionMeta,
+      runtimeInfo?: SessionRuntimeInfo,
+      webhooks: NonNullable<StoredSession["webhooks"]> = [],
+    ) {
       await db.insert(sessions).values({
         id: meta.id,
         agentName: meta.agentName,
@@ -180,10 +193,14 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
         runtimeName: runtimeInfo?.runtimeName ?? null,
         runtimeMeta: runtimeInfo?.runtimeMeta ?? null,
         runtime: meta.runtime ?? null,
+        webhooks,
       });
     },
 
-    async updateSession(id, patch) {
+    async updateSession(
+      id: string,
+      patch: Partial<Pick<SessionMeta, "lastUpdatedAt" | "pendingPermission">>,
+    ) {
       const updates: Partial<typeof sessions.$inferInsert> = {};
       if (patch.lastUpdatedAt !== undefined) updates.lastUpdatedAt = patch.lastUpdatedAt;
       if (patch.pendingPermission !== undefined)
@@ -197,6 +214,29 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
       return rowToMeta(rows[0]);
     },
 
+    async getStoredSession(id: string): Promise<StoredSession | null> {
+      const rows = await db.select().from(sessions).where(eq(sessions.id, id)).limit(1);
+      const row = rows[0];
+      const meta = rowToMeta(row);
+      if (!row || !meta) return null;
+
+      const runtimeInfo: SessionRuntimeInfo | null =
+        row.hostUrl && row.websocketUrl && row.runtimeName
+          ? {
+              hostUrl: row.hostUrl,
+              websocketUrl: row.websocketUrl,
+              runtimeName: row.runtimeName,
+              runtimeMeta: row.runtimeMeta,
+            }
+          : null;
+
+      return {
+        meta,
+        runtimeInfo,
+        webhooks: row.webhooks ?? [],
+      };
+    },
+
     async listAllSessions() {
       const rows = await db.select().from(sessions).orderBy(desc(sessions.lastUpdatedAt));
       return rows.map(rowToMeta).filter((meta): meta is SessionMeta => meta !== null);
@@ -208,24 +248,25 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
         .from(sessions)
         .where(eq(sessions.status, "active"))
         .orderBy(desc(sessions.lastUpdatedAt));
-      return rows.reduce<Array<SessionMeta & { runtimeInfo: SessionRuntimeInfo | null }>>(
-        (acc, row) => {
-          const meta = rowToMeta(row);
-          if (!meta) return acc;
-          const runtimeInfo: SessionRuntimeInfo | null =
-            row.hostUrl && row.websocketUrl && row.runtimeName
-              ? {
-                  hostUrl: row.hostUrl,
-                  websocketUrl: row.websocketUrl,
-                  runtimeName: row.runtimeName,
-                  runtimeMeta: row.runtimeMeta,
-                }
-              : null;
-          acc.push({ ...meta, runtimeInfo });
-          return acc;
-        },
-        [],
-      );
+      return rows.reduce<StoredSession[]>((acc, row) => {
+        const meta = rowToMeta(row);
+        if (!meta) return acc;
+        const runtimeInfo: SessionRuntimeInfo | null =
+          row.hostUrl && row.websocketUrl && row.runtimeName
+            ? {
+                hostUrl: row.hostUrl,
+                websocketUrl: row.websocketUrl,
+                runtimeName: row.runtimeName,
+                runtimeMeta: row.runtimeMeta,
+              }
+            : null;
+        acc.push({
+          meta,
+          runtimeInfo,
+          webhooks: row.webhooks ?? [],
+        });
+        return acc;
+      }, []);
     },
 
     async finalizeSession(id: string, _reason: "terminated") {

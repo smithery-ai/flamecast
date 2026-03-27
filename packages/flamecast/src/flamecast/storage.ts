@@ -1,5 +1,5 @@
 import type { RuntimeInstance } from "@flamecast/protocol/runtime";
-import type { AgentTemplate, Session } from "../shared/session.js";
+import type { AgentTemplate, Session, WebhookConfig } from "../shared/session.js";
 
 /** Durable slice of {@link Session} (everything except runtime-only state). */
 export type SessionMeta = Omit<Session, "fileSystem" | "logs" | "promptQueue">;
@@ -10,6 +10,13 @@ export interface SessionRuntimeInfo {
   websocketUrl: string;
   runtimeName: string;
   runtimeMeta?: Record<string, unknown> | null;
+}
+
+/** Storage view of a session, including durable routing metadata. */
+export interface StoredSession {
+  meta: SessionMeta;
+  runtimeInfo: SessionRuntimeInfo | null;
+  webhooks: WebhookConfig[];
 }
 
 /**
@@ -35,18 +42,21 @@ export type FlamecastStorage = {
       env?: Record<string, string>;
     },
   ): Promise<AgentTemplate | null>;
-  createSession(meta: SessionMeta, runtimeInfo?: SessionRuntimeInfo): Promise<void>;
+  createSession(
+    meta: SessionMeta,
+    runtimeInfo?: SessionRuntimeInfo,
+    webhooks?: WebhookConfig[],
+  ): Promise<void>;
   updateSession(
     id: string,
     patch: Partial<Pick<SessionMeta, "lastUpdatedAt" | "pendingPermission">>,
   ): Promise<void>;
   getSessionMeta(id: string): Promise<SessionMeta | null>;
+  getStoredSession(id: string): Promise<StoredSession | null>;
   /** Return all sessions (active + killed), ordered by lastUpdatedAt desc. */
   listAllSessions(): Promise<SessionMeta[]>;
   /** Return active sessions with their persisted runtime connection info for recovery. */
-  listActiveSessionsWithRuntime(): Promise<
-    Array<SessionMeta & { runtimeInfo: SessionRuntimeInfo | null }>
-  >;
+  listActiveSessionsWithRuntime(): Promise<StoredSession[]>;
   finalizeSession(id: string, reason: "terminated"): Promise<void>;
 
   // Runtime instance management

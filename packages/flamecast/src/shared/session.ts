@@ -11,6 +11,7 @@ import type {
   RegisterAgentTemplateBody,
   Session,
   SessionLog,
+  WebhookConfig,
 } from "@flamecast/protocol/session";
 // Some types above are only used by zod `satisfies` constraints, not re-exported
 import type { FileSystemEntry } from "@flamecast/protocol/session-host";
@@ -110,6 +111,13 @@ const PendingPermissionOptionSchema = z.object({
   kind: z.string(),
 }) satisfies z.ZodType<PendingPermissionOption>;
 
+const WebhookConfigSchema = z.object({
+  id: z.string(),
+  url: z.string().url(),
+  secret: z.string().min(1),
+  events: z.array(z.enum(["permission_request", "end_turn", "error", "session_end"])).optional(),
+}) satisfies z.ZodType<WebhookConfig>;
+
 export const PendingPermissionSchema = z.object({
   requestId: z.string(),
   toolCallId: z.string(),
@@ -175,6 +183,7 @@ export const CreateSessionBodySchema = z
     spawn: AgentSpawnSchema.optional(),
     name: z.string().optional(),
     runtimeInstance: z.string().optional(),
+    webhooks: z.array(WebhookConfigSchema.omit({ id: true })).optional(),
   })
   .refine((b) => Boolean(b.agentTemplateId) !== Boolean(b.spawn), {
     message: "Provide exactly one of agentTemplateId or spawn",
