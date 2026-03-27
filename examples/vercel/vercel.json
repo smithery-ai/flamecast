@@ -1,7 +1,6 @@
 {
   "version": 2,
-  "framework": null,
+  "framework": "hono",
   "installCommand": "pnpm install --ignore-scripts",
-  "buildCommand": "pnpm --filter @flamecast/example-vercel... run build",
-  "outputDirectory": "."
+  "buildCommand": "pnpm -w turbo run build:package --filter=@flamecast/example-vercel..."
 }
