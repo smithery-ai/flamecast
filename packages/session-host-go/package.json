@@ -11,7 +11,7 @@
   },
   "scripts": {
     "postinstall": "node scripts/build.mjs",
-    "dev": "go run . &",
+    "dev": "go run .",
     "build:go": "node scripts/build.mjs"
   }
 }
