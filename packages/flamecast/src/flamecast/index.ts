@@ -160,13 +160,8 @@ export class Flamecast<
   private readonly webhookEngine = new WebhookDeliveryEngine();
   private readonly webhookAbortControllers = new Map<string, AbortController>();
 
-  /** Event bus for lifecycle events and session history. Used by the Node
-   *  `listen()` function to wire the WS adapter and session-host bridge. */
+  /** Event bus for lifecycle events and session history. */
   readonly eventBus = new EventBus();
-
-  /** Sessions with an active bridge WS connection. Populated by `listen()`.
-   *  Used to skip duplicate EventBus pushes from handleSessionEvent(). */
-  readonly bridgedSessions = new Set<string>();
 
   /** Registered event handlers. */
   readonly handlers: Readonly<FlamecastEventHandlers<R>>;
@@ -422,15 +417,10 @@ export class Flamecast<
       webhooks: sessionWebhooks,
     });
 
-    // Emit lifecycle event for WS adapter bridge
-    const websocketUrl = this.sessionService.getWebsocketUrl(sessionId);
-    if (websocketUrl) {
-      this.eventBus.emitSessionCreated({
-        sessionId,
-        agentId: resolveAgentId(sessionId),
-        websocketUrl,
-      });
-    }
+    this.eventBus.emitSessionCreated({
+      sessionId,
+      agentId: resolveAgentId(sessionId),
+    });
 
     return this.snapshotSession(sessionId);
   }
@@ -549,7 +539,7 @@ export class Flamecast<
 
     await this.sessionService.terminateSession(this.requireStorage(), id);
 
-    // Emit lifecycle event for WS adapter bridge
+    // Emit lifecycle event for in-process subscribers such as SSE streams.
     this.eventBus.emitSessionTerminated({
       sessionId: id,
       agentId: resolveAgentId(id),
@@ -655,21 +645,18 @@ export class Flamecast<
         result = { ok: true };
     }
 
-    // 2. Push to EventBus for SSE consumers. Skip if a bridge WS connection
-    //    exists for this session (Node mode) — the bridge already pushes all
-    //    events with full fidelity, and double-pushing would create duplicates
-    //    with different seq numbers.
-    if (!this.bridgedSessions.has(sessionId)) {
-      this.eventBus.pushEvent({
-        sessionId,
-        agentId: resolveAgentId(sessionId),
-        event: {
-          type: event.type,
-          data: { ...event.data },
-          timestamp: new Date().toISOString(),
-        },
-      });
-    }
+    // 2. Push to the in-process history stream used by session snapshots and
+    //    SSE consumers. Runtime WebSocket clients connect directly to the
+    //    runtime, so there is no bridge layer deduplicating these events.
+    this.eventBus.pushEvent({
+      sessionId,
+      agentId: resolveAgentId(sessionId),
+      event: {
+        type: event.type,
+        data: { ...event.data },
+        timestamp: new Date().toISOString(),
+      },
+    });
 
     // 3. Deliver to external webhooks (fire-and-forget, does not block response)
     this.deliverWebhooks(sessionId, event);
@@ -789,8 +776,8 @@ export class Flamecast<
    * reconnect to the still-running process/container. Sessions whose hosts
    * are no longer alive are marked as killed.
    *
-   * Returns the list of successfully recovered session IDs and their
-   * websocket URLs (so the bridge can re-establish connections).
+   * Returns the list of successfully recovered session IDs and their runtime
+   * websocket URLs.
    */
   async recoverSessions(
     onRecovered?: (sessions: Array<{ sessionId: string; websocketUrl: string }>) => void,
@@ -832,8 +819,7 @@ export class Flamecast<
         }
       }
 
-      // Let the caller wire up bridge connections before the promise resolves,
-      // so API calls gated on recovery see sessions with active bridges.
+      // Let the caller observe recovered sessions before the promise resolves.
       onRecovered?.(recovered);
 
       return recovered;

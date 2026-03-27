@@ -45,7 +45,14 @@ function SessionDetailPage() {
   const [showAllFiles, setShowAllFiles] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
-  // Shared Flamecast WS for session events/control, server API for filesystem reads
+  // REST for initial session metadata and server-owned filesystem snapshot
+  const { data: session, isLoading } = useQuery({
+    queryKey: ["session", id, showAllFiles],
+    queryFn: () => fetchSession(id, { includeFileSystem: true, showAllFiles }),
+    staleTime: Infinity, // runtime WS handles live updates
+  });
+
+  // Direct runtime WS for session events/control, server API for filesystem reads
   const {
     events: wsEvents,
     isConnected,
@@ -53,14 +60,7 @@ function SessionDetailPage() {
     respondToPermission: wsRespondToPermission,
     requestFilePreview,
     requestFsSnapshot,
-  } = useFlamecastSession(id);
-
-  // REST for initial session metadata and server-owned filesystem snapshot
-  const { data: session, isLoading } = useQuery({
-    queryKey: ["session", id, showAllFiles],
-    queryFn: () => fetchSession(id, { includeFileSystem: true, showAllFiles }),
-    staleTime: Infinity, // WS handles real-time updates
-  });
+  } = useFlamecastSession(id, session?.websocketUrl);
 
   // Merge: use WS events if available, fall back to REST logs
   const logs: SessionLog[] = useMemo(() => {

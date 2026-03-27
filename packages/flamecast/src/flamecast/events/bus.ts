@@ -56,7 +56,6 @@ interface EventBusOptions {
 interface SessionCreatedPayload {
   sessionId: string;
   agentId: string;
-  websocketUrl: string;
 }
 
 interface SessionTerminatedPayload {
@@ -74,8 +73,8 @@ interface SessionTerminatedPayload {
  * Uses a minimal hand-rolled pub/sub (no node:events) so the Flamecast class
  * can be imported in edge runtimes (CF Workers, Vercel) without Node builtins.
  *
- * - Lifecycle events (`session.created`, `session.terminated`) trigger bridge
- *   connect/disconnect.
+ * - Lifecycle events (`session.created`, `session.terminated`) are used by
+ *   in-process subscribers such as the SSE stream.
  * - Session events are stored in a per-session ring buffer for history replay
  *   on subscribe.
  * - Each event gets a per-session monotonic `seq` number.
@@ -116,7 +115,7 @@ export class EventBus {
   }
 
   // -------------------------------------------------------------------------
-  // Session events (from SessionHostBridge)
+  // Session events
   // -------------------------------------------------------------------------
 
   /**

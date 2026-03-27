@@ -1,18 +1,16 @@
 /**
- * Node.js server — starts Flamecast with HTTP + WebSocket adapter.
+ * Node.js server — starts Flamecast with the HTTP API.
  *
  * This module is only imported via `@flamecast/sdk` (the default Node entry
  * point). Edge deploys use `@flamecast/sdk/edge` which never touches this
- * file, keeping `ws` and `@hono/node-server` out of the bundle.
+ * file, keeping `@hono/node-server` out of the bundle.
  */
 import { serve as honoServe } from "@hono/node-server";
 import type { AddressInfo } from "node:net";
 import type { Flamecast } from "../flamecast/index.js";
-import { SessionHostBridge } from "./session-host-bridge.js";
-import { WsAdapter } from "./ws-adapter.js";
 
 /**
- * Start the Flamecast server with HTTP API + WebSocket adapter.
+ * Start the Flamecast server with the HTTP API.
  * Returns a handle for graceful shutdown.
  *
  * @example
@@ -35,47 +33,15 @@ export function listen(
 ): { close(): Promise<void> } {
   const server = honoServe({ fetch: flamecast.app.fetch, port: options.port }, listeningListener);
 
-  const bridge = new SessionHostBridge({ eventBus: flamecast.eventBus });
-
-  flamecast.eventBus.onSessionCreated((payload) => {
-    flamecast.bridgedSessions.add(payload.sessionId);
-    bridge.connect(payload.sessionId, payload.websocketUrl);
+  // Recover previously-active sessions so the HTTP control plane can resume
+  // proxying requests after a server restart. Runtime WebSockets are direct,
+  // so there is no in-process bridge to re-establish here.
+  void flamecast.recoverSessions().catch((err) => {
+    console.warn("[Flamecast] Session recovery failed:", err instanceof Error ? err.message : err);
   });
-
-  flamecast.eventBus.onSessionTerminated((payload) => {
-    flamecast.bridgedSessions.delete(payload.sessionId);
-  });
-
-  const adapter = new WsAdapter({
-    server,
-    eventBus: flamecast.eventBus,
-    flamecast,
-  });
-
-  // Recover previously-active sessions and re-establish bridge connections.
-  // The onRecovered callback runs before the recovery promise resolves, so
-  // API calls gated on recovery already see sessions with active bridges.
-  void flamecast
-    .recoverSessions((recovered) => {
-      for (const { sessionId, websocketUrl } of recovered) {
-        flamecast.bridgedSessions.add(sessionId);
-        bridge.connect(sessionId, websocketUrl);
-      }
-      if (recovered.length > 0) {
-        console.log(`[Flamecast] Recovered ${recovered.length} session(s)`);
-      }
-    })
-    .catch((err) => {
-      console.warn(
-        "[Flamecast] Session recovery failed:",
-        err instanceof Error ? err.message : err,
-      );
-    });
 
   return {
     async close() {
-      adapter.close();
-      bridge.disconnectAll();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },
   };

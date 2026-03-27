@@ -21,7 +21,7 @@ describe("EventBus", () => {
       const listener = vi.fn();
       bus.onSessionCreated(listener);
 
-      const payload = { sessionId: "s1", agentId: "s1", websocketUrl: "ws://localhost:9999" };
+      const payload = { sessionId: "s1", agentId: "s1" };
       bus.emitSessionCreated(payload);
 
       expect(listener).toHaveBeenCalledWith(payload);
@@ -47,7 +47,7 @@ describe("EventBus", () => {
       const unsub = bus.onSessionCreated(listener);
 
       unsub();
-      bus.emitSessionCreated({ sessionId: "s1", agentId: "s1", websocketUrl: "ws://x" });
+      bus.emitSessionCreated({ sessionId: "s1", agentId: "s1" });
 
       expect(listener).not.toHaveBeenCalled();
     });

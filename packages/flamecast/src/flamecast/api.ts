@@ -8,6 +8,7 @@ import {
   UpdateAgentTemplateBodySchema,
   createRegisterAgentTemplateBodySchema,
 } from "../shared/session.js";
+import type { Session } from "../shared/session.js";
 import { toWsChannelEvent } from "./events/channels.js";
 
 export type FlamecastApi = Pick<
@@ -72,6 +73,33 @@ export function createApi(flamecast: FlamecastApi) {
     ? createRegisterAgentTemplateBodySchema([first, ...rest])
     : RegisterAgentTemplateBodySchema;
 
+  const rewriteWebsocketUrl = (requestUrl: string, websocketUrl?: string): string | undefined => {
+    if (!websocketUrl) return undefined;
+
+    const candidate = new URL(websocketUrl);
+    if (
+      candidate.hostname !== "localhost" &&
+      candidate.hostname !== "127.0.0.1" &&
+      candidate.hostname !== "[::1]"
+    ) {
+      return websocketUrl;
+    }
+
+    const request = new URL(requestUrl);
+    candidate.hostname = request.hostname;
+    candidate.protocol = request.protocol === "https:" ? "wss:" : "ws:";
+    return candidate.toString();
+  };
+
+  const toClientSession = (requestUrl: string, session: Session): Session => {
+    const websocketUrl = rewriteWebsocketUrl(requestUrl, session.websocketUrl);
+    if (!websocketUrl || websocketUrl === session.websocketUrl) {
+      return session;
+    }
+
+    return { ...session, websocketUrl };
+  };
+
   // The agent routes are public API sugar over the current single-session runtime model.
   const getAgentSnapshot = async (c: Context, agentId: string) => {
     try {
@@ -81,7 +109,7 @@ export function createApi(flamecast: FlamecastApi) {
         ...(includeFileSystem ? { includeFileSystem: true } : {}),
         ...(showAllFiles ? { showAllFiles: true } : {}),
       });
-      return c.json(session);
+      return c.json(toClientSession(c.req.url, session));
     } catch {
       return c.json({ error: "Agent not found" }, 404);
     }
@@ -173,7 +201,8 @@ export function createApi(flamecast: FlamecastApi) {
       })
       .get("/agents", async (c) => {
         try {
-          return c.json(await flamecast.listSessions());
+          const sessions = await flamecast.listSessions();
+          return c.json(sessions.map((session) => toClientSession(c.req.url, session)));
         } catch (error) {
           console.error("List agents failed:", error);
           return c.json({ error: toErrorMessage(error) }, 500);
@@ -185,7 +214,7 @@ export function createApi(flamecast: FlamecastApi) {
           const reqUrl = new URL(c.req.url);
           const callbackUrl = `${reqUrl.protocol}//${reqUrl.host}/api`;
           const session = await flamecast.createSession(body, { callbackUrl });
-          return c.json(session, 201);
+          return c.json(toClientSession(c.req.url, session), 201);
         } catch (error) {
           console.error("Agent creation failed:", error);
           const status = isClientError(error) ? 400 : 500;
