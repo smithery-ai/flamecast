@@ -7,7 +7,7 @@
  *   Tier 2 (external) — events POST'd to an HTTP endpoint with HMAC signatures.
  *
  * Run:
- *   pnpm --filter @flamecast/session-host --filter @flamecast/example-webhooks-and-signaling dev
+ *   pnpm --filter @flamecast/session-host-go dev & pnpm --filter @flamecast/example-webhooks-and-signaling dev
  */
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
 import { EXAMPLE_TEMPLATE, PORTS, startServer } from "@flamecast/example-shared/create-example.js";
