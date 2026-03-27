@@ -253,7 +253,8 @@ function SessionsPage() {
                         value={newSetup}
                         onChange={(e) => setNewSetup(e.target.value)}
                         rows={2}
-                        className="font-mono text-xs overflow-x-auto whitespace-pre"
+                        className="font-mono text-xs"
+                        wrap="off"
                       />
                     </div>
                     <div className="flex flex-col gap-2">
@@ -264,7 +265,8 @@ function SessionsPage() {
                         value={newEnv}
                         onChange={(e) => setNewEnv(e.target.value)}
                         rows={2}
-                        className="font-mono text-xs overflow-x-auto whitespace-pre"
+                        className="font-mono text-xs"
+                        wrap="off"
                       />
                     </div>
                     {newCommand.trim() && (
@@ -528,7 +530,8 @@ function AgentTemplateCard({
                       value={editSetup}
                       onChange={(e) => setEditSetup(e.target.value)}
                       rows={3}
-                      className="font-mono text-xs overflow-x-auto whitespace-pre"
+                      className="font-mono text-xs"
+                      wrap="off"
                     />
                   </div>
                   <div className="flex flex-col gap-2">
@@ -539,7 +542,8 @@ function AgentTemplateCard({
                       value={editEnv}
                       onChange={(e) => setEditEnv(e.target.value)}
                       rows={3}
-                      className="font-mono text-xs overflow-x-auto whitespace-pre"
+                      className="font-mono text-xs"
+                      wrap="off"
                     />
                   </div>
                 </div>
