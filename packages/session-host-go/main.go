@@ -613,6 +613,44 @@ func main() {
 		writeJSON(w, 200, map[string]any{"ok": true})
 	})
 
+	mux.HandleFunc("POST /exec", func(w http.ResponseWriter, r *http.Request) {
+		current.Lock()
+		sess := current.sess
+		current.Unlock()
+		if sess == nil || sess.workspace == "" {
+			writeJSON(w, 400, map[string]any{"error": "No active session"})
+			return
+		}
+		var req struct {
+			Command string `json:"command"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, 400, map[string]any{"error": "invalid request body"})
+			return
+		}
+		if req.Command == "" {
+			writeJSON(w, 400, map[string]any{"error": "empty command"})
+			return
+		}
+		cmd := exec.Command("sh", "-c", req.Command)
+		cmd.Dir = sess.workspace
+		cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+		output, err := cmd.CombinedOutput()
+		exitCode := 0
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			} else {
+				writeJSON(w, 500, map[string]any{"error": err.Error()})
+				return
+			}
+		}
+		writeJSON(w, 200, map[string]any{
+			"output":   string(output),
+			"exitCode": exitCode,
+		})
+	})
+
 	mux.HandleFunc("GET /files", func(w http.ResponseWriter, r *http.Request) {
 		current.Lock()
 		sess := current.sess

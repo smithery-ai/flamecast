@@ -78,6 +78,25 @@ export type FlamecastClient = {
   startRuntime(typeName: string, name?: string): Promise<RuntimeInstance>;
   stopRuntime(instanceName: string): Promise<void>;
   pauseRuntime(instanceName: string): Promise<void>;
+
+  // Runtime-level filesystem
+  fetchRuntimeFsSnapshot(instanceName: string): Promise<{
+    root: string;
+    entries: Array<{ path: string; type: string }>;
+    truncated: boolean;
+    maxEntries: number;
+  }>;
+  fetchRuntimeFile(instanceName: string, filePath: string): Promise<{
+    content: string;
+    truncated: boolean;
+    maxChars: number;
+  }>;
+
+  // Runtime-level exec
+  execOnRuntime(instanceName: string, command: string): Promise<{
+    output: string;
+    exitCode: number;
+  }>;
 };
 
 async function assertOk(response: Response, message: string): Promise<void> {
@@ -97,6 +116,7 @@ async function parseOkJson<T>(
 
 export function createFlamecastClient(options: FlamecastClientOptions): FlamecastClient {
   const rpc = createFlamecastRpcClient(options);
+  const baseUrl = normalizeBaseUrl(options.baseUrl);
 
   return {
     rpc,
@@ -238,6 +258,39 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
         param: { instanceName },
       });
       await assertOk(response, "Failed to pause runtime");
+    },
+
+    // -- Runtime-level filesystem --
+
+    // Runtime-level endpoints use plain fetch (not RPC client) because
+    // Hono's type inference struggles with mixed param names on the same
+    // path segment (:typeName vs :instanceName).
+    async fetchRuntimeFsSnapshot(instanceName) {
+      const response = await fetch(
+        `${baseUrl}/runtimes/${encodeURIComponent(instanceName)}/fs/snapshot`,
+      );
+      await assertOk(response, "Failed to fetch runtime filesystem snapshot");
+      return response.json();
+    },
+    async fetchRuntimeFile(instanceName, filePath) {
+      const response = await fetch(
+        `${baseUrl}/runtimes/${encodeURIComponent(instanceName)}/files?path=${encodeURIComponent(filePath)}`,
+      );
+      await assertOk(response, "Failed to fetch runtime file");
+      return response.json();
+    },
+
+    async execOnRuntime(instanceName, command) {
+      const response = await fetch(
+        `${baseUrl}/runtimes/${encodeURIComponent(instanceName)}/exec`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ command }),
+        },
+      );
+      await assertOk(response, "Failed to execute command on runtime");
+      return response.json();
     },
   };
 }

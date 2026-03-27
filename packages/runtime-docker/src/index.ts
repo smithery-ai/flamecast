@@ -240,14 +240,14 @@ export class DockerRuntime implements Runtime {
 
   async fetchSession(sessionId: string, request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const path = url.pathname;
+    const path = url.pathname + url.search;
 
-    if (path.endsWith("/start") && request.method === "POST") {
+    if (url.pathname.endsWith("/start") && request.method === "POST") {
       return this.handleStart(sessionId, request);
     }
 
-    if (path.endsWith("/terminate") && request.method === "POST") {
-      return this.handleTerminate(sessionId, path);
+    if (url.pathname.endsWith("/terminate") && request.method === "POST") {
+      return this.handleTerminate(sessionId, url.pathname);
     }
 
     return this.proxyRequest(sessionId, path, request);

@@ -23,6 +23,7 @@ import {
   SidebarMenuSkeleton,
 } from "@/components/ui/sidebar";
 import {
+  EyeIcon,
   LoaderCircleIcon,
   PauseIcon,
   PlayIcon,
@@ -32,7 +33,13 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import type { RuntimeInfo } from "@flamecast/protocol/runtime";
+import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { RuntimeInspectPanel } from "@/components/runtime-inspect-panel";
 
 /**
  * Resolve a `?runtime=X` filter value to its parent type name.
@@ -221,6 +228,8 @@ function RuntimeTypeItem({
   const [showInput, setShowInput] = useState(false);
   // Track which instance name has an in-flight action
   const [pendingInstance, setPendingInstance] = useState<string | null>(null);
+  // Track which instance is being inspected
+  const [inspectedInstance, setInspectedInstance] = useState<RuntimeInstance | null>(null);
 
   const startMutation = useMutation({
     mutationFn: ({ typeName, name }: { typeName: string; name?: string }) =>
@@ -337,6 +346,36 @@ function RuntimeTypeItem({
         </SidebarMenuItem>
       )}
 
+      {/* Inspect sheet */}
+      <Sheet
+        open={!!inspectedInstance}
+        onOpenChange={(open) => !open && setInspectedInstance(null)}
+      >
+        <SheetContent
+          side="right"
+          showCloseButton
+          className="w-full sm:max-w-2xl lg:max-w-3xl p-0 gap-0"
+        >
+          <SheetTitle className="sr-only">
+            Inspect {inspectedInstance?.name ?? "runtime"}
+          </SheetTitle>
+          {inspectedInstance && (
+            <RuntimeInspectPanel
+              instance={inspectedInstance}
+              onStart={() => {
+                startMutation.mutate({
+                  typeName: runtime.typeName,
+                  name: inspectedInstance.name,
+                });
+              }}
+              isStarting={
+                pendingInstance === inspectedInstance.name && startMutation.isPending
+              }
+            />
+          )}
+        </SheetContent>
+      </Sheet>
+
       {runtime.instances.map((instance) => {
         const isThisPending = pendingInstance === instance.name && isBusy;
         return (
@@ -362,8 +401,20 @@ function RuntimeTypeItem({
             </SidebarMenuButton>
             {/* Action buttons: shown on hover, one at a time based on status */}
             {instance.status === "running" ? (
-              // Running: show pause + stop
+              // Running: show inspect + pause + stop
               <span className="absolute right-0.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100">
+                <button
+                  type="button"
+                  title="Inspect instance"
+                  className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setInspectedInstance(instance);
+                  }}
+                >
+                  <EyeIcon className="size-3.5 shrink-0" />
+                </button>
                 <button
                   type="button"
                   title="Pause instance"
@@ -400,24 +451,38 @@ function RuntimeTypeItem({
                 </button>
               </span>
             ) : (
-              // Stopped or paused: show play (resume)
-              <SidebarMenuAction
-                showOnHover
-                title="Resume instance"
-                disabled={isBusy}
-                className="z-10 !top-1/2 right-1 !-translate-y-1/2 size-7 cursor-pointer rounded-md hover:bg-muted"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  startMutation.mutate({ typeName: runtime.typeName, name: instance.name });
-                }}
-              >
-                {isThisPending && startMutation.isPending ? (
-                  <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
-                ) : (
-                  <PlayIcon className="size-3.5 shrink-0" />
-                )}
-              </SidebarMenuAction>
+              // Stopped or paused: show inspect + play (resume)
+              <span className="absolute right-0.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100">
+                <button
+                  type="button"
+                  title="Inspect instance"
+                  className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setInspectedInstance(instance);
+                  }}
+                >
+                  <EyeIcon className="size-3.5 shrink-0" />
+                </button>
+                <button
+                  type="button"
+                  title="Resume instance"
+                  disabled={isBusy}
+                  className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    startMutation.mutate({ typeName: runtime.typeName, name: instance.name });
+                  }}
+                >
+                  {isThisPending && startMutation.isPending ? (
+                    <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
+                  ) : (
+                    <PlayIcon className="size-3.5 shrink-0" />
+                  )}
+                </button>
+              </span>
             )}
           </SidebarMenuItem>
         );

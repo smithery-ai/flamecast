@@ -437,6 +437,31 @@ export class Flamecast<
     return this.sessionService.proxyRequest(id, path, init);
   }
 
+  /**
+   * Proxy an HTTP request to a runtime instance by finding any active session
+   * on that instance. Used for runtime-level operations (filesystem, terminal)
+   * that are scoped to the runtime rather than a specific session.
+   */
+  async proxyRuntimeInstanceRequest(
+    instanceName: string,
+    path: string,
+    init: RequestInit,
+  ): Promise<Response> {
+    await this.ensureReady();
+    const storage = this.requireStorage();
+    const allSessions = await storage.listAllSessions();
+    const activeOnInstance = allSessions.find(
+      (s) => s.status === "active" && s.runtime === instanceName,
+    );
+    if (!activeOnInstance) {
+      return new Response(
+        JSON.stringify({ error: "No active session on this runtime instance" }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return this.sessionService.proxyRequest(activeOnInstance.id, path, init);
+  }
+
   async promptSession(id: string, text: string): Promise<Record<string, unknown>> {
     await this.ensureReady();
     const response = await this.sessionService.proxyRequest(id, "/prompt", {

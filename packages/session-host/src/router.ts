@@ -124,9 +124,9 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    // Forward to the session's host process
+    // Forward to the session's host process (preserve query string)
     const body = req.method !== "GET" ? await readBody(req) : undefined;
-    const response = await fetch(`http://localhost:${session.port}${subPath}`, {
+    const response = await fetch(`http://localhost:${session.port}${subPath}${url.search}`, {
       method: req.method ?? "GET",
       headers: { "Content-Type": "application/json" },
       body,
