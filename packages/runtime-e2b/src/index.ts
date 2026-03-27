@@ -13,7 +13,7 @@ import { getRequestPath } from "./request-path.js";
 // ---------------------------------------------------------------------------
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
-const SANDBOX_BIN_PATH = "/usr/local/bin/runtime-host";
+const SANDBOX_BIN_PATH = "/usr/local/bin/session-host";
 const SANDBOX_WORKSPACE = "/home/user";
 const DEFAULT_RUNTIME_HOST_PORT = 9000;
 const FLAMECAST_INSTANCE_LABEL = "flamecast.instance";
@@ -263,7 +263,7 @@ export class E2BRuntime implements Runtime {
     // Give it a moment to start (or crash), then check
     await new Promise((r) => setTimeout(r, 2_000));
     const checkProc = await sandbox.commands.run(
-      `(ps aux | grep runtime-host | grep -v grep || true); echo "---LOG---"; cat ${logFile} 2>/dev/null || true`,
+      `(ps aux | grep session-host | grep -v grep || true); echo "---LOG---"; cat ${logFile} 2>/dev/null || true`,
       { timeoutMs: 5_000 },
     );
     console.log(`[E2BRuntime] Process + log check:\n${checkProc.stdout.trim()}`);

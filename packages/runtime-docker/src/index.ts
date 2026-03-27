@@ -25,7 +25,7 @@ function resolveSessionHostBinary(): string {
 // Constants
 // ---------------------------------------------------------------------------
 
-const CONTAINER_BIN_PATH = "/usr/local/bin/runtime-host";
+const CONTAINER_BIN_PATH = "/usr/local/bin/session-host";
 const DEFAULT_CONTAINER_WORKSPACE = "/workspace";
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const DEFAULT_RUNTIME_HOST_PORT = 9000;
@@ -732,7 +732,7 @@ export class DockerRuntime implements Runtime {
     workspaceRoot: string,
   ): Promise<void> {
     await container.putArchive(
-      createTarArchive("runtime-host", readFileSync(binaryPath), 0o755),
+      createTarArchive("session-host", readFileSync(binaryPath), 0o755),
       { path: posix.dirname(CONTAINER_BIN_PATH) },
     );
 
