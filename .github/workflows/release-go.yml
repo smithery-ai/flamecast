@@ -19,6 +19,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: packages/session-host-go/go.mod
+          cache-dependency-path: packages/session-host-go/go.sum
+
+      - name: Build binaries
+        working-directory: packages/session-host-go
+        run: |
+          mkdir -p dist
+          for goarch in amd64 arm64; do
+            echo "Building session-host-${goarch}..."
+            CGO_ENABLED=0 GOOS=linux GOARCH=${goarch} \
+              go build -o "dist/session-host-${goarch}" -ldflags="-s -w" .
+          done
+
       - name: Get current version
         id: version
         run: |
@@ -47,5 +63,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ steps.version.outputs.tag }}" \
+            packages/session-host-go/dist/session-host-amd64 \
+            packages/session-host-go/dist/session-host-arm64 \
             --title "session-host-go ${{ steps.version.outputs.version }}" \
             --generate-notes
