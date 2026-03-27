@@ -5,6 +5,7 @@ import type { Flamecast } from "./index.js";
 import {
   CreateSessionBodySchema,
   RegisterAgentTemplateBodySchema,
+  UpdateAgentTemplateBodySchema,
   createRegisterAgentTemplateBodySchema,
 } from "../shared/session.js";
 import { toWsChannelEvent } from "./events/channels.js";
@@ -23,6 +24,7 @@ export type FlamecastApi = Pick<
   | "proxyQueueRequest"
   | "resolvePermission"
   | "registerAgentTemplate"
+  | "updateAgentTemplate"
   | "startRuntime"
   | "stopRuntime"
   | "terminateSession"
@@ -93,6 +95,18 @@ export function createApi(flamecast: FlamecastApi) {
         } catch (error) {
           console.error("Register agent template failed:", error);
           return c.json({ error: toErrorMessage(error) }, 500);
+        }
+      })
+      .put("/agent-templates/:id", zValidator("json", UpdateAgentTemplateBodySchema), async (c) => {
+        try {
+          const id = c.req.param("id");
+          const body = c.req.valid("json");
+          const template = await flamecast.updateAgentTemplate(id, body);
+          return c.json(template);
+        } catch (error) {
+          const msg = toErrorMessage(error);
+          const status = msg.includes("not found") ? 404 : 500;
+          return c.json({ error: msg }, status);
         }
       })
       // ---- Runtime lifecycle ----

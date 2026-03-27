@@ -10,6 +10,7 @@ export const {
   fetchSessions,
   pauseRuntime,
   registerAgentTemplate,
+  updateAgentTemplate,
   startRuntime,
   stopRuntime,
   terminateSession,

@@ -26,6 +26,15 @@ export type FlamecastStorage = {
   listAgentTemplates(): Promise<AgentTemplate[]>;
   getAgentTemplate(id: string): Promise<AgentTemplate | null>;
   saveAgentTemplate(template: AgentTemplate): Promise<void>;
+  updateAgentTemplate(
+    id: string,
+    patch: {
+      name?: string;
+      spawn?: AgentTemplate["spawn"];
+      runtime?: Partial<AgentTemplate["runtime"]>;
+      env?: Record<string, string>;
+    },
+  ): Promise<AgentTemplate | null>;
   createSession(meta: SessionMeta, runtimeInfo?: SessionRuntimeInfo): Promise<void>;
   updateSession(
     id: string,

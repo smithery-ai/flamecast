@@ -62,6 +62,13 @@ export const AgentTemplateSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
 }) satisfies z.ZodType<AgentTemplate>;
 
+export const UpdateAgentTemplateBodySchema = z.object({
+  name: z.string().min(1).optional(),
+  spawn: AgentSpawnSchema.optional(),
+  runtime: AgentTemplateRuntimeSchema.partial().optional(),
+  env: z.record(z.string(), z.string()).optional(),
+});
+
 export const RegisterAgentTemplateBodySchema = z.object({
   name: z.string().min(1),
   spawn: AgentSpawnSchema,

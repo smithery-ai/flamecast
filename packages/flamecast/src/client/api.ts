@@ -31,12 +31,20 @@ export type FlamecastRpcClient = ReturnType<typeof createFlamecastRpcClient>;
 /** Prompt result — either immediate execution or queued. */
 export type PromptResult = Record<string, unknown> | QueuedPromptResponse;
 
+export type UpdateAgentTemplateBody = {
+  name?: string;
+  spawn?: AgentTemplate["spawn"];
+  runtime?: Partial<AgentTemplate["runtime"]>;
+  env?: Record<string, string>;
+};
+
 export type FlamecastClient = {
   rpc: FlamecastRpcClient;
 
   // Agent templates
   fetchAgentTemplates(): Promise<AgentTemplate[]>;
   registerAgentTemplate(body: RegisterAgentTemplateBody): Promise<AgentTemplate>;
+  updateAgentTemplate(id: string, body: UpdateAgentTemplateBody): Promise<AgentTemplate>;
 
   // Sessions
   fetchSessions(): Promise<Session[]>;
@@ -102,6 +110,13 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
     async registerAgentTemplate(body) {
       const response = await rpc["agent-templates"].$post({ json: body });
       return parseOkJson(response, AgentTemplateSchema, "Failed to register agent template");
+    },
+    async updateAgentTemplate(id, body) {
+      const response = await rpc["agent-templates"][":id"].$put({
+        param: { id },
+        json: body,
+      });
+      return parseOkJson(response, AgentTemplateSchema, "Failed to update agent template");
     },
 
     // -- Sessions --

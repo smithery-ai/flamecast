@@ -208,6 +208,21 @@ export class Flamecast<
     return this.requireStorage().listAgentTemplates();
   }
 
+  async updateAgentTemplate(
+    id: string,
+    patch: {
+      name?: string;
+      spawn?: AgentTemplate["spawn"];
+      runtime?: Partial<AgentTemplate["runtime"]>;
+      env?: Record<string, string>;
+    },
+  ): Promise<AgentTemplate> {
+    await this.ensureReady();
+    const updated = await this.requireStorage().updateAgentTemplate(id, patch);
+    if (!updated) throw new Error(`Agent template "${id}" not found`);
+    return updated;
+  }
+
   // ---------------------------------------------------------------------------
   // Runtime lifecycle
   // ---------------------------------------------------------------------------
