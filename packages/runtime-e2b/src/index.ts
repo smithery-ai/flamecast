@@ -1,57 +1,12 @@
-import { readFileSync, existsSync } from "node:fs";
-import { dirname, join, posix } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+import { posix } from "node:path";
 import { Sandbox } from "@e2b/code-interpreter";
 import type { Runtime } from "@flamecast/protocol/runtime";
+import {
+  resolveSessionHostBinary,
+  resolveSessionHostUrl,
+} from "@flamecast/session-host-go/resolve";
 import { getRequestPath } from "./request-path.js";
-
-// ---------------------------------------------------------------------------
-// Session-host binary resolution (same as DockerRuntime)
-// ---------------------------------------------------------------------------
-
-/** Try to find the session-host binary on the local filesystem. Returns `null` if unavailable. */
-function resolveSessionHostBinary(): string | null {
-  if (process.env.SESSION_HOST_BINARY) {
-    const p = process.env.SESSION_HOST_BINARY;
-    if (!existsSync(p)) {
-      throw new Error(`SESSION_HOST_BINARY points to "${p}" which does not exist`);
-    }
-    return p;
-  }
-
-  // E2B sandboxes are always x86_64 — resolve the amd64 binary specifically
-  try {
-    const pkgJsonUrl = import.meta.resolve("@flamecast/session-host-go/package.json");
-    const pkgDir = dirname(fileURLToPath(pkgJsonUrl));
-    const amd64Path = join(pkgDir, "dist", "session-host-amd64");
-    if (existsSync(amd64Path)) return amd64Path;
-  } catch {
-    // Package not resolvable (e.g. bundled Workers environment)
-  }
-
-  return null;
-}
-
-/**
- * Stable download URL for the session-host binary. Uses a pinned
- * `session-host-latest` release tag that CI overwrites on each build,
- * so this URL never changes.
- */
-const SESSION_HOST_DEFAULT_URL =
-  "https://github.com/smithery-ai/flamecast/releases/download/session-host-latest/session-host-amd64";
-
-/**
- * Resolve the download URL for the session-host-amd64 binary.
- *
- * Resolution order:
- *  1. `SESSION_HOST_URL` env var (explicit override, works for any runtime)
- *  2. Constructor `sessionHostUrl` option (per-instance override)
- *  3. Stable default URL (GitHub release tag `session-host-latest`)
- */
-function resolveSessionHostReleaseUrl(): string {
-  const envUrl = typeof process !== "undefined" ? process.env?.SESSION_HOST_URL : undefined;
-  return envUrl ?? SESSION_HOST_DEFAULT_URL;
-}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -317,13 +272,14 @@ export class E2BRuntime implements Runtime {
 
   /** Upload the session-host binary into a sandbox. */
   private async uploadSessionHostBinary(sandbox: Sandbox): Promise<void> {
-    const localBinary = resolveSessionHostBinary();
+    // E2B sandboxes are always x86_64
+    const localBinary = resolveSessionHostBinary("amd64");
     if (localBinary) {
       const binaryBlob = new Blob([readFileSync(localBinary)]);
       await sandbox.files.write(SANDBOX_BIN_PATH, binaryBlob);
       await sandbox.commands.run(`chmod +x ${SANDBOX_BIN_PATH}`);
     } else {
-      const url = this.sessionHostUrl ?? resolveSessionHostReleaseUrl();
+      const url = this.sessionHostUrl ?? resolveSessionHostUrl();
       console.log(`[E2BRuntime] Downloading session-host from ${url}...`);
       try {
         await sandbox.commands.run(

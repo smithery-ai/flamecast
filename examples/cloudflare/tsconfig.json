@@ -3,5 +3,5 @@
   "compilerOptions": {
     "outDir": "./dist"
   },
-  "include": ["api/**/*.ts", "src/**/*.ts", "test/**/*.ts", "worker-configuration.d.ts"]
+  "include": ["api/**/*.ts", "src/**/*.ts", "test/**/*.ts"]
 }
