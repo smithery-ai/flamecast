@@ -3,8 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vercel dev",
-    "build": "tsc --project tsconfig.json --noEmit",
+    "build:check": "pnpm -w turbo run build:package --filter=@flamecast/example-vercel... && tsc --project tsconfig.json --noEmit",
     "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
@@ -12,7 +11,10 @@
     "@flamecast/runtime-e2b": "workspace:*",
     "@flamecast/sdk": "workspace:*",
     "@flamecast/storage-psql": "workspace:*",
-    "dotenv": "^17.3.1"
+    "dotenv": "^17.3.1",
+    "drizzle-orm": "^0.45.1",
+    "hono": "^4.12.8",
+    "pg": "^8.20.0"
   },
   "devDependencies": {
     "vercel": "^50.37.1"
