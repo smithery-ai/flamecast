@@ -1,5 +1,6 @@
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, posix } from "node:path";
+import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import Docker from "dockerode";
 import type { Runtime } from "@flamecast/protocol/runtime";
@@ -49,12 +50,143 @@ function resolveSessionHostBinary(): string {
 // ---------------------------------------------------------------------------
 
 const CONTAINER_BIN_PATH = "/usr/local/bin/session-host";
+const DEFAULT_CONTAINER_WORKSPACE = "/workspace";
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const DEFAULT_MAX_SESSIONS = 20;
 const DEFAULT_BASE_PORT = 9000;
+const FLAMECAST_INSTANCE_LABEL = "flamecast.instance";
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
+}
+
+type RuntimeEntry = {
+  path: string;
+  type: "file" | "directory" | "symlink" | "other";
+};
+
+type GitIgnoreRule = {
+  negated: boolean;
+  regex: RegExp;
+};
+
+function globToRegexSource(pattern: string): string {
+  let source = "";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+    if (char === "*") {
+      if (pattern[index + 1] === "*") {
+        source += ".*";
+        index += 1;
+      } else {
+        source += "[^/]*";
+      }
+      continue;
+    }
+    if (char === "?") {
+      source += "[^/]";
+      continue;
+    }
+    if ("\\^$+?.()|{}[]".includes(char)) {
+      source += `\\${char}`;
+      continue;
+    }
+    source += char;
+  }
+  return source;
+}
+
+function parseGitIgnoreRule(line: string): GitIgnoreRule | null {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.startsWith("#")) return null;
+
+  const literal = trimmed.startsWith("\\#") || trimmed.startsWith("\\!");
+  const negated = !literal && trimmed.startsWith("!");
+  const rawPattern = negated ? trimmed.slice(1) : literal ? trimmed.slice(1) : trimmed;
+  if (!rawPattern) return null;
+
+  const directoryOnly = rawPattern.endsWith("/");
+  const anchored = rawPattern.startsWith("/");
+  const normalized = rawPattern.slice(anchored ? 1 : 0, directoryOnly ? -1 : undefined);
+  if (!normalized) return null;
+
+  const hasSlash = normalized.includes("/");
+  const source = globToRegexSource(normalized);
+  const regex = !hasSlash
+    ? new RegExp(directoryOnly ? `(^|/)${source}(/|$)` : `(^|/)${source}$`, "u")
+    : anchored
+      ? new RegExp(directoryOnly ? `^${source}(/|$)` : `^${source}$`, "u")
+      : new RegExp(directoryOnly ? `(^|.*/)${source}(/|$)` : `(^|.*/)${source}$`, "u");
+
+  return { negated, regex };
+}
+
+function parseGitIgnoreRules(content: string): GitIgnoreRule[] {
+  const rules = [parseGitIgnoreRule(".git/")].filter(
+    (rule): rule is GitIgnoreRule => rule !== null,
+  );
+  const extra = process.env.FILE_WATCHER_IGNORE;
+  if (extra) {
+    for (const pattern of extra.split(",")) {
+      const rule = parseGitIgnoreRule(pattern.trim());
+      if (rule) rules.push(rule);
+    }
+  }
+
+  for (const line of content.split(/\r?\n/u)) {
+    const rule = parseGitIgnoreRule(line);
+    if (rule) rules.push(rule);
+  }
+  return rules;
+}
+
+function isGitIgnored(path: string, rules: GitIgnoreRule[]): boolean {
+  let ignored = false;
+  for (const rule of rules) {
+    if (rule.regex.test(path)) {
+      ignored = !rule.negated;
+    }
+  }
+  return ignored;
+}
+
+function parseFindOutput(stdout: string): RuntimeEntry[] {
+  return stdout
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .flatMap((line) => {
+      const [kind, path] = line.split("\t", 2);
+      if (!kind || !path) return [];
+      return [
+        {
+          path,
+          type:
+            kind === "d" ? "directory" : kind === "f" ? "file" : kind === "l" ? "symlink" : "other",
+        } satisfies RuntimeEntry,
+      ];
+    });
+}
+
+function shellEscape(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function resolveWorkspacePath(workspaceRoot: string, filePath: string): string | null {
+  if (!filePath || filePath.includes("\0")) return null;
+  const normalized = posix.normalize(filePath);
+  if (normalized === ".." || normalized.startsWith("../") || normalized.startsWith("/")) {
+    return null;
+  }
+  return posix.join(workspaceRoot, normalized);
+}
+
+function resolveContainerWorkspaceRoot(info: DockerContainerInspectInfo): string {
+  const configured = info.Config?.WorkingDir?.trim();
+  if (!configured) return DEFAULT_CONTAINER_WORKSPACE;
+  const normalized = posix.normalize(configured);
+  if (normalized === "." || normalized === "") return DEFAULT_CONTAINER_WORKSPACE;
+  return normalized.startsWith("/") ? normalized : posix.join("/", normalized);
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +210,76 @@ interface SessionEntry {
   hostPort: number;
 }
 
+type DockerContainerInspectInfo = {
+  Config?: {
+    WorkingDir?: string;
+  };
+  State: {
+    Running?: boolean;
+    Paused?: boolean;
+    ExitCode?: number | null;
+  };
+  NetworkSettings: {
+    Ports: Record<string, Array<{ HostPort: string }> | null | undefined>;
+  };
+};
+
+type DockerExecClient = {
+  inspect(): Promise<{ ExitCode?: number | null }>;
+  start(opts: {
+    hijack?: boolean;
+    stdin?: boolean;
+    Detach?: boolean;
+  }): Promise<NodeJS.ReadWriteStream>;
+};
+
+type DockerContainerClient = {
+  inspect(): Promise<DockerContainerInspectInfo>;
+  start(): Promise<void>;
+  unpause(): Promise<void>;
+  pause(): Promise<void>;
+  kill(): Promise<void>;
+  remove(): Promise<void>;
+  logs(opts: { stdout?: boolean; stderr?: boolean; tail?: number }): Promise<Buffer>;
+  exec(opts: {
+    Cmd: string[];
+    Env?: string[];
+    AttachStdout: boolean;
+    AttachStderr: boolean;
+    WorkingDir?: string;
+  }): Promise<DockerExecClient>;
+  putArchive(
+    file: string | Buffer | NodeJS.ReadableStream,
+    options: { path: string },
+  ): Promise<NodeJS.ReadWriteStream>;
+};
+
+type DockerCreatedContainerClient = DockerContainerClient & {
+  id: string;
+};
+
+type DockerImageClient = {
+  inspect(): Promise<unknown>;
+};
+
+type DockerClient = {
+  createContainer(opts: Record<string, unknown>): Promise<DockerCreatedContainerClient>;
+  getContainer(id: string): DockerContainerClient;
+  getImage(image: string): DockerImageClient;
+  listContainers(opts: {
+    all: boolean;
+  }): Promise<Array<{ Id: string; Labels?: Record<string, string> }>>;
+  pull(image: string): Promise<NodeJS.ReadableStream>;
+  modem: {
+    demuxStream(
+      stream: NodeJS.ReadableStream,
+      stdout: NodeJS.WritableStream,
+      stderr: NodeJS.WritableStream,
+    ): void;
+    followProgress(stream: NodeJS.ReadableStream, onFinished: (err: Error | null) => void): void;
+  };
+};
+
 // ---------------------------------------------------------------------------
 // DockerRuntime
 // ---------------------------------------------------------------------------
@@ -95,7 +297,7 @@ interface SessionEntry {
  */
 export class DockerRuntime implements Runtime {
   private readonly baseImage: string;
-  private readonly docker: Docker;
+  private readonly docker: DockerClient;
   private readonly maxSessions: number;
   private readonly basePort: number;
 
@@ -106,7 +308,7 @@ export class DockerRuntime implements Runtime {
 
   constructor(opts?: {
     baseImage?: string;
-    docker?: Docker;
+    docker?: DockerClient;
     maxSessionsPerInstance?: number;
     baseContainerPort?: number;
   }) {
@@ -121,16 +323,15 @@ export class DockerRuntime implements Runtime {
   // ---------------------------------------------------------------------------
 
   async start(instanceId: string): Promise<void> {
-    const existing = this.instances.get(instanceId);
+    const existing = await this.resolveInstanceContainer(instanceId);
     if (existing) {
       // Resume a paused or stopped container
-      const container = this.docker.getContainer(existing.containerId);
-      const info = await container.inspect();
-      if (info.State.Paused) {
-        await container.unpause();
-      } else if (!info.State.Running) {
-        await container.start();
+      if (existing.info.State.Paused) {
+        await existing.container.unpause();
+      } else if (!existing.info.State.Running) {
+        await existing.container.start();
       }
+      await this.inspectContainer(instanceId, existing.entry.containerId);
       return;
     }
 
@@ -152,15 +353,14 @@ export class DockerRuntime implements Runtime {
       ExposedPorts: exposedPorts,
       Env: ["RUNTIME_SETUP_ENABLED=1"],
       HostConfig: {
-        Binds: [`${binaryPath}:${CONTAINER_BIN_PATH}:ro`],
         PortBindings: portBindings,
       },
-      WorkingDir: "/workspace",
-      Labels: { "flamecast.instance": instanceId },
+      WorkingDir: DEFAULT_CONTAINER_WORKSPACE,
+      Labels: { [FLAMECAST_INSTANCE_LABEL]: instanceId },
     });
 
     await container.start();
-    const info = await container.inspect();
+    let info = await container.inspect();
 
     if (!info.State.Running) {
       const logs = await container.logs({ stdout: true, stderr: true, tail: 20 });
@@ -170,26 +370,26 @@ export class DockerRuntime implements Runtime {
       );
     }
 
-    const ports: PortSlot[] = [];
-    for (let i = 0; i < this.maxSessions; i++) {
-      const containerPort = this.basePort + i;
-      const binding = info.NetworkSettings.Ports[`${containerPort}/tcp`];
-      const hostPort = parseInt(binding?.[0]?.HostPort ?? "0", 10);
-      if (hostPort) {
-        ports.push({ containerPort, hostPort, inUse: false });
-      }
+    try {
+      await this.bootstrapContainer(container, binaryPath, resolveContainerWorkspaceRoot(info));
+      info = await container.inspect();
+    } catch (error) {
+      await container.kill().catch(() => {});
+      await container.remove().catch(() => {});
+      throw error;
     }
 
-    this.instances.set(instanceId, { containerId: container.id, ports });
+    const ports = this.extractPortSlots(instanceId, info);
+    this.instances.set(instanceId, {
+      containerId: container.id,
+      ports,
+    });
     console.log(
       `[DockerRuntime] Instance "${instanceId}" started (container=${container.id.slice(0, 12)}, ${ports.length} ports)`,
     );
   }
 
   async stop(instanceId: string): Promise<void> {
-    const inst = this.instances.get(instanceId);
-    if (!inst) return;
-
     // Clean up session tracking for this instance
     for (const [sid, session] of this.sessions) {
       if (session.instanceName === instanceId) {
@@ -197,10 +397,12 @@ export class DockerRuntime implements Runtime {
       }
     }
 
+    const resolved = await this.resolveInstanceContainer(instanceId);
+    if (!resolved) return;
+
     try {
-      const container = this.docker.getContainer(inst.containerId);
-      await container.kill().catch(() => {});
-      await container.remove().catch(() => {});
+      await resolved.container.kill().catch(() => {});
+      await resolved.container.remove().catch(() => {});
     } catch {
       // Container may already be gone
     }
@@ -210,29 +412,21 @@ export class DockerRuntime implements Runtime {
   }
 
   async pause(instanceId: string): Promise<void> {
-    const inst = this.instances.get(instanceId);
-    if (!inst) throw new Error(`Instance "${instanceId}" not found`);
+    const resolved = await this.resolveInstanceContainer(instanceId);
+    if (!resolved) throw new Error(`Instance "${instanceId}" not found`);
 
-    const container = this.docker.getContainer(inst.containerId);
-    await container.pause();
+    await resolved.container.pause();
     console.log(`[DockerRuntime] Instance "${instanceId}" paused`);
   }
 
   async getInstanceStatus(
     instanceId: string,
   ): Promise<"running" | "stopped" | "paused" | undefined> {
-    const inst = this.instances.get(instanceId);
-    if (!inst) return undefined;
-
-    try {
-      const container = this.docker.getContainer(inst.containerId);
-      const info = await container.inspect();
-      if (info.State.Paused) return "paused";
-      if (info.State.Running) return "running";
-      return "stopped";
-    } catch {
-      return undefined;
-    }
+    const resolved = await this.resolveInstanceContainer(instanceId);
+    if (!resolved) return undefined;
+    if (resolved.info.State.Paused) return "paused";
+    if (resolved.info.State.Running) return "running";
+    return "stopped";
   }
 
   // ---------------------------------------------------------------------------
@@ -251,6 +445,20 @@ export class DockerRuntime implements Runtime {
     }
 
     return this.proxyRequest(sessionId, path, request);
+  }
+
+  async fetchInstance(instanceId: string, request: Request): Promise<Response> {
+    const path = new URL(request.url).pathname;
+
+    if (path === "/fs/snapshot" && request.method === "GET") {
+      return this.handleInstanceSnapshot(instanceId, request);
+    }
+
+    if (path === "/files" && request.method === "GET") {
+      return this.handleInstanceFilePreview(instanceId, request);
+    }
+
+    return jsonResponse({ error: `Unsupported runtime request: ${request.method} ${path}` }, 404);
   }
 
   getRuntimeMeta(sessionId: string): Record<string, unknown> | null {
@@ -345,10 +553,11 @@ export class DockerRuntime implements Runtime {
         );
       }
 
-      const inst = this.instances.get(instanceName);
-      if (!inst) {
+      const resolved = await this.resolveInstanceContainer(instanceName);
+      if (!resolved) {
         return jsonResponse({ error: `Runtime instance "${instanceName}" not found` }, 404);
       }
+      const inst = resolved.entry;
 
       // Allocate a port
       const slot = inst.ports.find((p) => !p.inUse);
@@ -362,12 +571,13 @@ export class DockerRuntime implements Runtime {
       }
 
       // Exec session-host inside the container
-      const container = this.docker.getContainer(inst.containerId);
-      const exec = await container.exec({
+      const workspaceRoot = resolveContainerWorkspaceRoot(resolved.info);
+      const exec = await resolved.container.exec({
         Cmd: [CONTAINER_BIN_PATH],
         Env: [`SESSION_HOST_PORT=${slot.containerPort}`],
         AttachStdout: false,
         AttachStderr: false,
+        WorkingDir: workspaceRoot,
       });
       await exec.start({ Detach: true });
 
@@ -381,7 +591,7 @@ export class DockerRuntime implements Runtime {
       await this.waitForReady(slot.hostPort);
 
       // Forward to session-host (strip instanceName, override workspace)
-      parsed.workspace = "/workspace";
+      parsed.workspace = workspaceRoot;
       delete parsed.instanceName;
 
       const resp = await fetch(`http://localhost:${slot.hostPort}/start`, {
@@ -467,6 +677,224 @@ export class DockerRuntime implements Runtime {
     });
   }
 
+  private async handleInstanceSnapshot(instanceId: string, request: Request): Promise<Response> {
+    const resolved = await this.getRunningContainer(instanceId);
+    if (resolved instanceof Response) return resolved;
+
+    const showAllFiles = new URL(request.url).searchParams.get("showAllFiles") === "true";
+    const workspaceRoot = resolveContainerWorkspaceRoot(resolved.info);
+    const listResult = await this.execInContainer(resolved.container, [
+      "sh",
+      "-lc",
+      `find ${shellEscape(workspaceRoot)} -mindepth 1 -printf '%y\t%P\n'`,
+    ]);
+    if (listResult.exitCode !== 0) {
+      return jsonResponse(
+        { error: listResult.stderr.trim() || "Failed to read runtime filesystem" },
+        500,
+      );
+    }
+
+    let entries = parseFindOutput(listResult.stdout);
+    if (!showAllFiles) {
+      const gitIgnoreResult = await this.execInContainer(resolved.container, [
+        "sh",
+        "-lc",
+        `cat ${shellEscape(posix.join(workspaceRoot, ".gitignore"))}`,
+      ]);
+      const rules = parseGitIgnoreRules(
+        gitIgnoreResult.exitCode === 0 ? gitIgnoreResult.stdout : "",
+      );
+      entries = entries.filter((entry) => !isGitIgnored(entry.path, rules));
+    }
+
+    const maxEntries = 10_000;
+    const truncated = entries.length > maxEntries;
+    return jsonResponse({
+      root: workspaceRoot,
+      entries: truncated ? entries.slice(0, maxEntries) : entries,
+      truncated,
+      maxEntries,
+    });
+  }
+
+  private async handleInstanceFilePreview(instanceId: string, request: Request): Promise<Response> {
+    const resolved = await this.getRunningContainer(instanceId);
+    if (resolved instanceof Response) return resolved;
+
+    const filePath = new URL(request.url).searchParams.get("path");
+    if (!filePath) {
+      return jsonResponse({ error: "Missing ?path= parameter" }, 400);
+    }
+
+    const workspaceRoot = resolveContainerWorkspaceRoot(resolved.info);
+    const resolvedPath = resolveWorkspacePath(workspaceRoot, filePath);
+    if (!resolvedPath) {
+      return jsonResponse({ error: "Path outside workspace" }, 403);
+    }
+
+    const sizeResult = await this.execInContainer(resolved.container, [
+      "sh",
+      "-lc",
+      `wc -c < ${shellEscape(resolvedPath)}`,
+    ]);
+    if (sizeResult.exitCode !== 0) {
+      return jsonResponse({ error: `Cannot read: ${filePath}` }, 404);
+    }
+
+    const contentResult = await this.execInContainer(resolved.container, [
+      "sh",
+      "-lc",
+      `head -c 100000 ${shellEscape(resolvedPath)}`,
+    ]);
+    if (contentResult.exitCode !== 0) {
+      return jsonResponse({ error: `Cannot read: ${filePath}` }, 404);
+    }
+
+    const maxChars = 100_000;
+    const rawSize = Number.parseInt(sizeResult.stdout.trim(), 10);
+    const truncated = Number.isFinite(rawSize) ? rawSize > maxChars : false;
+    return jsonResponse({
+      path: filePath,
+      content: contentResult.stdout,
+      truncated,
+      maxChars,
+    });
+  }
+
+  private async getRunningContainer(instanceId: string): Promise<
+    | {
+        container: DockerContainerClient;
+        info: DockerContainerInspectInfo;
+      }
+    | Response
+  > {
+    const resolved = await this.resolveInstanceContainer(instanceId);
+    if (!resolved) {
+      return jsonResponse({ error: `Runtime instance "${instanceId}" not found` }, 404);
+    }
+
+    if (!resolved.info.State.Running || resolved.info.State.Paused) {
+      return jsonResponse({ error: `Runtime instance "${instanceId}" is not running` }, 409);
+    }
+    return { container: resolved.container, info: resolved.info };
+  }
+
+  private async execInContainer(
+    container: DockerContainerClient,
+    cmd: string[],
+  ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+    const exec = await container.exec({
+      Cmd: cmd,
+      AttachStdout: true,
+      AttachStderr: true,
+    });
+    const stream = await exec.start({ hijack: true, stdin: false });
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    let stdoutText = "";
+    let stderrText = "";
+
+    stdout.on("data", (chunk: Buffer) => {
+      stdoutText += chunk.toString("utf8");
+    });
+    stderr.on("data", (chunk: Buffer) => {
+      stderrText += chunk.toString("utf8");
+    });
+
+    this.docker.modem.demuxStream(stream, stdout, stderr);
+    await new Promise<void>((resolve, reject) => {
+      stream.on("end", () => resolve());
+      stream.on("error", reject);
+    });
+
+    const result = await exec.inspect();
+    return {
+      exitCode: result.ExitCode ?? 1,
+      stdout: stdoutText,
+      stderr: stderrText,
+    };
+  }
+
+  private async bootstrapContainer(
+    container: DockerContainerClient,
+    binaryPath: string,
+    workspaceRoot: string,
+  ): Promise<void> {
+    await container.putArchive(createTarArchive("session-host", readFileSync(binaryPath), 0o755), {
+      path: posix.dirname(CONTAINER_BIN_PATH),
+    });
+
+    const prepareResult = await this.execInContainer(container, [
+      "sh",
+      "-lc",
+      `mkdir -p ${shellEscape(workspaceRoot)} && chmod +x ${shellEscape(CONTAINER_BIN_PATH)}`,
+    ]);
+    if (prepareResult.exitCode !== 0) {
+      throw new Error(prepareResult.stderr.trim() || "Failed to bootstrap Docker runtime");
+    }
+  }
+
+  private extractPortSlots(instanceId: string, info: DockerContainerInspectInfo): PortSlot[] {
+    const ports: PortSlot[] = [];
+    for (let index = 0; index < this.maxSessions; index += 1) {
+      const containerPort = this.basePort + index;
+      const binding = info.NetworkSettings.Ports[`${containerPort}/tcp`];
+      const hostPort = parseInt(binding?.[0]?.HostPort ?? "0", 10);
+      if (hostPort) {
+        ports.push({
+          containerPort,
+          hostPort,
+          inUse: [...this.sessions.values()].some(
+            (session) =>
+              session.instanceName === instanceId && session.containerPort === containerPort,
+          ),
+        });
+      }
+    }
+    return ports;
+  }
+
+  private async inspectContainer(
+    instanceId: string,
+    containerId: string,
+  ): Promise<{
+    container: DockerContainerClient;
+    info: DockerContainerInspectInfo;
+    entry: InstanceEntry;
+  } | null> {
+    const container = this.docker.getContainer(containerId);
+    const info = await container.inspect().catch(() => null);
+    if (!info) return null;
+
+    const entry = {
+      containerId,
+      ports: this.extractPortSlots(instanceId, info),
+    };
+    this.instances.set(instanceId, entry);
+    return { container, info, entry };
+  }
+
+  private async resolveInstanceContainer(instanceId: string): Promise<{
+    container: DockerContainerClient;
+    info: DockerContainerInspectInfo;
+    entry: InstanceEntry;
+  } | null> {
+    const tracked = this.instances.get(instanceId);
+    if (tracked) {
+      const resolved = await this.inspectContainer(instanceId, tracked.containerId);
+      if (resolved) return resolved;
+      this.instances.delete(instanceId);
+    }
+
+    const containers = await this.docker.listContainers({ all: true });
+    const match = containers.find(
+      (container) => container.Labels?.[FLAMECAST_INSTANCE_LABEL] === instanceId,
+    );
+    if (!match?.Id) return null;
+    return this.inspectContainer(instanceId, match.Id);
+  }
+
   // ---------------------------------------------------------------------------
   // Image management
   // ---------------------------------------------------------------------------
@@ -507,4 +935,34 @@ export class DockerRuntime implements Runtime {
     }
     throw new Error(`SessionHost not ready after ${timeoutMs}ms`);
   }
+}
+
+function createTarArchive(fileName: string, contents: Buffer, mode: number): Buffer {
+  const header = Buffer.alloc(512, 0);
+  writeTarString(header, fileName, 0, 100);
+  writeTarOctal(header, mode, 100, 8);
+  writeTarOctal(header, 0, 108, 8);
+  writeTarOctal(header, 0, 116, 8);
+  writeTarOctal(header, contents.length, 124, 12);
+  writeTarOctal(header, Math.floor(Date.now() / 1000), 136, 12);
+  header.fill(0x20, 148, 156);
+  header[156] = "0".charCodeAt(0);
+  writeTarString(header, "ustar", 257, 6);
+  writeTarString(header, "00", 263, 2);
+
+  let checksum = 0;
+  for (const byte of header) checksum += byte;
+  Buffer.from(`${checksum.toString(8).padStart(6, "0")}\0 `, "ascii").copy(header, 148);
+
+  const padding = (512 - (contents.length % 512)) % 512;
+  return Buffer.concat([header, contents, Buffer.alloc(padding), Buffer.alloc(1024)]);
+}
+
+function writeTarOctal(header: Buffer, value: number, offset: number, width: number): void {
+  const encoded = `${value.toString(8).padStart(width - 1, "0")}\0`;
+  Buffer.from(encoded, "ascii").copy(header, offset, 0, width);
+}
+
+function writeTarString(header: Buffer, value: string, offset: number, width: number): void {
+  Buffer.from(value, "ascii").copy(header, offset, 0, width);
 }

@@ -58,6 +58,7 @@ function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastAp
         sampleSession,
     ),
     listSessions: vi.fn(async () => [sampleSession]),
+    listRuntimes: vi.fn(async () => []),
     listAgentTemplates: vi.fn(async () => [sampleAgentTemplate]),
     registerAgentTemplate: vi.fn(async (body: RegisterAgentTemplateBody) => ({
       id: "registered-template",
@@ -66,6 +67,11 @@ function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastAp
       runtime: body.runtime ?? { provider: "default" },
     })),
     handleSessionEvent: vi.fn(async () => ({ ok: true })),
+    startRuntime: vi.fn(async () => ({ name: "default", typeName: "default", status: "running" })),
+    stopRuntime: vi.fn(async () => undefined),
+    pauseRuntime: vi.fn(async () => undefined),
+    fetchRuntimeFilePreview: vi.fn(async () => sampleFilePreview),
+    fetchRuntimeFileSystem: vi.fn(async () => sampleFileSystem),
     fetchSessionFilePreview: vi.fn(async () => sampleFilePreview),
     fetchSessionFileSystem: vi.fn(async () => sampleFileSystem),
     promptSession: vi.fn(async () => ({ stopReason: "end_turn" })),
@@ -350,7 +356,68 @@ describe("API server surface", () => {
 
     expect(response.status).toBe(200);
     expect(await readJson(response)).toEqual(sampleFileSystem);
-    expect(flamecast.fetchSessionFileSystem).toHaveBeenCalledWith(sampleAgentId);
+    expect(flamecast.fetchSessionFileSystem).toHaveBeenCalledWith(sampleAgentId, {
+      showAllFiles: false,
+    });
+  });
+
+  it("passes showAllFiles through the session filesystem route", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(
+      `/api/agents/${sampleAgentId}/fs/snapshot?showAllFiles=true`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual(sampleFileSystem);
+    expect(flamecast.fetchSessionFileSystem).toHaveBeenCalledWith(sampleAgentId, {
+      showAllFiles: true,
+    });
+  });
+
+  it("returns a runtime file preview through Flamecast", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/runtimes/default/files?path=src%2Findex.ts`);
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual(sampleFilePreview);
+    expect(flamecast.fetchRuntimeFilePreview).toHaveBeenCalledWith("default", "src/index.ts");
+  });
+
+  it("returns a runtime filesystem snapshot through Flamecast", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/runtimes/default/fs/snapshot?showAllFiles=true`);
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual(sampleFileSystem);
+    expect(flamecast.fetchRuntimeFileSystem).toHaveBeenCalledWith("default", {
+      showAllFiles: true,
+    });
+  });
+
+  it("preserves runtime proxy 409 errors", async () => {
+    class RuntimeNotRunningError extends Error {
+      readonly status = 409;
+    }
+
+    const flamecast = createFlamecastStub({
+      fetchRuntimeFileSystem: vi.fn(async () => {
+        throw new RuntimeNotRunningError('Runtime instance "default" is not running');
+      }),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/runtimes/default/fs/snapshot`);
+
+    expect(response.status).toBe(409);
+    expect(await readJson(response)).toEqual({
+      error: 'Runtime instance "default" is not running',
+    });
   });
 
   it("returns 404 for unknown agents", async () => {

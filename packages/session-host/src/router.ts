@@ -13,12 +13,14 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readBody } from "./http-utils.js";
+import { jsonResponse, readBody } from "./http-utils.js";
 import { buildForwardUrl } from "./router-url.js";
+import { readWorkspaceFile, snapshotWorkspace } from "./workspace-files.js";
 
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const ROUTER_PORT = parseInt(process.env.ROUTER_PORT ?? "8787", 10);
 const SESSION_HOST_ENTRY = process.env.SESSION_HOST_ENTRY ?? resolve(thisDir, "../dist/index.js");
+const ROUTER_WORKSPACE = process.env.RUNTIME_WORKSPACE ?? process.cwd();
 
 // ---- Per-session tracking ----
 
@@ -64,6 +66,25 @@ function waitForPort(proc: ChildProcess, timeoutMs = 30_000): Promise<number> {
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? "/", "http://localhost");
+
+    if (req.method === "GET" && url.pathname === "/files") {
+      const filePath = url.searchParams.get("path");
+      if (!filePath) {
+        jsonResponse(res, 400, { error: "Missing ?path= parameter" });
+        return;
+      }
+      const result = await readWorkspaceFile(ROUTER_WORKSPACE, filePath);
+      jsonResponse(res, result.status, result.body);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/fs/snapshot") {
+      const showAllFiles = url.searchParams.get("showAllFiles") === "true";
+      const result = await snapshotWorkspace(ROUTER_WORKSPACE, { showAllFiles });
+      jsonResponse(res, result.status, result.body);
+      return;
+    }
+
     const match = url.pathname.match(/^\/sessions\/([^/]+)(\/.*)?$/);
 
     if (!match) {

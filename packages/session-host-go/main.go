@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -313,22 +314,24 @@ func startSession(req startRequest, serverPort int, hub *ws.Hub) (*startResponse
 
 	// Run optional setup script
 	if req.Setup != "" && os.Getenv("RUNTIME_SETUP_ENABLED") != "" {
+		var setupOutput bytes.Buffer
 		setupCmd := exec.Command("sh", "-c", req.Setup)
 		setupCmd.Dir = workspace
-		setupCmd.Stdout = os.Stderr
-		setupCmd.Stderr = os.Stderr
+		setupCmd.Stdout = io.MultiWriter(os.Stderr, &setupOutput)
+		setupCmd.Stderr = io.MultiWriter(os.Stderr, &setupOutput)
 		if procEnv != nil {
 			setupCmd.Env = procEnv
 		}
 		if err := setupCmd.Run(); err != nil {
-			return nil, fmt.Errorf("setup script failed: %w", err)
+			return nil, fmt.Errorf("setup script failed: %w%s", err, formatStartupOutput(setupOutput.String()))
 		}
 	}
 
 	// Spawn agent subprocess
 	cmd := exec.Command(req.Command, req.Args...)
 	cmd.Dir = workspace
-	cmd.Stderr = os.Stderr
+	var agentStderr bytes.Buffer
+	cmd.Stderr = io.MultiWriter(os.Stderr, &agentStderr)
 	if procEnv != nil {
 		cmd.Env = procEnv
 	}
@@ -398,7 +401,7 @@ func startSession(req startRequest, serverPort int, hub *ws.Hub) (*startResponse
 	case hs := <-hsCh:
 		if hs.err != nil {
 			_ = cmd.Process.Kill()
-			return nil, hs.err
+			return nil, fmt.Errorf("%w%s", hs.err, formatStartupOutput(agentStderr.String()))
 		}
 		sessionID = hs.sessionID
 	case err := <-exitCh:
@@ -407,8 +410,8 @@ func startSession(req startRequest, serverPort int, hub *ws.Hub) (*startResponse
 			exitCode = cmd.ProcessState.ExitCode()
 		}
 		return nil, fmt.Errorf(
-			"agent process exited during startup (code=%d, err=%v). Is %q available in this environment?",
-			exitCode, err, req.Command,
+			"agent process exited during startup (code=%d, err=%v). Is %q available in this environment?%s",
+			exitCode, err, req.Command, formatStartupOutput(agentStderr.String()),
 		)
 	}
 
@@ -457,6 +460,18 @@ func startSession(req startRequest, serverPort int, hub *ws.Hub) (*startResponse
 		HostURL:      fmt.Sprintf("http://localhost:%d", serverPort),
 		WebSocketURL: fmt.Sprintf("ws://localhost:%d", serverPort),
 	}, nil
+}
+
+func formatStartupOutput(output string) string {
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return ""
+	}
+	const limit = 4000
+	if len(trimmed) > limit {
+		trimmed = trimmed[len(trimmed)-limit:]
+	}
+	return "\nStartup output:\n" + trimmed
 }
 
 func resetSession() {
@@ -564,8 +579,8 @@ func handleControl(clientID string, raw json.RawMessage, sess *session, handler 
 			"type":      "event",
 			"timestamp": now,
 			"event": map[string]any{
-				"type": "filesystem.snapshot",
-				"data": map[string]any{"snapshot": map[string]any{"root": sess.workspace, "entries": entries}},
+				"type":      "filesystem.snapshot",
+				"data":      map[string]any{"snapshot": map[string]any{"root": sess.workspace, "entries": entries}},
 				"timestamp": now,
 			},
 		})

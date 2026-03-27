@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { WsControlMessage, WsServerMessage } from "@flamecast/protocol/ws";
 import type { SessionLog, PermissionResponseBody } from "@flamecast/sdk/session";
 import { fetchSessionFilePreview, fetchSessionFileSystem } from "../lib/api.js";
+import { createWsMessageDedupeState, rememberWsMessage } from "../lib/ws-message-dedupe.js";
 
 type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
 
@@ -31,17 +32,18 @@ export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
-  const closedRef = useRef(false);
+  const seenMessagesRef = useRef(createWsMessageDedupeState());
 
   useEffect(() => {
-    closedRef.current = false;
+    let disposed = false;
     setEvents([]);
     reconnectAttemptsRef.current = 0;
+    seenMessagesRef.current = createWsMessageDedupeState();
 
     if (!websocketUrl) {
       setConnectionState("disconnected");
       return () => {
-        closedRef.current = true;
+        disposed = true;
       };
     }
 
@@ -53,19 +55,28 @@ export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
     };
 
     const openWebSocket = () => {
+      if (disposed) return;
       setConnectionState(reconnectAttemptsRef.current === 0 ? "connecting" : "reconnecting");
 
       const ws = new WebSocket(websocketUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (disposed || wsRef.current !== ws) return;
         reconnectAttemptsRef.current = 0;
         setConnectionState("connected");
       };
 
       ws.onmessage = (event) => {
+        if (disposed || wsRef.current !== ws) return;
+
+        const rawMessage = String(event.data);
+        if (!rememberWsMessage(seenMessagesRef.current, rawMessage)) {
+          return;
+        }
+
         try {
-          const message: WsServerMessage = JSON.parse(String(event.data));
+          const message: WsServerMessage = JSON.parse(rawMessage);
           const log = toSessionLog(message);
           if (log) {
             setEvents((current) => [...current, log]);
@@ -76,9 +87,12 @@ export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
       };
 
       ws.onclose = () => {
-        wsRef.current = null;
-        if (closedRef.current) {
-          setConnectionState("disconnected");
+        const wasCurrent = wsRef.current === ws;
+        if (wasCurrent) {
+          wsRef.current = null;
+        }
+
+        if (disposed || !wasCurrent) {
           return;
         }
 
@@ -99,7 +113,7 @@ export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
     openWebSocket();
 
     return () => {
-      closedRef.current = true;
+      disposed = true;
       clearReconnectTimer();
       const ws = wsRef.current;
       wsRef.current = null;
@@ -147,9 +161,12 @@ export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
     [sessionId],
   );
 
-  const requestFsSnapshot = useCallback(() => {
-    return fetchSessionFileSystem(sessionId);
-  }, [sessionId]);
+  const requestFsSnapshot = useCallback(
+    (opts?: { showAllFiles?: boolean }) => {
+      return fetchSessionFileSystem(sessionId, opts);
+    },
+    [sessionId],
+  );
 
   return {
     events,

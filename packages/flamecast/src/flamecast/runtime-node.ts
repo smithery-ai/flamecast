@@ -29,4 +29,19 @@ export class NodeRuntime implements Runtime {
     };
     return fetch(targetUrl.toString(), init);
   }
+
+  async fetchInstance(_instanceId: string, request: Request): Promise<Response> {
+    const originalUrl = new URL(request.url);
+    const targetUrl = new URL(this.url);
+    targetUrl.pathname = originalUrl.pathname;
+    targetUrl.search = originalUrl.search;
+
+    const init: RequestInit & { duplex?: string } = {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+      duplex: request.body ? "half" : undefined,
+    };
+    return fetch(targetUrl.toString(), init);
+  }
 }

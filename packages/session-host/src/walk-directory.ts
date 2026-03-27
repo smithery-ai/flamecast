@@ -121,8 +121,11 @@ async function loadGitIgnoreRules(workspaceRoot: string): Promise<GitIgnoreRule[
  * Recursively walk a directory and return all entries with paths relative to `root`.
  * Respects `.gitignore` rules (globs, negation, directory-only patterns).
  */
-export async function walkDirectory(root: string): Promise<WalkEntry[]> {
-  const rules = await loadGitIgnoreRules(root);
+export async function walkDirectory(
+  root: string,
+  opts: { showAllFiles?: boolean } = {},
+): Promise<WalkEntry[]> {
+  const rules = opts.showAllFiles ? [] : await loadGitIgnoreRules(root);
   const entries: WalkEntry[] = [];
 
   async function walk(dir: string): Promise<void> {

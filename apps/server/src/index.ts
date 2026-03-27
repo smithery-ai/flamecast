@@ -6,6 +6,7 @@ import { DockerRuntime } from "@flamecast/runtime-docker";
 import { E2BRuntime } from "@flamecast/runtime-e2b";
 import { createPsqlStorage } from "@flamecast/storage-psql";
 import dotenv from "dotenv";
+import { createAgentTemplates } from "./agent-templates.js";
 
 dotenv.config();
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -15,14 +16,6 @@ const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
 const e2bApiKey = process.env.E2B_API_KEY;
 const agentJsBaseUrl = process.env.FLAMECAST_AGENT_JS_BASE_URL;
 const agentJsRuntime = agentJsBaseUrl ? new NodeRuntime(agentJsBaseUrl) : null;
-const agentJsTemplate = agentJsRuntime
-  ? {
-      id: "agentjs",
-      name: "Agent.js",
-      spawn: { command: "remote-sessionhost", args: ["agentjs"] },
-      runtime: { provider: "agentjs" },
-    }
-  : null;
 
 const flamecast = new Flamecast({
   storage: await createPsqlStorage(url ? { url } : undefined),
@@ -32,43 +25,12 @@ const flamecast = new Flamecast({
     docker: new DockerRuntime(),
     ...(e2bApiKey ? { e2b: new E2BRuntime({ apiKey: e2bApiKey }) } : {}),
   },
-  agentTemplates: [
-    {
-      id: "echo-agent",
-      name: "Echo Agent",
-      spawn: { command: "npx", args: ["tsx", resolve(__dirname, "../agent.ts")] },
-      runtime: { provider: "default" },
-    },
-    {
-      id: "docker-echo-agent",
-      name: "Echo Agent",
-      spawn: { command: "npx", args: ["tsx", "agent.ts"] },
-      runtime: {
-        provider: "docker",
-        setup: [
-          "npm install tsx @agentclientprotocol/sdk",
-          `cat > /workspace/agent.ts << 'AGENT_EOF'\n${agentSource}\nAGENT_EOF`,
-        ].join(" && "),
-      },
-    },
-    ...(e2bApiKey
-      ? [
-          {
-            id: "e2b-echo-agent",
-            name: "Echo Agent",
-            spawn: { command: "npx", args: ["tsx", "agent.ts"] },
-            runtime: {
-              provider: "e2b",
-              setup: [
-                "npm install tsx @agentclientprotocol/sdk",
-                `cat > agent.ts << 'AGENT_EOF'\n${agentSource}\nAGENT_EOF`,
-              ].join(" && "),
-            },
-          },
-        ]
-      : []),
-    ...(agentJsTemplate ? [agentJsTemplate] : []),
-  ],
+  agentTemplates: createAgentTemplates({
+    agentJsEnabled: agentJsRuntime !== null,
+    e2bEnabled: Boolean(e2bApiKey),
+    hostAgentPath: resolve(__dirname, "../agent.ts"),
+    agentSource,
+  }),
 });
 
 listen(flamecast, { port: 3001 }, (info) => {

@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Sandbox } from "@e2b/code-interpreter";
 import type { Runtime } from "@flamecast/protocol/runtime";
@@ -43,11 +43,119 @@ function resolveSessionHostBinary(): string {
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const SANDBOX_BIN_PATH = "/usr/local/bin/session-host";
+const SANDBOX_WORKSPACE = "/home/user";
 const DEFAULT_MAX_SESSIONS = 20;
 const DEFAULT_BASE_PORT = 9000;
+const FLAMECAST_INSTANCE_LABEL = "flamecast.instance";
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
+}
+
+type RuntimeEntry = {
+  path: string;
+  type: "file" | "directory" | "symlink" | "other";
+};
+
+type GitIgnoreRule = {
+  negated: boolean;
+  regex: RegExp;
+};
+
+function globToRegexSource(pattern: string): string {
+  let source = "";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+    if (char === "*") {
+      if (pattern[index + 1] === "*") {
+        source += ".*";
+        index += 1;
+      } else {
+        source += "[^/]*";
+      }
+      continue;
+    }
+    if (char === "?") {
+      source += "[^/]";
+      continue;
+    }
+    if ("\\^$+?.()|{}[]".includes(char)) {
+      source += `\\${char}`;
+      continue;
+    }
+    source += char;
+  }
+  return source;
+}
+
+function parseGitIgnoreRule(line: string): GitIgnoreRule | null {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.startsWith("#")) return null;
+
+  const literal = trimmed.startsWith("\\#") || trimmed.startsWith("\\!");
+  const negated = !literal && trimmed.startsWith("!");
+  const rawPattern = negated ? trimmed.slice(1) : literal ? trimmed.slice(1) : trimmed;
+  if (!rawPattern) return null;
+
+  const directoryOnly = rawPattern.endsWith("/");
+  const anchored = rawPattern.startsWith("/");
+  const normalized = rawPattern.slice(anchored ? 1 : 0, directoryOnly ? -1 : undefined);
+  if (!normalized) return null;
+
+  const hasSlash = normalized.includes("/");
+  const source = globToRegexSource(normalized);
+  const regex = !hasSlash
+    ? new RegExp(directoryOnly ? `(^|/)${source}(/|$)` : `(^|/)${source}$`, "u")
+    : anchored
+      ? new RegExp(directoryOnly ? `^${source}(/|$)` : `^${source}$`, "u")
+      : new RegExp(directoryOnly ? `(^|.*/)${source}(/|$)` : `(^|.*/)${source}$`, "u");
+
+  return { negated, regex };
+}
+
+function parseGitIgnoreRules(content: string): GitIgnoreRule[] {
+  const rules = [parseGitIgnoreRule(".git/")].filter(
+    (rule): rule is GitIgnoreRule => rule !== null,
+  );
+  const extra = process.env.FILE_WATCHER_IGNORE;
+  if (extra) {
+    for (const pattern of extra.split(",")) {
+      const rule = parseGitIgnoreRule(pattern.trim());
+      if (rule) rules.push(rule);
+    }
+  }
+
+  for (const line of content.split(/\r?\n/u)) {
+    const rule = parseGitIgnoreRule(line);
+    if (rule) rules.push(rule);
+  }
+  return rules;
+}
+
+function isGitIgnored(path: string, rules: GitIgnoreRule[]): boolean {
+  let ignored = false;
+  for (const rule of rules) {
+    if (rule.regex.test(path)) {
+      ignored = !rule.negated;
+    }
+  }
+  return ignored;
+}
+
+function resolveWorkspacePath(filePath: string): string | null {
+  if (!filePath || filePath.includes("\0")) return null;
+  const normalized = posix.normalize(filePath);
+  if (normalized === ".." || normalized.startsWith("../") || normalized.startsWith("/")) {
+    return null;
+  }
+  return posix.join(SANDBOX_WORKSPACE, normalized);
+}
+
+function toWorkspaceRelativePath(path: string): string | null {
+  const normalized = posix.normalize(path);
+  if (normalized === SANDBOX_WORKSPACE) return null;
+  if (!normalized.startsWith(`${SANDBOX_WORKSPACE}/`)) return null;
+  return normalized.slice(SANDBOX_WORKSPACE.length + 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -113,10 +221,10 @@ export class E2BRuntime implements Runtime {
   // ---------------------------------------------------------------------------
 
   async start(instanceId: string): Promise<void> {
-    const existing = this.instances.get(instanceId);
+    const existing = await this.resolveInstanceSandbox(instanceId);
     if (existing) {
       // Resume a paused sandbox — Sandbox.connect auto-resumes
-      await Sandbox.connect(existing.sandboxId, { apiKey: this.apiKey });
+      await Sandbox.connect(existing.entry.sandboxId, { apiKey: this.apiKey });
       return;
     }
 
@@ -124,7 +232,7 @@ export class E2BRuntime implements Runtime {
     const sandbox = await Sandbox.create(this.template, {
       apiKey: this.apiKey,
       timeoutMs: 60 * 60 * 1000,
-      metadata: { "flamecast.instance": instanceId },
+      metadata: { [FLAMECAST_INSTANCE_LABEL]: instanceId },
     });
 
     // Upload the session-host binary into the sandbox
@@ -133,27 +241,25 @@ export class E2BRuntime implements Runtime {
     await sandbox.files.write(SANDBOX_BIN_PATH, binaryBlob);
     await sandbox.commands.run(`chmod +x ${SANDBOX_BIN_PATH}`);
 
-    const ports: PortSlot[] = [];
-    for (let i = 0; i < this.maxSessions; i++) {
-      ports.push({ port: this.basePort + i, inUse: false });
-    }
-
-    this.instances.set(instanceId, { sandboxId: sandbox.sandboxId, ports });
+    this.instances.set(instanceId, {
+      sandboxId: sandbox.sandboxId,
+      ports: this.createPortSlots(instanceId),
+    });
     console.log(`[E2BRuntime] Instance "${instanceId}" started (sandbox=${sandbox.sandboxId})`);
   }
 
   async stop(instanceId: string): Promise<void> {
-    const inst = this.instances.get(instanceId);
-    if (!inst) return;
-
     for (const [sid, session] of this.sessions) {
       if (session.instanceName === instanceId) {
         this.sessions.delete(sid);
       }
     }
 
+    const resolved = await this.resolveInstanceSandbox(instanceId);
+    if (!resolved) return;
+
     try {
-      await Sandbox.kill(inst.sandboxId, { apiKey: this.apiKey });
+      await Sandbox.kill(resolved.entry.sandboxId, { apiKey: this.apiKey });
     } catch {
       // Sandbox may already be gone
     }
@@ -163,27 +269,21 @@ export class E2BRuntime implements Runtime {
   }
 
   async pause(instanceId: string): Promise<void> {
-    const inst = this.instances.get(instanceId);
-    if (!inst) throw new Error(`Instance "${instanceId}" not found`);
+    const resolved = await this.resolveInstanceSandbox(instanceId);
+    if (!resolved) throw new Error(`Instance "${instanceId}" not found`);
 
-    await Sandbox.pause(inst.sandboxId, { apiKey: this.apiKey });
+    await Sandbox.pause(resolved.entry.sandboxId, { apiKey: this.apiKey });
     console.log(`[E2BRuntime] Instance "${instanceId}" paused`);
   }
 
   async getInstanceStatus(
     instanceId: string,
   ): Promise<"running" | "stopped" | "paused" | undefined> {
-    const inst = this.instances.get(instanceId);
-    if (!inst) return undefined;
-
-    try {
-      const info = await Sandbox.getFullInfo(inst.sandboxId, { apiKey: this.apiKey });
-      if (info.state === "paused") return "paused";
-      if (info.state === "running") return "running";
-      return "stopped";
-    } catch {
-      return undefined;
-    }
+    const resolved = await this.resolveInstanceSandbox(instanceId);
+    if (!resolved) return undefined;
+    if (resolved.state === "paused") return "paused";
+    if (resolved.state === "running") return "running";
+    return "stopped";
   }
 
   // ---------------------------------------------------------------------------
@@ -202,6 +302,20 @@ export class E2BRuntime implements Runtime {
     }
 
     return this.proxyRequest(sessionId, path, request);
+  }
+
+  async fetchInstance(instanceId: string, request: Request): Promise<Response> {
+    const path = new URL(request.url).pathname;
+
+    if (path === "/fs/snapshot" && request.method === "GET") {
+      return this.handleInstanceSnapshot(instanceId, request);
+    }
+
+    if (path === "/files" && request.method === "GET") {
+      return this.handleInstanceFilePreview(instanceId, request);
+    }
+
+    return jsonResponse({ error: `Unsupported runtime request: ${request.method} ${path}` }, 404);
   }
 
   getRuntimeMeta(sessionId: string): Record<string, unknown> | null {
@@ -287,10 +401,11 @@ export class E2BRuntime implements Runtime {
         );
       }
 
-      const inst = this.instances.get(instanceName);
-      if (!inst) {
+      const resolved = await this.resolveInstanceSandbox(instanceName);
+      if (!resolved) {
         return jsonResponse({ error: `Runtime instance "${instanceName}" not found` }, 404);
       }
+      const inst = resolved.entry;
 
       const slot = inst.ports.find((p) => !p.inUse);
       if (!slot) {
@@ -430,6 +545,148 @@ export class E2BRuntime implements Runtime {
       status: resp.status,
       headers: JSON_HEADERS,
     });
+  }
+
+  private async handleInstanceSnapshot(instanceId: string, request: Request): Promise<Response> {
+    const sandbox = await this.getRunningSandbox(instanceId);
+    if (sandbox instanceof Response) return sandbox;
+
+    const showAllFiles = new URL(request.url).searchParams.get("showAllFiles") === "true";
+    let entries: RuntimeEntry[];
+    try {
+      const listedEntries = await sandbox.files.list(SANDBOX_WORKSPACE, { depth: 64 });
+      const mappedEntries: RuntimeEntry[] = [];
+      for (const entry of listedEntries) {
+        const relativePath = toWorkspaceRelativePath(entry.path);
+        if (!relativePath) continue;
+
+        mappedEntries.push({
+          path: relativePath,
+          type: entry.type === "dir" ? "directory" : entry.type === "file" ? "file" : "other",
+        });
+      }
+      entries = mappedEntries;
+    } catch (error) {
+      return jsonResponse(
+        {
+          error: error instanceof Error ? error.message : "Failed to read runtime filesystem",
+        },
+        500,
+      );
+    }
+    if (!showAllFiles) {
+      const gitIgnoreContents = await sandbox.files
+        .read(posix.join(SANDBOX_WORKSPACE, ".gitignore"), { format: "text" })
+        .catch(() => "");
+      const rules = parseGitIgnoreRules(gitIgnoreContents);
+      entries = entries.filter((entry) => !isGitIgnored(entry.path, rules));
+    }
+
+    const maxEntries = 10_000;
+    const truncated = entries.length > maxEntries;
+    return jsonResponse({
+      root: SANDBOX_WORKSPACE,
+      entries: truncated ? entries.slice(0, maxEntries) : entries,
+      truncated,
+      maxEntries,
+    });
+  }
+
+  private async handleInstanceFilePreview(instanceId: string, request: Request): Promise<Response> {
+    const sandbox = await this.getRunningSandbox(instanceId);
+    if (sandbox instanceof Response) return sandbox;
+
+    const filePath = new URL(request.url).searchParams.get("path");
+    if (!filePath) {
+      return jsonResponse({ error: "Missing ?path= parameter" }, 400);
+    }
+
+    const resolvedPath = resolveWorkspacePath(filePath);
+    if (!resolvedPath) {
+      return jsonResponse({ error: "Path outside workspace" }, 403);
+    }
+
+    try {
+      const info = await sandbox.files.getInfo(resolvedPath);
+      if (info.type !== "file") {
+        return jsonResponse({ error: `Cannot read: ${filePath}` }, 404);
+      }
+
+      const maxChars = 100_000;
+      const content = await sandbox.files.read(resolvedPath, { format: "text" });
+      return jsonResponse({
+        path: filePath,
+        content: content.slice(0, maxChars),
+        truncated: content.length > maxChars || info.size > maxChars,
+        maxChars,
+      });
+    } catch {
+      return jsonResponse({ error: `Cannot read: ${filePath}` }, 404);
+    }
+  }
+
+  private async getRunningSandbox(instanceId: string): Promise<Sandbox | Response> {
+    const resolved = await this.resolveInstanceSandbox(instanceId);
+    if (!resolved) {
+      return jsonResponse({ error: `Runtime instance "${instanceId}" not found` }, 404);
+    }
+
+    if (resolved.state !== "running") {
+      return jsonResponse({ error: `Runtime instance "${instanceId}" is not running` }, 409);
+    }
+
+    return Sandbox.connect(resolved.entry.sandboxId, { apiKey: this.apiKey });
+  }
+
+  private createPortSlots(instanceId: string): PortSlot[] {
+    const ports: PortSlot[] = [];
+    for (let index = 0; index < this.maxSessions; index += 1) {
+      const port = this.basePort + index;
+      ports.push({
+        port,
+        inUse: [...this.sessions.values()].some(
+          (session) => session.instanceName === instanceId && session.port === port,
+        ),
+      });
+    }
+    return ports;
+  }
+
+  private async resolveInstanceSandbox(instanceId: string): Promise<{
+    entry: InstanceEntry;
+    state: "running" | "paused";
+  } | null> {
+    const tracked = this.instances.get(instanceId);
+    if (tracked) {
+      const info = await Sandbox.getFullInfo(tracked.sandboxId, { apiKey: this.apiKey }).catch(
+        () => null,
+      );
+      if (info) {
+        const entry = { sandboxId: tracked.sandboxId, ports: this.createPortSlots(instanceId) };
+        this.instances.set(instanceId, entry);
+        return { entry, state: info.state };
+      }
+      this.instances.delete(instanceId);
+    }
+
+    const paginator = Sandbox.list({
+      apiKey: this.apiKey,
+      limit: 1,
+      query: {
+        metadata: { [FLAMECAST_INSTANCE_LABEL]: instanceId },
+      },
+    });
+    if (!paginator.hasNext) return null;
+
+    const sandboxes = await paginator.nextItems().catch(() => []);
+    const match = sandboxes.find(
+      (sandbox) => sandbox.metadata[FLAMECAST_INSTANCE_LABEL] === instanceId,
+    );
+    if (!match) return null;
+
+    const entry = { sandboxId: match.sandboxId, ports: this.createPortSlots(instanceId) };
+    this.instances.set(instanceId, entry);
+    return { entry, state: match.state };
   }
 
   // ---------------------------------------------------------------------------

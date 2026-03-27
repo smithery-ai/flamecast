@@ -61,7 +61,10 @@ export type FlamecastClient = {
     opts?: { includeFileSystem?: boolean; showAllFiles?: boolean },
   ): Promise<Session>;
   fetchSessionFilePreview(id: string, path: string): Promise<FilePreview>;
-  fetchSessionFileSystem(id: string): Promise<FileSystemSnapshot>;
+  fetchSessionFileSystem(
+    id: string,
+    opts?: { showAllFiles?: boolean },
+  ): Promise<FileSystemSnapshot>;
   createSession(body: CreateSessionBody): Promise<Session>;
   terminateSession(id: string): Promise<void>;
 
@@ -85,6 +88,11 @@ export type FlamecastClient = {
 
   // Runtimes
   fetchRuntimes(): Promise<RuntimeInfo[]>;
+  fetchRuntimeFilePreview(instanceName: string, path: string): Promise<FilePreview>;
+  fetchRuntimeFileSystem(
+    instanceName: string,
+    opts?: { showAllFiles?: boolean },
+  ): Promise<FileSystemSnapshot>;
   startRuntime(typeName: string, name?: string): Promise<RuntimeInstance>;
   stopRuntime(instanceName: string): Promise<void>;
   pauseRuntime(instanceName: string): Promise<void>;
@@ -152,9 +160,12 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
       });
       return parseOkJson(response, FilePreviewSchema, "Failed to fetch file preview");
     },
-    async fetchSessionFileSystem(id) {
+    async fetchSessionFileSystem(id, opts = {}) {
       const response = await rpc.agents[":agentId"].fs.snapshot.$get({
         param: { agentId: id },
+        query: {
+          showAllFiles: opts.showAllFiles ? "true" : undefined,
+        },
       });
       return parseOkJson(response, FileSystemSnapshotSchema, "Failed to fetch filesystem");
     },
@@ -240,6 +251,22 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
       await assertOk(response, "Failed to fetch runtimes");
       const data: RuntimeInfo[] = await response.json();
       return data;
+    },
+    async fetchRuntimeFilePreview(instanceName, path) {
+      const response = await rpc.runtimes[":instanceName"].files.$get({
+        param: { instanceName },
+        query: { path },
+      });
+      return parseOkJson(response, FilePreviewSchema, "Failed to fetch runtime file preview");
+    },
+    async fetchRuntimeFileSystem(instanceName, opts = {}) {
+      const response = await rpc.runtimes[":instanceName"].fs.snapshot.$get({
+        param: { instanceName },
+        query: {
+          showAllFiles: opts.showAllFiles ? "true" : undefined,
+        },
+      });
+      return parseOkJson(response, FileSystemSnapshotSchema, "Failed to fetch runtime filesystem");
     },
     async startRuntime(typeName, name?) {
       const response = await rpc.runtimes[":typeName"].start.$post({
