@@ -273,7 +273,14 @@ export class E2BRuntime implements Runtime {
   /** Upload the session-host binary into a sandbox. */
   private async uploadSessionHostBinary(sandbox: Sandbox): Promise<void> {
     // E2B sandboxes are always x86_64
-    const localBinary = resolveSessionHostBinary("amd64");
+    // resolveSessionHostBinary may throw in edge runtimes (e.g. Cloudflare Workers)
+    // where Node.js filesystem APIs are unavailable — treat that as "no local binary".
+    let localBinary: string | null = null;
+    try {
+      localBinary = resolveSessionHostBinary("amd64");
+    } catch {
+      // Expected in environments without filesystem access (e.g. CF Workers).
+    }
     if (localBinary) {
       const binaryBlob = new Blob([readFileSync(localBinary)]);
       await sandbox.files.write(SANDBOX_BIN_PATH, binaryBlob);
