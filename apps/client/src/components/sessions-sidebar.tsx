@@ -240,11 +240,14 @@ function RuntimeTypeItem({
     onMutate: ({ name }) => setPendingInstance(name ?? null),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["runtimes"] });
-      setNewInstanceName("");
-      setShowInput(false);
     },
-    onError: (err) => {
+    onError: (err, { name }) => {
       toast.error("Failed to start runtime", { description: String(err.message) });
+      // If creating a new instance failed, restore the input so the user can retry
+      if (name && !runtime.instances.some((i) => i.name === name)) {
+        setNewInstanceName(name);
+        setShowInput(true);
+      }
     },
     onSettled: () => setPendingInstance(null),
   });
@@ -330,6 +333,8 @@ function RuntimeTypeItem({
               e.preventDefault();
               const name = newInstanceName.trim();
               if (name) {
+                setShowInput(false);
+                setNewInstanceName("");
                 startMutation.mutate({ typeName: runtime.typeName, name });
               }
             }}
@@ -348,6 +353,21 @@ function RuntimeTypeItem({
           </form>
         </SidebarMenuItem>
       )}
+
+      {/* Show a loading row for the instance being created */}
+      {pendingInstance &&
+        startMutation.isPending &&
+        !runtime.instances.some((i) => i.name === pendingInstance) && (
+          <SidebarMenuItem>
+            <SidebarMenuButton className="pl-6 text-sm" disabled>
+              <span className="truncate">{pendingInstance}</span>
+              <span className="ml-auto shrink-0 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none bg-muted text-muted-foreground">
+                <LoaderCircleIcon className="size-3 animate-spin" />
+                starting
+              </span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        )}
 
       {runtime.instances.map((instance) => {
         const isThisPending = pendingInstance === instance.name && isBusy;
