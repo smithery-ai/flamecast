@@ -1,10 +1,4 @@
 {
   "version": 2,
-  "installCommand": "pnpm install --ignore-scripts",
-  "builds": [
-    { "src": "src/index.ts", "use": "@vercel/node" }
-  ],
-  "routes": [
-    { "src": "/(.*)", "dest": "src/index.ts" }
-  ]
+  "framework": "hono"
 }
