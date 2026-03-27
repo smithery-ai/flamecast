@@ -361,11 +361,20 @@ export class DockerRuntime implements Runtime {
         );
       }
 
-      // Exec session-host inside the container
+      // Exec session-host inside the container, passing template env vars
+      // so the session-host process (and its child agent) inherit them.
+      const execEnv = [`SESSION_HOST_PORT=${slot.containerPort}`];
+      const templateEnv =
+        typeof parsed.env === "object" && parsed.env !== null ? parsed.env : undefined;
+      if (templateEnv) {
+        for (const [k, v] of Object.entries(templateEnv)) {
+          if (typeof v === "string") execEnv.push(`${k}=${v}`);
+        }
+      }
       const container = this.docker.getContainer(inst.containerId);
       const exec = await container.exec({
         Cmd: [CONTAINER_BIN_PATH],
-        Env: [`SESSION_HOST_PORT=${slot.containerPort}`],
+        Env: execEnv,
         AttachStdout: false,
         AttachStderr: false,
       });
