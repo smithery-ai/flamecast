@@ -8,6 +8,7 @@
     "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^0.16.1",
     "@flamecast/runtime-e2b": "workspace:*",
     "@flamecast/sdk": "workspace:*",
     "@flamecast/storage-psql": "workspace:*",

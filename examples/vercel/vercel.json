@@ -1,9 +1,8 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "api/[[...route]].ts",
-      "use": "@vercel/node"
-    }
-  ]
+  "framework": null,
+  "installCommand": "pnpm install --ignore-scripts",
+  "buildCommand": "pnpm --filter @flamecast/example-vercel... run build",
+  "outputDirectory": ".",
+  "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
 }
