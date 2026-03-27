@@ -250,7 +250,10 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
     },
 
     async listRuntimeInstances() {
-      const rows = await db.select().from(runtimeInstances);
+      const rows = await db
+        .select()
+        .from(runtimeInstances)
+        .orderBy(asc(runtimeInstances.createdAt), asc(runtimeInstances.name));
       return rows.map((row) => {
         const status =
           row.status === "stopped" ? "stopped" : row.status === "paused" ? "paused" : "running";

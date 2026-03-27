@@ -121,4 +121,37 @@ describe("storage alignment", () => {
       await rm(dataDir, { recursive: true, force: true });
     }
   });
+
+  it("lists runtime instances oldest first", async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), "flamecast-runtime-instances-"));
+    const { db, close } = await createDatabase({ dataDir });
+    const storage = createStorageFromDb(db);
+
+    try {
+      await storage.saveRuntimeInstance({
+        name: "alpha",
+        typeName: "docker",
+        status: "running",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await storage.saveRuntimeInstance({
+        name: "beta",
+        typeName: "docker",
+        status: "running",
+      });
+      await storage.saveRuntimeInstance({
+        name: "alpha",
+        typeName: "docker",
+        status: "paused",
+      });
+
+      const instances = await storage.listRuntimeInstances();
+
+      expect(instances.map((instance) => instance.name)).toEqual(["alpha", "beta"]);
+      expect(instances.map((instance) => instance.status)).toEqual(["paused", "running"]);
+    } finally {
+      await close();
+      await rm(dataDir, { recursive: true, force: true });
+    }
+  });
 });
