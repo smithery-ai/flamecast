@@ -72,6 +72,7 @@ function SessionsPage() {
   const [newName, setNewName] = useState("");
   const [newCommand, setNewCommand] = useState("");
   const [newArgs, setNewArgs] = useState("");
+  const [newRuntime, setNewRuntime] = useState("");
   const [newSetup, setNewSetup] = useState("");
   const [newEnv, setNewEnv] = useState("");
 
@@ -123,6 +124,7 @@ function SessionsPage() {
       name: string;
       command: string;
       args: string[];
+      provider?: string;
       setup?: string;
       env?: Record<string, string>;
     }) =>
@@ -130,6 +132,7 @@ function SessionsPage() {
         name: body.name,
         spawn: { command: body.command, args: body.args },
         runtime: {
+          ...(body.provider ? { provider: body.provider } : {}),
           ...(body.setup ? { setup: body.setup } : {}),
         },
         ...(body.env && Object.keys(body.env).length > 0 ? { env: body.env } : {}),
@@ -139,6 +142,7 @@ function SessionsPage() {
       setNewName("");
       setNewCommand("");
       setNewArgs("");
+      setNewRuntime("");
       setNewSetup("");
       setNewEnv("");
       setDialogOpen(false);
@@ -153,9 +157,10 @@ function SessionsPage() {
     const command = newCommand.trim();
     if (!name || !command) return;
     const args = newArgs.trim() ? newArgs.trim().split(/\s+/).filter(Boolean) : [];
+    const provider = newRuntime || undefined;
     const setup = newSetup.trim() || undefined;
     const env = parseEnvString(newEnv);
-    registerMutation.mutate({ name, command, args, setup, env });
+    registerMutation.mutate({ name, command, args, provider, setup, env });
   };
 
   return (
@@ -223,6 +228,23 @@ function SessionsPage() {
                         onChange={(e) => setNewArgs(e.target.value)}
                       />
                     </div>
+                    {runtimes && runtimes.length > 0 && (
+                      <div className="flex flex-col gap-2">
+                        <Label>Runtime</Label>
+                        <Select value={newRuntime} onValueChange={setNewRuntime}>
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue placeholder="Default" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {runtimes.map((rt) => (
+                              <SelectItem key={rt.typeName} value={rt.typeName} className="text-xs">
+                                {rt.typeName}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     <div className="flex flex-col gap-2">
                       <Label htmlFor="agent-setup">Setup script</Label>
                       <Textarea
@@ -299,6 +321,7 @@ function SessionsPage() {
                   key={template.id}
                   template={template}
                   runtimeInfo={runtimes?.find((rt) => rt.typeName === template.runtime.provider)}
+                  allRuntimes={runtimes}
                   defaultInstance={runtimeFilter}
                   onStartSession={(runtimeInstance) =>
                     createMutation.mutate({ agentTemplateId: template.id, runtimeInstance })
@@ -321,6 +344,7 @@ function SessionsPage() {
 function AgentTemplateCard({
   template,
   runtimeInfo,
+  allRuntimes,
   defaultInstance,
   onStartSession,
   isStartingSession,
@@ -328,6 +352,7 @@ function AgentTemplateCard({
 }: {
   template: AgentTemplate;
   runtimeInfo?: RuntimeInfo;
+  allRuntimes?: RuntimeInfo[];
   /** The current ?runtime= filter. If it's a running instance name, pre-select it. */
   defaultInstance?: string;
   onStartSession: (runtimeInstance?: string) => void;
@@ -352,6 +377,7 @@ function AgentTemplateCard({
   const [editName, setEditName] = useState(template.name);
   const [editCommand, setEditCommand] = useState(template.spawn.command);
   const [editArgs, setEditArgs] = useState((template.spawn.args ?? []).join(" "));
+  const [editRuntime, setEditRuntime] = useState(template.runtime.provider);
   const [editSetup, setEditSetup] = useState(template.runtime.setup ?? "");
   const [editEnv, setEditEnv] = useState(envToString({ ...template.runtime.env, ...template.env }));
 
@@ -360,6 +386,7 @@ function AgentTemplateCard({
       name: string;
       command: string;
       args: string[];
+      provider: string;
       setup?: string;
       env?: Record<string, string>;
     }) =>
@@ -368,6 +395,7 @@ function AgentTemplateCard({
         spawn: { command: body.command, args: body.args },
         runtime: {
           ...template.runtime,
+          provider: body.provider,
           setup: body.setup,
         },
         env: body.env,
@@ -386,9 +414,10 @@ function AgentTemplateCard({
     const command = editCommand.trim();
     if (!name || !command) return;
     const args = editArgs.trim() ? editArgs.trim().split(/\s+/).filter(Boolean) : [];
+    const provider = editRuntime;
     const setup = editSetup.trim() || undefined;
     const env = parseEnvString(editEnv);
-    updateMutation.mutate({ name, command, args, setup, env });
+    updateMutation.mutate({ name, command, args, provider, setup, env });
   };
 
   const canStart = needsInstanceSelect ? Boolean(selectedInstance) : true;
@@ -421,6 +450,7 @@ function AgentTemplateCard({
                 setEditName(template.name);
                 setEditCommand(template.spawn.command);
                 setEditArgs((template.spawn.args ?? []).join(" "));
+                setEditRuntime(template.runtime.provider);
                 setEditSetup(template.runtime.setup ?? "");
                 setEditEnv(envToString({ ...template.runtime.env, ...template.env }));
               }
@@ -473,6 +503,23 @@ function AgentTemplateCard({
                       onChange={(e) => setEditArgs(e.target.value)}
                     />
                   </div>
+                  {allRuntimes && allRuntimes.length > 0 && (
+                    <div className="flex flex-col gap-2">
+                      <Label>Runtime</Label>
+                      <Select value={editRuntime} onValueChange={setEditRuntime}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {allRuntimes.map((rt) => (
+                            <SelectItem key={rt.typeName} value={rt.typeName} className="text-xs">
+                              {rt.typeName}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   <div className="flex flex-col gap-2">
                     <Label htmlFor={`edit-setup-${template.id}`}>Setup script</Label>
                     <Textarea
