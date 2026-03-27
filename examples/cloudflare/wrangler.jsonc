@@ -8,16 +8,16 @@
     {
       "type": "Text",
       "globs": ["**/*.txt"],
-      "fallthrough": false
-    }
+      "fallthrough": false,
+    },
   ],
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "6b4cf6668a934a6192b6c1f9dd0b39f7"
-    }
+      "id": "6b4cf6668a934a6192b6c1f9dd0b39f7",
+    },
   ],
   "placement": {
-    "region": "aws:us-east-1"
-  }
+    "region": "aws:us-east-1",
+  },
 }
