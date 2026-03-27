@@ -32,10 +32,13 @@ function resolveSessionHostBinary(): string | null {
   return null;
 }
 
-const SESSION_HOST_RELEASE_API =
-  "https://api.github.com/repos/smithery-ai/flamecast/releases?per_page=10";
-
-let cachedReleaseUrl: string | null = null;
+/**
+ * Stable download URL for the session-host binary. Uses a pinned
+ * `session-host-latest` release tag that CI overwrites on each build,
+ * so this URL never changes.
+ */
+const SESSION_HOST_DEFAULT_URL =
+  "https://github.com/smithery-ai/flamecast/releases/download/session-host-latest/session-host-amd64";
 
 /**
  * Resolve the download URL for the session-host-amd64 binary.
@@ -43,36 +46,11 @@ let cachedReleaseUrl: string | null = null;
  * Resolution order:
  *  1. `SESSION_HOST_URL` env var (explicit override, works for any runtime)
  *  2. Constructor `sessionHostUrl` option (per-instance override)
- *  3. GitHub Releases API lookup (automatic, cached, supports GITHUB_TOKEN)
+ *  3. Stable default URL (GitHub release tag `session-host-latest`)
  */
-async function resolveSessionHostReleaseUrl(): Promise<string> {
-  // 1. Environment variable — set once, works for all runtimes
+function resolveSessionHostReleaseUrl(): string {
   const envUrl = typeof process !== "undefined" ? process.env?.SESSION_HOST_URL : undefined;
-  if (envUrl) return envUrl;
-
-  if (cachedReleaseUrl) return cachedReleaseUrl;
-
-  const headers: Record<string, string> = { Accept: "application/vnd.github+json" };
-  // Use a GitHub token if available to avoid rate limits (60 req/hr unauthenticated)
-  const token = typeof process !== "undefined" ? process.env?.GITHUB_TOKEN : undefined;
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  const resp = await fetch(SESSION_HOST_RELEASE_API, { headers });
-  if (!resp.ok) {
-    throw new Error(`GitHub API error: ${resp.status} — set SESSION_HOST_URL env var to bypass`);
-  }
-  const releases: Array<{ tag_name: string; assets: Array<{ name: string; browser_download_url: string }> }> =
-    await resp.json() as any;
-
-  for (const release of releases) {
-    if (!release.tag_name.startsWith("packages/session-host-go/")) continue;
-    const asset = release.assets.find((a) => a.name === "session-host-amd64");
-    if (asset) {
-      cachedReleaseUrl = asset.browser_download_url;
-      return cachedReleaseUrl;
-    }
-  }
-  throw new Error("No session-host-amd64 release found on GitHub");
+  return envUrl ?? SESSION_HOST_DEFAULT_URL;
 }
 
 // ---------------------------------------------------------------------------
@@ -329,7 +307,7 @@ export class E2BRuntime implements Runtime {
       await sandbox.files.write(SANDBOX_BIN_PATH, binaryBlob);
       await sandbox.commands.run(`chmod +x ${SANDBOX_BIN_PATH}`);
     } else {
-      const url = this.sessionHostUrl ?? await resolveSessionHostReleaseUrl();
+      const url = this.sessionHostUrl ?? resolveSessionHostReleaseUrl();
       console.log(`[E2BRuntime] Downloading session-host from ${url}...`);
       try {
         await sandbox.commands.run(
