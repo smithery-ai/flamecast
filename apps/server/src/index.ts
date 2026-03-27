@@ -40,8 +40,8 @@ const flamecast = new Flamecast({
       runtime: { provider: "default" },
     },
     {
-      id: "docker-agent",
-      name: "Docker Agent",
+      id: "docker-echo-agent",
+      name: "Echo Agent",
       spawn: { command: "npx", args: ["tsx", "agent.ts"] },
       runtime: {
         provider: "docker",
@@ -54,8 +54,8 @@ const flamecast = new Flamecast({
     ...(e2bApiKey
       ? [
           {
-            id: "e2b-agent",
-            name: "E2B Agent",
+            id: "e2b-echo-agent",
+            name: "Echo Agent",
             spawn: { command: "npx", args: ["tsx", "agent.ts"] },
             runtime: {
               provider: "e2b",
