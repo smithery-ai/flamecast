@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "tsx src/dev.ts",
     "build:check": "pnpm -w turbo run build:package --filter=@flamecast/example-vercel... && tsc --project tsconfig.json --noEmit",
     "test": "vitest run --config vitest.config.ts"
   },
@@ -11,13 +12,14 @@
     "@flamecast/runtime-e2b": "workspace:*",
     "@flamecast/sdk": "workspace:*",
     "@flamecast/storage-psql": "workspace:*",
+    "@hono/node-server": "^1.19.11",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.1",
     "hono": "^4.12.8",
     "pg": "^8.20.0"
   },
   "devDependencies": {
-    "vercel": "^50.37.1"
+    "tsx": "^4.21.0"
   },
   "packageManager": "pnpm@10.26.2"
 }
