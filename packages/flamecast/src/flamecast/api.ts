@@ -40,12 +40,7 @@ function toErrorMessage(error: unknown, fallback = "Unknown error"): string {
 type ApiErrorStatus = 400 | 403 | 404 | 500;
 
 function toErrorStatus(error: unknown): ApiErrorStatus | null {
-  if (
-    typeof error === "object" &&
-    error &&
-    "status" in error &&
-    typeof error.status === "number"
-  ) {
+  if (typeof error === "object" && error && "status" in error && typeof error.status === "number") {
     if (
       error.status === 400 ||
       error.status === 403 ||

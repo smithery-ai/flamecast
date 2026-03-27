@@ -9,8 +9,6 @@ describe("buildForwardUrl", () => {
   });
 
   it("handles requests without a query string", () => {
-    expect(buildForwardUrl(43123, "/fs/snapshot", "")).toBe(
-      "http://localhost:43123/fs/snapshot",
-    );
+    expect(buildForwardUrl(43123, "/fs/snapshot", "")).toBe("http://localhost:43123/fs/snapshot");
   });
 });
