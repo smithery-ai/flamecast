@@ -13,9 +13,9 @@
     "@flamecast/runtime-e2b": "workspace:*",
     "@flamecast/sdk": "workspace:*",
     "@flamecast/storage-psql": "workspace:*",
+    "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.1",
-    "pg": "^8.20.0",
-    "dotenv": "^17.3.1"
+    "pg": "^8.20.0"
   },
   "devDependencies": {
     "vercel": "^50.37.1",

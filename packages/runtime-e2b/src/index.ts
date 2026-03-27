@@ -249,22 +249,32 @@ export class E2BRuntime implements Runtime {
   async start(instanceId: string): Promise<void> {
     console.log(`[E2BRuntime] start("${instanceId}") called`);
     const existing = await this.resolveInstanceSandbox(instanceId);
-    console.log(`[E2BRuntime] resolveInstanceSandbox result:`, existing ? `sandbox=${existing.entry.sandboxId}, state=${existing.state}` : "null");
+    console.log(
+      `[E2BRuntime] resolveInstanceSandbox result:`,
+      existing ? `sandbox=${existing.entry.sandboxId}, state=${existing.state}` : "null",
+    );
     if (existing) {
       // Resume a paused sandbox — Sandbox.connect auto-resumes
       const sandbox = await Sandbox.connect(existing.entry.sandboxId, { apiKey: this.apiKey });
       // Verify the binary exists (it may be missing if a previous start() failed
       // after creating the sandbox but before uploading the binary).
-      const hasBinary = await sandbox.commands.run(`test -x ${SANDBOX_BIN_PATH}`).then(() => true, () => false);
+      const hasBinary = await sandbox.commands.run(`test -x ${SANDBOX_BIN_PATH}`).then(
+        () => true,
+        () => false,
+      );
       if (!hasBinary) {
-        console.log(`[E2BRuntime] Binary missing in existing sandbox ${existing.entry.sandboxId}, uploading...`);
+        console.log(
+          `[E2BRuntime] Binary missing in existing sandbox ${existing.entry.sandboxId}, uploading...`,
+        );
         await this.uploadSessionHostBinary(sandbox);
       }
       this.instances.set(instanceId, {
         sandboxId: existing.entry.sandboxId,
         ports: this.createPortSlots(instanceId),
       });
-      console.log(`[E2BRuntime] Instance "${instanceId}" reconnected (sandbox=${existing.entry.sandboxId})`);
+      console.log(
+        `[E2BRuntime] Instance "${instanceId}" reconnected (sandbox=${existing.entry.sandboxId})`,
+      );
       return;
     }
 
@@ -278,7 +288,10 @@ export class E2BRuntime implements Runtime {
         metadata: { [FLAMECAST_INSTANCE_LABEL]: instanceId },
       });
     } catch (err) {
-      console.error(`[E2BRuntime] Sandbox.create failed:`, err instanceof Error ? err.message : err);
+      console.error(
+        `[E2BRuntime] Sandbox.create failed:`,
+        err instanceof Error ? err.message : err,
+      );
       throw err;
     }
     console.log(`[E2BRuntime] Sandbox created: ${sandbox.sandboxId}`);
@@ -286,7 +299,10 @@ export class E2BRuntime implements Runtime {
     try {
       await this.uploadSessionHostBinary(sandbox);
     } catch (err) {
-      console.error(`[E2BRuntime] uploadSessionHostBinary failed:`, err instanceof Error ? err.message : err);
+      console.error(
+        `[E2BRuntime] uploadSessionHostBinary failed:`,
+        err instanceof Error ? err.message : err,
+      );
       // Kill the orphan sandbox so it doesn't get picked up by resolveInstanceSandbox later
       await Sandbox.kill(sandbox.sandboxId, { apiKey: this.apiKey }).catch(() => {});
       throw err;
@@ -508,7 +524,9 @@ export class E2BRuntime implements Runtime {
         );
         console.log(`[E2BRuntime] Binary check: ${checkResult.stdout.trim()}`);
       } catch (checkErr) {
-        throw new Error(`Session-host binary not found in sandbox: ${checkErr instanceof Error ? checkErr.message : checkErr}`);
+        throw new Error(
+          `Session-host binary not found in sandbox: ${checkErr instanceof Error ? checkErr.message : checkErr}`,
+        );
       }
 
       // Start session-host in background, capturing output to a log file for diagnostics
