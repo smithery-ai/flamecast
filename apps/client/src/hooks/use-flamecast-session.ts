@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { WsControlMessage, WsServerMessage } from "@flamecast/protocol/ws";
+import type { WsChannelControlMessage, WsChannelServerMessage } from "@flamecast/protocol/ws/channels";
 import type { SessionLog, PermissionResponseBody } from "@flamecast/sdk/session";
 import { fetchSessionFilePreview, fetchSessionFileSystem } from "../lib/api.js";
 import { createWsMessageDedupeState, rememberWsMessage } from "../lib/ws-message-dedupe.js";
 
 type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
 
-function toSessionLog(message: WsServerMessage): SessionLog | null {
+function toSessionLog(message: WsChannelServerMessage): SessionLog | null {
   if (message.type === "error") {
     return {
       type: "error",
@@ -33,12 +33,15 @@ export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const seenMessagesRef = useRef(createWsMessageDedupeState());
+  /** Track the last seq we've seen for replay-on-reconnect. */
+  const lastSeqRef = useRef(0);
 
   useEffect(() => {
     let disposed = false;
     setEvents([]);
     reconnectAttemptsRef.current = 0;
     seenMessagesRef.current = createWsMessageDedupeState();
+    lastSeqRef.current = 0;
 
     if (!websocketUrl) {
       setConnectionState("disconnected");
@@ -65,6 +68,14 @@ export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
         if (disposed || wsRef.current !== ws) return;
         reconnectAttemptsRef.current = 0;
         setConnectionState("connected");
+
+        // Subscribe to this session's channel, replaying events after last seen seq
+        const subscribeMsg: WsChannelControlMessage = {
+          action: "subscribe",
+          channel: `session:${sessionId}`,
+          since: lastSeqRef.current,
+        };
+        ws.send(JSON.stringify(subscribeMsg));
       };
 
       ws.onmessage = (event) => {
@@ -76,7 +87,13 @@ export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
         }
 
         try {
-          const message: WsServerMessage = JSON.parse(rawMessage);
+          const message: WsChannelServerMessage = JSON.parse(rawMessage);
+
+          // Track sequence numbers for replay on reconnect
+          if (message.type === "event" && message.seq > lastSeqRef.current) {
+            lastSeqRef.current = message.seq;
+          }
+
           const log = toSessionLog(message);
           if (log) {
             setEvents((current) => [...current, log]);
@@ -123,36 +140,39 @@ export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
     };
   }, [sessionId, websocketUrl]);
 
-  const send = useCallback((message: WsControlMessage) => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify(message));
-  }, []);
+  const send = useCallback(
+    (message: WsChannelControlMessage) => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify(message));
+    },
+    [],
+  );
 
   const prompt = useCallback(
     (text: string) => {
-      send({ action: "prompt", text });
+      send({ action: "prompt", sessionId, text });
     },
-    [send],
+    [send, sessionId],
   );
 
   const respondToPermission = useCallback(
     (requestId: string, body: PermissionResponseBody) => {
-      send({ action: "permission.respond", requestId, body });
+      send({ action: "permission.respond", sessionId, requestId, body });
     },
-    [send],
+    [send, sessionId],
   );
 
   const cancel = useCallback(
     (queueId?: string) => {
-      send({ action: "cancel", queueId });
+      send({ action: "cancel", sessionId, queueId });
     },
-    [send],
+    [send, sessionId],
   );
 
   const terminate = useCallback(() => {
-    send({ action: "terminate" });
-  }, [send]);
+    send({ action: "terminate", sessionId });
+  }, [send, sessionId]);
 
   const requestFilePreview = useCallback(
     (path: string) => {

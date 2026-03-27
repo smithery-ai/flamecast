@@ -1,9 +1,9 @@
 import type { Runtime } from "@flamecast/protocol/runtime";
 
 /**
- * NodeRuntime — connects to a SessionHost over HTTP.
+ * NodeRuntime — connects to a RuntimeHost over HTTP.
  *
- * With no arguments, discovers the SessionHost URL from the RUNTIME_URL
+ * With no arguments, discovers the RuntimeHost URL from the RUNTIME_URL
  * environment variable, or defaults to http://localhost:8787.
  * Pass a URL explicitly for deployed environments.
  */
@@ -27,7 +27,21 @@ export class NodeRuntime implements Runtime {
       body: request.body,
       duplex: request.body ? "half" : undefined,
     };
-    return fetch(targetUrl.toString(), init);
+    const resp = await fetch(targetUrl.toString(), init);
+
+    // For /start responses, inject the runtime-host URLs (shared across all sessions)
+    if (originalUrl.pathname.endsWith("/start") && request.method === "POST" && resp.ok) {
+      const body = await resp.json();
+      const runtimeUrl = new URL(this.url);
+      body.hostUrl = runtimeUrl.toString().replace(/\/$/, "");
+      body.websocketUrl = runtimeUrl.toString().replace(/^http/, "ws").replace(/\/$/, "");
+      return new Response(JSON.stringify(body), {
+        status: resp.status,
+        headers: resp.headers,
+      });
+    }
+
+    return resp;
   }
 
   async fetchInstance(_instanceId: string, request: Request): Promise<Response> {

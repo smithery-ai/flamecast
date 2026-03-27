@@ -86,8 +86,12 @@ export interface SessionHostStartRequest {
 
 export interface SessionHostStartResponse {
   acpSessionId: string;
+  /** Set by the runtime after proxying the response from the runtime-host. */
   hostUrl: string;
+  /** Set by the runtime after proxying the response from the runtime-host. */
   websocketUrl: string;
+  /** The Flamecast-level session ID (echoed back from the runtime-host). */
+  sessionId?: string;
 }
 
 export interface SessionHostHealthResponse {
