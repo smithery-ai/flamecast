@@ -35,13 +35,31 @@ function resolveSessionHostBinary(): string | null {
 const SESSION_HOST_RELEASE_API =
   "https://api.github.com/repos/smithery-ai/flamecast/releases?per_page=10";
 
-/** Resolve the download URL for the latest session-host-amd64 release asset. */
+let cachedReleaseUrl: string | null = null;
+
+/**
+ * Resolve the download URL for the session-host-amd64 binary.
+ *
+ * Resolution order:
+ *  1. `SESSION_HOST_URL` env var (explicit override, works for any runtime)
+ *  2. Constructor `sessionHostUrl` option (per-instance override)
+ *  3. GitHub Releases API lookup (automatic, cached, supports GITHUB_TOKEN)
+ */
 async function resolveSessionHostReleaseUrl(): Promise<string> {
-  const resp = await fetch(SESSION_HOST_RELEASE_API, {
-    headers: { Accept: "application/vnd.github+json" },
-  });
+  // 1. Environment variable — set once, works for all runtimes
+  const envUrl = typeof process !== "undefined" ? process.env?.SESSION_HOST_URL : undefined;
+  if (envUrl) return envUrl;
+
+  if (cachedReleaseUrl) return cachedReleaseUrl;
+
+  const headers: Record<string, string> = { Accept: "application/vnd.github+json" };
+  // Use a GitHub token if available to avoid rate limits (60 req/hr unauthenticated)
+  const token = typeof process !== "undefined" ? process.env?.GITHUB_TOKEN : undefined;
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const resp = await fetch(SESSION_HOST_RELEASE_API, { headers });
   if (!resp.ok) {
-    throw new Error(`GitHub API error: ${resp.status}`);
+    throw new Error(`GitHub API error: ${resp.status} — set SESSION_HOST_URL env var to bypass`);
   }
   const releases: Array<{ tag_name: string; assets: Array<{ name: string; browser_download_url: string }> }> =
     await resp.json() as any;
@@ -49,7 +67,10 @@ async function resolveSessionHostReleaseUrl(): Promise<string> {
   for (const release of releases) {
     if (!release.tag_name.startsWith("packages/session-host-go/")) continue;
     const asset = release.assets.find((a) => a.name === "session-host-amd64");
-    if (asset) return asset.browser_download_url;
+    if (asset) {
+      cachedReleaseUrl = asset.browser_download_url;
+      return cachedReleaseUrl;
+    }
   }
   throw new Error("No session-host-amd64 release found on GitHub");
 }
@@ -248,38 +269,49 @@ export class E2BRuntime implements Runtime {
   // ---------------------------------------------------------------------------
 
   async start(instanceId: string): Promise<void> {
+    console.log(`[E2BRuntime] start("${instanceId}") called`);
     const existing = await this.resolveInstanceSandbox(instanceId);
+    console.log(`[E2BRuntime] resolveInstanceSandbox result:`, existing ? `sandbox=${existing.entry.sandboxId}, state=${existing.state}` : "null");
     if (existing) {
       // Resume a paused sandbox — Sandbox.connect auto-resumes
-      await Sandbox.connect(existing.entry.sandboxId, { apiKey: this.apiKey });
+      const sandbox = await Sandbox.connect(existing.entry.sandboxId, { apiKey: this.apiKey });
+      // Verify the binary exists (it may be missing if a previous start() failed
+      // after creating the sandbox but before uploading the binary).
+      const hasBinary = await sandbox.commands.run(`test -x ${SANDBOX_BIN_PATH}`).then(() => true, () => false);
+      if (!hasBinary) {
+        console.log(`[E2BRuntime] Binary missing in existing sandbox ${existing.entry.sandboxId}, uploading...`);
+        await this.uploadSessionHostBinary(sandbox);
+      }
+      this.instances.set(instanceId, {
+        sandboxId: existing.entry.sandboxId,
+        ports: this.createPortSlots(instanceId),
+      });
+      console.log(`[E2BRuntime] Instance "${instanceId}" reconnected (sandbox=${existing.entry.sandboxId})`);
       return;
     }
 
     // Create a new sandbox
-    const sandbox = await Sandbox.create(this.template, {
-      apiKey: this.apiKey,
-      timeoutMs: 60 * 60 * 1000,
-      metadata: { [FLAMECAST_INSTANCE_LABEL]: instanceId },
-    });
+    console.log(`[E2BRuntime] Creating new sandbox with template="${this.template}"...`);
+    let sandbox: Sandbox;
+    try {
+      sandbox = await Sandbox.create(this.template, {
+        apiKey: this.apiKey,
+        timeoutMs: 60 * 60 * 1000,
+        metadata: { [FLAMECAST_INSTANCE_LABEL]: instanceId },
+      });
+    } catch (err) {
+      console.error(`[E2BRuntime] Sandbox.create failed:`, err instanceof Error ? err.message : err);
+      throw err;
+    }
+    console.log(`[E2BRuntime] Sandbox created: ${sandbox.sandboxId}`);
 
-    // Upload the session-host binary into the sandbox.
-    // Try local file first, otherwise the sandbox curls it from a URL.
-    const localBinary = resolveSessionHostBinary();
-    if (localBinary) {
-      const binaryBlob = new Blob([readFileSync(localBinary)]);
-      await sandbox.files.write(SANDBOX_BIN_PATH, binaryBlob);
-      await sandbox.commands.run(`chmod +x ${SANDBOX_BIN_PATH}`);
-    } else {
-      const url = this.sessionHostUrl ?? await resolveSessionHostReleaseUrl();
-      const result = await sandbox.commands.run(
-        `curl -sfL -o ${SANDBOX_BIN_PATH} '${url}' && chmod +x ${SANDBOX_BIN_PATH}`,
-        { timeoutMs: 30_000 },
-      );
-      if (result.exitCode !== 0) {
-        throw new Error(
-          `Failed to download session-host binary from ${url}: ${result.stderr}`,
-        );
-      }
+    try {
+      await this.uploadSessionHostBinary(sandbox);
+    } catch (err) {
+      console.error(`[E2BRuntime] uploadSessionHostBinary failed:`, err instanceof Error ? err.message : err);
+      // Kill the orphan sandbox so it doesn't get picked up by resolveInstanceSandbox later
+      await Sandbox.kill(sandbox.sandboxId, { apiKey: this.apiKey }).catch(() => {});
+      throw err;
     }
 
     this.instances.set(instanceId, {
@@ -287,6 +319,29 @@ export class E2BRuntime implements Runtime {
       ports: this.createPortSlots(instanceId),
     });
     console.log(`[E2BRuntime] Instance "${instanceId}" started (sandbox=${sandbox.sandboxId})`);
+  }
+
+  /** Upload the session-host binary into a sandbox. */
+  private async uploadSessionHostBinary(sandbox: Sandbox): Promise<void> {
+    const localBinary = resolveSessionHostBinary();
+    if (localBinary) {
+      const binaryBlob = new Blob([readFileSync(localBinary)]);
+      await sandbox.files.write(SANDBOX_BIN_PATH, binaryBlob);
+      await sandbox.commands.run(`chmod +x ${SANDBOX_BIN_PATH}`);
+    } else {
+      const url = this.sessionHostUrl ?? await resolveSessionHostReleaseUrl();
+      console.log(`[E2BRuntime] Downloading session-host from ${url}...`);
+      try {
+        await sandbox.commands.run(
+          `curl -sfL -o ${SANDBOX_BIN_PATH} '${url}' && chmod +x ${SANDBOX_BIN_PATH}`,
+          { timeoutMs: 30_000 },
+        );
+      } catch (err) {
+        throw new Error(
+          `Failed to download session-host binary from ${url}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
   }
 
   async stop(instanceId: string): Promise<void> {
@@ -426,14 +481,17 @@ export class E2BRuntime implements Runtime {
   // ---------------------------------------------------------------------------
 
   private async handleStart(sessionId: string, request: Request): Promise<Response> {
+    console.log(`[E2BRuntime] handleStart called for session "${sessionId}"`);
     if (this.sessions.has(sessionId)) {
       return jsonResponse({ error: `Session "${sessionId}" already exists` }, 409);
     }
 
     try {
+      console.log(`[E2BRuntime] Parsing request body...`);
       const parsed: Record<string, unknown> = JSON.parse(await request.text());
       const instanceName =
         typeof parsed.instanceName === "string" ? parsed.instanceName : undefined;
+      console.log(`[E2BRuntime] instanceName="${instanceName}", command="${parsed.command}"`);
 
       if (!instanceName) {
         return jsonResponse(
@@ -442,11 +500,13 @@ export class E2BRuntime implements Runtime {
         );
       }
 
+      console.log(`[E2BRuntime] Resolving instance sandbox...`);
       const resolved = await this.resolveInstanceSandbox(instanceName);
       if (!resolved) {
         return jsonResponse({ error: `Runtime instance "${instanceName}" not found` }, 404);
       }
       const inst = resolved.entry;
+      console.log(`[E2BRuntime] Found sandbox=${inst.sandboxId}, state=${resolved.state}`);
 
       const slot = inst.ports.find((p) => !p.inUse);
       if (!slot) {
@@ -459,15 +519,18 @@ export class E2BRuntime implements Runtime {
       }
 
       // Connect to sandbox and start session-host binary on the assigned port
+      console.log(`[E2BRuntime] Connecting to sandbox ${inst.sandboxId}...`);
       const sandbox = await Sandbox.connect(inst.sandboxId, { apiKey: this.apiKey });
+      console.log(`[E2BRuntime] Connected. Running binary check...`);
 
-      // Verify the binary exists and is executable
-      const checkResult = await sandbox.commands.run(
-        `ls -la ${SANDBOX_BIN_PATH} && file ${SANDBOX_BIN_PATH}`,
-      );
-      console.log(`[E2BRuntime] Binary check: ${checkResult.stdout.trim()}`);
-      if (checkResult.exitCode !== 0) {
-        throw new Error(`Session-host binary not found in sandbox: ${checkResult.stderr}`);
+      // Verify the binary exists and is executable (E2B SDK throws CommandExitError on non-zero exit)
+      try {
+        const checkResult = await sandbox.commands.run(
+          `ls -la ${SANDBOX_BIN_PATH} && file ${SANDBOX_BIN_PATH}`,
+        );
+        console.log(`[E2BRuntime] Binary check: ${checkResult.stdout.trim()}`);
+      } catch (checkErr) {
+        throw new Error(`Session-host binary not found in sandbox: ${checkErr instanceof Error ? checkErr.message : checkErr}`);
       }
 
       // Start session-host in background, capturing output to a log file for diagnostics
@@ -480,8 +543,9 @@ export class E2BRuntime implements Runtime {
 
       // Give it a moment to start (or crash), then check
       await new Promise((r) => setTimeout(r, 2_000));
+      // Use `|| true` to avoid CommandExitError when grep finds no matches
       const checkProc = await sandbox.commands.run(
-        `ps aux | grep session-host | grep -v grep; echo "---LOG---"; cat ${logFile}`,
+        `(ps aux | grep session-host | grep -v grep || true); echo "---LOG---"; cat ${logFile} 2>/dev/null || true`,
         { timeoutMs: 5_000 },
       );
       console.log(`[E2BRuntime] Process + log check:\n${checkProc.stdout.trim()}`);
@@ -507,6 +571,8 @@ export class E2BRuntime implements Runtime {
       parsed.workspace = "/home/user";
       delete parsed.instanceName;
 
+      console.log(`[E2BRuntime] /start request body:`, JSON.stringify(parsed, null, 2));
+
       const resp = await fetch(`${hostUrl}/start`, {
         method: "POST",
         headers: JSON_HEADERS,
@@ -514,6 +580,7 @@ export class E2BRuntime implements Runtime {
       });
 
       const text = await resp.text();
+      console.log(`[E2BRuntime] /start response (${resp.status}):`, text);
       let result: Record<string, unknown>;
       try {
         result = JSON.parse(text);
