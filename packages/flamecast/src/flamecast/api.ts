@@ -15,6 +15,8 @@ export type FlamecastApi = Pick<
   Flamecast,
   | "createSession"
   | "eventBus"
+  | "fetchRuntimeFilePreview"
+  | "fetchRuntimeFileSystem"
   | "fetchSessionFilePreview"
   | "fetchSessionFileSystem"
   | "getSession"
@@ -38,7 +40,7 @@ function toErrorMessage(error: unknown, fallback = "Unknown error"): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-type ApiErrorStatus = 400 | 403 | 404 | 500;
+type ApiErrorStatus = 400 | 403 | 404 | 409 | 500;
 
 function toErrorStatus(error: unknown): ApiErrorStatus | null {
   if (typeof error === "object" && error && "status" in error && typeof error.status === "number") {
@@ -46,6 +48,7 @@ function toErrorStatus(error: unknown): ApiErrorStatus | null {
       error.status === 400 ||
       error.status === 403 ||
       error.status === 404 ||
+      error.status === 409 ||
       error.status === 500
     ) {
       return error.status;
@@ -199,6 +202,31 @@ export function createApi(flamecast: FlamecastApi) {
           return c.json({ error: msg }, status);
         }
       })
+      .get("/runtimes/:instanceName/files", async (c) => {
+        try {
+          const instanceName = c.req.param("instanceName");
+          const path = c.req.query("path");
+          if (!path) {
+            return c.json({ error: "Missing ?path= parameter" }, 400);
+          }
+          return c.json(await flamecast.fetchRuntimeFilePreview(instanceName, path));
+        } catch (error) {
+          const msg = toErrorMessage(error);
+          const status = toErrorStatus(error) ?? (msg.includes("not found") ? 404 : 500);
+          return c.json({ error: msg }, status);
+        }
+      })
+      .get("/runtimes/:instanceName/fs/snapshot", async (c) => {
+        try {
+          const instanceName = c.req.param("instanceName");
+          const showAllFiles = c.req.query("showAllFiles") === "true";
+          return c.json(await flamecast.fetchRuntimeFileSystem(instanceName, { showAllFiles }));
+        } catch (error) {
+          const msg = toErrorMessage(error);
+          const status = toErrorStatus(error) ?? (msg.includes("not found") ? 404 : 500);
+          return c.json({ error: msg }, status);
+        }
+      })
       .get("/agents", async (c) => {
         try {
           const sessions = await flamecast.listSessions();
@@ -317,7 +345,10 @@ export function createApi(flamecast: FlamecastApi) {
       })
       .get("/agents/:agentId/fs/snapshot", async (c) => {
         try {
-          return c.json(await flamecast.fetchSessionFileSystem(c.req.param("agentId")));
+          const showAllFiles = c.req.query("showAllFiles") === "true";
+          return c.json(
+            await flamecast.fetchSessionFileSystem(c.req.param("agentId"), { showAllFiles }),
+          );
         } catch (error) {
           const msg = toErrorMessage(error);
           const status = toErrorStatus(error) ?? (msg.includes("not found") ? 404 : 500);

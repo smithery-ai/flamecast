@@ -9,6 +9,28 @@ import (
 	"github.com/smithery-ai/flamecast/packages/session-host-go/ws"
 )
 
+func TestFormatStartupOutputEmpty(t *testing.T) {
+	if got := formatStartupOutput(""); got != "" {
+		t.Fatalf("expected empty output, got %q", got)
+	}
+}
+
+func TestFormatStartupOutputIncludesTrimmedTail(t *testing.T) {
+	longOutput := strings.Repeat("a", 5000)
+
+	got := formatStartupOutput(longOutput)
+
+	if !strings.HasPrefix(got, "\nStartup output:\n") {
+		t.Fatalf("expected startup output prefix, got %q", got)
+	}
+	if strings.Contains(got, strings.Repeat("a", 4500)) {
+		t.Fatalf("expected output to be trimmed, got %d chars", len(got))
+	}
+	if !strings.Contains(got, strings.Repeat("a", 4000)) {
+		t.Fatalf("expected output to include the most recent bytes")
+	}
+}
+
 func TestHandlePromptHTTPRequiresActiveSession(t *testing.T) {
 	resetSession()
 
