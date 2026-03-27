@@ -43,6 +43,13 @@
       "when": 1774601000000,
       "tag": "0005_runtime_instance_created_at",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1774680000000,
+      "tag": "0006_session_webhooks",
+      "breakpoints": true
     }
   ]
 }

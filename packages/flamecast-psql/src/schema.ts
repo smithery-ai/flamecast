@@ -1,5 +1,10 @@
 import { boolean, index, integer, jsonb, pgSchema, text, timestamp } from "drizzle-orm/pg-core";
-import type { AgentSpawn, AgentTemplateRuntime, PendingPermission } from "@flamecast/sdk";
+import type {
+  AgentSpawn,
+  AgentTemplateRuntime,
+  PendingPermission,
+  WebhookConfig,
+} from "@flamecast/sdk";
 
 export const flamecastSchema = pgSchema("flamecast");
 
@@ -16,6 +21,7 @@ export const sessions = flamecastSchema.table("sessions", {
   runtimeName: text("runtime_name"),
   runtimeMeta: jsonb("runtime_meta").$type<Record<string, unknown> | null>(),
   runtime: text("runtime"),
+  webhooks: jsonb("webhooks").$type<WebhookConfig[] | null>(),
 });
 
 export const agentTemplates = flamecastSchema.table(

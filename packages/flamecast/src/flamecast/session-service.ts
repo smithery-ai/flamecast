@@ -99,6 +99,7 @@ export class SessionService {
           runtime: opts.runtimeInstance ?? providerName,
         },
         runtimeInfo,
+        opts.webhooks ?? [],
       );
     } catch (storageError) {
       // Session host is running but storage failed — attempt to terminate the host.
@@ -131,7 +132,11 @@ export class SessionService {
    * Verifies that the session-host process is still alive before re-registering.
    * Returns `true` if the session was successfully recovered.
    */
-  async recoverSession(sessionId: string, runtimeInfo: SessionRuntimeInfo): Promise<boolean> {
+  async recoverSession(
+    sessionId: string,
+    runtimeInfo: SessionRuntimeInfo,
+    webhooks: WebhookConfig[] = [],
+  ): Promise<boolean> {
     if (this.sessions.has(sessionId)) return true;
 
     const runtime = this.runtimes[runtimeInfo.runtimeName];
@@ -162,7 +167,7 @@ export class SessionService {
       hostUrl: runtimeInfo.hostUrl,
       websocketUrl: runtimeInfo.websocketUrl,
       runtimeName: runtimeInfo.runtimeName,
-      webhooks: [],
+      webhooks,
     });
 
     return true;
