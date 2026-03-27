@@ -26,6 +26,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { LoaderCircleIcon, PlusIcon, PlayIcon, TerminalIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
@@ -35,6 +36,22 @@ import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 export const Route = createFileRoute("/")({
   component: SessionsPage,
 });
+
+/** Parse "KEY=VALUE" lines into a record, ignoring blank/comment lines. */
+function parseEnvString(input: string): Record<string, string> | undefined {
+  const lines = input
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"));
+  if (lines.length === 0) return undefined;
+  const env: Record<string, string> = {};
+  for (const line of lines) {
+    const idx = line.indexOf("=");
+    if (idx <= 0) continue;
+    env[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+  }
+  return Object.keys(env).length > 0 ? env : undefined;
+}
 
 function SessionsPage() {
   const queryClient = useQueryClient();
@@ -46,6 +63,8 @@ function SessionsPage() {
   const [newName, setNewName] = useState("");
   const [newCommand, setNewCommand] = useState("");
   const [newArgs, setNewArgs] = useState("");
+  const [newSetup, setNewSetup] = useState("");
+  const [newEnv, setNewEnv] = useState("");
 
   const { data: allTemplates = [], isLoading: templatesLoading } = useQuery({
     queryKey: ["agent-templates"],
@@ -91,16 +110,28 @@ function SessionsPage() {
   });
 
   const registerMutation = useMutation({
-    mutationFn: (body: { name: string; command: string; args: string[] }) =>
+    mutationFn: (body: {
+      name: string;
+      command: string;
+      args: string[];
+      setup?: string;
+      env?: Record<string, string>;
+    }) =>
       registerAgentTemplate({
         name: body.name,
         spawn: { command: body.command, args: body.args },
+        runtime: {
+          ...(body.setup ? { setup: body.setup } : {}),
+        },
+        ...(body.env && Object.keys(body.env).length > 0 ? { env: body.env } : {}),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agent-templates"] });
       setNewName("");
       setNewCommand("");
       setNewArgs("");
+      setNewSetup("");
+      setNewEnv("");
       setDialogOpen(false);
     },
     onError: (err) => {
@@ -113,7 +144,9 @@ function SessionsPage() {
     const command = newCommand.trim();
     if (!name || !command) return;
     const args = newArgs.trim() ? newArgs.trim().split(/\s+/).filter(Boolean) : [];
-    registerMutation.mutate({ name, command, args });
+    const setup = newSetup.trim() || undefined;
+    const env = parseEnvString(newEnv);
+    registerMutation.mutate({ name, command, args, setup, env });
   };
 
   return (
@@ -179,6 +212,28 @@ function SessionsPage() {
                         placeholder="exec tsx src/agent.ts"
                         value={newArgs}
                         onChange={(e) => setNewArgs(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="agent-setup">Setup script</Label>
+                      <Textarea
+                        id="agent-setup"
+                        placeholder="npm install && echo 'ready'"
+                        value={newSetup}
+                        onChange={(e) => setNewSetup(e.target.value)}
+                        rows={2}
+                        className="font-mono text-xs"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="agent-env">Environment variables</Label>
+                      <Textarea
+                        id="agent-env"
+                        placeholder={"NODE_ENV=production\nAPI_KEY=sk-..."}
+                        value={newEnv}
+                        onChange={(e) => setNewEnv(e.target.value)}
+                        rows={2}
+                        className="font-mono text-xs"
                       />
                     </div>
                     {newCommand.trim() && (
@@ -293,13 +348,51 @@ function AgentTemplateCard({
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
             <TerminalIcon className="h-4 w-4" />
           </div>
-          <CardTitle className="text-sm font-semibold">{template.name}</CardTitle>
+          <CardTitle className="text-sm font-semibold">
+            {template.name}
+            {template.runtime.provider && template.runtime.provider !== "default" && (
+              <span className="ml-1 text-xs font-normal text-muted-foreground">
+                ({template.runtime.provider})
+              </span>
+            )}
+          </CardTitle>
         </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <code className="block truncate rounded bg-muted px-2 py-1.5 text-xs text-muted-foreground">
           {template.spawn.command} {(template.spawn.args ?? []).join(" ")}
         </code>
+
+        {template.runtime.setup && (
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">Setup</span>
+            <code className="block truncate rounded bg-muted px-2 py-1.5 text-xs text-muted-foreground">
+              {template.runtime.setup}
+            </code>
+          </div>
+        )}
+
+        {(() => {
+          const allEnvKeys = [
+            ...Object.keys(template.runtime.env ?? {}),
+            ...Object.keys(template.env ?? {}),
+          ].filter((v, i, a) => a.indexOf(v) === i);
+          return allEnvKeys.length > 0 ? (
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-muted-foreground">Environment</span>
+              <div className="flex flex-wrap gap-1">
+                {allEnvKeys.map((key) => (
+                  <span
+                    key={key}
+                    className="inline-block rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+                  >
+                    {key}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null;
+        })()}
 
         {needsInstanceSelect && (
           <div className="flex flex-col gap-1.5">

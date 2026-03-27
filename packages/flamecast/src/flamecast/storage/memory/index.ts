@@ -15,6 +15,7 @@ function cloneTemplate(template: AgentTemplate): AgentTemplate {
       args: [...template.spawn.args],
     },
     runtime: { ...template.runtime },
+    ...(template.env ? { env: { ...template.env } } : {}),
   };
 }
 

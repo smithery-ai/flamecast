@@ -50,6 +50,7 @@ export class SessionService {
       args: opts.spawn.args ?? [],
       workspace: opts.cwd,
       setup: opts.runtime.setup,
+      env: opts.runtime.env,
       callbackUrl: opts.callbackUrl,
       instanceName: opts.runtimeInstance,
     } satisfies SessionHostStartRequest & Record<string, unknown>;

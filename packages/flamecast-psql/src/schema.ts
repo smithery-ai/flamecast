@@ -24,6 +24,7 @@ export const agentTemplates = flamecastSchema.table(
     id: text("id").primaryKey(),
     name: text("name").notNull(),
     setup: text("setup"),
+    env: jsonb("env").$type<Record<string, string>>(),
     spawn: jsonb("spawn").$type<AgentSpawn>().notNull(),
     runtime: jsonb("runtime").$type<AgentTemplateRuntime>().notNull(),
     managed: boolean("managed").notNull().default(false),

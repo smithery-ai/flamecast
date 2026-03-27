@@ -80,6 +80,7 @@ export interface SessionHostStartRequest {
   args: string[];
   workspace: string;
   setup?: string;
+  env?: Record<string, string>;
   callbackUrl?: string;
 }
 

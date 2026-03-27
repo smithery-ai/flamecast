@@ -6,5 +6,6 @@ export const SessionHostStartRequestSchema = z.object({
   args: z.array(z.string()),
   workspace: z.string(),
   setup: z.string().optional(),
+  env: z.record(z.string(), z.string()).optional(),
   callbackUrl: z.string().optional(),
 }) satisfies z.ZodType<SessionHostStartRequest>;

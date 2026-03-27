@@ -14,6 +14,7 @@ export interface AgentTemplateRuntime {
   image?: string;
   dockerfile?: string;
   setup?: string;
+  env?: Record<string, string>;
 }
 
 export interface AgentTemplate {
@@ -21,6 +22,7 @@ export interface AgentTemplate {
   name: string;
   spawn: AgentSpawn;
   runtime: AgentTemplateRuntime;
+  env?: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +117,7 @@ export interface RegisterAgentTemplateBody {
   name: string;
   spawn: AgentSpawn;
   runtime?: AgentTemplateRuntime;
+  env?: Record<string, string>;
 }
 
 export interface PromptBody {

@@ -403,21 +403,22 @@ async function doStartSession(
   workspace: string,
   serverPort: number,
 ): Promise<SessionHostStartResponse> {
+  // Build environment: inherit from parent, overlay user-provided env vars.
+  const nodeBinDir = path.dirname(process.execPath);
+  const procEnv = { ...process.env, PATH: `${nodeBinDir}:${process.env.PATH ?? ""}`, ...req.env };
+
   // SMI-1677: Run optional setup command before spawning agent.
   // RUNTIME_SETUP_ENABLED is set by the Container class (deployed mode only).
   if (req.setup && process.env.RUNTIME_SETUP_ENABLED) {
     const execAsync = promisify(exec);
-    await execAsync(req.setup, { cwd: workspace });
+    await execAsync(req.setup, { cwd: workspace, env: procEnv });
   }
 
   // Spawn agent process
-  // Prepend node binary's directory to PATH so nvm/volta tools (npx, tsx, etc.) resolve
-  const nodeBinDir = path.dirname(process.execPath);
-
   const agentProcess = spawn(req.command, req.args, {
     cwd: workspace,
     stdio: ["pipe", "pipe", "inherit"],
-    env: { ...process.env, PATH: `${nodeBinDir}:${process.env.PATH ?? ""}` },
+    env: procEnv,
   });
 
   if (!agentProcess.stdin || !agentProcess.stdout) {

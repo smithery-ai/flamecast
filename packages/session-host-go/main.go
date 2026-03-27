@@ -42,10 +42,11 @@ var current struct {
 // ---------- Request/Response types ----------
 
 type startRequest struct {
-	Command   string   `json:"command"`
-	Args      []string `json:"args"`
-	Workspace string   `json:"workspace"`
-	Setup     string   `json:"setup,omitempty"`
+	Command   string            `json:"command"`
+	Args      []string          `json:"args"`
+	Workspace string            `json:"workspace"`
+	Setup     string            `json:"setup,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
 }
 
 type startResponse struct {
@@ -292,12 +293,24 @@ func startSession(req startRequest, serverPort int, hub *ws.Hub) (*startResponse
 		workspace, _ = os.Getwd()
 	}
 
+	// Build environment: inherit from parent, overlay user-provided env vars.
+	var procEnv []string
+	if len(req.Env) > 0 {
+		procEnv = os.Environ()
+		for k, v := range req.Env {
+			procEnv = append(procEnv, k+"="+v)
+		}
+	}
+
 	// Run optional setup script
 	if req.Setup != "" && os.Getenv("RUNTIME_SETUP_ENABLED") != "" {
 		setupCmd := exec.Command("sh", "-c", req.Setup)
 		setupCmd.Dir = workspace
 		setupCmd.Stdout = os.Stderr
 		setupCmd.Stderr = os.Stderr
+		if procEnv != nil {
+			setupCmd.Env = procEnv
+		}
 		if err := setupCmd.Run(); err != nil {
 			return nil, fmt.Errorf("setup script failed: %w", err)
 		}
@@ -307,6 +320,9 @@ func startSession(req startRequest, serverPort int, hub *ws.Hub) (*startResponse
 	cmd := exec.Command(req.Command, req.Args...)
 	cmd.Dir = workspace
 	cmd.Stderr = os.Stderr
+	if procEnv != nil {
+		cmd.Env = procEnv
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

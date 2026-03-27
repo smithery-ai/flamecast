@@ -51,6 +51,7 @@ const AgentTemplateRuntimeSchema = z.object({
   image: z.string().optional(),
   dockerfile: z.string().optional(),
   setup: z.string().optional(),
+  env: z.record(z.string(), z.string()).optional(),
 }) satisfies z.ZodType<AgentTemplateRuntime>;
 
 export const AgentTemplateSchema = z.object({
@@ -58,12 +59,14 @@ export const AgentTemplateSchema = z.object({
   name: z.string(),
   spawn: AgentSpawnSchema,
   runtime: AgentTemplateRuntimeSchema,
+  env: z.record(z.string(), z.string()).optional(),
 }) satisfies z.ZodType<AgentTemplate>;
 
 export const RegisterAgentTemplateBodySchema = z.object({
   name: z.string().min(1),
   spawn: AgentSpawnSchema,
   runtime: AgentTemplateRuntimeSchema.optional(),
+  env: z.record(z.string(), z.string()).optional(),
 }) satisfies z.ZodType<RegisterAgentTemplateBody>;
 
 /**
@@ -73,13 +76,15 @@ export const RegisterAgentTemplateBodySchema = z.object({
 export function createRegisterAgentTemplateBodySchema(runtimeNames: [string, ...string[]]) {
   return z.object({
     name: z.string().min(1),
-    setup: z.string().optional(),
     spawn: AgentSpawnSchema,
     runtime: z
       .object({
-        provider: z.enum(runtimeNames),
+        provider: z.enum(runtimeNames).optional(),
+        setup: z.string().optional(),
+        env: z.record(z.string(), z.string()).optional(),
       })
       .optional(),
+    env: z.record(z.string(), z.string()).optional(),
   });
 }
 
