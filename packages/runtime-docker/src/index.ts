@@ -397,14 +397,15 @@ export class DockerRuntime implements Runtime {
   // ---------------------------------------------------------------------------
 
   async fetchSession(sessionId: string, request: Request): Promise<Response> {
-    const path = new URL(request.url).pathname;
+    const url = new URL(request.url);
+    const pathWithQuery = `${url.pathname}${url.search}`;
 
-    if (path.endsWith("/start") && request.method === "POST") {
+    if (url.pathname.endsWith("/start") && request.method === "POST") {
       return this.handleStart(sessionId, request);
     }
 
     // All other session requests proxy to /sessions/{sessionId}{path}
-    return this.proxySessionRequest(sessionId, path, request);
+    return this.proxySessionRequest(sessionId, pathWithQuery, request);
   }
 
   async fetchInstance(instanceId: string, request: Request): Promise<Response> {
