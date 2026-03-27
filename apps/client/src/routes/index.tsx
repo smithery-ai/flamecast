@@ -253,7 +253,7 @@ function SessionsPage() {
                         value={newSetup}
                         onChange={(e) => setNewSetup(e.target.value)}
                         rows={2}
-                        className="font-mono text-xs"
+                        className="font-mono text-xs field-sizing-normal"
                         wrap="off"
                       />
                     </div>
@@ -265,7 +265,7 @@ function SessionsPage() {
                         value={newEnv}
                         onChange={(e) => setNewEnv(e.target.value)}
                         rows={2}
-                        className="font-mono text-xs"
+                        className="font-mono text-xs field-sizing-normal"
                         wrap="off"
                       />
                     </div>
