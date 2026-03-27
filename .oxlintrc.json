@@ -22,6 +22,7 @@
     "**/coverage/",
     "node_modules/",
     "apps/docs/",
-    "packages/flamecast/src/client/routeTree.gen.ts"
+    "packages/flamecast/src/client/routeTree.gen.ts",
+    "**/worker-configuration.d.ts"
   ]
 }
