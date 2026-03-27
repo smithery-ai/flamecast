@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Docker from "dockerode";
 import type { Runtime } from "@flamecast/protocol/runtime";
+import { getRequestPath } from "./request-path.js";
 
 // ---------------------------------------------------------------------------
 // Session-host binary resolution
@@ -239,8 +240,7 @@ export class DockerRuntime implements Runtime {
   // ---------------------------------------------------------------------------
 
   async fetchSession(sessionId: string, request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const path = url.pathname;
+    const path = getRequestPath(request);
 
     if (path.endsWith("/start") && request.method === "POST") {
       return this.handleStart(sessionId, request);

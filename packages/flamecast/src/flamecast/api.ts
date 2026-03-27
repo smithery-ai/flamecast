@@ -14,6 +14,8 @@ export type FlamecastApi = Pick<
   Flamecast,
   | "createSession"
   | "eventBus"
+  | "fetchSessionFilePreview"
+  | "fetchSessionFileSystem"
   | "getSession"
   | "handleSessionEvent"
   | "listAgentTemplates"
@@ -33,6 +35,27 @@ export type FlamecastApi = Pick<
 
 function toErrorMessage(error: unknown, fallback = "Unknown error"): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+type ApiErrorStatus = 400 | 403 | 404 | 500;
+
+function toErrorStatus(error: unknown): ApiErrorStatus | null {
+  if (
+    typeof error === "object" &&
+    error &&
+    "status" in error &&
+    typeof error.status === "number"
+  ) {
+    if (
+      error.status === 400 ||
+      error.status === 403 ||
+      error.status === 404 ||
+      error.status === 500
+    ) {
+      return error.status;
+    }
+  }
+  return null;
 }
 
 /** Return true for errors that indicate a client-side problem (bad input). */
@@ -253,6 +276,29 @@ export function createApi(flamecast: FlamecastApi) {
       })
       .post("/agents/:agentId/queue/resume", async (c) => {
         return proxyQueue(c, flamecast, "/queue/resume", "POST");
+      })
+      .get("/agents/:agentId/files", async (c) => {
+        try {
+          const agentId = c.req.param("agentId");
+          const path = c.req.query("path");
+          if (!path) {
+            return c.json({ error: "Missing ?path= parameter" }, 400);
+          }
+          return c.json(await flamecast.fetchSessionFilePreview(agentId, path));
+        } catch (error) {
+          const msg = toErrorMessage(error);
+          const status = toErrorStatus(error) ?? (msg.includes("not found") ? 404 : 500);
+          return c.json({ error: msg }, status);
+        }
+      })
+      .get("/agents/:agentId/fs/snapshot", async (c) => {
+        try {
+          return c.json(await flamecast.fetchSessionFileSystem(c.req.param("agentId")));
+        } catch (error) {
+          const msg = toErrorMessage(error);
+          const status = toErrorStatus(error) ?? (msg.includes("not found") ? 404 : 500);
+          return c.json({ error: msg }, status);
+        }
       })
       // ---- SSE event stream (universal — works in Node + edge) ----
       .get("/agents/:agentId/stream", (c) => {

@@ -45,7 +45,7 @@ function SessionDetailPage() {
   const [showAllFiles, setShowAllFiles] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
-  // WebSocket-based session events and control
+  // Shared Flamecast WS for session events/control, server API for filesystem reads
   const {
     events: wsEvents,
     isConnected,
@@ -55,7 +55,7 @@ function SessionDetailPage() {
     requestFsSnapshot,
   } = useFlamecastSession(id);
 
-  // REST for initial session metadata and file system
+  // REST for initial session metadata and server-owned filesystem snapshot
   const { data: session, isLoading } = useQuery({
     queryKey: ["session", id, showAllFiles],
     queryFn: () => fetchSession(id, { includeFileSystem: true, showAllFiles }),
@@ -101,6 +101,12 @@ function SessionDetailPage() {
   const [fileEntries, setFileEntries] = useState<FileSystemEntry[]>([]);
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!session?.fileSystem) return;
+    setFileEntries(session.fileSystem.entries);
+    setWorkspaceRoot(session.fileSystem.root);
+  }, [session?.fileSystem]);
+
   // Fetch snapshot on connect and when filesystem.changed events arrive
   const fsChangeCount = useMemo(
     () => wsEvents.filter((e) => e.type === "filesystem.changed").length,
@@ -108,7 +114,7 @@ function SessionDetailPage() {
   );
 
   useEffect(() => {
-    if (!isConnected) return;
+    if (!session) return;
     requestFsSnapshot()
       .then((snapshot) => {
         setFileEntries(
@@ -120,7 +126,7 @@ function SessionDetailPage() {
         setWorkspaceRoot(snapshot.root);
       })
       .catch(() => {});
-  }, [isConnected, fsChangeCount, requestFsSnapshot]);
+  }, [fsChangeCount, requestFsSnapshot, session]);
   const fileEntryMap = useMemo(
     () => new Map(fileEntries.map((entry) => [entry.path, entry])),
     [fileEntries],
@@ -143,14 +149,14 @@ function SessionDetailPage() {
 
   const selectedEntry = selectedPath ? (fileEntryMap.get(selectedPath) ?? null) : null;
 
-  // File preview via WebSocket
+  // File preview via Flamecast API
   const [filePreview, setFilePreview] = useState<{ content: string; truncated: boolean } | null>(
     null,
   );
   const [filePreviewLoading, setFilePreviewLoading] = useState(false);
 
   useEffect(() => {
-    if (!selectedPath || !selectedEntry || selectedEntry.type !== "file" || !isConnected) {
+    if (!selectedPath || !selectedEntry || selectedEntry.type !== "file") {
       setFilePreview(null);
       return;
     }
@@ -173,7 +179,7 @@ function SessionDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedPath, selectedEntry, isConnected, requestFilePreview]);
+  }, [selectedPath, selectedEntry, requestFilePreview]);
 
   const handlePermission = (
     requestId: string,

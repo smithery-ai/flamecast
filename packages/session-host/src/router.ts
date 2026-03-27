@@ -14,6 +14,7 @@ import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readBody } from "./http-utils.js";
+import { buildForwardUrl } from "./router-url.js";
 
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const ROUTER_PORT = parseInt(process.env.ROUTER_PORT ?? "8787", 10);
@@ -126,7 +127,7 @@ const server = createServer(async (req, res) => {
 
     // Forward to the session's host process
     const body = req.method !== "GET" ? await readBody(req) : undefined;
-    const response = await fetch(`http://localhost:${session.port}${subPath}`, {
+    const response = await fetch(buildForwardUrl(session.port, subPath, url.search), {
       method: req.method ?? "GET",
       headers: { "Content-Type": "application/json" },
       body,

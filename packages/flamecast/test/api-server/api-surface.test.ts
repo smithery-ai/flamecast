@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AgentTemplate,
   CreateSessionBody,
+  FilePreview,
+  FileSystemSnapshot,
   RegisterAgentTemplateBody,
   Session,
 } from "../../src/shared/session.js";
@@ -30,6 +32,21 @@ const sampleSession: Session = {
 };
 
 const sampleAgentId = sampleSession.id;
+const sampleFilePreview: FilePreview = {
+  path: "src/index.ts",
+  content: "console.log('hello');",
+  truncated: false,
+  maxChars: 100_000,
+};
+const sampleFileSystem: FileSystemSnapshot = {
+  root: "/tmp/flamecast",
+  entries: [
+    { path: "src", type: "directory" },
+    { path: "src/index.ts", type: "file" },
+  ],
+  truncated: false,
+  maxEntries: 10_000,
+};
 
 function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastApi {
   return {
@@ -49,6 +66,8 @@ function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastAp
       runtime: body.runtime ?? { provider: "default" },
     })),
     handleSessionEvent: vi.fn(async () => ({ ok: true })),
+    fetchSessionFilePreview: vi.fn(async () => sampleFilePreview),
+    fetchSessionFileSystem: vi.fn(async () => sampleFileSystem),
     promptSession: vi.fn(async () => ({ stopReason: "end_turn" })),
     proxyQueueRequest: vi.fn(
       async () =>
@@ -288,12 +307,50 @@ describe("API server surface", () => {
     });
   });
 
-  it("returns 404 for file preview route (removed)", async () => {
+  it("returns a session file preview through Flamecast", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
 
-    const response = await app.request(`/api/agents/${sampleAgentId}/file?path=test.txt`);
+    const response = await app.request(`/api/agents/${sampleAgentId}/files?path=src%2Findex.ts`);
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual(sampleFilePreview);
+    expect(flamecast.fetchSessionFilePreview).toHaveBeenCalledWith(sampleAgentId, "src/index.ts");
+  });
+
+  it("requires a path for session file previews", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/${sampleAgentId}/files`);
+
+    expect(response.status).toBe(400);
+    expect(await readJson(response)).toEqual({ error: "Missing ?path= parameter" });
+  });
+
+  it("passes through upstream file preview status codes", async () => {
+    const flamecast = createFlamecastStub({
+      fetchSessionFilePreview: vi.fn(async () => {
+        throw Object.assign(new Error("Cannot read: agent.ts"), { status: 404 });
+      }),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/${sampleAgentId}/files?path=agent.ts`);
+
     expect(response.status).toBe(404);
+    expect(await readJson(response)).toEqual({ error: "Cannot read: agent.ts" });
+  });
+
+  it("returns a session filesystem snapshot through Flamecast", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request(`/api/agents/${sampleAgentId}/fs/snapshot`);
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual(sampleFileSystem);
+    expect(flamecast.fetchSessionFileSystem).toHaveBeenCalledWith(sampleAgentId);
   });
 
   it("returns 404 for unknown agents", async () => {

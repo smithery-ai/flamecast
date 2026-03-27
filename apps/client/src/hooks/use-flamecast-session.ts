@@ -1,113 +1,69 @@
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { fetchSession } from "../lib/api.js";
-import { FlamecastSession, type ConnectionState } from "../lib/flamecast-session.js";
+import { useCallback, useEffect, useState } from "react";
 import type { SessionLog, PermissionResponseBody } from "@flamecast/sdk/session";
+import type { WsChannelEventMessage } from "@flamecast/protocol/ws/channels";
+import { fetchSessionFilePreview, fetchSessionFileSystem } from "../lib/api.js";
+import { useFlamecast } from "./use-flamecast.js";
 
-/**
- * React hook that manages a FlamecastSession WebSocket connection.
- *
- * - Fetches session metadata via REST to get the websocketUrl
- * - Creates and manages a FlamecastSession lifecycle
- * - Provides event stream, control methods, and connection state
- */
+function toSessionLog(message: WsChannelEventMessage): SessionLog {
+  return {
+    type: message.event.type,
+    data: message.event.data,
+    timestamp: message.event.timestamp,
+  };
+}
+
 export function useFlamecastSession(sessionId: string) {
-  const sessionRef = useRef<FlamecastSession | null>(null);
-  const eventsSnapshotRef = useRef<readonly SessionLog[]>([]);
+  const { connection, connectionState } = useFlamecast();
+  const [events, setEvents] = useState<SessionLog[]>([]);
 
-  // Fetch session metadata to get websocketUrl
-  const { data: sessionMeta } = useQuery({
-    queryKey: ["session-meta", sessionId],
-    queryFn: () => fetchSession(sessionId),
-    staleTime: Infinity, // Only fetch once
-  });
-
-  const websocketUrl = sessionMeta?.websocketUrl;
-
-  // Create/destroy FlamecastSession when websocketUrl changes
   useEffect(() => {
-    if (!websocketUrl) return;
-
-    const session = new FlamecastSession({
-      websocketUrl,
-      sessionId,
+    setEvents([]);
+    const subscription = connection.subscribe(`session:${sessionId}`);
+    const unsubscribe = subscription.onEvent((message) => {
+      setEvents((current) => [...current, toSessionLog(message)]);
     });
-    sessionRef.current = session;
-    session.connect();
 
     return () => {
-      session.disconnect();
-      sessionRef.current = null;
+      unsubscribe();
+      subscription.return();
     };
-  }, [websocketUrl, sessionId]);
+  }, [connection, sessionId]);
 
-  // Subscribe to events for reactivity
-  const subscribeToEvents = useCallback(
-    (onStoreChange: () => void) => {
-      const session = sessionRef.current;
-      if (!session) return () => {};
-
-      return session.on(() => {
-        eventsSnapshotRef.current = [...session.events];
-        onStoreChange();
-      });
+  const prompt = useCallback(
+    (text: string) => {
+      connection.prompt(sessionId, text);
     },
-    [websocketUrl, sessionId],
+    [connection, sessionId],
   );
 
-  const getEventsSnapshot = useCallback(() => {
-    return eventsSnapshotRef.current;
-  }, []);
-
-  const events = useSyncExternalStore(subscribeToEvents, getEventsSnapshot, getEventsSnapshot);
-
-  // Subscribe to connection state for reactivity
-  const subscribeToState = useCallback(
-    (onStoreChange: () => void) => {
-      const session = sessionRef.current;
-      if (!session) return () => {};
-
-      return session.onStateChange(() => {
-        onStoreChange();
-      });
+  const respondToPermission = useCallback(
+    (requestId: string, body: PermissionResponseBody) => {
+      connection.respondToPermission(sessionId, requestId, body);
     },
-    [websocketUrl, sessionId],
+    [connection, sessionId],
   );
 
-  const getConnectionState = useCallback((): ConnectionState => {
-    return sessionRef.current?.connectionState ?? "disconnected";
-  }, []);
-
-  const connectionState = useSyncExternalStore(
-    subscribeToState,
-    getConnectionState,
-    getConnectionState,
+  const cancel = useCallback(
+    (queueId?: string) => {
+      connection.cancel(sessionId, queueId);
+    },
+    [connection, sessionId],
   );
-
-  // Control methods
-  const prompt = useCallback((text: string) => {
-    sessionRef.current?.prompt(text);
-  }, []);
-
-  const respondToPermission = useCallback((requestId: string, body: PermissionResponseBody) => {
-    sessionRef.current?.respondToPermission(requestId, body);
-  }, []);
-
-  const cancel = useCallback((queueId?: string) => {
-    sessionRef.current?.cancel(queueId);
-  }, []);
 
   const terminate = useCallback(() => {
-    sessionRef.current?.terminate();
-  }, []);
+    connection.terminate(sessionId);
+  }, [connection, sessionId]);
 
-  const requestFilePreview = useCallback((path: string) => {
-    return sessionRef.current?.requestFilePreview(path) ?? Promise.reject(new Error("No session"));
-  }, []);
+  const requestFilePreview = useCallback(
+    (path: string) => {
+      return fetchSessionFilePreview(sessionId, path);
+    },
+    [sessionId],
+  );
 
   const requestFsSnapshot = useCallback(() => {
-    return sessionRef.current?.requestFsSnapshot() ?? Promise.reject(new Error("No session"));
-  }, []);
+    return fetchSessionFileSystem(sessionId);
+  }, [sessionId]);
 
   return {
     events,

@@ -19,6 +19,7 @@ export class NodeRuntime implements Runtime {
     const originalUrl = new URL(request.url);
     const targetUrl = new URL(this.url);
     targetUrl.pathname = `/sessions/${sessionId}${originalUrl.pathname}`;
+    targetUrl.search = originalUrl.search;
 
     const init: RequestInit & { duplex?: string } = {
       method: request.method,

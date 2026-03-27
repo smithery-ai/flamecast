@@ -1,11 +1,19 @@
 import { hc } from "hono/client";
 import { z } from "zod";
 import type { AppType } from "../flamecast/api.js";
-import { AgentTemplateSchema, PromptQueueStateSchema, SessionSchema } from "../shared/session.js";
+import {
+  AgentTemplateSchema,
+  FilePreviewSchema,
+  FileSystemSnapshotSchema,
+  PromptQueueStateSchema,
+  SessionSchema,
+} from "../shared/session.js";
 import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
 import type {
   AgentTemplate,
   CreateSessionBody,
+  FilePreview,
+  FileSystemSnapshot,
   PromptQueueState,
   QueuedPromptResponse,
   RegisterAgentTemplateBody,
@@ -52,6 +60,8 @@ export type FlamecastClient = {
     id: string,
     opts?: { includeFileSystem?: boolean; showAllFiles?: boolean },
   ): Promise<Session>;
+  fetchSessionFilePreview(id: string, path: string): Promise<FilePreview>;
+  fetchSessionFileSystem(id: string): Promise<FileSystemSnapshot>;
   createSession(body: CreateSessionBody): Promise<Session>;
   terminateSession(id: string): Promise<void>;
 
@@ -134,6 +144,19 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
         },
       });
       return parseOkJson(response, SessionSchema, "Session not found");
+    },
+    async fetchSessionFilePreview(id, path) {
+      const response = await rpc.agents[":agentId"].files.$get({
+        param: { agentId: id },
+        query: { path },
+      });
+      return parseOkJson(response, FilePreviewSchema, "Failed to fetch file preview");
+    },
+    async fetchSessionFileSystem(id) {
+      const response = await rpc.agents[":agentId"].fs.snapshot.$get({
+        param: { agentId: id },
+      });
+      return parseOkJson(response, FileSystemSnapshotSchema, "Failed to fetch filesystem");
     },
     async createSession(body) {
       const response = await rpc.agents.$post({ json: body });

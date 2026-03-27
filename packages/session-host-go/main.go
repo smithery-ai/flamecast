@@ -30,6 +30,8 @@ type session struct {
 	workspace   string
 	cmd         *exec.Cmd
 	conn        *acp.Connection
+	handler     *clientHandler
+	busy        bool
 	hub         *ws.Hub
 	fileWatcher *filewatcher.Watcher
 }
@@ -168,6 +170,13 @@ func (h *clientHandler) resolvePermission(requestID string, body json.RawMessage
 		}
 		h.emitEvent("permission_"+outcome, map[string]any{"requestId": requestID, "response": response})
 	}
+}
+
+func (h *clientHandler) hasPermissionRequest(requestID string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, ok := h.permissionResolvers[requestID]
+	return ok
 }
 
 func (h *clientHandler) ReadTextFile(params json.RawMessage) (json.RawMessage, error) {
@@ -420,6 +429,7 @@ func startSession(req startRequest, serverPort int, hub *ws.Hub) (*startResponse
 		workspace:   workspace,
 		cmd:         cmd,
 		conn:        conn,
+		handler:     handler,
 		hub:         hub,
 		fileWatcher: fw,
 	}
@@ -482,6 +492,41 @@ type controlMessage struct {
 	Path      string          `json:"path,omitempty"`
 }
 
+func executePrompt(sess *session, text string) (*acp.PromptResponse, error) {
+	if sess == nil || sess.conn == nil || sess.handler == nil {
+		return nil, fmt.Errorf("No active session")
+	}
+	if text == "" {
+		return nil, fmt.Errorf("Missing 'text' field")
+	}
+
+	sess.mu.Lock()
+	if sess.busy {
+		sess.mu.Unlock()
+		return nil, fmt.Errorf("Prompt already running")
+	}
+	sess.busy = true
+	sess.mu.Unlock()
+	defer func() {
+		sess.mu.Lock()
+		sess.busy = false
+		sess.mu.Unlock()
+	}()
+
+	promptReq := acp.PromptRequest{
+		SessionID: sess.id,
+		Prompt:    []acp.ContentPart{{Type: "text", Text: text}},
+	}
+	sess.handler.emitRPC(acp.MethodPrompt, "client_to_agent", "request", promptReq)
+	resp, err := sess.conn.Prompt(promptReq)
+	if err != nil {
+		sess.hub.Broadcast(map[string]any{"type": "error", "message": err.Error()})
+		return nil, err
+	}
+	sess.handler.emitRPC(acp.MethodPrompt, "agent_to_client", "response", resp)
+	return resp, nil
+}
+
 func handleControl(clientID string, raw json.RawMessage, sess *session, handler *clientHandler) {
 	var msg controlMessage
 	if err := json.Unmarshal(raw, &msg); err != nil {
@@ -491,21 +536,11 @@ func handleControl(clientID string, raw json.RawMessage, sess *session, handler 
 
 	switch msg.Action {
 	case "prompt":
-		if sess.conn == nil {
-			sess.hub.Broadcast(map[string]any{"type": "error", "message": "No active session"})
-			return
-		}
-		promptReq := acp.PromptRequest{
-			SessionID: sess.id,
-			Prompt:    []acp.ContentPart{{Type: "text", Text: msg.Text}},
-		}
-		handler.emitRPC(acp.MethodPrompt, "client_to_agent", "request", promptReq)
-		resp, err := sess.conn.Prompt(promptReq)
+		_, err := executePrompt(sess, msg.Text)
 		if err != nil {
 			sess.hub.Broadcast(map[string]any{"type": "error", "message": err.Error()})
 			return
 		}
-		handler.emitRPC(acp.MethodPrompt, "agent_to_client", "response", resp)
 
 	case "permission.respond":
 		handler.resolvePermission(msg.RequestID, msg.Body)
@@ -556,6 +591,63 @@ func handleControl(clientID string, raw json.RawMessage, sess *session, handler 
 			},
 		})
 	}
+}
+
+func handlePromptHTTP(w http.ResponseWriter, r *http.Request) {
+	current.Lock()
+	sess := current.sess
+	current.Unlock()
+	if sess == nil || sess.conn == nil {
+		writeJSON(w, 400, map[string]any{"error": "No active session"})
+		return
+	}
+
+	var body struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, 400, map[string]any{"error": err.Error()})
+		return
+	}
+	if body.Text == "" {
+		writeJSON(w, 400, map[string]any{"error": "Missing 'text' field"})
+		return
+	}
+
+	resp, err := executePrompt(sess, body.Text)
+	if err != nil {
+		status := 500
+		if err.Error() == "Prompt already running" {
+			status = 409
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, resp)
+}
+
+func handlePermissionHTTP(w http.ResponseWriter, r *http.Request) {
+	requestID := r.PathValue("requestID")
+	if requestID == "" {
+		requestID = strings.TrimPrefix(r.URL.Path, "/permissions/")
+	}
+
+	current.Lock()
+	sess := current.sess
+	current.Unlock()
+	if sess == nil || sess.handler == nil || !sess.handler.hasPermissionRequest(requestID) {
+		writeJSON(w, 404, map[string]any{"error": fmt.Sprintf("Permission request %s not found or already resolved", requestID)})
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, 400, map[string]any{"error": err.Error()})
+		return
+	}
+
+	sess.handler.resolvePermission(requestID, body)
+	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
 // ---------- HTTP server ----------
@@ -612,6 +704,9 @@ func main() {
 		terminateSession()
 		writeJSON(w, 200, map[string]any{"ok": true})
 	})
+
+	mux.HandleFunc("POST /prompt", handlePromptHTTP)
+	mux.HandleFunc("POST /permissions/{requestID}", handlePermissionHTTP)
 
 	mux.HandleFunc("GET /files", func(w http.ResponseWriter, r *http.Request) {
 		current.Lock()

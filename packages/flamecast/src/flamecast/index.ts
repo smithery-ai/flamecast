@@ -4,8 +4,11 @@ import type {
   AgentTemplate,
   AgentTemplateRuntime,
   CreateSessionBody,
+  FilePreview,
+  FileSystemSnapshot,
   RegisterAgentTemplateBody,
   Session,
+  SessionLog,
   WebhookConfig,
   WebhookEventType,
 } from "../shared/session.js";
@@ -28,6 +31,26 @@ import type {
   SessionContext,
   SessionEndReason,
 } from "@flamecast/protocol/runtime";
+
+async function readProxyErrorDetail(response: Response): Promise<string> {
+  const text = await response.text().catch(() => "(unreadable)");
+  try {
+    const parsed: { error?: string } = JSON.parse(text);
+    return parsed.error ?? text;
+  } catch {
+    return text;
+  }
+}
+
+class ProxyRequestError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ProxyRequestError";
+    this.status = status;
+  }
+}
 
 // Public API types — all sourced from @flamecast/protocol
 export type {
@@ -428,13 +451,39 @@ export class Flamecast<
       const meta = await this.requireStorage().getSessionMeta(id);
       if (!meta) throw new Error(`Session "${id}" not found`);
     }
-    return this.snapshotSession(id, opts);
+    return this.snapshotSession(id, { ...opts, includeLogs: true });
   }
 
   /** Proxy a queue management request to the session-host. */
   async proxyQueueRequest(id: string, path: string, init: RequestInit): Promise<Response> {
     await this.ensureReady();
     return this.sessionService.proxyRequest(id, path, init);
+  }
+
+  async fetchSessionFilePreview(id: string, path: string): Promise<FilePreview> {
+    await this.ensureReady();
+    const response = await this.sessionService.proxyRequest(
+      id,
+      `/files?path=${encodeURIComponent(path)}`,
+      { method: "GET" },
+    );
+    if (!response.ok) {
+      const detail = await readProxyErrorDetail(response);
+      throw new ProxyRequestError(response.status, detail);
+    }
+    const preview: FilePreview = await response.json();
+    return preview;
+  }
+
+  async fetchSessionFileSystem(id: string): Promise<FileSystemSnapshot> {
+    await this.ensureReady();
+    const response = await this.sessionService.proxyRequest(id, "/fs/snapshot", { method: "GET" });
+    if (!response.ok) {
+      const detail = await readProxyErrorDetail(response);
+      throw new ProxyRequestError(response.status, detail);
+    }
+    const snapshot: FileSystemSnapshot = await response.json();
+    return snapshot;
   }
 
   async promptSession(id: string, text: string): Promise<Record<string, unknown>> {
@@ -862,7 +911,7 @@ export class Flamecast<
 
   private async snapshotSession(
     id: string,
-    _opts: { includeFileSystem?: boolean; showAllFiles?: boolean } = {},
+    opts: { includeFileSystem?: boolean; includeLogs?: boolean; showAllFiles?: boolean } = {},
   ): Promise<Session> {
     const storage = this.requireStorage();
     const meta = await storage.getSessionMeta(id);
@@ -880,16 +929,29 @@ export class Flamecast<
           .catch(() => null)
       : null;
 
+    const logs: SessionLog[] = opts.includeLogs
+      ? this.eventBus.getHistory(id).map(({ event }) => ({
+          type: event.type,
+          data: structuredClone(event.data),
+          timestamp: event.timestamp,
+        }))
+      : [];
+
+    const fileSystem =
+      opts.includeFileSystem && this.sessionService.hasSession(id)
+        ? await this.fetchSessionFileSystem(id).catch(() => null)
+        : null;
+
     return {
       ...meta,
-      logs: [],
+      logs,
       pendingPermission: meta.pendingPermission
         ? {
             ...meta.pendingPermission,
             options: meta.pendingPermission.options.map((option) => ({ ...option })),
           }
         : null,
-      fileSystem: null,
+      fileSystem,
       promptQueue,
       websocketUrl,
       runtime: meta.runtime,

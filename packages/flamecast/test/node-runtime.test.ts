@@ -86,4 +86,27 @@ describe("NodeRuntime", () => {
     const json = await response.json();
     expect(json).toEqual({ error: "internal failure" });
   });
+
+  it("preserves query parameters when proxying session requests", async () => {
+    const { url, server, requests } = await startMockServer(() => ({
+      status: 200,
+      body: JSON.stringify({ ok: true }),
+    }));
+    serverToCleanup = server;
+
+    const runtime = new NodeRuntime(url);
+
+    const response = await runtime.fetchSession(
+      "abc",
+      new Request("http://host/files?path=agent.ts", {
+        method: "GET",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(requests.length).toBe(1);
+    expect(requests[0].method).toBe("GET");
+    expect(requests[0].url).toBe("/sessions/abc/files?path=agent.ts");
+    expect(requests[0].body).toBe("");
+  });
 });

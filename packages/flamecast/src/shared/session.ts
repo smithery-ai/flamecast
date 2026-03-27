@@ -3,6 +3,7 @@ import type {
   AgentSpawn,
   AgentTemplate,
   AgentTemplateRuntime,
+  FilePreview,
   FileSystemSnapshot,
   PendingPermission,
   PendingPermissionOption,
@@ -22,6 +23,8 @@ export type {
   AgentSpawn,
   AgentTemplate,
   AgentTemplateRuntime,
+  FilePreview,
+  FileSystemSnapshot,
   PendingPermission,
   PermissionResponseBody,
   RegisterAgentTemplateBody,
@@ -120,12 +123,19 @@ export const FileSystemEntrySchema = z.object({
   type: z.enum(["file", "directory", "symlink", "other"]),
 }) satisfies z.ZodType<FileSystemEntry>;
 
-const FileSystemSnapshotSchema = z.object({
+export const FileSystemSnapshotSchema = z.object({
   root: z.string(),
   entries: z.array(FileSystemEntrySchema),
   truncated: z.boolean(),
   maxEntries: z.number().int().nonnegative(),
 }) satisfies z.ZodType<FileSystemSnapshot>;
+
+export const FilePreviewSchema = z.object({
+  path: z.string(),
+  content: z.string(),
+  truncated: z.boolean(),
+  maxChars: z.number().int().nonnegative(),
+}) satisfies z.ZodType<FilePreview>;
 
 const PromptQueueItemSchema = z.object({
   queueId: z.string(),

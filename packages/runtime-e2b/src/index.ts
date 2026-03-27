@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Sandbox } from "@e2b/code-interpreter";
 import type { Runtime } from "@flamecast/protocol/runtime";
+import { getRequestPath } from "./request-path.js";
 
 // ---------------------------------------------------------------------------
 // Session-host binary resolution (same as DockerRuntime)
@@ -190,8 +191,7 @@ export class E2BRuntime implements Runtime {
   // ---------------------------------------------------------------------------
 
   async fetchSession(sessionId: string, request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const path = url.pathname;
+    const path = getRequestPath(request);
 
     if (path.endsWith("/start") && request.method === "POST") {
       return this.handleStart(sessionId, request);
