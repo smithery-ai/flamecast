@@ -14,7 +14,7 @@
     "build:package": "tsc"
   },
   "dependencies": {
-    "@e2b/code-interpreter": "^2.4.0",
+    "e2b": "^2.18.0",
     "@flamecast/protocol": "workspace:*",
     "@flamecast/session-host-go": "workspace:*"
   }

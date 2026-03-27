@@ -62,7 +62,7 @@ class MockSandbox {
   }
 }
 
-vi.mock("@e2b/code-interpreter", () => ({
+vi.mock("e2b/dist/index.mjs", () => ({
   Sandbox: MockSandbox,
 }));
 
