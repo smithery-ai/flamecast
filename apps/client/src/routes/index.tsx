@@ -253,7 +253,7 @@ function SessionsPage() {
                         value={newSetup}
                         onChange={(e) => setNewSetup(e.target.value)}
                         rows={2}
-                        className="font-mono text-xs min-w-0 max-w-full"
+                        className="font-mono text-xs"
                       />
                     </div>
                     <div className="flex flex-col gap-2">
@@ -264,7 +264,7 @@ function SessionsPage() {
                         value={newEnv}
                         onChange={(e) => setNewEnv(e.target.value)}
                         rows={2}
-                        className="font-mono text-xs min-w-0 max-w-full"
+                        className="font-mono text-xs"
                       />
                     </div>
                     {newCommand.trim() && (
