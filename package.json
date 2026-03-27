@@ -46,11 +46,6 @@
   },
   "packageManager": "pnpm@10.26.2",
   "pnpm": {
-    "overrides": {
-      "@e2b/code-interpreter@2.4.0>e2b@2.18.0>chalk": "4.1.2",
-      "@e2b/code-interpreter@2.4.0>chalk": "4.1.2",
-      "e2b@2.18.0>chalk": "4.1.2"
-    },
     "packageExtensions": {
       "eslint-plugin-no-type-assertion@*": {
         "peerDependenciesMeta": {

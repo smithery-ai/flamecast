@@ -20,27 +20,26 @@ function requireEnv(name: string): string {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const agentSource = readFileSync(resolve(__dirname, "../agent.ts"), "utf8");
 
-let flamecastPromise: Promise<Flamecast> | null = null;
+let flamecastPromise: Promise<Flamecast<{ e2b: E2BRuntime }>> | null = null;
 
-async function createFlamecast(): Promise<Flamecast> {
+async function createFlamecast(): Promise<Flamecast<{ e2b: E2BRuntime }>> {
   const databaseUrl = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
   if (!databaseUrl) {
     throw new Error("DATABASE_URL or POSTGRES_URL is required");
   }
 
   const storage = await createPsqlStorage({ url: databaseUrl });
-  const runtimes = {
-    e2b: new E2BRuntime({ apiKey: requireEnv("E2B_API_KEY") }),
-  };
 
   return new Flamecast({
     storage,
-    runtimes,
+    runtimes: {
+      e2b: new E2BRuntime({ apiKey: requireEnv("E2B_API_KEY") }),
+    },
     agentTemplates: createAgentTemplates({ agentSource }),
   });
 }
 
-export function getFlamecast(): Promise<Flamecast> {
+export function getFlamecast(): Promise<Flamecast<{ e2b: E2BRuntime }>> {
   flamecastPromise ??= createFlamecast();
   return flamecastPromise;
 }
