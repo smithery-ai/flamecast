@@ -116,6 +116,7 @@ async function parseOkJson<T>(
 
 export function createFlamecastClient(options: FlamecastClientOptions): FlamecastClient {
   const rpc = createFlamecastRpcClient(options);
+  const baseUrl = normalizeBaseUrl(options.baseUrl);
 
   return {
     rpc,
