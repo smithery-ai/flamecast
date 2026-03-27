@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "build": "tsc --project tsconfig.json --noEmit",
+    "build": "pnpm -w build",
     "deploy": "wrangler deploy",
     "test": "vitest run --config vitest.config.ts"
   },
