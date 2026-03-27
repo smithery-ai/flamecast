@@ -2,6 +2,8 @@ import { E2BRuntime } from "@flamecast/runtime-e2b";
 import { Flamecast } from "@flamecast/sdk";
 import { createStorageFromDb, schema } from "@flamecast/storage-psql/worker";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { Client } from "pg";
 import { createAgentTemplates } from "./agent-templates.js";
 
@@ -38,7 +40,12 @@ export async function handleRequest(
       agentTemplates: agentTemplatesCache,
     });
 
-    return await flamecast.app.fetch(request);
+    // Wrap in CORS for cross-origin deployments (UI on different origin than API)
+    const app = new Hono();
+    app.use("*", cors());
+    app.route("/", flamecast.app);
+
+    return await app.fetch(request);
   } finally {
     await client.end();
   }
