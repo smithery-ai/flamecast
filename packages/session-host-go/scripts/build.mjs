@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * postinstall script — builds the Go session-host binary for Linux.
+ * postinstall script — builds the Go runtime-host binary for Linux.
  *
  * Builds for BOTH amd64 and arm64 so that runtimes targeting different
  * architectures (e.g. Docker on Apple Silicon = arm64, E2B = amd64) can
  * each resolve the correct binary.
  *
  * Output:
- *   dist/session-host        — host arch (default for DockerRuntime)
- *   dist/session-host-amd64  — always amd64
- *   dist/session-host-arm64  — always arm64
+ *   dist/runtime-host        — host arch (default for DockerRuntime)
+ *   dist/runtime-host-amd64  — always amd64
+ *   dist/runtime-host-arm64  — always arm64
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, copyFileSync } from "node:fs";
@@ -38,9 +38,9 @@ const hostArch = { x64: "amd64", arm64: "arm64" }[arch()] ?? "amd64";
 const archs = ["amd64", "arm64"];
 
 for (const goArch of archs) {
-  const output = join(distDir, `session-host-${goArch}`);
+  const output = join(distDir, `runtime-host-${goArch}`);
   if (existsSync(output) && process.env.SKIP_BUILD) {
-    console.log(`[session-host-go] session-host-${goArch} already exists, skipping`);
+    console.log(`[session-host-go] runtime-host-${goArch} already exists, skipping`);
     continue;
   }
 
@@ -51,14 +51,14 @@ for (const goArch of archs) {
       stdio: "inherit",
       env: { ...process.env, CGO_ENABLED: "0", GOOS: "linux", GOARCH: goArch },
     });
-    console.log(`[session-host-go] ✓ built dist/session-host-${goArch}`);
+    console.log(`[session-host-go] ✓ built dist/runtime-host-${goArch}`);
   } catch (err) {
     console.error(`[session-host-go] build failed (${goArch}):`, err.message);
     process.exit(1);
   }
 }
 
-// Copy host-arch binary as the default (backwards compat for DockerRuntime)
-const defaultBinary = join(distDir, "session-host");
-copyFileSync(join(distDir, `session-host-${hostArch}`), defaultBinary);
-console.log(`[session-host-go] ✓ dist/session-host -> session-host-${hostArch} (default)`);
+// Copy host-arch binary as the default
+const defaultBinary = join(distDir, "runtime-host");
+copyFileSync(join(distDir, `runtime-host-${hostArch}`), defaultBinary);
+console.log(`[session-host-go] ✓ dist/runtime-host -> runtime-host-${hostArch} (default)`);

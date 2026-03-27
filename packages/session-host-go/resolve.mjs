@@ -1,5 +1,5 @@
 /**
- * Shared session-host binary resolution for all runtimes.
+ * Shared runtime-host binary resolution for all runtimes.
  *
  * This module lives in @flamecast/session-host-go so that the package
  * that owns the binary also owns the logic to find it.
@@ -12,15 +12,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Stable download URL for the session-host binary. Uses a pinned
- * `session-host-latest` release tag that CI overwrites on each build,
- * so this URL never changes.
+ * Stable download URL for the runtime-host binary. Uses a pinned
+ * release tag that CI overwrites on each build, so this URL never changes.
  */
 export const SESSION_HOST_DEFAULT_URL =
-  "https://github.com/smithery-ai/flamecast/releases/download/session-host-latest/session-host-amd64";
+  "https://github.com/smithery-ai/flamecast/releases/download/session-host-latest/runtime-host-amd64";
 
 /**
- * Resolve a download URL for the session-host binary.
+ * Resolve a download URL for the runtime-host binary.
  *
  * Resolution order:
  *  1. `SESSION_HOST_URL` env var (explicit override, works for any runtime)
@@ -34,14 +33,14 @@ export function resolveSessionHostUrl() {
 }
 
 /**
- * Try to find the session-host binary on the local filesystem.
+ * Try to find the runtime-host binary on the local filesystem.
  *
  * Resolution order:
  *  1. `SESSION_HOST_BINARY` env var (explicit override)
- *  2. `@flamecast/session-host-go/dist/session-host-{arch}` via package resolution
+ *  2. `@flamecast/session-host-go/dist/runtime-host-{arch}` via package resolution
  *
  * @param {string} [arch] - Target architecture ("amd64" | "arm64"). If omitted, uses the
- *   default `dist/session-host` binary (host architecture).
+ *   default `dist/runtime-host` binary (host architecture).
  * @returns {string | null} Absolute path to the binary, or null if not found.
  *   Throws if SESSION_HOST_BINARY is set but the file doesn't exist.
  */
@@ -56,7 +55,7 @@ export function resolveSessionHostBinary(arch) {
 
   // Resolve relative to this file (which lives inside @flamecast/session-host-go)
   const pkgDir = dirname(fileURLToPath(import.meta.url));
-  const binaryName = arch ? `session-host-${arch}` : "session-host";
+  const binaryName = arch ? `runtime-host-${arch}` : "runtime-host";
   const binaryPath = join(pkgDir, "dist", binaryName);
   if (existsSync(binaryPath)) return binaryPath;
 
