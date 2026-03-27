@@ -1,41 +1,12 @@
-import { readFileSync, existsSync } from "node:fs";
-import { dirname, join, posix } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+import { posix } from "node:path";
 import { Sandbox } from "@e2b/code-interpreter";
 import type { Runtime } from "@flamecast/protocol/runtime";
+import {
+  resolveSessionHostBinary,
+  resolveSessionHostUrl,
+} from "@flamecast/session-host-go/resolve";
 import { getRequestPath } from "./request-path.js";
-
-// ---------------------------------------------------------------------------
-// Session-host binary resolution (same as DockerRuntime)
-// ---------------------------------------------------------------------------
-
-function resolveSessionHostBinary(): string {
-  if (process.env.SESSION_HOST_BINARY) {
-    const p = process.env.SESSION_HOST_BINARY;
-    if (!existsSync(p)) {
-      throw new Error(`SESSION_HOST_BINARY points to "${p}" which does not exist`);
-    }
-    return p;
-  }
-
-  // E2B sandboxes are always x86_64 — resolve the amd64 binary specifically
-  try {
-    const pkgJsonUrl = import.meta.resolve("@flamecast/session-host-go/package.json");
-    const pkgDir = dirname(fileURLToPath(pkgJsonUrl));
-    const amd64Path = join(pkgDir, "dist", "session-host-amd64");
-    if (existsSync(amd64Path)) return amd64Path;
-    // Fall back to default binary
-    const defaultPath = join(pkgDir, "dist", "session-host");
-    if (existsSync(defaultPath)) return defaultPath;
-  } catch {
-    // Package not resolvable
-  }
-
-  throw new Error(
-    "No session-host binary found. Install Go and run: " +
-      "pnpm --filter @flamecast/session-host-go run postinstall",
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -204,16 +175,26 @@ export class E2BRuntime implements Runtime {
   /** sessionId → which instance + assigned port/URLs */
   private readonly sessions = new Map<string, SessionEntry>();
 
+  /**
+   * Optional URL to fetch the session-host binary from instead of reading it
+   * from the local filesystem. Required in environments without filesystem
+   * access (e.g. Cloudflare Workers).
+   */
+  private readonly sessionHostUrl: string | undefined;
+
   constructor(opts: {
     apiKey: string;
     template?: string;
     maxSessionsPerInstance?: number;
     basePort?: number;
+    /** URL to fetch the session-host binary from (for environments without filesystem access). */
+    sessionHostUrl?: string;
   }) {
     this.apiKey = opts.apiKey;
     this.template = opts.template ?? "base";
     this.maxSessions = opts.maxSessionsPerInstance ?? DEFAULT_MAX_SESSIONS;
     this.basePort = opts.basePort ?? DEFAULT_BASE_PORT;
+    this.sessionHostUrl = opts.sessionHostUrl;
   }
 
   // ---------------------------------------------------------------------------
@@ -221,31 +202,96 @@ export class E2BRuntime implements Runtime {
   // ---------------------------------------------------------------------------
 
   async start(instanceId: string): Promise<void> {
+    console.log(`[E2BRuntime] start("${instanceId}") called`);
     const existing = await this.resolveInstanceSandbox(instanceId);
+    console.log(
+      `[E2BRuntime] resolveInstanceSandbox result:`,
+      existing ? `sandbox=${existing.entry.sandboxId}, state=${existing.state}` : "null",
+    );
     if (existing) {
       // Resume a paused sandbox — Sandbox.connect auto-resumes
-      await Sandbox.connect(existing.entry.sandboxId, { apiKey: this.apiKey });
+      const sandbox = await Sandbox.connect(existing.entry.sandboxId, { apiKey: this.apiKey });
+      // Verify the binary exists (it may be missing if a previous start() failed
+      // after creating the sandbox but before uploading the binary).
+      const hasBinary = await sandbox.commands.run(`test -x ${SANDBOX_BIN_PATH}`).then(
+        () => true,
+        () => false,
+      );
+      if (!hasBinary) {
+        console.log(
+          `[E2BRuntime] Binary missing in existing sandbox ${existing.entry.sandboxId}, uploading...`,
+        );
+        await this.uploadSessionHostBinary(sandbox);
+      }
+      this.instances.set(instanceId, {
+        sandboxId: existing.entry.sandboxId,
+        ports: this.createPortSlots(instanceId),
+      });
+      console.log(
+        `[E2BRuntime] Instance "${instanceId}" reconnected (sandbox=${existing.entry.sandboxId})`,
+      );
       return;
     }
 
     // Create a new sandbox
-    const sandbox = await Sandbox.create(this.template, {
-      apiKey: this.apiKey,
-      timeoutMs: 60 * 60 * 1000,
-      metadata: { [FLAMECAST_INSTANCE_LABEL]: instanceId },
-    });
+    console.log(`[E2BRuntime] Creating new sandbox with template="${this.template}"...`);
+    let sandbox: Sandbox;
+    try {
+      sandbox = await Sandbox.create(this.template, {
+        apiKey: this.apiKey,
+        timeoutMs: 60 * 60 * 1000,
+        metadata: { [FLAMECAST_INSTANCE_LABEL]: instanceId },
+      });
+    } catch (err) {
+      console.error(
+        `[E2BRuntime] Sandbox.create failed:`,
+        err instanceof Error ? err.message : err,
+      );
+      throw err;
+    }
+    console.log(`[E2BRuntime] Sandbox created: ${sandbox.sandboxId}`);
 
-    // Upload the session-host binary into the sandbox
-    const binaryPath = resolveSessionHostBinary();
-    const binaryBlob = new Blob([readFileSync(binaryPath)]);
-    await sandbox.files.write(SANDBOX_BIN_PATH, binaryBlob);
-    await sandbox.commands.run(`chmod +x ${SANDBOX_BIN_PATH}`);
+    try {
+      await this.uploadSessionHostBinary(sandbox);
+    } catch (err) {
+      console.error(
+        `[E2BRuntime] uploadSessionHostBinary failed:`,
+        err instanceof Error ? err.message : err,
+      );
+      // Kill the orphan sandbox so it doesn't get picked up by resolveInstanceSandbox later
+      await Sandbox.kill(sandbox.sandboxId, { apiKey: this.apiKey }).catch(() => {});
+      throw err;
+    }
 
     this.instances.set(instanceId, {
       sandboxId: sandbox.sandboxId,
       ports: this.createPortSlots(instanceId),
     });
     console.log(`[E2BRuntime] Instance "${instanceId}" started (sandbox=${sandbox.sandboxId})`);
+  }
+
+  /** Upload the session-host binary into a sandbox. */
+  private async uploadSessionHostBinary(sandbox: Sandbox): Promise<void> {
+    // E2B sandboxes are always x86_64
+    const localBinary = resolveSessionHostBinary("amd64");
+    if (localBinary) {
+      const binaryBlob = new Blob([readFileSync(localBinary)]);
+      await sandbox.files.write(SANDBOX_BIN_PATH, binaryBlob);
+      await sandbox.commands.run(`chmod +x ${SANDBOX_BIN_PATH}`);
+    } else {
+      const url = this.sessionHostUrl ?? resolveSessionHostUrl();
+      console.log(`[E2BRuntime] Downloading session-host from ${url}...`);
+      try {
+        await sandbox.commands.run(
+          `curl -sfL -o ${SANDBOX_BIN_PATH} '${url}' && chmod +x ${SANDBOX_BIN_PATH}`,
+          { timeoutMs: 30_000 },
+        );
+      } catch (err) {
+        throw new Error(
+          `Failed to download session-host binary from ${url}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
   }
 
   async stop(instanceId: string): Promise<void> {
@@ -385,14 +431,17 @@ export class E2BRuntime implements Runtime {
   // ---------------------------------------------------------------------------
 
   private async handleStart(sessionId: string, request: Request): Promise<Response> {
+    console.log(`[E2BRuntime] handleStart called for session "${sessionId}"`);
     if (this.sessions.has(sessionId)) {
       return jsonResponse({ error: `Session "${sessionId}" already exists` }, 409);
     }
 
     try {
+      console.log(`[E2BRuntime] Parsing request body...`);
       const parsed: Record<string, unknown> = JSON.parse(await request.text());
       const instanceName =
         typeof parsed.instanceName === "string" ? parsed.instanceName : undefined;
+      console.log(`[E2BRuntime] instanceName="${instanceName}", command="${parsed.command}"`);
 
       if (!instanceName) {
         return jsonResponse(
@@ -401,11 +450,13 @@ export class E2BRuntime implements Runtime {
         );
       }
 
+      console.log(`[E2BRuntime] Resolving instance sandbox...`);
       const resolved = await this.resolveInstanceSandbox(instanceName);
       if (!resolved) {
         return jsonResponse({ error: `Runtime instance "${instanceName}" not found` }, 404);
       }
       const inst = resolved.entry;
+      console.log(`[E2BRuntime] Found sandbox=${inst.sandboxId}, state=${resolved.state}`);
 
       const slot = inst.ports.find((p) => !p.inUse);
       if (!slot) {
@@ -418,15 +469,20 @@ export class E2BRuntime implements Runtime {
       }
 
       // Connect to sandbox and start session-host binary on the assigned port
+      console.log(`[E2BRuntime] Connecting to sandbox ${inst.sandboxId}...`);
       const sandbox = await Sandbox.connect(inst.sandboxId, { apiKey: this.apiKey });
+      console.log(`[E2BRuntime] Connected. Running binary check...`);
 
-      // Verify the binary exists and is executable
-      const checkResult = await sandbox.commands.run(
-        `ls -la ${SANDBOX_BIN_PATH} && file ${SANDBOX_BIN_PATH}`,
-      );
-      console.log(`[E2BRuntime] Binary check: ${checkResult.stdout.trim()}`);
-      if (checkResult.exitCode !== 0) {
-        throw new Error(`Session-host binary not found in sandbox: ${checkResult.stderr}`);
+      // Verify the binary exists and is executable (E2B SDK throws CommandExitError on non-zero exit)
+      try {
+        const checkResult = await sandbox.commands.run(
+          `ls -la ${SANDBOX_BIN_PATH} && file ${SANDBOX_BIN_PATH}`,
+        );
+        console.log(`[E2BRuntime] Binary check: ${checkResult.stdout.trim()}`);
+      } catch (checkErr) {
+        throw new Error(
+          `Session-host binary not found in sandbox: ${checkErr instanceof Error ? checkErr.message : checkErr}`,
+        );
       }
 
       // Start session-host in background, capturing output to a log file for diagnostics
@@ -439,8 +495,9 @@ export class E2BRuntime implements Runtime {
 
       // Give it a moment to start (or crash), then check
       await new Promise((r) => setTimeout(r, 2_000));
+      // Use `|| true` to avoid CommandExitError when grep finds no matches
       const checkProc = await sandbox.commands.run(
-        `ps aux | grep session-host | grep -v grep; echo "---LOG---"; cat ${logFile}`,
+        `(ps aux | grep session-host | grep -v grep || true); echo "---LOG---"; cat ${logFile} 2>/dev/null || true`,
         { timeoutMs: 5_000 },
       );
       console.log(`[E2BRuntime] Process + log check:\n${checkProc.stdout.trim()}`);
@@ -466,6 +523,8 @@ export class E2BRuntime implements Runtime {
       parsed.workspace = "/home/user";
       delete parsed.instanceName;
 
+      console.log(`[E2BRuntime] /start request body:`, JSON.stringify(parsed, null, 2));
+
       const resp = await fetch(`${hostUrl}/start`, {
         method: "POST",
         headers: JSON_HEADERS,
@@ -473,6 +532,7 @@ export class E2BRuntime implements Runtime {
       });
 
       const text = await resp.text();
+      console.log(`[E2BRuntime] /start response (${resp.status}):`, text);
       let result: Record<string, unknown>;
       try {
         result = JSON.parse(text);

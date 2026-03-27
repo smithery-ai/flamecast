@@ -1,48 +1,25 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, posix } from "node:path";
+import { readFileSync } from "node:fs";
+import { posix } from "node:path";
 import { PassThrough } from "node:stream";
-import { fileURLToPath } from "node:url";
 import Docker from "dockerode";
 import type { Runtime } from "@flamecast/protocol/runtime";
+import { resolveSessionHostBinary as resolveSessionHostBinaryShared } from "@flamecast/session-host-go/resolve";
 import { getRequestPath } from "./request-path.js";
 
 // ---------------------------------------------------------------------------
 // Session-host binary resolution
 // ---------------------------------------------------------------------------
 
-/**
- * Resolve the path to the session-host static Go binary.
- *
- * Lookup order:
- *   1. `SESSION_HOST_BINARY` env var (explicit override)
- *   2. Via the @flamecast/session-host-go package dependency
- *      (resolves through node_modules, works in monorepo and standalone)
- */
+/** Resolve the session-host binary (host architecture). Throws if not found. */
 function resolveSessionHostBinary(): string {
-  // 1. Explicit env var
-  if (process.env.SESSION_HOST_BINARY) {
-    const p = process.env.SESSION_HOST_BINARY;
-    if (!existsSync(p)) {
-      throw new Error(`SESSION_HOST_BINARY points to "${p}" which does not exist`);
-    }
-    return p;
+  const binary = resolveSessionHostBinaryShared();
+  if (!binary) {
+    throw new Error(
+      "No session-host binary found. Install Go and run: " +
+        "pnpm --filter @flamecast/session-host-go run postinstall",
+    );
   }
-
-  // 2. Resolve via @flamecast/session-host-go package
-  // import.meta.resolve gives us the package.json path; the binary is at dist/session-host
-  try {
-    const pkgJsonUrl = import.meta.resolve("@flamecast/session-host-go/package.json");
-    const pkgDir = dirname(fileURLToPath(pkgJsonUrl));
-    const binaryPath = join(pkgDir, "dist", "session-host");
-    if (existsSync(binaryPath)) return binaryPath;
-  } catch {
-    // Package not resolvable
-  }
-
-  throw new Error(
-    "No session-host binary found. Install Go and run: " +
-      "pnpm --filter @flamecast/session-host-go run postinstall",
-  );
+  return binary;
 }
 
 // ---------------------------------------------------------------------------

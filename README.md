@@ -198,6 +198,37 @@ Runtime providers are responsible for starting the actual agent runtime and retu
 |---|---|
 | `local` | Uses `child_process.spawn()` and stdio |
 | `docker` | Uses `alchemy/docker`, waits for ACP readiness, then connects over TCP |
+| `e2b` | Uses [E2B](https://e2b.dev/) sandboxes. Uploads the session-host Go binary, then starts agent sessions inside the sandbox |
+
+### Session-host Go binary
+
+The `docker` and `e2b` runtime providers run agents inside sandboxes. Each sandbox needs the **session-host Go binary** (`packages/session-host-go/`) — a lightweight HTTP/WebSocket server that manages the agent process lifecycle inside the sandbox.
+
+**How the binary is resolved** (in order):
+
+1. **`SESSION_HOST_BINARY` env var** — path to a local binary (used by `docker` provider on the host)
+2. **Local `@flamecast/session-host-go` package** — resolved via `import.meta.resolve` (works in Node.js, not in bundled environments)
+3. **`SESSION_HOST_URL` env var** — URL to download the binary (for environments without filesystem access like Cloudflare Workers)
+4. **Stable GitHub release** — `https://github.com/smithery-ai/flamecast/releases/download/session-host-latest/session-host-amd64`
+
+> **Important:** E2B sandboxes are always x86_64 (amd64). The binary must be compiled for `GOARCH=amd64` regardless of your host architecture.
+
+**Building the binary:**
+
+```bash
+cd packages/session-host-go
+GOOS=linux GOARCH=amd64 go build -o dist/session-host-amd64 .
+```
+
+**Updating the rolling release** (so all deployments pick up the new binary automatically):
+
+```bash
+gh release delete session-host-latest -y
+gh release create session-host-latest dist/session-host-amd64 \
+  --title "session-host (latest)" \
+  --notes "Rolling release — always points to the latest session-host-amd64 binary." \
+  --prerelease
+```
 
 Custom providers can be added through the `runtimeProviders` option:
 
@@ -344,6 +375,8 @@ const storage = await createPsqlStorage();
 | Variable | Purpose |
 |---|---|
 | `FLAMECAST_PGLITE_DIR` | Override the default PGLite data directory (`<cwd>/.flamecast/pglite`) |
+| `SESSION_HOST_BINARY` | Path to a local session-host binary (for docker/local providers) |
+| `SESSION_HOST_URL` | URL to download the session-host binary (for e2b/bundled environments). Overrides the default GitHub release URL |
 
 ---
 

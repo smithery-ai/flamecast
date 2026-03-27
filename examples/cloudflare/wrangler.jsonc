@@ -1,0 +1,23 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "flamecast-cloudflare",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-03-27",
+  "compatibility_flags": ["nodejs_compat"],
+  "rules": [
+    {
+      "type": "Text",
+      "globs": ["**/*.txt"],
+      "fallthrough": false,
+    },
+  ],
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "6b4cf6668a934a6192b6c1f9dd0b39f7",
+    },
+  ],
+  "placement": {
+    "region": "aws:us-east-1",
+  },
+}
