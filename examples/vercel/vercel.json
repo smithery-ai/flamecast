@@ -1,6 +1,10 @@
 {
   "version": 2,
-  "framework": "hono",
   "installCommand": "pnpm install --ignore-scripts",
-  "buildCommand": "pnpm --filter @flamecast/example-vercel... run build:check"
+  "builds": [
+    { "src": "src/index.ts", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "src/index.ts" }
+  ]
 }
