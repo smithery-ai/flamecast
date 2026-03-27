@@ -1,0 +1,20 @@
+{
+  "name": "@flamecast/example-vercel",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "tsc --project tsconfig.json --noEmit",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@flamecast/runtime-e2b": "workspace:*",
+    "@flamecast/sdk": "workspace:*",
+    "@flamecast/storage-psql": "workspace:*",
+    "dotenv": "^17.3.1"
+  },
+  "devDependencies": {
+    "vercel": "^50.37.1"
+  },
+  "packageManager": "pnpm@10.26.2"
+}
