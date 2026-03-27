@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist"
+  },
+  "include": ["api/**/*.ts", "src/**/*.ts", "test/**/*.ts", "worker-configuration.d.ts"]
+}

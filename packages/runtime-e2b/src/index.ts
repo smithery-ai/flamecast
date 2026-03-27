@@ -9,7 +9,8 @@ import { getRequestPath } from "./request-path.js";
 // Session-host binary resolution (same as DockerRuntime)
 // ---------------------------------------------------------------------------
 
-function resolveSessionHostBinary(): string {
+/** Try to find the session-host binary on the local filesystem. Returns `null` if unavailable. */
+function resolveSessionHostBinary(): string | null {
   if (process.env.SESSION_HOST_BINARY) {
     const p = process.env.SESSION_HOST_BINARY;
     if (!existsSync(p)) {
@@ -24,17 +25,33 @@ function resolveSessionHostBinary(): string {
     const pkgDir = dirname(fileURLToPath(pkgJsonUrl));
     const amd64Path = join(pkgDir, "dist", "session-host-amd64");
     if (existsSync(amd64Path)) return amd64Path;
-    // Fall back to default binary
-    const defaultPath = join(pkgDir, "dist", "session-host");
-    if (existsSync(defaultPath)) return defaultPath;
   } catch {
-    // Package not resolvable
+    // Package not resolvable (e.g. bundled Workers environment)
   }
 
-  throw new Error(
-    "No session-host binary found. Install Go and run: " +
-      "pnpm --filter @flamecast/session-host-go run postinstall",
-  );
+  return null;
+}
+
+const SESSION_HOST_RELEASE_API =
+  "https://api.github.com/repos/smithery-ai/flamecast/releases?per_page=10";
+
+/** Resolve the download URL for the latest session-host-amd64 release asset. */
+async function resolveSessionHostReleaseUrl(): Promise<string> {
+  const resp = await fetch(SESSION_HOST_RELEASE_API, {
+    headers: { Accept: "application/vnd.github+json" },
+  });
+  if (!resp.ok) {
+    throw new Error(`GitHub API error: ${resp.status}`);
+  }
+  const releases: Array<{ tag_name: string; assets: Array<{ name: string; browser_download_url: string }> }> =
+    await resp.json() as any;
+
+  for (const release of releases) {
+    if (!release.tag_name.startsWith("packages/session-host-go/")) continue;
+    const asset = release.assets.find((a) => a.name === "session-host-amd64");
+    if (asset) return asset.browser_download_url;
+  }
+  throw new Error("No session-host-amd64 release found on GitHub");
 }
 
 // ---------------------------------------------------------------------------
@@ -204,16 +221,26 @@ export class E2BRuntime implements Runtime {
   /** sessionId → which instance + assigned port/URLs */
   private readonly sessions = new Map<string, SessionEntry>();
 
+  /**
+   * Optional URL to fetch the session-host binary from instead of reading it
+   * from the local filesystem. Required in environments without filesystem
+   * access (e.g. Cloudflare Workers).
+   */
+  private readonly sessionHostUrl: string | undefined;
+
   constructor(opts: {
     apiKey: string;
     template?: string;
     maxSessionsPerInstance?: number;
     basePort?: number;
+    /** URL to fetch the session-host binary from (for environments without filesystem access). */
+    sessionHostUrl?: string;
   }) {
     this.apiKey = opts.apiKey;
     this.template = opts.template ?? "base";
     this.maxSessions = opts.maxSessionsPerInstance ?? DEFAULT_MAX_SESSIONS;
     this.basePort = opts.basePort ?? DEFAULT_BASE_PORT;
+    this.sessionHostUrl = opts.sessionHostUrl;
   }
 
   // ---------------------------------------------------------------------------
@@ -235,11 +262,25 @@ export class E2BRuntime implements Runtime {
       metadata: { [FLAMECAST_INSTANCE_LABEL]: instanceId },
     });
 
-    // Upload the session-host binary into the sandbox
-    const binaryPath = resolveSessionHostBinary();
-    const binaryBlob = new Blob([readFileSync(binaryPath)]);
-    await sandbox.files.write(SANDBOX_BIN_PATH, binaryBlob);
-    await sandbox.commands.run(`chmod +x ${SANDBOX_BIN_PATH}`);
+    // Upload the session-host binary into the sandbox.
+    // Try local file first, otherwise the sandbox curls it from a URL.
+    const localBinary = resolveSessionHostBinary();
+    if (localBinary) {
+      const binaryBlob = new Blob([readFileSync(localBinary)]);
+      await sandbox.files.write(SANDBOX_BIN_PATH, binaryBlob);
+      await sandbox.commands.run(`chmod +x ${SANDBOX_BIN_PATH}`);
+    } else {
+      const url = this.sessionHostUrl ?? await resolveSessionHostReleaseUrl();
+      const result = await sandbox.commands.run(
+        `curl -sfL -o ${SANDBOX_BIN_PATH} '${url}' && chmod +x ${SANDBOX_BIN_PATH}`,
+        { timeoutMs: 30_000 },
+      );
+      if (result.exitCode !== 0) {
+        throw new Error(
+          `Failed to download session-host binary from ${url}: ${result.stderr}`,
+        );
+      }
+    }
 
     this.instances.set(instanceId, {
       sandboxId: sandbox.sandboxId,

@@ -1,0 +1,25 @@
+{
+  "name": "@flamecast/example-cloudflare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "tsc --project tsconfig.json --noEmit",
+    "deploy": "wrangler deploy",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^0.16.1",
+    "@flamecast/runtime-e2b": "workspace:*",
+    "@flamecast/sdk": "workspace:*",
+    "@flamecast/storage-psql": "workspace:*",
+    "drizzle-orm": "^0.45.1",
+    "pg": "^8.20.0",
+    "dotenv": "^17.3.1"
+  },
+  "devDependencies": {
+    "vercel": "^50.37.1",
+    "wrangler": "^4.77.0"
+  },
+  "packageManager": "pnpm@10.26.2"
+}
