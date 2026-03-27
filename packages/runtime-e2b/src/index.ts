@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { posix } from "node:path";
-import { Sandbox } from "@e2b/code-interpreter";
 import type { Runtime } from "@flamecast/protocol/runtime";
 import {
   resolveSessionHostBinary,
@@ -17,6 +16,24 @@ const SANDBOX_BIN_PATH = "/usr/local/bin/session-host";
 const SANDBOX_WORKSPACE = "/home/user";
 const DEFAULT_RUNTIME_HOST_PORT = 9000;
 const FLAMECAST_INSTANCE_LABEL = "flamecast.instance";
+
+type E2BSandboxModule = Pick<typeof import("e2b"), "Sandbox">;
+type E2BSandboxClass = E2BSandboxModule["Sandbox"];
+type E2BSandbox = Awaited<ReturnType<E2BSandboxClass["connect"]>>;
+
+let e2bModulePromise: Promise<E2BSandboxModule> | undefined;
+
+function getE2BModule(): Promise<E2BSandboxModule> {
+  if (!e2bModulePromise) {
+    e2bModulePromise = import("e2b/dist/index.mjs");
+  }
+  return e2bModulePromise;
+}
+
+async function getSandboxClass(): Promise<E2BSandboxClass> {
+  const module = await getE2BModule();
+  return module.Sandbox;
+}
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
@@ -203,6 +220,7 @@ export class E2BRuntime implements Runtime {
       `[E2BRuntime] resolveInstanceSandbox result:`,
       existing ? `sandbox=${existing.entry.sandboxId}, state=${existing.state}` : "null",
     );
+    const Sandbox = await getSandboxClass();
     if (existing) {
       // Resume a paused sandbox — Sandbox.connect auto-resumes
       const sandbox = await Sandbox.connect(existing.entry.sandboxId, { apiKey: this.apiKey });
@@ -232,7 +250,7 @@ export class E2BRuntime implements Runtime {
 
     // Create a new sandbox
     console.log(`[E2BRuntime] Creating new sandbox with template="${this.template}"...`);
-    let sandbox: Sandbox;
+    let sandbox: E2BSandbox;
     try {
       sandbox = await Sandbox.create(this.template, {
         apiKey: this.apiKey,
@@ -299,8 +317,10 @@ export class E2BRuntime implements Runtime {
   }
 
   /** Upload the runtime-host binary into a sandbox. */
-  private async uploadRuntimeHostBinary(sandbox: Sandbox): Promise<void> {
+  private async uploadRuntimeHostBinary(sandbox: E2BSandbox): Promise<void> {
     // E2B sandboxes are always x86_64
+    // resolveSessionHostBinary may throw in edge runtimes (e.g. Cloudflare Workers)
+    // where Node.js filesystem APIs are unavailable — treat that as "no local binary".
     let localBinary: string | null = null;
     try {
       localBinary = resolveSessionHostBinary("amd64");
@@ -338,6 +358,7 @@ export class E2BRuntime implements Runtime {
     if (!resolved) return;
 
     try {
+      const Sandbox = await getSandboxClass();
       await Sandbox.kill(resolved.entry.sandboxId, { apiKey: this.apiKey });
     } catch {
       // Sandbox may already be gone
@@ -351,6 +372,7 @@ export class E2BRuntime implements Runtime {
     const resolved = await this.resolveInstanceSandbox(instanceId);
     if (!resolved) throw new Error(`Instance "${instanceId}" not found`);
 
+    const Sandbox = await getSandboxClass();
     await Sandbox.pause(resolved.entry.sandboxId, { apiKey: this.apiKey });
     console.log(`[E2BRuntime] Instance "${instanceId}" paused`);
   }
@@ -427,6 +449,7 @@ export class E2BRuntime implements Runtime {
 
     try {
       if (!this.instances.has(instanceName)) {
+        const Sandbox = await getSandboxClass();
         const info = await Sandbox.getFullInfo(sandboxId, { apiKey: this.apiKey });
         if (info.state !== "running") return false;
 
@@ -633,7 +656,7 @@ export class E2BRuntime implements Runtime {
     }
   }
 
-  private async getRunningSandbox(instanceId: string): Promise<Sandbox | Response> {
+  private async getRunningSandbox(instanceId: string): Promise<E2BSandbox | Response> {
     const resolved = await this.resolveInstanceSandbox(instanceId);
     if (!resolved) {
       return jsonResponse({ error: `Runtime instance "${instanceId}" not found` }, 404);
@@ -643,6 +666,7 @@ export class E2BRuntime implements Runtime {
       return jsonResponse({ error: `Runtime instance "${instanceId}" is not running` }, 409);
     }
 
+    const Sandbox = await getSandboxClass();
     return Sandbox.connect(resolved.entry.sandboxId, { apiKey: this.apiKey });
   }
 
@@ -650,6 +674,7 @@ export class E2BRuntime implements Runtime {
     entry: InstanceEntry;
     state: "running" | "paused";
   } | null> {
+    const Sandbox = await getSandboxClass();
     const tracked = this.instances.get(instanceId);
     if (tracked) {
       const info = await Sandbox.getFullInfo(tracked.sandboxId, { apiKey: this.apiKey }).catch(

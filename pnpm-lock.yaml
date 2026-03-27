@@ -449,16 +449,12 @@ importers:
 
   packages/runtime-e2b:
     dependencies:
-      '@e2b/code-interpreter':
-        specifier: ^2.4.0
-        version: 2.4.0
       '@flamecast/protocol':
         specifier: workspace:*
         version: link:../protocol
       '@flamecast/session-host-go':
         specifier: workspace:*
         version: link:../session-host-go
-    devDependencies:
       e2b:
         specifier: ^2.18.0
         version: 2.18.0
@@ -908,10 +904,6 @@ packages:
 
   '@drizzle-team/brocli@0.10.2':
     resolution: {integrity: sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w==}
-
-  '@e2b/code-interpreter@2.4.0':
-    resolution: {integrity: sha512-6yLi0I2/FBhB6beqtuiFMTajB3PHQw+5+apuI3QdEv1Rx8e2Xp0h37SL0Y6tuVJQ2Frp7P3wWT77Wvy6l6OHPA==}
-    engines: {node: '>=20'}
 
   '@ecies/ciphers@0.2.5':
     resolution: {integrity: sha512-GalEZH4JgOMHYYcYmVqnFirFsjZHeoGMDt9IxEnM9F7GRUUyUksJ7Ou53L83WHJq3RWKD3AcBpo0iQh0oMpf8A==}
@@ -9541,10 +9533,6 @@ snapshots:
       which: 4.0.0
 
   '@drizzle-team/brocli@0.10.2': {}
-
-  '@e2b/code-interpreter@2.4.0':
-    dependencies:
-      e2b: 2.18.0
 
   '@ecies/ciphers@0.2.5(@noble/ciphers@1.3.0)':
     dependencies:

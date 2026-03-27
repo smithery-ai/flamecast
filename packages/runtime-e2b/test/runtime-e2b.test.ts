@@ -62,7 +62,7 @@ class MockSandbox {
   }
 }
 
-vi.mock("@e2b/code-interpreter", () => ({
+vi.mock("e2b/dist/index.mjs", () => ({
   Sandbox: MockSandbox,
 }));
 
@@ -93,6 +93,7 @@ describe("E2BRuntime", () => {
         },
       ],
     });
+    sandboxConnect.mockResolvedValue(new MockSandbox("sandbox-1"));
 
     const runtime = new E2BRuntime({ apiKey: "test-key" });
 
