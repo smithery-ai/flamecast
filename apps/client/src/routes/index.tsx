@@ -36,7 +36,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { TerminalPanel } from "@/components/terminal-panel";
 import { useTerminal } from "@/hooks/use-terminal";
-import { LoaderCircleIcon, PlusIcon, PlayIcon, TerminalIcon, TerminalSquareIcon, SettingsIcon } from "lucide-react";
+import {
+  LoaderCircleIcon,
+  PlusIcon,
+  PlayIcon,
+  TerminalIcon,
+  TerminalSquareIcon,
+  SettingsIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import type { AgentTemplate } from "@flamecast/sdk/session";
@@ -411,14 +418,9 @@ function RuntimeDetailPanel({
     refetchInterval: 30_000,
   });
 
-  const {
-    terminals,
-    sendInput,
-    resize,
-    onData,
-    createTerminal,
-    killTerminal,
-  } = useTerminal(isRunning ? instance.websocketUrl : undefined);
+  const { terminals, sendInput, resize, onData, createTerminal, killTerminal } = useTerminal(
+    isRunning ? instance.websocketUrl : undefined,
+  );
 
   const startMutation = useMutation({
     mutationFn: () =>
@@ -510,7 +512,10 @@ function RuntimeDetailPanel({
           <TabsTrigger value="files">Files</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="terminals" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+        <TabsContent
+          value="terminals"
+          className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
           <TerminalPanel
             terminals={terminals}
             sendInput={sendInput}

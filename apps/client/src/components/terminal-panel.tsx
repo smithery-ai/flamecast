@@ -78,9 +78,7 @@ export function TerminalPanel({
                 {term.command || `Terminal ${i + 1}`}
               </span>
               {term.exitCode !== null && (
-                <span className="text-[10px] text-muted-foreground">
-                  ({term.exitCode})
-                </span>
+                <span className="text-[10px] text-muted-foreground">({term.exitCode})</span>
               )}
               <button
                 type="button"
@@ -95,12 +93,7 @@ export function TerminalPanel({
             </TabsTrigger>
           ))}
         </TabsList>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          onClick={onCreateTerminal}
-        >
+        <Button variant="ghost" size="icon" className="size-7" onClick={onCreateTerminal}>
           <PlusIcon className="size-3.5" />
         </Button>
       </div>
@@ -206,8 +199,7 @@ function XTermView({
       xtermRef.current = null;
       fitAddonRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally run once
-  }, [terminalId]);
+  }, [terminalId]); // intentionally run only when terminalId changes
 
   // Re-fit when visibility changes
   useEffect(() => {

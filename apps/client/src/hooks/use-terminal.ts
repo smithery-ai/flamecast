@@ -32,7 +32,10 @@ export function useTerminal(websocketUrl?: string) {
     setTerminals([]);
     listenersRef.current = new Map();
 
-    if (!websocketUrl) return () => { disposed = true; };
+    if (!websocketUrl)
+      return () => {
+        disposed = true;
+      };
 
     const ws = new WebSocket(websocketUrl);
     wsRef.current = ws;
@@ -54,7 +57,7 @@ export function useTerminal(websocketUrl?: string) {
         if (message.type !== "event") return;
 
         const { type: eventType, data } = message.event;
-        const terminalId = (data as Record<string, unknown>).terminalId as string | undefined;
+        const terminalId = typeof data.terminalId === "string" ? data.terminalId : undefined;
         if (!terminalId) return;
 
         switch (eventType) {
@@ -63,7 +66,7 @@ export function useTerminal(websocketUrl?: string) {
               ...prev,
               {
                 terminalId,
-                command: (data as Record<string, unknown>).command as string ?? "",
+                command: typeof data.command === "string" ? data.command : "",
                 output: "",
                 exitCode: null,
                 startedAt: message.event.timestamp,
@@ -73,12 +76,10 @@ export function useTerminal(websocketUrl?: string) {
             break;
 
           case "terminal.data": {
-            const chunk = (data as Record<string, unknown>).data as string ?? "";
+            const chunk = typeof data.data === "string" ? data.data : "";
             setTerminals((prev) =>
               prev.map((t) =>
-                t.terminalId === terminalId
-                  ? { ...t, output: t.output + chunk }
-                  : t,
+                t.terminalId === terminalId ? { ...t, output: t.output + chunk } : t,
               ),
             );
             const listeners = listenersRef.current.get(terminalId);
@@ -96,7 +97,7 @@ export function useTerminal(websocketUrl?: string) {
                 t.terminalId === terminalId
                   ? {
                       ...t,
-                      exitCode: (data as Record<string, unknown>).exitCode as number ?? -1,
+                      exitCode: typeof data.exitCode === "number" ? data.exitCode : -1,
                       endedAt: message.event.timestamp,
                     }
                   : t,
@@ -120,78 +121,67 @@ export function useTerminal(websocketUrl?: string) {
     };
   }, [websocketUrl]);
 
-  const sendInput = useCallback(
-    (terminalId: string, data: string) => {
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      const msg: WsChannelControlMessage = {
-        action: "terminal.input",
-        terminalId,
-        data,
-      };
-      ws.send(JSON.stringify(msg));
-    },
-    [],
-  );
+  const sendInput = useCallback((terminalId: string, data: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const msg: WsChannelControlMessage = {
+      action: "terminal.input",
+      terminalId,
+      data,
+    };
+    ws.send(JSON.stringify(msg));
+  }, []);
 
-  const resize = useCallback(
-    (terminalId: string, cols: number, rows: number) => {
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      const msg: WsChannelControlMessage = {
-        action: "terminal.resize",
-        terminalId,
-        cols,
-        rows,
-      };
-      ws.send(JSON.stringify(msg));
-    },
-    [],
-  );
+  const resize = useCallback((terminalId: string, cols: number, rows: number) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const msg: WsChannelControlMessage = {
+      action: "terminal.resize",
+      terminalId,
+      cols,
+      rows,
+    };
+    ws.send(JSON.stringify(msg));
+  }, []);
 
-  const onData = useCallback(
-    (terminalId: string, listener: TerminalDataListener): (() => void) => {
-      if (!listenersRef.current.has(terminalId)) {
-        listenersRef.current.set(terminalId, new Set());
-      }
-      listenersRef.current.get(terminalId)!.add(listener);
-      return () => {
-        listenersRef.current.get(terminalId)?.delete(listener);
-      };
-    },
-    [],
-  );
+  const onData = useCallback((terminalId: string, listener: TerminalDataListener): (() => void) => {
+    let set = listenersRef.current.get(terminalId);
+    if (!set) {
+      set = new Set();
+      listenersRef.current.set(terminalId, set);
+    }
+    set.add(listener);
+    return () => {
+      listenersRef.current.get(terminalId)?.delete(listener);
+    };
+  }, []);
 
-  const createTerminal = useCallback(
-    (command?: string) => {
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      const msg: WsChannelControlMessage = {
-        action: "terminal.create",
-        data: command,
-      };
-      ws.send(JSON.stringify(msg));
-    },
-    [],
-  );
+  const createTerminal = useCallback((command?: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const msg: WsChannelControlMessage = {
+      action: "terminal.create",
+      data: command,
+    };
+    ws.send(JSON.stringify(msg));
+  }, []);
 
-  const killTerminal = useCallback(
-    (terminalId: string) => {
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      const msg: WsChannelControlMessage = {
-        action: "terminal.kill",
-        terminalId,
-      };
-      ws.send(JSON.stringify(msg));
-      setTerminals((prev) => prev.filter((t) => t.terminalId !== terminalId));
-    },
-    [],
-  );
+  const killTerminal = useCallback((terminalId: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const msg: WsChannelControlMessage = {
+      action: "terminal.kill",
+      terminalId,
+    };
+    ws.send(JSON.stringify(msg));
+    setTerminals((prev) => prev.filter((t) => t.terminalId !== terminalId));
+  }, []);
 
   const activeTerminal = useMemo(() => {
     const running = terminals.filter((t) => t.exitCode === null);
-    return running.length > 0 ? running[running.length - 1] : terminals[terminals.length - 1] ?? null;
+    return running.length > 0
+      ? running[running.length - 1]
+      : (terminals[terminals.length - 1] ?? null);
   }, [terminals]);
 
   return {
