@@ -142,6 +142,11 @@ interface InstanceEntry {
   websocketUrl: string;
 }
 
+/** Tracks which instance a session belongs to. */
+interface SessionEntry {
+  instanceName: string;
+}
+
 // ---------------------------------------------------------------------------
 // E2BRuntime
 // ---------------------------------------------------------------------------
@@ -164,6 +169,8 @@ export class E2BRuntime implements Runtime {
 
   /** instanceName → E2B sandbox + runtime-host info */
   private readonly instances = new Map<string, InstanceEntry>();
+  /** sessionId → which instance it belongs to */
+  private readonly sessions = new Map<string, SessionEntry>();
 
   /**
    * Optional URL to fetch the session-host binary from instead of reading it
@@ -321,6 +328,12 @@ export class E2BRuntime implements Runtime {
   }
 
   async stop(instanceId: string): Promise<void> {
+    for (const [sid, session] of this.sessions) {
+      if (session.instanceName === instanceId) {
+        this.sessions.delete(sid);
+      }
+    }
+
     const resolved = await this.resolveInstanceSandbox(instanceId);
     if (!resolved) return;
 
@@ -424,6 +437,7 @@ export class E2BRuntime implements Runtime {
       const resp = await fetch(`${hostUrl}/sessions/${sessionId}/health`).catch(() => null);
       if (!resp?.ok) return false;
 
+      this.sessions.set(sessionId, { instanceName });
       return true;
     } catch {
       return false;
@@ -434,6 +448,7 @@ export class E2BRuntime implements Runtime {
     const instanceNames = [...this.instances.keys()];
     await Promise.allSettled(instanceNames.map((name) => this.stop(name)));
     this.instances.clear();
+    this.sessions.clear();
   }
 
   // ---------------------------------------------------------------------------
@@ -487,6 +502,9 @@ export class E2BRuntime implements Runtime {
         );
       }
 
+      // Track session → instance mapping
+      this.sessions.set(sessionId, { instanceName });
+
       // Inject shared instance URLs
       result.hostUrl = inst.hostUrl;
       result.websocketUrl = inst.websocketUrl;
@@ -508,8 +526,7 @@ export class E2BRuntime implements Runtime {
     path: string,
     request: Request,
   ): Promise<Response> {
-    // Find the instance hosting this session
-    const entry = await this.findInstanceForSession(sessionId);
+    const entry = this.getInstanceForSession(sessionId);
     if (!entry) {
       return jsonResponse({ error: `Session "${sessionId}" not found` }, 404);
     }
@@ -527,16 +544,10 @@ export class E2BRuntime implements Runtime {
     });
   }
 
-  private async findInstanceForSession(sessionId: string): Promise<InstanceEntry | null> {
-    for (const entry of this.instances.values()) {
-      try {
-        const resp = await fetch(`${entry.hostUrl}/sessions/${sessionId}/health`);
-        if (resp.ok) return entry;
-      } catch {
-        // This instance doesn't have the session
-      }
-    }
-    return null;
+  private getInstanceForSession(sessionId: string): InstanceEntry | null {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    return this.instances.get(session.instanceName) ?? null;
   }
 
   private async handleInstanceSnapshot(instanceId: string, request: Request): Promise<Response> {

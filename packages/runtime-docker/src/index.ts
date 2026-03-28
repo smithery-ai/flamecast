@@ -176,6 +176,11 @@ interface InstanceEntry {
   hostPort: number;
 }
 
+/** Tracks which instance a session belongs to. */
+interface SessionEntry {
+  instanceName: string;
+}
+
 type DockerContainerInspectInfo = {
   Config?: {
     WorkingDir?: string;
@@ -267,6 +272,8 @@ export class DockerRuntime implements Runtime {
 
   /** instanceName → Docker container + runtime-host port */
   private readonly instances = new Map<string, InstanceEntry>();
+  /** sessionId → which instance it belongs to */
+  private readonly sessions = new Map<string, SessionEntry>();
 
   constructor(opts?: { baseImage?: string; docker?: DockerClient; runtimeHostPort?: number }) {
     this.baseImage = opts?.baseImage ?? "node:22-slim";
@@ -356,6 +363,13 @@ export class DockerRuntime implements Runtime {
   }
 
   async stop(instanceId: string): Promise<void> {
+    // Clean up session tracking for this instance
+    for (const [sid, session] of this.sessions) {
+      if (session.instanceName === instanceId) {
+        this.sessions.delete(sid);
+      }
+    }
+
     const resolved = await this.resolveInstanceContainer(instanceId);
     if (!resolved) return;
 
@@ -463,6 +477,7 @@ export class DockerRuntime implements Runtime {
       );
       if (!resp?.ok) return false;
 
+      this.sessions.set(sessionId, { instanceName });
       return true;
     } catch {
       return false;
@@ -473,6 +488,7 @@ export class DockerRuntime implements Runtime {
     const instanceNames = [...this.instances.keys()];
     await Promise.allSettled(instanceNames.map((name) => this.stop(name)));
     this.instances.clear();
+    this.sessions.clear();
   }
 
   // ---------------------------------------------------------------------------
@@ -528,6 +544,9 @@ export class DockerRuntime implements Runtime {
         );
       }
 
+      // Track session → instance mapping
+      this.sessions.set(sessionId, { instanceName });
+
       // Inject the host-visible URLs (shared across all sessions on this instance)
       result.hostUrl = `http://localhost:${resolved.entry.hostPort}`;
       result.websocketUrl = `ws://localhost:${resolved.entry.hostPort}`;
@@ -549,8 +568,7 @@ export class DockerRuntime implements Runtime {
     path: string,
     request: Request,
   ): Promise<Response> {
-    // Find the instance hosting this session by checking each instance's runtime-host
-    const entry = await this.findInstanceForSession(sessionId);
+    const entry = this.getInstanceForSession(sessionId);
     if (!entry) {
       return jsonResponse({ error: `Session "${sessionId}" not found` }, 404);
     }
@@ -568,17 +586,10 @@ export class DockerRuntime implements Runtime {
     });
   }
 
-  private async findInstanceForSession(sessionId: string): Promise<InstanceEntry | null> {
-    // Check each instance's runtime-host for this session
-    for (const entry of this.instances.values()) {
-      try {
-        const resp = await fetch(`http://localhost:${entry.hostPort}/sessions/${sessionId}/health`);
-        if (resp.ok) return entry;
-      } catch {
-        // This instance doesn't have the session
-      }
-    }
-    return null;
+  private getInstanceForSession(sessionId: string): InstanceEntry | null {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    return this.instances.get(session.instanceName) ?? null;
   }
 
   private async handleInstanceSnapshot(instanceId: string, request: Request): Promise<Response> {
