@@ -5,7 +5,7 @@
  * real time. Demonstrates serial execution with automatic dequeue.
  *
  * Run:
- *   pnpm --filter @flamecast/session-host --filter @flamecast/example-queue-drain dev
+ *   pnpm --filter @flamecast/session-host-go dev & pnpm --filter @flamecast/example-queue-drain dev
  */
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
 import { createFlamecastClient } from "@flamecast/sdk/client";

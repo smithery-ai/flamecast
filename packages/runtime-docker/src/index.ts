@@ -4,7 +4,6 @@ import { PassThrough } from "node:stream";
 import Docker from "dockerode";
 import type { Runtime } from "@flamecast/protocol/runtime";
 import { resolveSessionHostBinary as resolveSessionHostBinaryShared } from "@flamecast/session-host-go/resolve";
-import { getRequestPath } from "./request-path.js";
 
 // ---------------------------------------------------------------------------
 // Session-host binary resolution
@@ -29,8 +28,7 @@ function resolveSessionHostBinary(): string {
 const CONTAINER_BIN_PATH = "/usr/local/bin/session-host";
 const DEFAULT_CONTAINER_WORKSPACE = "/workspace";
 const JSON_HEADERS = { "Content-Type": "application/json" };
-const DEFAULT_MAX_SESSIONS = 20;
-const DEFAULT_BASE_PORT = 9000;
+const DEFAULT_RUNTIME_HOST_PORT = 9000;
 const FLAMECAST_INSTANCE_LABEL = "flamecast.instance";
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
@@ -170,21 +168,17 @@ function resolveContainerWorkspaceRoot(info: DockerContainerInspectInfo): string
 // Internal types
 // ---------------------------------------------------------------------------
 
-interface PortSlot {
-  containerPort: number;
-  hostPort: number;
-  inUse: boolean;
-}
-
 interface InstanceEntry {
   containerId: string;
-  ports: PortSlot[];
+  /** The single runtime-host port for this instance. */
+  runtimeHostPort: number;
+  /** Host-mapped port for the single runtime-host. */
+  hostPort: number;
 }
 
+/** Tracks which instance a session belongs to. */
 interface SessionEntry {
   instanceName: string;
-  containerPort: number;
-  hostPort: number;
 }
 
 type DockerContainerInspectInfo = {
@@ -265,34 +259,26 @@ type DockerClient = {
  * DockerRuntime — one Docker container per runtime instance.
  *
  * When `start(instanceId)` is called, a container is created with the base
- * image and a pre-allocated port range. Sessions are started inside the
- * container via `docker exec`, each running its own session-host binary on a
- * unique port.
+ * image and a single runtime-host process is started on a fixed port. Sessions
+ * are managed by the runtime-host via its multi-session HTTP and WebSocket API.
  *
- * `pause(instanceId)` freezes the container (and all session-hosts inside it).
+ * `pause(instanceId)` freezes the container (and the runtime-host inside it).
  * `stop(instanceId)` tears down the container entirely.
  */
 export class DockerRuntime implements Runtime {
   private readonly baseImage: string;
   private readonly docker: DockerClient;
-  private readonly maxSessions: number;
-  private readonly basePort: number;
+  private readonly runtimeHostPort: number;
 
-  /** instanceName → Docker container + port pool */
+  /** instanceName → Docker container + runtime-host port */
   private readonly instances = new Map<string, InstanceEntry>();
-  /** sessionId → which instance + assigned port */
+  /** sessionId → which instance it belongs to */
   private readonly sessions = new Map<string, SessionEntry>();
 
-  constructor(opts?: {
-    baseImage?: string;
-    docker?: DockerClient;
-    maxSessionsPerInstance?: number;
-    baseContainerPort?: number;
-  }) {
+  constructor(opts?: { baseImage?: string; docker?: DockerClient; runtimeHostPort?: number }) {
     this.baseImage = opts?.baseImage ?? "node:22-slim";
     this.docker = opts?.docker ?? new Docker();
-    this.maxSessions = opts?.maxSessionsPerInstance ?? DEFAULT_MAX_SESSIONS;
-    this.basePort = opts?.baseContainerPort ?? DEFAULT_BASE_PORT;
+    this.runtimeHostPort = opts?.runtimeHostPort ?? DEFAULT_RUNTIME_HOST_PORT;
   }
 
   // ---------------------------------------------------------------------------
@@ -316,21 +302,14 @@ export class DockerRuntime implements Runtime {
     const binaryPath = resolveSessionHostBinary();
     await this.ensureImage(this.baseImage);
 
-    const exposedPorts: Record<string, Record<string, never>> = {};
-    const portBindings: Record<string, Array<{ HostPort: string }>> = {};
-    for (let i = 0; i < this.maxSessions; i++) {
-      const key = `${this.basePort + i}/tcp`;
-      exposedPorts[key] = {};
-      portBindings[key] = [{ HostPort: "0" }];
-    }
-
+    const portKey = `${this.runtimeHostPort}/tcp`;
     const container = await this.docker.createContainer({
       Image: this.baseImage,
       Cmd: ["tail", "-f", "/dev/null"],
-      ExposedPorts: exposedPorts,
+      ExposedPorts: { [portKey]: {} },
       Env: ["RUNTIME_SETUP_ENABLED=1"],
       HostConfig: {
-        PortBindings: portBindings,
+        PortBindings: { [portKey]: [{ HostPort: "0" }] },
       },
       WorkingDir: DEFAULT_CONTAINER_WORKSPACE,
       Labels: { [FLAMECAST_INSTANCE_LABEL]: instanceId },
@@ -348,7 +327,19 @@ export class DockerRuntime implements Runtime {
     }
 
     try {
-      await this.bootstrapContainer(container, binaryPath, resolveContainerWorkspaceRoot(info));
+      const workspaceRoot = resolveContainerWorkspaceRoot(info);
+      await this.bootstrapContainer(container, binaryPath, workspaceRoot);
+
+      // Start the single runtime-host process
+      const exec = await container.exec({
+        Cmd: [CONTAINER_BIN_PATH],
+        Env: [`SESSION_HOST_PORT=${this.runtimeHostPort}`],
+        AttachStdout: false,
+        AttachStderr: false,
+        WorkingDir: workspaceRoot,
+      });
+      await exec.start({ Detach: true });
+
       info = await container.inspect();
     } catch (error) {
       await container.kill().catch(() => {});
@@ -356,13 +347,18 @@ export class DockerRuntime implements Runtime {
       throw error;
     }
 
-    const ports = this.extractPortSlots(instanceId, info);
+    const hostPort = this.extractHostPort(info);
     this.instances.set(instanceId, {
       containerId: container.id,
-      ports,
+      runtimeHostPort: this.runtimeHostPort,
+      hostPort,
     });
+
+    // Wait for the runtime-host to be ready
+    await this.waitForReady(hostPort);
+
     console.log(
-      `[DockerRuntime] Instance "${instanceId}" started (container=${container.id.slice(0, 12)}, ${ports.length} ports)`,
+      `[DockerRuntime] Instance "${instanceId}" started (container=${container.id.slice(0, 12)}, port=${hostPort})`,
     );
   }
 
@@ -407,21 +403,19 @@ export class DockerRuntime implements Runtime {
   }
 
   // ---------------------------------------------------------------------------
-  // Session handling
+  // Session handling — route to the single runtime-host
   // ---------------------------------------------------------------------------
 
   async fetchSession(sessionId: string, request: Request): Promise<Response> {
-    const path = getRequestPath(request);
+    const url = new URL(request.url);
+    const pathWithQuery = `${url.pathname}${url.search}`;
 
-    if (path.endsWith("/start") && request.method === "POST") {
+    if (url.pathname.endsWith("/start") && request.method === "POST") {
       return this.handleStart(sessionId, request);
     }
 
-    if (path.endsWith("/terminate") && request.method === "POST") {
-      return this.handleTerminate(sessionId, path);
-    }
-
-    return this.proxyRequest(sessionId, path, request);
+    // All other session requests proxy to /sessions/{sessionId}{path}
+    return this.proxySessionRequest(sessionId, pathWithQuery, request);
   }
 
   async fetchInstance(instanceId: string, request: Request): Promise<Response> {
@@ -438,17 +432,17 @@ export class DockerRuntime implements Runtime {
     return jsonResponse({ error: `Unsupported runtime request: ${request.method} ${path}` }, 404);
   }
 
-  getRuntimeMeta(sessionId: string): Record<string, unknown> | null {
-    const session = this.sessions.get(sessionId);
-    if (!session) return null;
-
-    const inst = this.instances.get(session.instanceName);
-    return {
-      instanceName: session.instanceName,
-      containerId: inst?.containerId,
-      containerPort: session.containerPort,
-      hostPort: session.hostPort,
-    };
+  getRuntimeMeta(_sessionId: string): Record<string, unknown> | null {
+    // Find which instance this session belongs to by checking runtime-host health
+    // For now, return the first instance (most common case: one instance)
+    for (const [instanceName, entry] of this.instances) {
+      return {
+        instanceName,
+        containerId: entry.containerId,
+        hostPort: entry.hostPort,
+      };
+    }
+    return null;
   }
 
   async reconnect(
@@ -460,10 +454,8 @@ export class DockerRuntime implements Runtime {
       typeof runtimeMeta.instanceName === "string" ? runtimeMeta.instanceName : undefined;
     const containerId =
       typeof runtimeMeta.containerId === "string" ? runtimeMeta.containerId : undefined;
-    const containerPort =
-      typeof runtimeMeta.containerPort === "number" ? runtimeMeta.containerPort : undefined;
     const hostPort = typeof runtimeMeta.hostPort === "number" ? runtimeMeta.hostPort : undefined;
-    if (!instanceName || !containerId || !containerPort || !hostPort) return false;
+    if (!instanceName || !containerId || !hostPort) return false;
 
     try {
       // Ensure instance is tracked
@@ -472,30 +464,20 @@ export class DockerRuntime implements Runtime {
         const info = await container.inspect();
         if (!info.State.Running && !info.State.Paused) return false;
 
-        // Reconstruct port pool from container info
-        const ports: PortSlot[] = [];
-        for (let i = 0; i < this.maxSessions; i++) {
-          const cp = this.basePort + i;
-          const binding = info.NetworkSettings.Ports[`${cp}/tcp`];
-          const hp = parseInt(binding?.[0]?.HostPort ?? "0", 10);
-          if (hp) {
-            ports.push({ containerPort: cp, hostPort: hp, inUse: false });
-          }
-        }
-        this.instances.set(instanceName, { containerId, ports });
+        this.instances.set(instanceName, {
+          containerId,
+          runtimeHostPort: this.runtimeHostPort,
+          hostPort,
+        });
       }
 
-      // Verify session-host is responsive
-      const resp = await fetch(`http://localhost:${hostPort}/health`).catch(() => null);
+      // Verify the runtime-host is responsive and the session exists
+      const resp = await fetch(`http://localhost:${hostPort}/sessions/${sessionId}/health`).catch(
+        () => null,
+      );
       if (!resp?.ok) return false;
 
-      // Mark the port as in use
-      const inst = this.instances.get(instanceName);
-      if (!inst) return false;
-      const slot = inst.ports.find((p) => p.containerPort === containerPort);
-      if (slot) slot.inUse = true;
-
-      this.sessions.set(sessionId, { instanceName, containerPort, hostPort });
+      this.sessions.set(sessionId, { instanceName });
       return true;
     } catch {
       return false;
@@ -514,10 +496,6 @@ export class DockerRuntime implements Runtime {
   // ---------------------------------------------------------------------------
 
   private async handleStart(sessionId: string, request: Request): Promise<Response> {
-    if (this.sessions.has(sessionId)) {
-      return jsonResponse({ error: `Session "${sessionId}" already exists` }, 409);
-    }
-
     try {
       const parsed: Record<string, unknown> = JSON.parse(await request.text());
       const instanceName =
@@ -534,77 +512,50 @@ export class DockerRuntime implements Runtime {
       if (!resolved) {
         return jsonResponse({ error: `Runtime instance "${instanceName}" not found` }, 404);
       }
-      const inst = resolved.entry;
 
-      // Allocate a port
-      const slot = inst.ports.find((p) => !p.inUse);
-      if (!slot) {
-        return jsonResponse(
-          {
-            error: `No available ports in instance "${instanceName}" (max ${this.maxSessions} sessions)`,
-          },
-          503,
-        );
-      }
-
-      // Exec session-host inside the container
       const workspaceRoot = resolveContainerWorkspaceRoot(resolved.info);
-      const exec = await resolved.container.exec({
-        Cmd: [CONTAINER_BIN_PATH],
-        Env: [`SESSION_HOST_PORT=${slot.containerPort}`],
-        AttachStdout: false,
-        AttachStderr: false,
-        WorkingDir: workspaceRoot,
-      });
-      await exec.start({ Detach: true });
 
-      slot.inUse = true;
-      this.sessions.set(sessionId, {
-        instanceName,
-        containerPort: slot.containerPort,
-        hostPort: slot.hostPort,
-      });
-
-      await this.waitForReady(slot.hostPort);
-
-      // Forward to session-host (strip instanceName, override workspace)
+      // Forward to runtime-host at /sessions/{sessionId}/start
       parsed.workspace = workspaceRoot;
       delete parsed.instanceName;
 
-      const resp = await fetch(`http://localhost:${slot.hostPort}/start`, {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify(parsed),
-      });
+      const resp = await fetch(
+        `http://localhost:${resolved.entry.hostPort}/sessions/${sessionId}/start`,
+        {
+          method: "POST",
+          headers: JSON_HEADERS,
+          body: JSON.stringify(parsed),
+        },
+      );
 
       const text = await resp.text();
       let result: Record<string, unknown>;
       try {
         result = JSON.parse(text);
       } catch {
-        throw new Error(`SessionHost /start failed (${resp.status}): ${text}`);
+        throw new Error(
+          `RuntimeHost /sessions/${sessionId}/start failed (${resp.status}): ${text}`,
+        );
       }
 
       if (!resp.ok) {
-        throw new Error(`SessionHost /start failed (${resp.status}): ${result.error ?? text}`);
+        throw new Error(
+          `RuntimeHost /sessions/${sessionId}/start failed (${resp.status}): ${result.error ?? text}`,
+        );
       }
 
-      result.hostUrl = `http://localhost:${slot.hostPort}`;
-      result.websocketUrl = `ws://localhost:${slot.hostPort}`;
+      // Track session → instance mapping
+      this.sessions.set(sessionId, { instanceName });
+
+      // Inject the host-visible URLs (shared across all sessions on this instance)
+      result.hostUrl = `http://localhost:${resolved.entry.hostPort}`;
+      result.websocketUrl = `ws://localhost:${resolved.entry.hostPort}`;
 
       return new Response(JSON.stringify(result), {
         status: resp.status,
         headers: JSON_HEADERS,
       });
     } catch (err) {
-      // Clean up on failure
-      const session = this.sessions.get(sessionId);
-      if (session) {
-        const inst = this.instances.get(session.instanceName);
-        const slot = inst?.ports.find((p) => p.containerPort === session.containerPort);
-        if (slot) slot.inUse = false;
-        this.sessions.delete(sessionId);
-      }
       return jsonResponse(
         { error: err instanceof Error ? err.message : "Failed to start session" },
         500,
@@ -612,37 +563,18 @@ export class DockerRuntime implements Runtime {
     }
   }
 
-  private async handleTerminate(sessionId: string, path: string): Promise<Response> {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
-      return jsonResponse({ error: `Session "${sessionId}" not found` }, 404);
-    }
-
-    const resp = await fetch(`http://localhost:${session.hostPort}${path}`, {
-      method: "POST",
-      headers: JSON_HEADERS,
-    });
-
-    // Free the port
-    const inst = this.instances.get(session.instanceName);
-    const slot = inst?.ports.find((p) => p.containerPort === session.containerPort);
-    if (slot) slot.inUse = false;
-    this.sessions.delete(sessionId);
-
-    return new Response(await resp.text(), {
-      status: resp.status,
-      headers: JSON_HEADERS,
-    });
-  }
-
-  private async proxyRequest(sessionId: string, path: string, request: Request): Promise<Response> {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
+  private async proxySessionRequest(
+    sessionId: string,
+    path: string,
+    request: Request,
+  ): Promise<Response> {
+    const entry = this.getInstanceForSession(sessionId);
+    if (!entry) {
       return jsonResponse({ error: `Session "${sessionId}" not found` }, 404);
     }
 
     const body = request.method !== "GET" ? await request.text() : undefined;
-    const resp = await fetch(`http://localhost:${session.hostPort}${path}`, {
+    const resp = await fetch(`http://localhost:${entry.hostPort}/sessions/${sessionId}${path}`, {
       method: request.method,
       headers: JSON_HEADERS,
       body,
@@ -652,6 +584,12 @@ export class DockerRuntime implements Runtime {
       status: resp.status,
       headers: JSON_HEADERS,
     });
+  }
+
+  private getInstanceForSession(sessionId: string): InstanceEntry | null {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    return this.instances.get(session.instanceName) ?? null;
   }
 
   private async handleInstanceSnapshot(instanceId: string, request: Request): Promise<Response> {
@@ -812,24 +750,13 @@ export class DockerRuntime implements Runtime {
     }
   }
 
-  private extractPortSlots(instanceId: string, info: DockerContainerInspectInfo): PortSlot[] {
-    const ports: PortSlot[] = [];
-    for (let index = 0; index < this.maxSessions; index += 1) {
-      const containerPort = this.basePort + index;
-      const binding = info.NetworkSettings.Ports[`${containerPort}/tcp`];
-      const hostPort = parseInt(binding?.[0]?.HostPort ?? "0", 10);
-      if (hostPort) {
-        ports.push({
-          containerPort,
-          hostPort,
-          inUse: [...this.sessions.values()].some(
-            (session) =>
-              session.instanceName === instanceId && session.containerPort === containerPort,
-          ),
-        });
-      }
+  private extractHostPort(info: DockerContainerInspectInfo): number {
+    const binding = info.NetworkSettings.Ports[`${this.runtimeHostPort}/tcp`];
+    const hostPort = parseInt(binding?.[0]?.HostPort ?? "0", 10);
+    if (!hostPort) {
+      throw new Error("Failed to extract host port for runtime-host");
     }
-    return ports;
+    return hostPort;
   }
 
   private async inspectContainer(
@@ -844,9 +771,11 @@ export class DockerRuntime implements Runtime {
     const info = await container.inspect().catch(() => null);
     if (!info) return null;
 
-    const entry = {
+    const hostPort = this.extractHostPort(info);
+    const entry: InstanceEntry = {
       containerId,
-      ports: this.extractPortSlots(instanceId, info),
+      runtimeHostPort: this.runtimeHostPort,
+      hostPort,
     };
     this.instances.set(instanceId, entry);
     return { container, info, entry };
@@ -910,7 +839,7 @@ export class DockerRuntime implements Runtime {
       }
       await new Promise((r) => setTimeout(r, 300));
     }
-    throw new Error(`SessionHost not ready after ${timeoutMs}ms`);
+    throw new Error(`RuntimeHost not ready after ${timeoutMs}ms`);
   }
 }
 

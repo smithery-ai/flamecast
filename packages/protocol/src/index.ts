@@ -63,6 +63,15 @@ export type {
 } from "./ws.js";
 
 export type {
+  RuntimeHostStartSessionRequest,
+  RuntimeHostStartSessionResponse,
+  RuntimeHostSessionStatus,
+  RuntimeHostHealthResponse,
+  RuntimeHostPromptRequest,
+  RuntimeHostPermissionResponse,
+} from "./runtime-host.js";
+
+export type {
   Channel,
   WsChannelServerMessage,
   WsChannelControlMessage,

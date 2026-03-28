@@ -33,43 +33,106 @@ type session struct {
 	conn        *acp.Connection
 	handler     *clientHandler
 	busy        bool
-	hub         *ws.Hub
 	fileWatcher *filewatcher.Watcher
+	exitCh      chan error
 }
 
-var current struct {
-	sync.Mutex
-	sess *session
+// ---------- Session registry ----------
+
+type sessionRegistry struct {
+	mu       sync.RWMutex
+	sessions map[string]*session
+}
+
+func newSessionRegistry() *sessionRegistry {
+	return &sessionRegistry{sessions: make(map[string]*session)}
+}
+
+func (r *sessionRegistry) get(id string) *session {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.sessions[id]
+}
+
+func (r *sessionRegistry) set(id string, s *session) {
+	r.mu.Lock()
+	r.sessions[id] = s
+	r.mu.Unlock()
+}
+
+func (r *sessionRegistry) remove(id string) {
+	r.mu.Lock()
+	if s, ok := r.sessions[id]; ok {
+		if s.fileWatcher != nil {
+			s.fileWatcher.Close()
+		}
+		delete(r.sessions, id)
+	}
+	r.mu.Unlock()
+}
+
+func (r *sessionRegistry) list() []map[string]any {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := make([]map[string]any, 0, len(r.sessions))
+	for _, s := range r.sessions {
+		status := "idle"
+		s.mu.Lock()
+		if s.busy {
+			status = "running"
+		}
+		s.mu.Unlock()
+		result = append(result, map[string]any{"sessionId": s.id, "status": status})
+	}
+	return result
+}
+
+func (r *sessionRegistry) terminateAll() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id, s := range r.sessions {
+		if s.cmd != nil && s.cmd.Process != nil {
+			_ = s.cmd.Process.Kill()
+		}
+		if s.fileWatcher != nil {
+			s.fileWatcher.Close()
+		}
+		delete(r.sessions, id)
+	}
 }
 
 // ---------- Request/Response types ----------
 
 type startRequest struct {
-	Command   string            `json:"command"`
-	Args      []string          `json:"args"`
-	Workspace string            `json:"workspace"`
-	Setup     string            `json:"setup,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
+	Command     string            `json:"command"`
+	Args        []string          `json:"args"`
+	Workspace   string            `json:"workspace"`
+	Setup       string            `json:"setup,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	CallbackUrl string            `json:"callbackUrl,omitempty"`
 }
 
 type startResponse struct {
 	ACPSessionID string `json:"acpSessionId"`
-	HostURL      string `json:"hostUrl"`
-	WebSocketURL string `json:"websocketUrl"`
+	SessionID    string `json:"sessionId"`
 }
 
-// ---------- ACP client handler (agent → session-host → WebSocket clients) ----------
+// ---------- ACP client handler (agent → runtime-host → WebSocket clients) ----------
 
 type clientHandler struct {
 	hub                 *ws.Hub
+	sessionID           string
+	agentID             string
 	workspace           string
 	permissionResolvers map[string]chan json.RawMessage
 	mu                  sync.Mutex
 }
 
-func newClientHandler(hub *ws.Hub, workspace string) *clientHandler {
+func newClientHandler(hub *ws.Hub, sessionID, workspace string) *clientHandler {
 	return &clientHandler{
 		hub:                 hub,
+		sessionID:           sessionID,
+		agentID:             sessionID, // 1:1 for now
 		workspace:           workspace,
 		permissionResolvers: make(map[string]chan json.RawMessage),
 	}
@@ -77,11 +140,7 @@ func newClientHandler(hub *ws.Hub, workspace string) *clientHandler {
 
 func (h *clientHandler) emitEvent(eventType string, data map[string]any) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	h.hub.Broadcast(map[string]any{
-		"type":      "event",
-		"timestamp": now,
-		"event":     map[string]any{"type": eventType, "data": data, "timestamp": now},
-	})
+	h.hub.PublishEvent(h.sessionID, h.agentID, eventType, data, now)
 }
 
 func (h *clientHandler) emitRPC(method, direction, phase string, payload any) {
@@ -287,16 +346,10 @@ func (h *clientHandler) TerminalKill(params json.RawMessage) (json.RawMessage, e
 
 // ---------- Session lifecycle ----------
 
-func startSession(req startRequest, serverPort int, hub *ws.Hub) (*startResponse, error) {
-	current.Lock()
-	defer current.Unlock()
-
-	if current.sess != nil {
-		return nil, fmt.Errorf("session already running")
+func startSession(sessionID string, req startRequest, hub *ws.Hub, registry *sessionRegistry) (*startResponse, error) {
+	if existing := registry.get(sessionID); existing != nil {
+		return nil, fmt.Errorf("session %q already running", sessionID)
 	}
-
-	// Clear any leftover events from a previous session
-	hub.ClearLog()
 
 	workspace := req.Workspace
 	if workspace == "" {
@@ -349,7 +402,7 @@ func startSession(req startRequest, serverPort int, hub *ws.Hub) (*startResponse
 		return nil, fmt.Errorf("start agent: %w", err)
 	}
 
-	handler := newClientHandler(hub, workspace)
+	handler := newClientHandler(hub, sessionID, workspace)
 
 	// Race handshake against agent exit
 	type handshakeResult struct {
@@ -396,14 +449,14 @@ func startSession(req startRequest, serverPort int, hub *ws.Hub) (*startResponse
 	}()
 
 	// Wait for either handshake or early exit
-	var sessionID string
+	var acpSessionID string
 	select {
 	case hs := <-hsCh:
 		if hs.err != nil {
 			_ = cmd.Process.Kill()
 			return nil, fmt.Errorf("%w%s", hs.err, formatStartupOutput(agentStderr.String()))
 		}
-		sessionID = hs.sessionID
+		acpSessionID = hs.sessionID
 	case err := <-exitCh:
 		exitCode := -1
 		if cmd.ProcessState != nil {
@@ -418,7 +471,6 @@ func startSession(req startRequest, serverPort int, hub *ws.Hub) (*startResponse
 	// Start file watcher
 	fw := filewatcher.New(workspace, []string{"node_modules", ".git"}, func(changes []filewatcher.Change) {
 		handler.emitEvent("filesystem.changed", map[string]any{"changes": changes})
-		// Broadcast filesystem snapshot after changes
 		entries, err := filewatcher.WalkDirectory(workspace)
 		if err == nil {
 			handler.emitEvent("filesystem.snapshot", map[string]any{
@@ -428,14 +480,19 @@ func startSession(req startRequest, serverPort int, hub *ws.Hub) (*startResponse
 	})
 
 	sess := &session{
-		id:          sessionID,
+		id:          acpSessionID,
 		workspace:   workspace,
 		cmd:         cmd,
 		conn:        conn,
 		handler:     handler,
-		hub:         hub,
 		fileWatcher: fw,
+		exitCh:      exitCh,
 	}
+
+	registry.set(sessionID, sess)
+
+	// Broadcast session.created lifecycle event
+	hub.BroadcastLifecycle("session.created", sessionID, sessionID)
 
 	// Handle agent exit after successful startup
 	go func() {
@@ -445,20 +502,13 @@ func startSession(req startRequest, serverPort int, hub *ws.Hub) (*startResponse
 			exitCode = cmd.ProcessState.ExitCode()
 		}
 		handler.emitEvent("session.terminated", map[string]any{"exitCode": exitCode})
-		resetSession()
+		hub.BroadcastLifecycle("session.terminated", sessionID, sessionID)
+		registry.remove(sessionID)
 	}()
 
-	current.sess = sess
-
-	// Register WebSocket control message handler
-	hub.SetControlHandler(func(clientID string, msg json.RawMessage) {
-		handleControl(clientID, msg, sess, handler)
-	})
-
 	return &startResponse{
-		ACPSessionID: sessionID,
-		HostURL:      fmt.Sprintf("http://localhost:%d", serverPort),
-		WebSocketURL: fmt.Sprintf("ws://localhost:%d", serverPort),
+		ACPSessionID: acpSessionID,
+		SessionID:    sessionID,
 	}, nil
 }
 
@@ -474,37 +524,30 @@ func formatStartupOutput(output string) string {
 	return "\nStartup output:\n" + trimmed
 }
 
-func resetSession() {
-	current.Lock()
-	defer current.Unlock()
-	if current.sess != nil {
-		if current.sess.fileWatcher != nil {
-			current.sess.fileWatcher.Close()
-		}
-		current.sess = nil
+func terminateSession(sessionID string, registry *sessionRegistry, hub *ws.Hub) {
+	sess := registry.get(sessionID)
+	if sess == nil {
+		return
 	}
+	if sess.cmd != nil && sess.cmd.Process != nil {
+		_ = sess.cmd.Process.Kill()
+	}
+	hub.ClearSessionLog(sessionID)
+	registry.remove(sessionID)
 }
 
-func terminateSession() {
-	current.Lock()
-	sess := current.sess
-	current.Unlock()
-	if sess != nil {
-		if sess.cmd.Process != nil {
-			_ = sess.cmd.Process.Kill()
-		}
-		resetSession()
-	}
-}
+// ---------- WebSocket control messages (ws-channels protocol) ----------
 
-// ---------- WebSocket control messages ----------
-
-type controlMessage struct {
+type channelControlMessage struct {
 	Action    string          `json:"action"`
+	Channel   string          `json:"channel,omitempty"`
+	Since     int64           `json:"since,omitempty"`
+	SessionID string          `json:"sessionId,omitempty"`
 	Text      string          `json:"text,omitempty"`
 	RequestID string          `json:"requestId,omitempty"`
 	Body      json.RawMessage `json:"body,omitempty"`
 	Path      string          `json:"path,omitempty"`
+	Order     []string        `json:"order,omitempty"`
 }
 
 func executePrompt(sess *session, text string) (*acp.PromptResponse, error) {
@@ -535,39 +578,67 @@ func executePrompt(sess *session, text string) (*acp.PromptResponse, error) {
 	sess.handler.emitRPC(acp.MethodPrompt, "client_to_agent", "request", promptReq)
 	resp, err := sess.conn.Prompt(promptReq)
 	if err != nil {
-		sess.hub.Broadcast(map[string]any{"type": "error", "message": err.Error()})
+		sess.handler.emitEvent("error", map[string]any{"message": err.Error()})
 		return nil, err
 	}
 	sess.handler.emitRPC(acp.MethodPrompt, "agent_to_client", "response", resp)
 	return resp, nil
 }
 
-func handleControl(clientID string, raw json.RawMessage, sess *session, handler *clientHandler) {
-	var msg controlMessage
+func handleChannelControl(clientID string, raw json.RawMessage, registry *sessionRegistry, hub *ws.Hub) {
+	var msg channelControlMessage
 	if err := json.Unmarshal(raw, &msg); err != nil {
-		sess.hub.SendTo(clientID, map[string]any{"type": "error", "message": "Invalid message"})
+		hub.SendTo(clientID, map[string]any{"type": "error", "message": "Invalid message"})
 		return
 	}
 
 	switch msg.Action {
+	case "subscribe":
+		if msg.Channel == "" {
+			hub.SendTo(clientID, map[string]any{"type": "error", "message": "Missing channel"})
+			return
+		}
+		hub.Subscribe(clientID, msg.Channel, msg.Since)
+
+	case "unsubscribe":
+		if msg.Channel == "" {
+			hub.SendTo(clientID, map[string]any{"type": "error", "message": "Missing channel"})
+			return
+		}
+		hub.Unsubscribe(clientID, msg.Channel)
+
 	case "prompt":
+		sess := registry.get(msg.SessionID)
+		if sess == nil {
+			hub.SendTo(clientID, map[string]any{"type": "error", "message": fmt.Sprintf("Session %q not found", msg.SessionID)})
+			return
+		}
 		_, err := executePrompt(sess, msg.Text)
 		if err != nil {
-			sess.hub.Broadcast(map[string]any{"type": "error", "message": err.Error()})
-			return
+			hub.SendTo(clientID, map[string]any{"type": "error", "message": err.Error()})
 		}
 
 	case "permission.respond":
-		handler.resolvePermission(msg.RequestID, msg.Body)
+		sess := registry.get(msg.SessionID)
+		if sess == nil || sess.handler == nil {
+			hub.SendTo(clientID, map[string]any{"type": "error", "message": "Session not found"})
+			return
+		}
+		sess.handler.resolvePermission(msg.RequestID, msg.Body)
 
 	case "terminate":
-		terminateSession()
+		terminateSession(msg.SessionID, registry, hub)
+
+	case "cancel":
+		// TODO: implement queue cancellation
+		hub.SendTo(clientID, map[string]any{"type": "error", "message": "cancel not yet implemented"})
 
 	case "ping":
-		// no-op
+		hub.SendTo(clientID, map[string]any{"type": "pong"})
 
 	case "fs.snapshot":
-		if sess.workspace == "" {
+		sess := registry.get(msg.SessionID)
+		if sess == nil || sess.workspace == "" {
 			return
 		}
 		entries, err := filewatcher.WalkDirectory(sess.workspace)
@@ -575,9 +646,12 @@ func handleControl(clientID string, raw json.RawMessage, sess *session, handler 
 			return
 		}
 		now := time.Now().UTC().Format(time.RFC3339Nano)
-		sess.hub.SendTo(clientID, map[string]any{
+		hub.SendTo(clientID, map[string]any{
 			"type":      "event",
-			"timestamp": now,
+			"channel":   "session:" + msg.SessionID + ":fs",
+			"sessionId": msg.SessionID,
+			"agentId":   msg.SessionID,
+			"seq":       0,
 			"event": map[string]any{
 				"type":      "filesystem.snapshot",
 				"data":      map[string]any{"snapshot": map[string]any{"root": sess.workspace, "entries": entries}},
@@ -586,19 +660,23 @@ func handleControl(clientID string, raw json.RawMessage, sess *session, handler 
 		})
 
 	case "file.preview":
-		if sess.workspace == "" {
+		sess := registry.get(msg.SessionID)
+		if sess == nil || sess.workspace == "" {
 			return
 		}
 		fullPath := filepath.Join(sess.workspace, msg.Path)
 		content, err := os.ReadFile(fullPath)
 		now := time.Now().UTC().Format(time.RFC3339Nano)
 		if err != nil {
-			sess.hub.SendTo(clientID, map[string]any{"type": "error", "message": "Cannot read: " + msg.Path})
+			hub.SendTo(clientID, map[string]any{"type": "error", "message": "Cannot read: " + msg.Path})
 			return
 		}
-		sess.hub.SendTo(clientID, map[string]any{
+		hub.SendTo(clientID, map[string]any{
 			"type":      "event",
-			"timestamp": now,
+			"channel":   "session:" + msg.SessionID + ":fs",
+			"sessionId": msg.SessionID,
+			"agentId":   msg.SessionID,
+			"seq":       0,
 			"event": map[string]any{
 				"type":      "file.preview",
 				"data":      map[string]any{"path": msg.Path, "content": string(content)},
@@ -608,12 +686,27 @@ func handleControl(clientID string, raw json.RawMessage, sess *session, handler 
 	}
 }
 
-func handlePromptHTTP(w http.ResponseWriter, r *http.Request) {
-	current.Lock()
-	sess := current.sess
-	current.Unlock()
+// ---------- Session-scoped HTTP handlers ----------
+
+func handleSessionStart(sessionID string, w http.ResponseWriter, r *http.Request, hub *ws.Hub, registry *sessionRegistry) {
+	var req startRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, 400, map[string]any{"error": err.Error()})
+		return
+	}
+
+	resp, err := startSession(sessionID, req, hub, registry)
+	if err != nil {
+		writeJSON(w, 500, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, resp)
+}
+
+func handleSessionPrompt(sessionID string, w http.ResponseWriter, r *http.Request, registry *sessionRegistry) {
+	sess := registry.get(sessionID)
 	if sess == nil || sess.conn == nil {
-		writeJSON(w, 400, map[string]any{"error": "No active session"})
+		writeJSON(w, 400, map[string]any{"error": fmt.Sprintf("Session %q not found", sessionID)})
 		return
 	}
 
@@ -641,15 +734,8 @@ func handlePromptHTTP(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, resp)
 }
 
-func handlePermissionHTTP(w http.ResponseWriter, r *http.Request) {
-	requestID := r.PathValue("requestID")
-	if requestID == "" {
-		requestID = strings.TrimPrefix(r.URL.Path, "/permissions/")
-	}
-
-	current.Lock()
-	sess := current.sess
-	current.Unlock()
+func handleSessionPermission(sessionID, requestID string, w http.ResponseWriter, r *http.Request, registry *sessionRegistry) {
+	sess := registry.get(sessionID)
 	if sess == nil || sess.handler == nil || !sess.handler.hasPermissionRequest(requestID) {
 		writeJSON(w, 404, map[string]any{"error": fmt.Sprintf("Permission request %s not found or already resolved", requestID)})
 		return
@@ -663,6 +749,65 @@ func handlePermissionHTTP(w http.ResponseWriter, r *http.Request) {
 
 	sess.handler.resolvePermission(requestID, body)
 	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func handleSessionTerminate(sessionID string, w http.ResponseWriter, registry *sessionRegistry, hub *ws.Hub) {
+	terminateSession(sessionID, registry, hub)
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func handleSessionFiles(sessionID string, w http.ResponseWriter, r *http.Request, registry *sessionRegistry) {
+	sess := registry.get(sessionID)
+	if sess == nil || sess.workspace == "" {
+		writeJSON(w, 400, map[string]any{"error": fmt.Sprintf("Session %q not found", sessionID)})
+		return
+	}
+	filePath := r.URL.Query().Get("path")
+	if filePath == "" {
+		writeJSON(w, 400, map[string]any{"error": "Missing ?path= parameter"})
+		return
+	}
+	resolved := filepath.Join(sess.workspace, filePath)
+	if !strings.HasPrefix(resolved, sess.workspace) {
+		writeJSON(w, 403, map[string]any{"error": "Path outside workspace"})
+		return
+	}
+	raw, err := os.ReadFile(resolved)
+	if err != nil {
+		writeJSON(w, 404, map[string]any{"error": "Cannot read: " + filePath})
+		return
+	}
+	maxChars := 100_000
+	content := string(raw)
+	truncated := len(content) > maxChars
+	if truncated {
+		content = content[:maxChars]
+	}
+	writeJSON(w, 200, map[string]any{
+		"path": filePath, "content": content, "truncated": truncated, "maxChars": maxChars,
+	})
+}
+
+func handleSessionFsSnapshot(sessionID string, w http.ResponseWriter, registry *sessionRegistry) {
+	sess := registry.get(sessionID)
+	if sess == nil || sess.workspace == "" {
+		writeJSON(w, 400, map[string]any{"error": fmt.Sprintf("Session %q not found", sessionID)})
+		return
+	}
+	entries, err := filewatcher.WalkDirectory(sess.workspace)
+	if err != nil {
+		writeJSON(w, 500, map[string]any{"error": err.Error()})
+		return
+	}
+	maxEntries := 10_000
+	truncated := len(entries) > maxEntries
+	limited := entries
+	if truncated {
+		limited = entries[:maxEntries]
+	}
+	writeJSON(w, 200, map[string]any{
+		"root": sess.workspace, "entries": limited, "truncated": truncated, "maxEntries": maxEntries,
+	})
 }
 
 // ---------- HTTP server ----------
@@ -681,105 +826,135 @@ func main() {
 	}
 
 	hub := ws.NewHub()
+	registry := newSessionRegistry()
+
+	// Set up channel-based control handler
+	hub.SetControlHandler(func(clientID string, msg json.RawMessage) {
+		handleChannelControl(clientID, msg, registry, hub)
+	})
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		current.Lock()
-		sess := current.sess
-		current.Unlock()
+	// ---- Runtime-level endpoints ----
 
-		w.Header().Set("Content-Type", "application/json")
-		if sess != nil {
-			writeJSON(w, 200, map[string]any{"status": "running", "sessionId": sess.id})
-		} else {
-			writeJSON(w, 200, map[string]any{"status": "idle"})
-		}
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{
+			"status":   "ok",
+			"sessions": registry.list(),
+		})
 	})
 
+	// ---- Multi-session endpoints: /sessions/{sessionId}/... ----
+
+	mux.HandleFunc("POST /sessions/{sessionId}/start", func(w http.ResponseWriter, r *http.Request) {
+		sessionID := r.PathValue("sessionId")
+		handleSessionStart(sessionID, w, r, hub, registry)
+	})
+
+	mux.HandleFunc("POST /sessions/{sessionId}/terminate", func(w http.ResponseWriter, r *http.Request) {
+		sessionID := r.PathValue("sessionId")
+		handleSessionTerminate(sessionID, w, registry, hub)
+	})
+
+	mux.HandleFunc("POST /sessions/{sessionId}/prompt", func(w http.ResponseWriter, r *http.Request) {
+		sessionID := r.PathValue("sessionId")
+		handleSessionPrompt(sessionID, w, r, registry)
+	})
+
+	mux.HandleFunc("POST /sessions/{sessionId}/permissions/{requestID}", func(w http.ResponseWriter, r *http.Request) {
+		sessionID := r.PathValue("sessionId")
+		requestID := r.PathValue("requestID")
+		handleSessionPermission(sessionID, requestID, w, r, registry)
+	})
+
+	mux.HandleFunc("GET /sessions/{sessionId}/files", func(w http.ResponseWriter, r *http.Request) {
+		sessionID := r.PathValue("sessionId")
+		handleSessionFiles(sessionID, w, r, registry)
+	})
+
+	mux.HandleFunc("GET /sessions/{sessionId}/fs/snapshot", func(w http.ResponseWriter, r *http.Request) {
+		sessionID := r.PathValue("sessionId")
+		handleSessionFsSnapshot(sessionID, w, registry)
+	})
+
+	mux.HandleFunc("GET /sessions/{sessionId}/health", func(w http.ResponseWriter, r *http.Request) {
+		sessionID := r.PathValue("sessionId")
+		sess := registry.get(sessionID)
+		if sess == nil {
+			writeJSON(w, 404, map[string]any{"error": fmt.Sprintf("Session %q not found", sessionID)})
+			return
+		}
+		status := "idle"
+		sess.mu.Lock()
+		if sess.busy {
+			status = "running"
+		}
+		sess.mu.Unlock()
+		writeJSON(w, 200, map[string]any{"status": status, "sessionId": sess.id})
+	})
+
+	// ---- Legacy single-session endpoints (backward compat) ----
+
 	mux.HandleFunc("POST /start", func(w http.ResponseWriter, r *http.Request) {
-		var req startRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, 400, map[string]any{"error": err.Error()})
-			return
-		}
-
-		addr := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
-		serverPort := addr.(*net.TCPAddr).Port
-
-		resp, err := startSession(req, serverPort, hub)
-		if err != nil {
-			writeJSON(w, 500, map[string]any{"error": err.Error()})
-			return
-		}
-		writeJSON(w, 200, resp)
+		// Legacy: use a generated session ID
+		sessionID := generateUUID()
+		handleSessionStart(sessionID, w, r, hub, registry)
 	})
 
 	mux.HandleFunc("POST /terminate", func(w http.ResponseWriter, r *http.Request) {
-		terminateSession()
+		// Legacy: terminate all sessions
+		registry.terminateAll()
+		hub.ClearLog()
 		writeJSON(w, 200, map[string]any{"ok": true})
 	})
 
-	mux.HandleFunc("POST /prompt", handlePromptHTTP)
-	mux.HandleFunc("POST /permissions/{requestID}", handlePermissionHTTP)
-
-	mux.HandleFunc("GET /files", func(w http.ResponseWriter, r *http.Request) {
-		current.Lock()
-		sess := current.sess
-		current.Unlock()
-		if sess == nil || sess.workspace == "" {
+	mux.HandleFunc("POST /prompt", func(w http.ResponseWriter, r *http.Request) {
+		// Legacy: find the first (only) session
+		sessions := registry.list()
+		if len(sessions) == 0 {
 			writeJSON(w, 400, map[string]any{"error": "No active session"})
 			return
 		}
-		filePath := r.URL.Query().Get("path")
-		if filePath == "" {
-			writeJSON(w, 400, map[string]any{"error": "Missing ?path= parameter"})
+		sessionID := sessions[0]["sessionId"].(string)
+		handleSessionPrompt(sessionID, w, r, registry)
+	})
+
+	mux.HandleFunc("POST /permissions/{requestID}", func(w http.ResponseWriter, r *http.Request) {
+		requestID := r.PathValue("requestID")
+		// Legacy: find session with this permission request
+		sessions := registry.list()
+		for _, s := range sessions {
+			sid := s["sessionId"].(string)
+			sess := registry.get(sid)
+			if sess != nil && sess.handler != nil && sess.handler.hasPermissionRequest(requestID) {
+				handleSessionPermission(sid, requestID, w, r, registry)
+				return
+			}
+		}
+		writeJSON(w, 404, map[string]any{"error": fmt.Sprintf("Permission request %s not found", requestID)})
+	})
+
+	mux.HandleFunc("GET /files", func(w http.ResponseWriter, r *http.Request) {
+		sessions := registry.list()
+		if len(sessions) == 0 {
+			writeJSON(w, 400, map[string]any{"error": "No active session"})
 			return
 		}
-		resolved := filepath.Join(sess.workspace, filePath)
-		if !strings.HasPrefix(resolved, sess.workspace) {
-			writeJSON(w, 403, map[string]any{"error": "Path outside workspace"})
-			return
-		}
-		raw, err := os.ReadFile(resolved)
-		if err != nil {
-			writeJSON(w, 404, map[string]any{"error": "Cannot read: " + filePath})
-			return
-		}
-		maxChars := 100_000
-		content := string(raw)
-		truncated := len(content) > maxChars
-		if truncated {
-			content = content[:maxChars]
-		}
-		writeJSON(w, 200, map[string]any{
-			"path": filePath, "content": content, "truncated": truncated, "maxChars": maxChars,
-		})
+		sessionID := sessions[0]["sessionId"].(string)
+		handleSessionFiles(sessionID, w, r, registry)
 	})
 
 	mux.HandleFunc("GET /fs/snapshot", func(w http.ResponseWriter, r *http.Request) {
-		current.Lock()
-		sess := current.sess
-		current.Unlock()
-		if sess == nil || sess.workspace == "" {
+		sessions := registry.list()
+		if len(sessions) == 0 {
 			writeJSON(w, 400, map[string]any{"error": "No active session"})
 			return
 		}
-		entries, err := filewatcher.WalkDirectory(sess.workspace)
-		if err != nil {
-			writeJSON(w, 500, map[string]any{"error": err.Error()})
-			return
-		}
-		maxEntries := 10_000
-		truncated := len(entries) > maxEntries
-		limited := entries
-		if truncated {
-			limited = entries[:maxEntries]
-		}
-		writeJSON(w, 200, map[string]any{
-			"root": sess.workspace, "entries": limited, "truncated": truncated, "maxEntries": maxEntries,
-		})
+		sessionID := sessions[0]["sessionId"].(string)
+		handleSessionFsSnapshot(sessionID, w, registry)
 	})
+
+	// ---- WebSocket endpoint ----
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "OPTIONS" {
@@ -800,14 +975,14 @@ func main() {
 	}
 
 	actualPort := ln.Addr().(*net.TCPAddr).Port
-	fmt.Printf("[session-host] listening on port %d (idle, waiting for POST /start)\n", actualPort)
+	fmt.Printf("[runtime-host] listening on port %d (ready for sessions)\n", actualPort)
 
 	// Graceful shutdown on SIGINT/SIGTERM
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		terminateSession()
+		registry.terminateAll()
 		_ = ln.Close()
 		os.Exit(0)
 	}()

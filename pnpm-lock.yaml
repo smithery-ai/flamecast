@@ -283,22 +283,6 @@ importers:
         specifier: ^4.21.0
         version: 4.21.0
 
-  examples/vc-test:
-    dependencies:
-      hono:
-        specifier: ^4.12.9
-        version: 4.12.9
-    devDependencies:
-      '@types/node':
-        specifier: ^20.11.17
-        version: 20.19.37
-      tsx:
-        specifier: ^4.7.1
-        version: 4.21.0
-      typescript:
-        specifier: ^5.8.3
-        version: 5.9.3
-
   examples/vercel:
     dependencies:
       '@agentclientprotocol/sdk':
@@ -377,6 +361,9 @@ importers:
       '@flamecast/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@flamecast/session-host-go':
+        specifier: workspace:*
+        version: link:../session-host-go
       '@hono/node-server':
         specifier: ^1.19.11
         version: 1.19.11(hono@4.12.8)
@@ -462,28 +449,6 @@ importers:
       '@flamecast/session-host-go':
         specifier: workspace:*
         version: link:../session-host-go
-
-  packages/session-host:
-    dependencies:
-      '@agentclientprotocol/sdk':
-        specifier: ^0.16.1
-        version: 0.16.1(zod@4.3.6)
-      ws:
-        specifier: ^8.18.0
-        version: 8.20.0
-    devDependencies:
-      '@flamecast/protocol':
-        specifier: workspace:*
-        version: link:../protocol
-      '@types/ws':
-        specifier: ^8.18.1
-        version: 8.18.1
-      typescript:
-        specifier: ^5.8.3
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.0
-        version: 4.1.0(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@20.19.37)(msw@2.12.14(@types/node@20.19.37)(typescript@5.9.3))(vite@8.0.1(@types/node@20.19.37)(esbuild@0.27.4)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))
 
   packages/session-host-go: {}
 
