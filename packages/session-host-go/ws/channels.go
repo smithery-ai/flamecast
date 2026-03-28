@@ -31,11 +31,14 @@ func eventToChannels(sessionID, agentID, eventType string, data map[string]any) 
 }
 
 var terminalTypes = map[string]bool{
-	"terminal.create":       true,
-	"terminal.output":       true,
-	"terminal.release":      true,
+	"terminal.create":        true,
+	"terminal.output":        true,
+	"terminal.release":       true,
 	"terminal.wait_for_exit": true,
-	"terminal.kill":         true,
+	"terminal.kill":          true,
+	"terminal.started":       true,
+	"terminal.data":          true,
+	"terminal.exit":          true,
 }
 
 var queueTypes = map[string]bool{

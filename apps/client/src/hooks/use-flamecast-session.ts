@@ -204,6 +204,7 @@ export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
     events,
     connectionState,
     isConnected: connectionState === "connected",
+    send,
     prompt,
     respondToPermission,
     cancel,

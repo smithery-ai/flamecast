@@ -315,6 +315,72 @@ func generateClientID(n int) string {
 	return "ws-" + string(rune('0'+n/100%10)) + string(rune('0'+n/10%10)) + string(rune('0'+n%10))
 }
 
+// PublishTerminalEvent broadcasts a runtime-level terminal event to clients
+// subscribed to "terminals" or "terminals:{terminalId}".
+func (h *Hub) PublishTerminalEvent(eventType string, data map[string]any, timestamp string) int64 {
+	terminalID, _ := data["terminalId"].(string)
+
+	channels := []string{"terminals"}
+	if terminalID != "" {
+		channels = append([]string{"terminals:" + terminalID}, channels...)
+	}
+
+	primaryChannel := channels[0]
+	seq := h.seq.Add(1)
+
+	msg := map[string]any{
+		"type":    "event",
+		"channel": primaryChannel,
+		"seq":     seq,
+		"event": map[string]any{
+			"type":      eventType,
+			"data":      data,
+			"timestamp": timestamp,
+		},
+	}
+	raw, _ := json.Marshal(msg)
+
+	evt := ChannelEvent{
+		Seq:      seq,
+		Channel:  primaryChannel,
+		Channels: channels,
+		Raw:      raw,
+	}
+
+	// Store in a "terminals" event log
+	h.mu.Lock()
+	log := h.eventLogs["__terminals__"]
+	if log == nil {
+		log = &eventLog{cap: defaultEventLogCap}
+		h.eventLogs["__terminals__"] = log
+	}
+	if len(log.events) >= log.cap {
+		drop := log.cap / 10
+		if drop < 1 {
+			drop = 1
+		}
+		log.events = log.events[drop:]
+	}
+	log.events = append(log.events, evt)
+	h.mu.Unlock()
+
+	// Broadcast to matching subscribers
+	h.mu.RLock()
+	clients := make([]*client, 0, len(h.clients))
+	for _, c := range h.clients {
+		clients = append(clients, c)
+	}
+	h.mu.RUnlock()
+
+	for _, c := range clients {
+		if h.clientMatchesEvent(c, channels) {
+			_, _ = c.conn.Write(raw)
+		}
+	}
+
+	return seq
+}
+
 // ---------- Legacy compat (used during transition) ----------
 
 // Broadcast sends a JSON message to ALL connected clients (no channel filtering).

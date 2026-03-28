@@ -38,6 +38,9 @@ const TERMINAL_EVENT_TYPES = new Set([
   "terminal.release",
   "terminal.wait_for_exit",
   "terminal.kill",
+  "terminal.started",
+  "terminal.data",
+  "terminal.exit",
 ]);
 
 const QUEUE_EVENT_TYPES = new Set(["queue.updated", "queue.paused", "queue.resumed"]);

@@ -168,6 +168,11 @@ export class NodeRuntime implements Runtime {
     return fetch(targetUrl.toString(), init);
   }
 
+  getWebsocketUrl(): string | undefined {
+    if (!this.url) return undefined;
+    return this.url.replace(/^http/, "ws");
+  }
+
   async dispose(): Promise<void> {
     const proc = this.process;
     if (proc && !proc.killed) {
