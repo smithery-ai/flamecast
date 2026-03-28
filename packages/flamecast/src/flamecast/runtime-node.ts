@@ -1,6 +1,16 @@
-import { spawn, type ChildProcess } from "node:child_process";
 import type { Runtime } from "@flamecast/protocol/runtime";
-import { resolveNativeBinary } from "@flamecast/session-host-go/resolve";
+
+// All Node.js-specific imports are dynamic to avoid breaking edge bundles.
+// NodeRuntime is re-exported via flamecast/index.ts which is shared between
+// the Node entry point (index.ts) and the edge entry point (edge.ts).
+
+/** Minimal subset of ChildProcess we use. */
+interface ManagedProcess {
+  killed: boolean;
+  stdout: NodeJS.ReadableStream | null;
+  kill(signal?: string): boolean;
+  on(event: string, listener: (...args: unknown[]) => void): void;
+}
 
 /**
  * NodeRuntime — manages a local runtime-host Go binary.
@@ -12,7 +22,7 @@ export class NodeRuntime implements Runtime {
   readonly onlyOne = true;
 
   private readonly explicitUrl: string | undefined;
-  private process: ChildProcess | null = null;
+  private process: ManagedProcess | null = null;
   private url: string | null = null;
   private starting: Promise<void> | null = null;
 
@@ -48,6 +58,9 @@ export class NodeRuntime implements Runtime {
   }
 
   private async spawnRuntimeHost(): Promise<void> {
+    const { resolveNativeBinary } = await import("@flamecast/session-host-go/resolve");
+    const { spawn } = await import("node:child_process");
+
     const binaryPath = resolveNativeBinary();
     if (!binaryPath) {
       throw new Error(
@@ -86,11 +99,11 @@ export class NodeRuntime implements Runtime {
       };
 
       proc.stdout?.on("data", onData);
-      proc.on("error", (err) => {
+      proc.on("error", (err: Error) => {
         clearTimeout(timeout);
         reject(err);
       });
-      proc.on("exit", (code) => {
+      proc.on("exit", (code: number | null) => {
         clearTimeout(timeout);
         this.process = null;
         this.url = null;
@@ -177,7 +190,6 @@ export class NodeRuntime implements Runtime {
 }
 
 function findFreePort(): Promise<number> {
-  // Dynamic import to avoid pulling node:net into edge bundles
   return import("node:net").then(
     ({ createServer }) =>
       new Promise((resolve, reject) => {
