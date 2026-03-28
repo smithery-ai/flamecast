@@ -24,7 +24,7 @@ export async function handleRequest(
   databaseUrl: string,
   options: FlamecastOptions,
 ): Promise<Response> {
-  e2bRuntime ??= new E2BRuntime({ apiKey: options.e2bApiKey });
+  e2bRuntime ??= new E2BRuntime({ apiKey: options.e2bApiKey, template: "flamecast-node22" });
   agentTemplatesCache ??= createAgentTemplates({ agentSource: options.agentSource });
 
   const client = new Client({ connectionString: databaseUrl });

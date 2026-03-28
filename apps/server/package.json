@@ -6,7 +6,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc --project tsconfig.json --noEmit",
     "start": "tsx src/index.ts",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts",
+    "build-template": "tsx build-template.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.16.1",
@@ -14,6 +15,7 @@
     "@flamecast/runtime-e2b": "workspace:*",
     "@flamecast/sdk": "workspace:*",
     "@flamecast/storage-psql": "workspace:*",
-    "dotenv": "^17.3.1"
+    "dotenv": "^17.3.1",
+    "e2b": "^2.18.0"
   }
 }

@@ -209,6 +209,9 @@ importers:
       dotenv:
         specifier: ^17.3.1
         version: 17.3.1
+      e2b:
+        specifier: ^2.18.0
+        version: 2.18.0
 
   examples/agent.js:
     dependencies:
@@ -455,6 +458,10 @@ importers:
       '@flamecast/session-host-go':
         specifier: workspace:*
         version: link:../session-host-go
+    devDependencies:
+      e2b:
+        specifier: ^2.18.0
+        version: 2.18.0
 
   packages/session-host-go: {}
 
