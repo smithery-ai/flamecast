@@ -365,6 +365,11 @@ export class E2BRuntime implements Runtime {
     return "stopped";
   }
 
+  getWebsocketUrl(instanceId: string): string | undefined {
+    const entry = this.instances.get(instanceId);
+    return entry?.websocketUrl;
+  }
+
   // ---------------------------------------------------------------------------
   // Session handling — route to the single runtime-host
   // ---------------------------------------------------------------------------

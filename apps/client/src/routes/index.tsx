@@ -32,7 +32,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { LoaderCircleIcon, PlusIcon, PlayIcon, TerminalIcon, SettingsIcon } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { TerminalPanel } from "@/components/terminal-panel";
+import { useTerminal } from "@/hooks/use-terminal";
+import { LoaderCircleIcon, PlusIcon, PlayIcon, TerminalIcon, TerminalSquareIcon, SettingsIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import type { AgentTemplate } from "@flamecast/sdk/session";
@@ -407,6 +411,15 @@ function RuntimeDetailPanel({
     refetchInterval: 30_000,
   });
 
+  const {
+    terminals,
+    sendInput,
+    resize,
+    onData,
+    createTerminal,
+    killTerminal,
+  } = useTerminal(isRunning ? instance.websocketUrl : undefined);
+
   const startMutation = useMutation({
     mutationFn: () =>
       startRuntime(runtimeInfo.typeName, runtimeInfo.onlyOne ? undefined : instance.name),
@@ -435,18 +448,17 @@ function RuntimeDetailPanel({
     },
   });
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden">
-      <div className="shrink-0">
-        <h1 className="text-2xl font-bold tracking-tight">{instance.name}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {runtimeInfo.typeName === instance.name
-            ? `${instance.status} runtime`
-            : `${runtimeInfo.typeName} runtime`}
-        </p>
-      </div>
-
-      {!isRunning ? (
+  if (!isRunning) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden">
+        <div className="shrink-0">
+          <h1 className="text-2xl font-bold tracking-tight">{instance.name}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {runtimeInfo.typeName === instance.name
+              ? `${instance.status} runtime`
+              : `${runtimeInfo.typeName} runtime`}
+          </p>
+        </div>
         <Card className="border-dashed">
           <CardHeader>
             <CardTitle className="text-base">
@@ -469,39 +481,82 @@ function RuntimeDetailPanel({
             </Button>
           </CardContent>
         </Card>
-      ) : runtimeFsQuery.isLoading ? (
-        <Card className="flex min-h-[28rem] items-center justify-center">
-          <CardContent className="flex items-center gap-3 py-10 text-sm text-muted-foreground">
-            <LoaderCircleIcon className="size-4 animate-spin" />
-            Loading runtime filesystem...
-          </CardContent>
-        </Card>
-      ) : runtimeFsQuery.isError || !runtimeFsQuery.data ? (
-        <Card className="border-dashed">
-          <CardHeader>
-            <CardTitle className="text-base">Could not load runtime filesystem</CardTitle>
-            <CardDescription>
-              {runtimeFsQuery.error instanceof Error
-                ? runtimeFsQuery.error.message
-                : "Unknown error"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button variant="outline" onClick={() => void runtimeFsQuery.refetch()}>
-              Retry
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <FileSystemPanel
-          workspaceRoot={runtimeFsQuery.data.root}
-          entries={runtimeFsQuery.data.entries}
-          showAllFiles={showAllFiles}
-          onShowAllFilesChange={setShowAllFiles}
-          loadPreview={(path) => fetchRuntimeFilePreview(instance.name, path)}
-          emptyTreeMessage="No filesystem entries returned for this runtime."
-        />
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+      <div className="shrink-0">
+        <h1 className="text-2xl font-bold tracking-tight">{instance.name}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {runtimeInfo.typeName === instance.name
+            ? `${instance.status} runtime`
+            : `${runtimeInfo.typeName} runtime`}
+        </p>
+      </div>
+
+      <Tabs defaultValue="terminals" className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+        <TabsList>
+          <TabsTrigger value="terminals">
+            <TerminalSquareIcon className="size-3.5" />
+            Terminals
+            {terminals.length > 0 && (
+              <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[10px]">
+                {terminals.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="files">Files</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="terminals" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+          <TerminalPanel
+            terminals={terminals}
+            sendInput={sendInput}
+            resize={resize}
+            onData={onData}
+            onCreateTerminal={() => createTerminal()}
+            onRemoveTerminal={killTerminal}
+          />
+        </TabsContent>
+
+        <TabsContent value="files" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+          {runtimeFsQuery.isLoading ? (
+            <Card className="flex min-h-[28rem] items-center justify-center">
+              <CardContent className="flex items-center gap-3 py-10 text-sm text-muted-foreground">
+                <LoaderCircleIcon className="size-4 animate-spin" />
+                Loading runtime filesystem...
+              </CardContent>
+            </Card>
+          ) : runtimeFsQuery.isError || !runtimeFsQuery.data ? (
+            <Card className="border-dashed">
+              <CardHeader>
+                <CardTitle className="text-base">Could not load runtime filesystem</CardTitle>
+                <CardDescription>
+                  {runtimeFsQuery.error instanceof Error
+                    ? runtimeFsQuery.error.message
+                    : "Unknown error"}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" onClick={() => void runtimeFsQuery.refetch()}>
+                  Retry
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <FileSystemPanel
+              workspaceRoot={runtimeFsQuery.data.root}
+              entries={runtimeFsQuery.data.entries}
+              showAllFiles={showAllFiles}
+              onShowAllFilesChange={setShowAllFiles}
+              loadPreview={(path) => fetchRuntimeFilePreview(instance.name, path)}
+              emptyTreeMessage="No filesystem entries returned for this runtime."
+            />
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

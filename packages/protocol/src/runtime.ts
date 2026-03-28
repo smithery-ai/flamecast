@@ -25,6 +25,8 @@ export interface Runtime<TConfig extends Record<string, unknown> = {}> {
   pause?(instanceId: string): Promise<void>;
   /** Query the live status of an instance from the actual runtime (e.g. Docker). */
   getInstanceStatus?(instanceId: string): Promise<"running" | "stopped" | "paused" | undefined>;
+  /** Return the WebSocket URL for a running instance's runtime-host. */
+  getWebsocketUrl?(instanceId: string): string | undefined;
   dispose?(): Promise<void>;
   /**
    * Return runtime-specific metadata for a session that should be persisted
@@ -49,6 +51,8 @@ export interface RuntimeInstance {
   name: string;
   typeName: string;
   status: "running" | "stopped" | "paused";
+  /** WebSocket URL of the runtime-host for this instance (set when running). */
+  websocketUrl?: string;
 }
 
 /** Aggregated info for a runtime type and its instances. */

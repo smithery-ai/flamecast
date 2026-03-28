@@ -154,7 +154,8 @@ function XTermView({
     const xterm = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: "'Geist Variable', 'Menlo', 'Monaco', 'Courier New', monospace",
+      lineHeight: 1.1,
+      fontFamily: "'Menlo', 'Monaco', 'Cascadia Code', 'Courier New', monospace",
       theme: {
         background: "#09090b",
         foreground: "#fafafa",

@@ -275,7 +275,8 @@ export class Flamecast<
         }
       }
 
-      resolvedInstances.push({ ...inst, status });
+      const websocketUrl = runtime?.getWebsocketUrl?.(inst.name);
+      resolvedInstances.push({ ...inst, status, ...(websocketUrl ? { websocketUrl } : {}) });
     }
 
     const instancesByType = new Map<string, RuntimeInstance[]>();
