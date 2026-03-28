@@ -20,6 +20,7 @@ import (
 
 	"github.com/smithery-ai/flamecast/packages/session-host-go/acp"
 	"github.com/smithery-ai/flamecast/packages/session-host-go/filewatcher"
+	"github.com/smithery-ai/flamecast/packages/session-host-go/terminal"
 	"github.com/smithery-ai/flamecast/packages/session-host-go/ws"
 )
 
@@ -65,6 +66,9 @@ func (r *sessionRegistry) remove(id string) {
 	if s, ok := r.sessions[id]; ok {
 		if s.fileWatcher != nil {
 			s.fileWatcher.Close()
+		}
+		if s.handler != nil && s.handler.terminals != nil {
+			s.handler.terminals.ReleaseAll()
 		}
 		delete(r.sessions, id)
 	}
@@ -125,17 +129,25 @@ type clientHandler struct {
 	agentID             string
 	workspace           string
 	permissionResolvers map[string]chan json.RawMessage
+	terminals           *terminal.Registry
 	mu                  sync.Mutex
 }
 
 func newClientHandler(hub *ws.Hub, sessionID, workspace string) *clientHandler {
-	return &clientHandler{
+	h := &clientHandler{
 		hub:                 hub,
 		sessionID:           sessionID,
 		agentID:             sessionID, // 1:1 for now
 		workspace:           workspace,
 		permissionResolvers: make(map[string]chan json.RawMessage),
 	}
+	h.terminals = terminal.NewRegistry(func(terminalID string, data []byte) {
+		h.emitEvent("terminal.data", map[string]any{
+			"terminalId": terminalID,
+			"data":       string(data),
+		})
+	})
+	return h
 }
 
 func (h *clientHandler) emitEvent(eventType string, data map[string]any) {
@@ -306,7 +318,43 @@ func (h *clientHandler) WriteTextFile(params json.RawMessage) (json.RawMessage, 
 
 func (h *clientHandler) TerminalCreate(params json.RawMessage) (json.RawMessage, error) {
 	h.emitRPC(acp.MethodTerminalCreate, "agent_to_client", "request", json.RawMessage(params))
-	resp := map[string]string{"terminalId": "stub-" + generateUUID()}
+
+	var req struct {
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
+		Cols    uint16   `json:"cols"`
+		Rows    uint16   `json:"rows"`
+	}
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, err
+	}
+
+	command := req.Command
+	if command == "" {
+		command = "/bin/sh"
+	}
+
+	termID := "term-" + generateUUID()
+	t, err := h.terminals.Create(termID, command, req.Args, h.workspace, nil, req.Cols, req.Rows)
+	if err != nil {
+		return nil, fmt.Errorf("terminal create: %w", err)
+	}
+
+	h.emitEvent("terminal.started", map[string]any{
+		"terminalId": t.ID,
+		"command":    command,
+	})
+
+	// Watch for exit in background
+	go func() {
+		exitCode, _ := h.terminals.WaitForExit(termID)
+		h.emitEvent("terminal.exit", map[string]any{
+			"terminalId": termID,
+			"exitCode":   exitCode,
+		})
+	}()
+
+	resp := map[string]string{"terminalId": termID}
 	result, _ := json.Marshal(resp)
 	h.emitRPC(acp.MethodTerminalCreate, "client_to_agent", "response", resp)
 	return result, nil
@@ -314,7 +362,14 @@ func (h *clientHandler) TerminalCreate(params json.RawMessage) (json.RawMessage,
 
 func (h *clientHandler) TerminalOutput(params json.RawMessage) (json.RawMessage, error) {
 	h.emitRPC(acp.MethodTerminalOutput, "agent_to_client", "request", json.RawMessage(params))
-	resp := map[string]any{"output": "", "truncated": false}
+
+	var req struct {
+		TerminalID string `json:"terminalId"`
+	}
+	_ = json.Unmarshal(params, &req)
+
+	output, truncated := h.terminals.Output(req.TerminalID)
+	resp := map[string]any{"output": output, "truncated": truncated}
 	result, _ := json.Marshal(resp)
 	h.emitRPC(acp.MethodTerminalOutput, "client_to_agent", "response", resp)
 	return result, nil
@@ -322,6 +377,14 @@ func (h *clientHandler) TerminalOutput(params json.RawMessage) (json.RawMessage,
 
 func (h *clientHandler) TerminalRelease(params json.RawMessage) (json.RawMessage, error) {
 	h.emitRPC(acp.MethodTerminalRelease, "agent_to_client", "request", json.RawMessage(params))
+
+	var req struct {
+		TerminalID string `json:"terminalId"`
+	}
+	_ = json.Unmarshal(params, &req)
+
+	_ = h.terminals.Release(req.TerminalID)
+
 	resp := map[string]any{}
 	result, _ := json.Marshal(resp)
 	h.emitRPC(acp.MethodTerminalRelease, "client_to_agent", "response", resp)
@@ -330,7 +393,18 @@ func (h *clientHandler) TerminalRelease(params json.RawMessage) (json.RawMessage
 
 func (h *clientHandler) TerminalWaitExit(params json.RawMessage) (json.RawMessage, error) {
 	h.emitRPC(acp.MethodTerminalWaitExit, "agent_to_client", "request", json.RawMessage(params))
-	resp := map[string]any{"exitCode": 0}
+
+	var req struct {
+		TerminalID string `json:"terminalId"`
+	}
+	_ = json.Unmarshal(params, &req)
+
+	exitCode, err := h.terminals.WaitForExit(req.TerminalID)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := map[string]any{"exitCode": exitCode}
 	result, _ := json.Marshal(resp)
 	h.emitRPC(acp.MethodTerminalWaitExit, "client_to_agent", "response", resp)
 	return result, nil
@@ -338,6 +412,14 @@ func (h *clientHandler) TerminalWaitExit(params json.RawMessage) (json.RawMessag
 
 func (h *clientHandler) TerminalKill(params json.RawMessage) (json.RawMessage, error) {
 	h.emitRPC(acp.MethodTerminalKill, "agent_to_client", "request", json.RawMessage(params))
+
+	var req struct {
+		TerminalID string `json:"terminalId"`
+	}
+	_ = json.Unmarshal(params, &req)
+
+	_ = h.terminals.Kill(req.TerminalID)
+
 	resp := map[string]any{}
 	result, _ := json.Marshal(resp)
 	h.emitRPC(acp.MethodTerminalKill, "client_to_agent", "response", resp)
@@ -539,15 +621,19 @@ func terminateSession(sessionID string, registry *sessionRegistry, hub *ws.Hub) 
 // ---------- WebSocket control messages (ws-channels protocol) ----------
 
 type channelControlMessage struct {
-	Action    string          `json:"action"`
-	Channel   string          `json:"channel,omitempty"`
-	Since     int64           `json:"since,omitempty"`
-	SessionID string          `json:"sessionId,omitempty"`
-	Text      string          `json:"text,omitempty"`
-	RequestID string          `json:"requestId,omitempty"`
-	Body      json.RawMessage `json:"body,omitempty"`
-	Path      string          `json:"path,omitempty"`
-	Order     []string        `json:"order,omitempty"`
+	Action     string          `json:"action"`
+	Channel    string          `json:"channel,omitempty"`
+	Since      int64           `json:"since,omitempty"`
+	SessionID  string          `json:"sessionId,omitempty"`
+	Text       string          `json:"text,omitempty"`
+	RequestID  string          `json:"requestId,omitempty"`
+	Body       json.RawMessage `json:"body,omitempty"`
+	Path       string          `json:"path,omitempty"`
+	Order      []string        `json:"order,omitempty"`
+	TerminalID string          `json:"terminalId,omitempty"`
+	Data       string          `json:"data,omitempty"`
+	Cols       uint16          `json:"cols,omitempty"`
+	Rows       uint16          `json:"rows,omitempty"`
 }
 
 func executePrompt(sess *session, text string) (*acp.PromptResponse, error) {
@@ -683,6 +769,26 @@ func handleChannelControl(clientID string, raw json.RawMessage, registry *sessio
 				"timestamp": now,
 			},
 		})
+
+	case "terminal.input":
+		sess := registry.get(msg.SessionID)
+		if sess == nil || sess.handler == nil {
+			hub.SendTo(clientID, map[string]any{"type": "error", "message": "Session not found"})
+			return
+		}
+		if err := sess.handler.terminals.Write(msg.TerminalID, []byte(msg.Data)); err != nil {
+			hub.SendTo(clientID, map[string]any{"type": "error", "message": "terminal.input: " + err.Error()})
+		}
+
+	case "terminal.resize":
+		sess := registry.get(msg.SessionID)
+		if sess == nil || sess.handler == nil {
+			hub.SendTo(clientID, map[string]any{"type": "error", "message": "Session not found"})
+			return
+		}
+		if err := sess.handler.terminals.Resize(msg.TerminalID, msg.Cols, msg.Rows); err != nil {
+			hub.SendTo(clientID, map[string]any{"type": "error", "message": "terminal.resize: " + err.Error()})
+		}
 	}
 }
 
@@ -891,6 +997,35 @@ func main() {
 		}
 		sess.mu.Unlock()
 		writeJSON(w, 200, map[string]any{"status": status, "sessionId": sess.id})
+	})
+
+	mux.HandleFunc("GET /sessions/{sessionId}/terminals", func(w http.ResponseWriter, r *http.Request) {
+		sessionID := r.PathValue("sessionId")
+		sess := registry.get(sessionID)
+		if sess == nil || sess.handler == nil {
+			writeJSON(w, 404, map[string]any{"error": fmt.Sprintf("Session %q not found", sessionID)})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"terminals": sess.handler.terminals.List()})
+	})
+
+	mux.HandleFunc("GET /sessions/{sessionId}/terminals/{terminalId}", func(w http.ResponseWriter, r *http.Request) {
+		sessionID := r.PathValue("sessionId")
+		terminalID := r.PathValue("terminalId")
+		sess := registry.get(sessionID)
+		if sess == nil || sess.handler == nil {
+			writeJSON(w, 404, map[string]any{"error": fmt.Sprintf("Session %q not found", sessionID)})
+			return
+		}
+		output, truncated := sess.handler.terminals.Output(terminalID)
+		if output == "" && !truncated {
+			t := sess.handler.terminals.Get(terminalID)
+			if t == nil {
+				writeJSON(w, 404, map[string]any{"error": fmt.Sprintf("Terminal %q not found", terminalID)})
+				return
+			}
+		}
+		writeJSON(w, 200, map[string]any{"terminalId": terminalID, "output": output, "truncated": truncated})
 	})
 
 	// ---- Legacy single-session endpoints (backward compat) ----

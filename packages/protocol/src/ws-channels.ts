@@ -137,6 +137,21 @@ export interface WsChannelPingAction {
   action: "ping";
 }
 
+export interface WsChannelTerminalInputAction {
+  action: "terminal.input";
+  sessionId: string;
+  terminalId: string;
+  data: string;
+}
+
+export interface WsChannelTerminalResizeAction {
+  action: "terminal.resize";
+  sessionId: string;
+  terminalId: string;
+  cols: number;
+  rows: number;
+}
+
 export type WsChannelControlMessage =
   | WsSubscribeAction
   | WsUnsubscribeAction
@@ -148,4 +163,6 @@ export type WsChannelControlMessage =
   | WsChannelQueueClearAction
   | WsChannelQueuePauseAction
   | WsChannelQueueResumeAction
-  | WsChannelPingAction;
+  | WsChannelPingAction
+  | WsChannelTerminalInputAction
+  | WsChannelTerminalResizeAction;
