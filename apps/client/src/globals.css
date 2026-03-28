@@ -3,6 +3,7 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 @import "streamdown/styles.css";
+@import "@xterm/xterm/css/xterm.css";
 
 @source "../../node_modules/streamdown/dist/*.js";
 

@@ -169,6 +169,35 @@ export function useTerminal(sessionId: string, websocketUrl?: string) {
     [],
   );
 
+  const createTerminal = useCallback(
+    (command?: string) => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const msg: WsChannelControlMessage = {
+        action: "terminal.create",
+        sessionId,
+        data: command,
+      };
+      ws.send(JSON.stringify(msg));
+    },
+    [sessionId],
+  );
+
+  const killTerminal = useCallback(
+    (terminalId: string) => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const msg: WsChannelControlMessage = {
+        action: "terminal.kill",
+        sessionId,
+        terminalId,
+      };
+      ws.send(JSON.stringify(msg));
+      setTerminals((prev) => prev.filter((t) => t.terminalId !== terminalId));
+    },
+    [sessionId],
+  );
+
   const activeTerminal = useMemo(() => {
     const running = terminals.filter((t) => t.exitCode === null);
     return running.length > 0 ? running[running.length - 1] : terminals[terminals.length - 1] ?? null;
@@ -180,5 +209,7 @@ export function useTerminal(sessionId: string, websocketUrl?: string) {
     sendInput,
     resize,
     onData,
+    createTerminal,
+    killTerminal,
   };
 }

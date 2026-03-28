@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { fetchSession } from "@/lib/api";
 import { FileSystemPanel } from "@/components/filesystem-panel";
+import { TerminalPanel } from "@/components/terminal-panel";
 import { sessionLogsToSegments } from "@/lib/logs-markdown";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -13,11 +14,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Streamdown } from "streamdown";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
-import { ArrowLeftIcon, ChevronDownIcon, SendIcon } from "lucide-react";
+import { ArrowLeftIcon, ChevronDownIcon, SendIcon, TerminalSquareIcon } from "lucide-react";
 import type { FileSystemEntry, SessionLog } from "@flamecast/sdk/session";
 import { PendingPermissionSchema } from "@flamecast/sdk/session";
 import type { PermissionRequestEvent } from "@flamecast/protocol/session-host";
 import { useFlamecastSession } from "@/hooks/use-flamecast-session";
+import { useTerminal } from "@/hooks/use-terminal";
 
 export const Route = createFileRoute("/sessions/$id")({
   component: SessionDetailPage,
@@ -45,6 +47,16 @@ function SessionDetailPage() {
     requestFilePreview,
     requestFsSnapshot,
   } = useFlamecastSession(id, session?.websocketUrl);
+
+  // Terminal sessions over WebSocket
+  const {
+    terminals,
+    sendInput: termSendInput,
+    resize: termResize,
+    onData: termOnData,
+    createTerminal,
+    killTerminal,
+  } = useTerminal(id, session?.websocketUrl);
 
   // Merge: use WS events if available, fall back to REST logs
   const logs: SessionLog[] = useMemo(() => {
@@ -178,6 +190,15 @@ function SessionDetailPage() {
             <TabsTrigger value="markdown">Markdown</TabsTrigger>
             <TabsTrigger value="log">Traces</TabsTrigger>
             <TabsTrigger value="files">Files</TabsTrigger>
+            <TabsTrigger value="terminals">
+              <TerminalSquareIcon className="size-3.5" />
+              Terminals
+              {terminals.length > 0 && (
+                <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[10px]">
+                  {terminals.length}
+                </Badge>
+              )}
+            </TabsTrigger>
           </TabsList>
         </div>
 
@@ -331,6 +352,17 @@ function SessionDetailPage() {
             showAllFiles={showAllFiles}
             onShowAllFilesChange={setShowAllFiles}
             loadPreview={requestFilePreview}
+          />
+        </TabsContent>
+
+        <TabsContent value="terminals" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+          <TerminalPanel
+            terminals={terminals}
+            sendInput={termSendInput}
+            resize={termResize}
+            onData={termOnData}
+            onCreateTerminal={() => createTerminal()}
+            onRemoveTerminal={killTerminal}
           />
         </TabsContent>
       </Tabs>

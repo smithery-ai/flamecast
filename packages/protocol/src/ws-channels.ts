@@ -137,6 +137,15 @@ export interface WsChannelPingAction {
   action: "ping";
 }
 
+export interface WsChannelTerminalCreateAction {
+  action: "terminal.create";
+  sessionId: string;
+  /** Shell command to run (defaults to /bin/sh). */
+  data?: string;
+  cols?: number;
+  rows?: number;
+}
+
 export interface WsChannelTerminalInputAction {
   action: "terminal.input";
   sessionId: string;
@@ -152,6 +161,12 @@ export interface WsChannelTerminalResizeAction {
   rows: number;
 }
 
+export interface WsChannelTerminalKillAction {
+  action: "terminal.kill";
+  sessionId: string;
+  terminalId: string;
+}
+
 export type WsChannelControlMessage =
   | WsSubscribeAction
   | WsUnsubscribeAction
@@ -164,5 +179,7 @@ export type WsChannelControlMessage =
   | WsChannelQueuePauseAction
   | WsChannelQueueResumeAction
   | WsChannelPingAction
+  | WsChannelTerminalCreateAction
   | WsChannelTerminalInputAction
-  | WsChannelTerminalResizeAction;
+  | WsChannelTerminalResizeAction
+  | WsChannelTerminalKillAction;

@@ -770,6 +770,34 @@ func handleChannelControl(clientID string, raw json.RawMessage, registry *sessio
 			},
 		})
 
+	case "terminal.create":
+		sess := registry.get(msg.SessionID)
+		if sess == nil || sess.handler == nil {
+			hub.SendTo(clientID, map[string]any{"type": "error", "message": "Session not found"})
+			return
+		}
+		command := msg.Data
+		if command == "" {
+			command = "/bin/sh"
+		}
+		termID := "term-" + generateUUID()
+		t, err := sess.handler.terminals.Create(termID, command, nil, sess.workspace, nil, msg.Cols, msg.Rows)
+		if err != nil {
+			hub.SendTo(clientID, map[string]any{"type": "error", "message": "terminal.create: " + err.Error()})
+			return
+		}
+		sess.handler.emitEvent("terminal.started", map[string]any{
+			"terminalId": t.ID,
+			"command":    command,
+		})
+		go func() {
+			exitCode, _ := sess.handler.terminals.WaitForExit(termID)
+			sess.handler.emitEvent("terminal.exit", map[string]any{
+				"terminalId": termID,
+				"exitCode":   exitCode,
+			})
+		}()
+
 	case "terminal.input":
 		sess := registry.get(msg.SessionID)
 		if sess == nil || sess.handler == nil {
@@ -789,6 +817,14 @@ func handleChannelControl(clientID string, raw json.RawMessage, registry *sessio
 		if err := sess.handler.terminals.Resize(msg.TerminalID, msg.Cols, msg.Rows); err != nil {
 			hub.SendTo(clientID, map[string]any{"type": "error", "message": "terminal.resize: " + err.Error()})
 		}
+
+	case "terminal.kill":
+		sess := registry.get(msg.SessionID)
+		if sess == nil || sess.handler == nil {
+			hub.SendTo(clientID, map[string]any{"type": "error", "message": "Session not found"})
+			return
+		}
+		_ = sess.handler.terminals.Release(msg.TerminalID)
 	}
 }
 
