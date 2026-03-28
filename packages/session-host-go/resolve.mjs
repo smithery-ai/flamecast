@@ -34,7 +34,9 @@ export function resolveSessionHostUrl() {
 }
 
 /**
- * Try to find the runtime-host binary on the local filesystem.
+ * Try to find a Linux runtime-host binary on the local filesystem.
+ * Used by Docker and E2B runtimes that need a Linux binary to copy
+ * into containers/sandboxes.
  *
  * Resolution order:
  *  1. `SESSION_HOST_BINARY` env var (explicit override)
@@ -58,6 +60,33 @@ export function resolveSessionHostBinary(arch) {
   const pkgDir = dirname(fileURLToPath(import.meta.url));
   const binaryName = arch ? `session-host-${arch}` : "session-host";
   const binaryPath = join(pkgDir, "dist", binaryName);
+  if (existsSync(binaryPath)) return binaryPath;
+
+  return null;
+}
+
+/**
+ * Try to find the native (host OS/arch) runtime-host binary.
+ * Used by NodeRuntime for local development — this binary runs on
+ * the developer's machine, not inside a container.
+ *
+ * Resolution order:
+ *  1. `SESSION_HOST_BINARY` env var (explicit override)
+ *  2. `@flamecast/session-host-go/dist/session-host-native`
+ *
+ * @returns {string | null} Absolute path to the native binary, or null if not found.
+ */
+export function resolveNativeBinary() {
+  if (process.env.SESSION_HOST_BINARY) {
+    const p = process.env.SESSION_HOST_BINARY;
+    if (!existsSync(p)) {
+      throw new Error(`SESSION_HOST_BINARY points to "${p}" which does not exist`);
+    }
+    return p;
+  }
+
+  const pkgDir = dirname(fileURLToPath(import.meta.url));
+  const binaryPath = join(pkgDir, "dist", "session-host-native");
   if (existsSync(binaryPath)) return binaryPath;
 
   return null;

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { Runtime } from "@flamecast/protocol/runtime";
-import { resolveSessionHostBinary } from "@flamecast/session-host-go/resolve";
+import { resolveNativeBinary } from "@flamecast/session-host-go/resolve";
 
 /**
  * NodeRuntime — manages a local runtime-host Go binary.
@@ -48,10 +48,10 @@ export class NodeRuntime implements Runtime {
   }
 
   private async spawnRuntimeHost(): Promise<void> {
-    const binaryPath = resolveSessionHostBinary();
+    const binaryPath = resolveNativeBinary();
     if (!binaryPath) {
       throw new Error(
-        "No runtime-host binary found. Run: pnpm --filter @flamecast/session-host-go run postinstall",
+        "No native runtime-host binary found. Run: pnpm --filter @flamecast/session-host-go run postinstall",
       );
     }
 
