@@ -16,13 +16,13 @@ export interface TerminalSession {
 type TerminalDataListener = (data: string) => void;
 
 /**
- * Hook that tracks terminal sessions for a given Flamecast session.
+ * Hook that manages runtime-level terminal sessions.
  *
- * Feed it the same `websocketUrl` and `sessionId` used by `useFlamecastSession`.
- * It subscribes to the terminal-specific channel and maintains per-terminal
- * output buffers.
+ * Terminals are independent of agent sessions — they live at the runtime
+ * instance level. The hook subscribes to the "terminals" channel on the
+ * runtime-host WebSocket.
  */
-export function useTerminal(sessionId: string, websocketUrl?: string) {
+export function useTerminal(websocketUrl?: string) {
   const [terminals, setTerminals] = useState<TerminalSession[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const listenersRef = useRef<Map<string, Set<TerminalDataListener>>>(new Map());
@@ -37,10 +37,6 @@ export function useTerminal(sessionId: string, websocketUrl?: string) {
     const ws = new WebSocket(websocketUrl);
     wsRef.current = ws;
 
-    ws.onopen = () => {
-      // Wait for "connected" message before subscribing
-    };
-
     ws.onmessage = (event) => {
       if (disposed) return;
       try {
@@ -49,7 +45,7 @@ export function useTerminal(sessionId: string, websocketUrl?: string) {
         if (message.type === "connected") {
           const subscribeMsg: WsChannelControlMessage = {
             action: "subscribe",
-            channel: `session:${sessionId}:terminal`,
+            channel: "terminals",
           };
           ws.send(JSON.stringify(subscribeMsg));
           return;
@@ -85,7 +81,6 @@ export function useTerminal(sessionId: string, websocketUrl?: string) {
                   : t,
               ),
             );
-            // Notify listeners
             const listeners = listenersRef.current.get(terminalId);
             if (listeners) {
               for (const fn of listeners) {
@@ -123,7 +118,7 @@ export function useTerminal(sessionId: string, websocketUrl?: string) {
       wsRef.current = null;
       ws.close();
     };
-  }, [sessionId, websocketUrl]);
+  }, [websocketUrl]);
 
   const sendInput = useCallback(
     (terminalId: string, data: string) => {
@@ -131,13 +126,12 @@ export function useTerminal(sessionId: string, websocketUrl?: string) {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       const msg: WsChannelControlMessage = {
         action: "terminal.input",
-        sessionId,
         terminalId,
         data,
       };
       ws.send(JSON.stringify(msg));
     },
-    [sessionId],
+    [],
   );
 
   const resize = useCallback(
@@ -146,14 +140,13 @@ export function useTerminal(sessionId: string, websocketUrl?: string) {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       const msg: WsChannelControlMessage = {
         action: "terminal.resize",
-        sessionId,
         terminalId,
         cols,
         rows,
       };
       ws.send(JSON.stringify(msg));
     },
-    [sessionId],
+    [],
   );
 
   const onData = useCallback(
@@ -175,12 +168,11 @@ export function useTerminal(sessionId: string, websocketUrl?: string) {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       const msg: WsChannelControlMessage = {
         action: "terminal.create",
-        sessionId,
         data: command,
       };
       ws.send(JSON.stringify(msg));
     },
-    [sessionId],
+    [],
   );
 
   const killTerminal = useCallback(
@@ -189,13 +181,12 @@ export function useTerminal(sessionId: string, websocketUrl?: string) {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       const msg: WsChannelControlMessage = {
         action: "terminal.kill",
-        sessionId,
         terminalId,
       };
       ws.send(JSON.stringify(msg));
       setTerminals((prev) => prev.filter((t) => t.terminalId !== terminalId));
     },
-    [sessionId],
+    [],
   );
 
   const activeTerminal = useMemo(() => {

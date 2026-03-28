@@ -671,7 +671,7 @@ func executePrompt(sess *session, text string) (*acp.PromptResponse, error) {
 	return resp, nil
 }
 
-func handleChannelControl(clientID string, raw json.RawMessage, registry *sessionRegistry, hub *ws.Hub) {
+func handleChannelControl(clientID string, raw json.RawMessage, registry *sessionRegistry, hub *ws.Hub, runtimeTerminals *terminal.Registry) {
 	var msg channelControlMessage
 	if err := json.Unmarshal(raw, &msg); err != nil {
 		hub.SendTo(clientID, map[string]any{"type": "error", "message": "Invalid message"})
@@ -771,60 +771,49 @@ func handleChannelControl(clientID string, raw json.RawMessage, registry *sessio
 		})
 
 	case "terminal.create":
-		sess := registry.get(msg.SessionID)
-		if sess == nil || sess.handler == nil {
-			hub.SendTo(clientID, map[string]any{"type": "error", "message": "Session not found"})
-			return
-		}
 		command := msg.Data
 		if command == "" {
 			command = "/bin/sh"
 		}
+		cwd, _ := os.Getwd()
+		// Use session workspace if available
+		if msg.SessionID != "" {
+			if sess := registry.get(msg.SessionID); sess != nil && sess.workspace != "" {
+				cwd = sess.workspace
+			}
+		}
 		termID := "term-" + generateUUID()
-		t, err := sess.handler.terminals.Create(termID, command, nil, sess.workspace, nil, msg.Cols, msg.Rows)
+		t, err := runtimeTerminals.Create(termID, command, nil, cwd, nil, msg.Cols, msg.Rows)
 		if err != nil {
 			hub.SendTo(clientID, map[string]any{"type": "error", "message": "terminal.create: " + err.Error()})
 			return
 		}
-		sess.handler.emitEvent("terminal.started", map[string]any{
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		hub.PublishTerminalEvent("terminal.started", map[string]any{
 			"terminalId": t.ID,
 			"command":    command,
-		})
+		}, now)
 		go func() {
-			exitCode, _ := sess.handler.terminals.WaitForExit(termID)
-			sess.handler.emitEvent("terminal.exit", map[string]any{
+			exitCode, _ := runtimeTerminals.WaitForExit(termID)
+			now := time.Now().UTC().Format(time.RFC3339Nano)
+			hub.PublishTerminalEvent("terminal.exit", map[string]any{
 				"terminalId": termID,
 				"exitCode":   exitCode,
-			})
+			}, now)
 		}()
 
 	case "terminal.input":
-		sess := registry.get(msg.SessionID)
-		if sess == nil || sess.handler == nil {
-			hub.SendTo(clientID, map[string]any{"type": "error", "message": "Session not found"})
-			return
-		}
-		if err := sess.handler.terminals.Write(msg.TerminalID, []byte(msg.Data)); err != nil {
+		if err := runtimeTerminals.Write(msg.TerminalID, []byte(msg.Data)); err != nil {
 			hub.SendTo(clientID, map[string]any{"type": "error", "message": "terminal.input: " + err.Error()})
 		}
 
 	case "terminal.resize":
-		sess := registry.get(msg.SessionID)
-		if sess == nil || sess.handler == nil {
-			hub.SendTo(clientID, map[string]any{"type": "error", "message": "Session not found"})
-			return
-		}
-		if err := sess.handler.terminals.Resize(msg.TerminalID, msg.Cols, msg.Rows); err != nil {
+		if err := runtimeTerminals.Resize(msg.TerminalID, msg.Cols, msg.Rows); err != nil {
 			hub.SendTo(clientID, map[string]any{"type": "error", "message": "terminal.resize: " + err.Error()})
 		}
 
 	case "terminal.kill":
-		sess := registry.get(msg.SessionID)
-		if sess == nil || sess.handler == nil {
-			hub.SendTo(clientID, map[string]any{"type": "error", "message": "Session not found"})
-			return
-		}
-		_ = sess.handler.terminals.Release(msg.TerminalID)
+		_ = runtimeTerminals.Release(msg.TerminalID)
 	}
 }
 
@@ -970,9 +959,18 @@ func main() {
 	hub := ws.NewHub()
 	registry := newSessionRegistry()
 
+	// Runtime-level terminal registry (not tied to any session)
+	runtimeTerminals := terminal.NewRegistry(func(terminalID string, data []byte) {
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		hub.PublishTerminalEvent("terminal.data", map[string]any{
+			"terminalId": terminalID,
+			"data":       string(data),
+		}, now)
+	})
+
 	// Set up channel-based control handler
 	hub.SetControlHandler(func(clientID string, msg json.RawMessage) {
-		handleChannelControl(clientID, msg, registry, hub)
+		handleChannelControl(clientID, msg, registry, hub, runtimeTerminals)
 	})
 
 	mux := http.NewServeMux()
@@ -984,6 +982,21 @@ func main() {
 			"status":   "ok",
 			"sessions": registry.list(),
 		})
+	})
+
+	mux.HandleFunc("GET /terminals", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, map[string]any{"terminals": runtimeTerminals.List()})
+	})
+
+	mux.HandleFunc("GET /terminals/{terminalId}", func(w http.ResponseWriter, r *http.Request) {
+		terminalID := r.PathValue("terminalId")
+		output, truncated := runtimeTerminals.Output(terminalID)
+		t := runtimeTerminals.Get(terminalID)
+		if t == nil {
+			writeJSON(w, 404, map[string]any{"error": fmt.Sprintf("Terminal %q not found", terminalID)})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"terminalId": terminalID, "output": output, "truncated": truncated})
 	})
 
 	// ---- Multi-session endpoints: /sessions/{sessionId}/... ----
@@ -1153,6 +1166,7 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
+		runtimeTerminals.ReleaseAll()
 		registry.terminateAll()
 		_ = ln.Close()
 		os.Exit(0)

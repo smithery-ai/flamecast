@@ -48,7 +48,7 @@ function SessionDetailPage() {
     requestFsSnapshot,
   } = useFlamecastSession(id, session?.websocketUrl);
 
-  // Terminal sessions over WebSocket
+  // Runtime-level terminal sessions over WebSocket
   const {
     terminals,
     sendInput: termSendInput,
@@ -56,7 +56,7 @@ function SessionDetailPage() {
     onData: termOnData,
     createTerminal,
     killTerminal,
-  } = useTerminal(id, session?.websocketUrl);
+  } = useTerminal(session?.websocketUrl);
 
   // Merge: use WS events if available, fall back to REST logs
   const logs: SessionLog[] = useMemo(() => {

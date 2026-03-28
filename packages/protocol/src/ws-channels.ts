@@ -139,7 +139,8 @@ export interface WsChannelPingAction {
 
 export interface WsChannelTerminalCreateAction {
   action: "terminal.create";
-  sessionId: string;
+  /** Optional session ID — if provided, terminal opens in that session's workspace. */
+  sessionId?: string;
   /** Shell command to run (defaults to /bin/sh). */
   data?: string;
   cols?: number;
@@ -148,14 +149,12 @@ export interface WsChannelTerminalCreateAction {
 
 export interface WsChannelTerminalInputAction {
   action: "terminal.input";
-  sessionId: string;
   terminalId: string;
   data: string;
 }
 
 export interface WsChannelTerminalResizeAction {
   action: "terminal.resize";
-  sessionId: string;
   terminalId: string;
   cols: number;
   rows: number;
@@ -163,7 +162,6 @@ export interface WsChannelTerminalResizeAction {
 
 export interface WsChannelTerminalKillAction {
   action: "terminal.kill";
-  sessionId: string;
   terminalId: string;
 }
 
