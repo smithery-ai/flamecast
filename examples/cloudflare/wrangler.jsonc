@@ -17,6 +17,12 @@
       "id": "dde42a0e1cd2449b8b096607acb0ecef",
     },
   ],
+  "observability": {
+    "logs": {
+      "enabled": false,
+      "invocation_logs": true,
+    },
+  },
   "placement": {
     "region": "aws:us-east-1",
   },
