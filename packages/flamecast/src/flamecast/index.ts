@@ -435,7 +435,9 @@ export class Flamecast<
     await this.ensureReady();
     const allMetas = await this.requireStorage().listAllSessions();
     const activeMetas = allMetas.filter((meta) => meta.status === "active");
-    const sessions = await Promise.all(activeMetas.map((meta) => this.snapshotSession(meta.id)));
+    const sessions = await Promise.all(
+      activeMetas.map((meta) => this.snapshotSession(meta.id, { readOnly: true })),
+    );
     return sessions.filter((session) => session.status === "active");
   }
 
@@ -852,14 +854,20 @@ export class Flamecast<
     return this.requireStorage().getStoredSession(sessionId);
   }
 
-  private async ensureSessionRegistered(sessionId: string): Promise<StoredSession | null> {
+  private async ensureSessionRegistered(
+    sessionId: string,
+    opts: { readOnly?: boolean } = {},
+  ): Promise<StoredSession | null> {
     const stored = await this.loadStoredSession(sessionId);
     if (!stored) return null;
     if (stored.meta.status !== "active") return stored;
     if (this.sessionService.hasSession(sessionId)) return stored;
 
+    // No runtime info → session can never be recovered
     if (!stored.runtimeInfo) {
-      await this.requireStorage().finalizeSession(sessionId, "terminated");
+      if (!opts.readOnly) {
+        await this.requireStorage().finalizeSession(sessionId, "terminated");
+      }
       return {
         ...stored,
         meta: { ...stored.meta, status: "killed" },
@@ -874,6 +882,22 @@ export class Flamecast<
     );
 
     if (recovered) return stored;
+
+    // Recovery failed — in read-only mode, don't mutate the database.
+    // The session may still be alive; we just can't reach it from this
+    // ephemeral serverless instance.
+    if (opts.readOnly) {
+      return stored;
+    }
+
+    // Grace period: don't permanently kill sessions that were recently active.
+    // Another process or request may still be connected to the session; only
+    // finalize after 5 minutes of inactivity to tolerate transient failures.
+    const RECOVERY_GRACE_MS = 5 * 60 * 1000;
+    const lastUpdated = new Date(stored.meta.lastUpdatedAt).getTime();
+    if (Date.now() - lastUpdated < RECOVERY_GRACE_MS) {
+      return stored;
+    }
 
     await this.requireStorage().finalizeSession(sessionId, "terminated");
     return {
@@ -1014,9 +1038,14 @@ export class Flamecast<
 
   private async snapshotSession(
     id: string,
-    opts: { includeFileSystem?: boolean; includeLogs?: boolean; showAllFiles?: boolean } = {},
+    opts: {
+      includeFileSystem?: boolean;
+      includeLogs?: boolean;
+      showAllFiles?: boolean;
+      readOnly?: boolean;
+    } = {},
   ): Promise<Session> {
-    const stored = await this.ensureSessionRegistered(id);
+    const stored = await this.ensureSessionRegistered(id, { readOnly: opts.readOnly });
     if (!stored) {
       throw new Error(`Session "${id}" not found`);
     }
