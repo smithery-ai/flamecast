@@ -283,6 +283,40 @@ importers:
         specifier: ^4.21.0
         version: 4.21.0
 
+  examples/slack:
+    dependencies:
+      '@chat-adapter/slack':
+        specifier: latest
+        version: 4.23.0
+      '@chat-adapter/state-memory':
+        specifier: latest
+        version: 4.23.0
+      '@flamecast/example-shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@flamecast/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@flamecast/sdk':
+        specifier: workspace:*
+        version: link:../../packages/flamecast
+      '@hono/node-server':
+        specifier: ^1.19.11
+        version: 1.19.11(hono@4.12.9)
+      chat:
+        specifier: latest
+        version: 4.23.0
+      dotenv:
+        specifier: ^17.3.1
+        version: 17.3.1
+      hono:
+        specifier: ^4.12.9
+        version: 4.12.9
+    devDependencies:
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+
   examples/vercel:
     dependencies:
       '@agentclientprotocol/sdk':
@@ -803,6 +837,15 @@ packages:
 
   '@cfworker/json-schema@4.1.1':
     resolution: {integrity: sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og==}
+
+  '@chat-adapter/shared@4.23.0':
+    resolution: {integrity: sha512-IDHgrAi3Y8Qptl1kd8zmM6jxWX+lu0cq/uZiURv8jONufWHrVwVr19pN0YK52ASnRlLZkcaNYXoa+mLFGQ2tlw==}
+
+  '@chat-adapter/slack@4.23.0':
+    resolution: {integrity: sha512-J5Ml/Ug8Zdb3zVIcbMhkei9U9aTeY+uqpzuuzcHkwdJC6FDFhwj5TSiuocckctqW9tMCqzFl4h4gU5q9f6KSGA==}
+
+  '@chat-adapter/state-memory@4.23.0':
+    resolution: {integrity: sha512-IlAVV4MGpjdassiI4haNAzWdFl66xFAfqM5DnWAGZdndkQj0LNMigcxhOgyS++yQUUWWvT1yRKwCswenCvxWVw==}
 
   '@chevrotain/cst-dts-gen@11.1.2':
     resolution: {integrity: sha512-XTsjvDVB5nDZBQB8o0o/0ozNelQtn2KrUVteIHSlPd2VAV2utEb6JzyCJaJ8tGxACR4RiBNWy5uYUHX2eji88Q==}
@@ -3587,6 +3630,18 @@ packages:
     resolution: {integrity: sha512-doH1gimEu3A46VX6aVxpHTeHrytJAG6HgdxntYnCFiIFHEM/ZGpG8KiZGBChchjQmG0XFIBL552kBTjVcMZXwQ==}
     engines: {node: '>=12'}
 
+  '@slack/logger@4.0.1':
+    resolution: {integrity: sha512-6cmdPrV/RYfd2U0mDGiMK8S7OJqpCTm7enMLRR3edccsPX8j7zXTLnaEF4fhxxJJTAIOil6+qZrnUPTuaLvwrQ==}
+    engines: {node: '>= 18', npm: '>= 8.6.0'}
+
+  '@slack/types@2.20.1':
+    resolution: {integrity: sha512-eWX2mdt1ktpn8+40iiMc404uGrih+2fxiky3zBcPjtXKj6HLRdYlmhrPkJi7JTJm8dpXR6BWVWEDBXtaWMKD6A==}
+    engines: {node: '>= 12.13.0', npm: '>= 6.12.0'}
+
+  '@slack/web-api@7.15.0':
+    resolution: {integrity: sha512-va7zYIt3QHG1x9M/jqXXRPFMoOVlVSSRHC5YH+DzKYsrz5xUKOA3lR4THsu/Zxha9N1jOndbKFKLtr0WOPW1Vw==}
+    engines: {node: '>= 18', npm: '>= 8.6.0'}
+
   '@smithy/eventstream-codec@4.2.12':
     resolution: {integrity: sha512-FE3bZdEl62ojmy8x4FHqxq2+BuOHlcxiH5vaZ6aqHJr3AIZzwF5jfx8dEiU/X0a8RboyNDjmXjlbr8AdEyLgiA==}
     engines: {node: '>=18.0.0'}
@@ -4116,6 +4171,9 @@ packages:
   '@types/react@19.2.14':
     resolution: {integrity: sha512-ilcTH/UniCkMdtexkoCN0bI7pMcJDvmQFPvuPvmEaYA/NSfFTAgdUSLAoVjaRJm7+6PvcM+q1zYOwS4wTYMF9w==}
 
+  '@types/retry@0.12.0':
+    resolution: {integrity: sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA==}
+
   '@types/ssh2@1.15.5':
     resolution: {integrity: sha512-N1ASjp/nXH3ovBHddRJpli4ozpk6UdDYIX4RJWFa9L1YKnzdhTlVmiGHm4DZnj/jLbqZpes4aeR30EFGQtvhQQ==}
 
@@ -4208,6 +4266,9 @@ packages:
 
   '@vitest/utils@4.1.0':
     resolution: {integrity: sha512-XfPXT6a8TZY3dcGY8EdwsBulFCIw+BeeX0RZn2x/BtiY/75YGh8FeWGG8QISN/WhaqSrE2OrlDgtF8q5uhOTmw==}
+
+  '@workflow/serde@4.1.0-beta.2':
+    resolution: {integrity: sha512-8kkeoQKLDaKXefjV5dbhBj2aErfKp1Mc4pb6tj8144cF+Em5SPbyMbyLCHp+BVrFfFVCBluCtMx+jjvaFVZGww==}
 
   abort-controller@3.0.0:
     resolution: {integrity: sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==}
@@ -4449,6 +4510,9 @@ packages:
   axios@1.13.2:
     resolution: {integrity: sha512-VPk9ebNqPcy5lRGuSlKx752IlDatOjT9paPlm8A7yOuW2Fbvp4X3JznJtT4f0GzGLLiWE9W8onz51SqLYwzGaA==}
 
+  axios@1.14.0:
+    resolution: {integrity: sha512-3Y8yrqLSwjuzpXuZ0oIYZ/XGgLwUIBU3uLvbcpb0pidD9ctpShJd43KSlEEkVQg6DS0G9NKyzOvBfUtDKEyHvQ==}
+
   b4a@1.8.0:
     resolution: {integrity: sha512-qRuSmNSkGQaHwNbM7J78Wwy+ghLEYF1zNrSeMxj4Kgw6y33O3mXcQ6Ie9fRvfU/YnxWkOchPXbaLb73TkIsfdg==}
     peerDependencies:
@@ -4659,6 +4723,9 @@ packages:
 
   chardet@2.1.1:
     resolution: {integrity: sha512-PsezH1rqdV9VvyNhxxOW32/d75r01NY7TQCmOqomRo15ZSOKbpTFVsfjghxo6JloQUCGnH4k1LGu0R4yCLlWQQ==}
+
+  chat@4.23.0:
+    resolution: {integrity: sha512-Gmw8yyDrrH9Vxs+TfxF7FoTENrCzJV4T0FiAh7APGcQPhMMYAhrpq66PKj8azhkUSEyaen8ujbneogoJWiY8vg==}
 
   chevrotain-allstar@0.3.1:
     resolution: {integrity: sha512-b7g+y9A0v4mxCW1qUhf3BSVPg+/NvGErk/dOkrDaHA0nQIQGAtrOjlX//9OQtRlSCy+x9rfB5N8yC71lH1nvMw==}
@@ -5571,6 +5638,9 @@ packages:
   eventemitter3@4.0.7:
     resolution: {integrity: sha512-8guHBZCwKnFhYdHr2ysuRWErTwhoN2X8XELRlrRwpmfeY2jjuUN4taQMsULKUVo1K4DvZl+0pgfyoysHxvmvEw==}
 
+  eventemitter3@5.0.4:
+    resolution: {integrity: sha512-mlsTRyGaPBjPedk6Bvw+aqbsXDtoAyAzm5MO7JgU+yVRyMQ5O8bD4Kcci7BS85f93veegeCPkL8R4GLClnjLFw==}
+
   events-universal@1.0.1:
     resolution: {integrity: sha512-LUd5euvbMLpwOF8m6ivPCbhQeSiYVNb8Vs0fQ8QjXo0JTkEHpz8pxdQf0gStltaPpw0Cca8b39KxvK9cfKRiAw==}
 
@@ -6203,6 +6273,9 @@ packages:
     resolution: {integrity: sha512-eljcgEDlEns/7AXFosB5K/2nCM4P7FQPkGc/DWLy5rmFEWvZayGrik1d9/QIY5nJ4f9YsVvBkA6kJpHn9rISdQ==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
     hasBin: true
+
+  is-electron@2.2.2:
+    resolution: {integrity: sha512-FO/Rhvz5tuw4MCWkpMzHFKWD2LsfHzIb7i6MdPYZ/KW7AlxawyLkqdy+jPZP1WubqEADE3O4FUENlJHDfQASRg==}
 
   is-extglob@2.1.1:
     resolution: {integrity: sha512-SbKbANkN603Vi4jEZv49LeVJMn4yGwsbzZworEoyEiutsN3nJYdbO36zfhGJ6QEDpOZIFkDtnq5JRxmvl3jsoQ==}
@@ -7219,9 +7292,25 @@ packages:
     resolution: {integrity: sha512-mlVgR3PGuzlo0MmTdk4cXqXWlwQDLnONTAg6sm62XkMJEiRxN3GL3SffkYvqwonbkJBcrI7Uvv5Zh9yjvn2iUw==}
     engines: {node: '>=12.20'}
 
+  p-finally@1.0.0:
+    resolution: {integrity: sha512-LICb2p9CB7FS+0eR1oqWnHhp0FljGLZCWBE9aix0Uye9W8LTQPwMTYVGWQWIw9RdQiDg4+epXQODwIYJtSJaow==}
+    engines: {node: '>=4'}
+
+  p-queue@6.6.2:
+    resolution: {integrity: sha512-RwFpb72c/BhQLEXIZ5K2e+AhgNVmIejGlTgiB9MzZ0e93GRvqZ7uSi0dvRF7/XIXDeNkra2fNHBxTyPDGySpjQ==}
+    engines: {node: '>=8'}
+
+  p-retry@4.6.2:
+    resolution: {integrity: sha512-312Id396EbJdvRONlngUx0NydfrIQ5lsYu0znKVUzVvArzEIt08V1qhtyESbGVd1FGX7UKtiFp5uwKZdM8wIuQ==}
+    engines: {node: '>=8'}
+
   p-some@6.0.0:
     resolution: {integrity: sha512-CJbQCKdfSX3fIh8/QKgS+9rjm7OBNUTmwWswAFQAhc8j1NR1dsEDETUEuVUtQHZpV+J03LqWBEwvu0g1Yn+TYg==}
     engines: {node: '>=12.20'}
+
+  p-timeout@3.2.0:
+    resolution: {integrity: sha512-rhIwUycgwwKcP9yTOOFK/AKsAopjjCakVqLHePO3CC6Mir1Z99xT+R63jZxAT5lFZLa2inS5h+ZS2GvR99/FBg==}
+    engines: {node: '>=8'}
 
   p-timeout@5.1.0:
     resolution: {integrity: sha512-auFDyzzzGZZZdHz3BtET9VEz0SE/uMEAx7uWfGPucfzEwwe/xH0iVeZibQmANYE/hp9T2+UUZT5m+BKyrDp3Ew==}
@@ -7530,6 +7619,10 @@ packages:
 
   proxy-from-env@1.1.0:
     resolution: {integrity: sha512-D+zkORCbA9f1tdWRK0RaCR3GPv50cMxcrz4X8k5LTSUD1Dkw47mKJEZQNunItRTkWwgtaUSo1RVFRIG9ZXiFYg==}
+
+  proxy-from-env@2.1.0:
+    resolution: {integrity: sha512-cJ+oHTW1VAEa8cJslgmUZrc+sjRKgAKl3Zyse6+PV38hZe/V6Z14TbCuXcan9F9ghlz4QrFr2c92TNF82UkYHA==}
+    engines: {node: '>=10'}
 
   public-ip@5.0.0:
     resolution: {integrity: sha512-xaH3pZMni/R2BG7ZXXaWS9Wc9wFlhyDVJF47IJ+3ali0TGv+2PsckKxbmo+rnx3ZxiV2wblVhtdS3bohAP6GGw==}
@@ -7844,6 +7937,10 @@ packages:
 
   retext@9.0.0:
     resolution: {integrity: sha512-sbMDcpHCNjvlheSgMfEcVrZko3cDzdbe1x/e7G66dFp0Ff7Mldvi2uv6JkJQzdRcvLYE8CA8Oe8siQx8ZOgTcA==}
+
+  retry@0.13.1:
+    resolution: {integrity: sha512-XQBQ3I8W1Cge0Seh+6gjj03LbmRFWuoszgK9ooCpwYIrhhoO80pfq4cUkU5DkknwfOfFteRwlZ56PYOGYyFWdg==}
+    engines: {node: '>= 4'}
 
   rettime@0.10.1:
     resolution: {integrity: sha512-uyDrIlUEH37cinabq0AX4QbgV4HbFZ/gqoiunWQ1UqBtRvTTytwhNYjE++pO/MjPTZL5KQCf2bEoJ/BJNVQ5Kw==}
@@ -9438,6 +9535,27 @@ snapshots:
   '@canvas/image-data@1.1.0': {}
 
   '@cfworker/json-schema@4.1.1': {}
+
+  '@chat-adapter/shared@4.23.0':
+    dependencies:
+      chat: 4.23.0
+    transitivePeerDependencies:
+      - supports-color
+
+  '@chat-adapter/slack@4.23.0':
+    dependencies:
+      '@chat-adapter/shared': 4.23.0
+      '@slack/web-api': 7.15.0
+      chat: 4.23.0
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+
+  '@chat-adapter/state-memory@4.23.0':
+    dependencies:
+      chat: 4.23.0
+    transitivePeerDependencies:
+      - supports-color
 
   '@chevrotain/cst-dts-gen@11.1.2':
     dependencies:
@@ -12279,6 +12397,29 @@ snapshots:
     dependencies:
       escape-string-regexp: 5.0.0
 
+  '@slack/logger@4.0.1':
+    dependencies:
+      '@types/node': 20.19.37
+
+  '@slack/types@2.20.1': {}
+
+  '@slack/web-api@7.15.0':
+    dependencies:
+      '@slack/logger': 4.0.1
+      '@slack/types': 2.20.1
+      '@types/node': 20.19.37
+      '@types/retry': 0.12.0
+      axios: 1.14.0
+      eventemitter3: 5.0.4
+      form-data: 4.0.5
+      is-electron: 2.2.2
+      is-stream: 2.0.1
+      p-queue: 6.6.2
+      p-retry: 4.6.2
+      retry: 0.13.1
+    transitivePeerDependencies:
+      - debug
+
   '@smithy/eventstream-codec@4.2.12':
     dependencies:
       '@aws-crypto/crc32': 5.2.0
@@ -12918,6 +13059,8 @@ snapshots:
     dependencies:
       csstype: 3.2.3
 
+  '@types/retry@0.12.0': {}
+
   '@types/ssh2@1.15.5':
     dependencies:
       '@types/node': 18.19.130
@@ -13022,6 +13165,8 @@ snapshots:
       '@vitest/pretty-format': 4.1.0
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
+
+  '@workflow/serde@4.1.0-beta.2': {}
 
   abort-controller@3.0.0:
     dependencies:
@@ -13269,6 +13414,14 @@ snapshots:
     transitivePeerDependencies:
       - debug
 
+  axios@1.14.0:
+    dependencies:
+      follow-redirects: 1.15.11
+      form-data: 4.0.5
+      proxy-from-env: 2.1.0
+    transitivePeerDependencies:
+      - debug
+
   b4a@1.8.0: {}
 
   babel-dead-code-elimination@1.0.12:
@@ -13474,6 +13627,18 @@ snapshots:
   character-reference-invalid@2.0.1: {}
 
   chardet@2.1.1: {}
+
+  chat@4.23.0:
+    dependencies:
+      '@workflow/serde': 4.1.0-beta.2
+      mdast-util-to-string: 4.0.0
+      remark-gfm: 4.0.1
+      remark-parse: 11.0.0
+      remark-stringify: 11.0.0
+      remend: 1.3.0
+      unified: 11.0.5
+    transitivePeerDependencies:
+      - supports-color
 
   chevrotain-allstar@0.3.1(chevrotain@11.1.2):
     dependencies:
@@ -14464,6 +14629,8 @@ snapshots:
 
   eventemitter3@4.0.7: {}
 
+  eventemitter3@5.0.4: {}
+
   events-universal@1.0.1:
     dependencies:
       bare-events: 2.8.2
@@ -15367,6 +15534,8 @@ snapshots:
   is-docker@2.2.1: {}
 
   is-docker@3.0.0: {}
+
+  is-electron@2.2.2: {}
 
   is-extglob@2.1.1: {}
 
@@ -16769,10 +16938,26 @@ snapshots:
 
   p-cancelable@3.0.0: {}
 
+  p-finally@1.0.0: {}
+
+  p-queue@6.6.2:
+    dependencies:
+      eventemitter3: 4.0.7
+      p-timeout: 3.2.0
+
+  p-retry@4.6.2:
+    dependencies:
+      '@types/retry': 0.12.0
+      retry: 0.13.1
+
   p-some@6.0.0:
     dependencies:
       aggregate-error: 4.0.1
       p-cancelable: 3.0.0
+
+  p-timeout@3.2.0:
+    dependencies:
+      p-finally: 1.0.0
 
   p-timeout@5.1.0: {}
 
@@ -17070,6 +17255,8 @@ snapshots:
       - supports-color
 
   proxy-from-env@1.1.0: {}
+
+  proxy-from-env@2.1.0: {}
 
   public-ip@5.0.0:
     dependencies:
@@ -17633,6 +17820,8 @@ snapshots:
       retext-latin: 4.0.0
       retext-stringify: 4.0.0
       unified: 11.0.5
+
+  retry@0.13.1: {}
 
   rettime@0.10.1: {}
 
