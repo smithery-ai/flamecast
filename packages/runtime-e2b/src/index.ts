@@ -476,7 +476,9 @@ export class E2BRuntime implements Runtime {
       try {
         result = JSON.parse(text);
       } catch {
-        throw new Error(`RuntimeHost /sessions/${sessionId}/start failed (${resp.status}): ${text}`);
+        throw new Error(
+          `RuntimeHost /sessions/${sessionId}/start failed (${resp.status}): ${text}`,
+        );
       }
 
       if (!resp.ok) {

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { WsChannelControlMessage, WsChannelServerMessage } from "@flamecast/protocol/ws/channels";
+import type {
+  WsChannelControlMessage,
+  WsChannelServerMessage,
+} from "@flamecast/protocol/ws/channels";
 import type { SessionLog, PermissionResponseBody } from "@flamecast/sdk/session";
 import { fetchSessionFilePreview, fetchSessionFileSystem } from "../lib/api.js";
 import { createWsMessageDedupeState, rememberWsMessage } from "../lib/ws-message-dedupe.js";
@@ -93,7 +96,11 @@ export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
           }
 
           // Skip non-event protocol messages
-          if (message.type === "subscribed" || message.type === "unsubscribed" || message.type === "pong") {
+          if (
+            message.type === "subscribed" ||
+            message.type === "unsubscribed" ||
+            message.type === "pong"
+          ) {
             return;
           }
 
@@ -148,14 +155,11 @@ export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
     };
   }, [sessionId, websocketUrl]);
 
-  const send = useCallback(
-    (message: WsChannelControlMessage) => {
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify(message));
-    },
-    [],
-  );
+  const send = useCallback((message: WsChannelControlMessage) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify(message));
+  }, []);
 
   const prompt = useCallback(
     (text: string) => {

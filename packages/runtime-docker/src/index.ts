@@ -268,11 +268,7 @@ export class DockerRuntime implements Runtime {
   /** instanceName → Docker container + runtime-host port */
   private readonly instances = new Map<string, InstanceEntry>();
 
-  constructor(opts?: {
-    baseImage?: string;
-    docker?: DockerClient;
-    runtimeHostPort?: number;
-  }) {
+  constructor(opts?: { baseImage?: string; docker?: DockerClient; runtimeHostPort?: number }) {
     this.baseImage = opts?.baseImage ?? "node:22-slim";
     this.docker = opts?.docker ?? new Docker();
     this.runtimeHostPort = opts?.runtimeHostPort ?? DEFAULT_RUNTIME_HOST_PORT;
@@ -521,7 +517,9 @@ export class DockerRuntime implements Runtime {
       try {
         result = JSON.parse(text);
       } catch {
-        throw new Error(`RuntimeHost /sessions/${sessionId}/start failed (${resp.status}): ${text}`);
+        throw new Error(
+          `RuntimeHost /sessions/${sessionId}/start failed (${resp.status}): ${text}`,
+        );
       }
 
       if (!resp.ok) {
@@ -558,14 +556,11 @@ export class DockerRuntime implements Runtime {
     }
 
     const body = request.method !== "GET" ? await request.text() : undefined;
-    const resp = await fetch(
-      `http://localhost:${entry.hostPort}/sessions/${sessionId}${path}`,
-      {
-        method: request.method,
-        headers: JSON_HEADERS,
-        body,
-      },
-    );
+    const resp = await fetch(`http://localhost:${entry.hostPort}/sessions/${sessionId}${path}`, {
+      method: request.method,
+      headers: JSON_HEADERS,
+      body,
+    });
 
     return new Response(await resp.text(), {
       status: resp.status,
@@ -577,9 +572,7 @@ export class DockerRuntime implements Runtime {
     // Check each instance's runtime-host for this session
     for (const entry of this.instances.values()) {
       try {
-        const resp = await fetch(
-          `http://localhost:${entry.hostPort}/sessions/${sessionId}/health`,
-        );
+        const resp = await fetch(`http://localhost:${entry.hostPort}/sessions/${sessionId}/health`);
         if (resp.ok) return entry;
       } catch {
         // This instance doesn't have the session
@@ -732,10 +725,9 @@ export class DockerRuntime implements Runtime {
     binaryPath: string,
     workspaceRoot: string,
   ): Promise<void> {
-    await container.putArchive(
-      createTarArchive("session-host", readFileSync(binaryPath), 0o755),
-      { path: posix.dirname(CONTAINER_BIN_PATH) },
-    );
+    await container.putArchive(createTarArchive("session-host", readFileSync(binaryPath), 0o755), {
+      path: posix.dirname(CONTAINER_BIN_PATH),
+    });
 
     const prepareResult = await this.execInContainer(container, [
       "sh",
