@@ -8,7 +8,7 @@ import type { Runtime } from "@flamecast/protocol/runtime";
 interface ManagedProcess {
   killed: boolean;
   stdout: NodeJS.ReadableStream | null;
-  kill(signal?: string): boolean;
+  kill(signal?: NodeJS.Signals | number): boolean;
   on(event: string, listener: (...args: unknown[]) => void): void;
 }
 
