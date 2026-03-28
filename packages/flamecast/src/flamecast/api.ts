@@ -1,5 +1,4 @@
 import { Hono, type Context } from "hono";
-import { streamSSE } from "hono/streaming";
 import { zValidator } from "@hono/zod-validator";
 import type { Flamecast } from "./index.js";
 import {
@@ -9,7 +8,6 @@ import {
   createRegisterAgentTemplateBodySchema,
 } from "../shared/session.js";
 import type { Session } from "../shared/session.js";
-import { toWsChannelEvent } from "./events/channels.js";
 
 export type FlamecastApi = Pick<
   Flamecast,
@@ -354,65 +352,6 @@ export function createApi(flamecast: FlamecastApi) {
           const status = toErrorStatus(error) ?? (msg.includes("not found") ? 404 : 500);
           return c.json({ error: msg }, status);
         }
-      })
-      // ---- SSE event stream (universal — works in Node + edge) ----
-      .get("/agents/:agentId/stream", (c) => {
-        const agentId = c.req.param("agentId");
-        const lastEventId = c.req.header("Last-Event-ID");
-        const since = lastEventId ? parseInt(lastEventId, 10) : undefined;
-
-        return streamSSE(c, async (stream) => {
-          // Replay history (mirrors WS adapter's handleSubscribe behavior)
-          const history = flamecast.eventBus.getHistory(agentId, {
-            since: Number.isFinite(since) ? since : undefined,
-          });
-          for (const event of history) {
-            const msg = toWsChannelEvent(event, `session:${event.sessionId}`);
-            stream.writeSSE({
-              data: JSON.stringify(msg),
-              event: event.event.type,
-              id: String(event.seq),
-            });
-          }
-
-          // Live events
-          const unsub = flamecast.eventBus.onEvent((event) => {
-            if (event.agentId !== agentId) return;
-            const msg = toWsChannelEvent(event, `session:${event.sessionId}`);
-            stream.writeSSE({
-              data: JSON.stringify(msg),
-              event: event.event.type,
-              id: String(event.seq),
-            });
-          });
-
-          const unsubCreated = flamecast.eventBus.onSessionCreated((payload) => {
-            if (payload.agentId !== agentId) return;
-            stream.writeSSE({
-              data: JSON.stringify({ type: "session.created", ...payload }),
-              event: "session.created",
-            });
-          });
-
-          const unsubTerminated = flamecast.eventBus.onSessionTerminated((payload) => {
-            if (payload.agentId !== agentId) return;
-            stream.writeSSE({
-              data: JSON.stringify({ type: "session.terminated", ...payload }),
-              event: "session.terminated",
-            });
-            stream.close();
-          });
-
-          // Single onAbort — cleanup + resolve the keep-alive promise
-          await new Promise<void>((resolve) => {
-            stream.onAbort(() => {
-              unsub();
-              unsubCreated();
-              unsubTerminated();
-              resolve();
-            });
-          });
-        });
       })
   );
 }
