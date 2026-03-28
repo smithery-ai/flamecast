@@ -381,7 +381,7 @@ export class E2BRuntime implements Runtime {
     return jsonResponse({ error: `Unsupported runtime request: ${request.method} ${path}` }, 404);
   }
 
-  getRuntimeMeta(sessionId: string): Record<string, unknown> | null {
+  getRuntimeMeta(_sessionId: string): Record<string, unknown> | null {
     // Return the first instance (most common case)
     for (const [instanceName, entry] of this.instances) {
       return {

@@ -422,7 +422,7 @@ export class DockerRuntime implements Runtime {
     return jsonResponse({ error: `Unsupported runtime request: ${request.method} ${path}` }, 404);
   }
 
-  getRuntimeMeta(sessionId: string): Record<string, unknown> | null {
+  getRuntimeMeta(_sessionId: string): Record<string, unknown> | null {
     // Find which instance this session belongs to by checking runtime-host health
     // For now, return the first instance (most common case: one instance)
     for (const [instanceName, entry] of this.instances) {
