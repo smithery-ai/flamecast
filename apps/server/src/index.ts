@@ -23,7 +23,9 @@ const flamecast = new Flamecast({
     default: new NodeRuntime(),
     ...(agentJsRuntime ? { agentjs: agentJsRuntime } : {}),
     docker: new DockerRuntime(),
-    ...(e2bApiKey ? { e2b: new E2BRuntime({ apiKey: e2bApiKey, template: "flamecast-node22" }) } : {}),
+    ...(e2bApiKey
+      ? { e2b: new E2BRuntime({ apiKey: e2bApiKey, template: "flamecast-node22" }) }
+      : {}),
   },
   agentTemplates: createAgentTemplates({
     agentJsEnabled: agentJsRuntime !== null,
