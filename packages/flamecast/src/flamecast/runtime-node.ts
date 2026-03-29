@@ -12,6 +12,102 @@ interface ManagedProcess {
   on(event: string, listener: (...args: unknown[]) => void): void;
 }
 
+type RuntimeEntry = {
+  path: string;
+  type: "file" | "directory" | "symlink" | "other";
+};
+
+type GitIgnoreRule = {
+  negated: boolean;
+  regex: RegExp;
+};
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+function jsonResponse(body: Record<string, unknown>, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
+}
+
+function globToRegexSource(pattern: string): string {
+  let source = "";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+    if (char === "*") {
+      if (pattern[index + 1] === "*") {
+        source += ".*";
+        index += 1;
+      } else {
+        source += "[^/]*";
+      }
+      continue;
+    }
+    if (char === "?") {
+      source += "[^/]";
+      continue;
+    }
+    if ("\\^$+?.()|{}[]".includes(char)) {
+      source += `\\${char}`;
+      continue;
+    }
+    source += char;
+  }
+  return source;
+}
+
+function parseGitIgnoreRule(line: string): GitIgnoreRule | null {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.startsWith("#")) return null;
+
+  const literal = trimmed.startsWith("\\#") || trimmed.startsWith("\\!");
+  const negated = !literal && trimmed.startsWith("!");
+  const rawPattern = negated ? trimmed.slice(1) : literal ? trimmed.slice(1) : trimmed;
+  if (!rawPattern) return null;
+
+  const directoryOnly = rawPattern.endsWith("/");
+  const anchored = rawPattern.startsWith("/");
+  const normalized = rawPattern.slice(anchored ? 1 : 0, directoryOnly ? -1 : undefined);
+  if (!normalized) return null;
+
+  const hasSlash = normalized.includes("/");
+  const source = globToRegexSource(normalized);
+  const regex = !hasSlash
+    ? new RegExp(directoryOnly ? `(^|/)${source}(/|$)` : `(^|/)${source}$`, "u")
+    : anchored
+      ? new RegExp(directoryOnly ? `^${source}(/|$)` : `^${source}$`, "u")
+      : new RegExp(directoryOnly ? `(^|.*/)${source}(/|$)` : `(^|.*/)${source}$`, "u");
+
+  return { negated, regex };
+}
+
+function parseGitIgnoreRules(content: string): GitIgnoreRule[] {
+  const rules = [parseGitIgnoreRule(".git/")].filter(
+    (rule): rule is GitIgnoreRule => rule !== null,
+  );
+  const extra = process.env.FILE_WATCHER_IGNORE;
+  if (extra) {
+    for (const pattern of extra.split(",")) {
+      const rule = parseGitIgnoreRule(pattern.trim());
+      if (rule) rules.push(rule);
+    }
+  }
+
+  for (const line of content.split(/\r?\n/u)) {
+    const rule = parseGitIgnoreRule(line);
+    if (rule) rules.push(rule);
+  }
+  return rules;
+}
+
+function isGitIgnored(path: string, rules: GitIgnoreRule[]): boolean {
+  let ignored = false;
+  for (const rule of rules) {
+    if (rule.regex.test(path)) {
+      ignored = !rule.negated;
+    }
+  }
+  return ignored;
+}
+
 /**
  * NodeRuntime — manages a local runtime-host Go binary.
  *
@@ -31,6 +127,22 @@ export class NodeRuntime implements Runtime {
     if (url) {
       this.url = url;
     }
+  }
+
+  async start(_instanceId: string): Promise<void> {
+    await this.ensureRunning();
+  }
+
+  async stop(_instanceId: string): Promise<void> {
+    await this.dispose();
+  }
+
+  async getInstanceStatus(
+    _instanceId: string,
+  ): Promise<"running" | "stopped" | "paused" | undefined> {
+    if (this.explicitUrl) return "running";
+    if (this.url && this.process && !this.process.killed) return "running";
+    return undefined;
   }
 
   private async ensureRunning(): Promise<string> {
@@ -153,8 +265,17 @@ export class NodeRuntime implements Runtime {
   }
 
   async fetchInstance(_instanceId: string, request: Request): Promise<Response> {
-    const baseUrl = await this.ensureRunning();
     const originalUrl = new URL(request.url);
+
+    if (!this.explicitUrl && originalUrl.pathname === "/files" && request.method === "GET") {
+      return this.handleRuntimeFilePreview(originalUrl);
+    }
+
+    if (!this.explicitUrl && originalUrl.pathname === "/fs/snapshot" && request.method === "GET") {
+      return this.handleRuntimeFsSnapshot(originalUrl);
+    }
+
+    const baseUrl = await this.ensureRunning();
     const targetUrl = new URL(baseUrl);
     targetUrl.pathname = originalUrl.pathname;
     targetUrl.search = originalUrl.search;
@@ -168,7 +289,7 @@ export class NodeRuntime implements Runtime {
     return fetch(targetUrl.toString(), init);
   }
 
-  getWebsocketUrl(): string | undefined {
+  getWebsocketUrl(_instanceId?: string): string | undefined {
     if (!this.url) return undefined;
     return this.url.replace(/^http/, "ws");
   }
@@ -192,6 +313,83 @@ export class NodeRuntime implements Runtime {
     this.process = null;
     this.url = null;
   }
+
+  private async handleRuntimeFilePreview(url: URL): Promise<Response> {
+    const filePath = url.searchParams.get("path");
+    if (!filePath) {
+      return jsonResponse({ error: "Missing ?path= parameter" }, 400);
+    }
+
+    const { readFile } = await import("node:fs/promises");
+    const path = await import("node:path");
+    const workspaceRoot = process.cwd();
+    const resolvedPath = resolveWorkspacePath(workspaceRoot, filePath, path);
+    if (!resolvedPath) {
+      return jsonResponse({ error: "Path outside workspace" }, 403);
+    }
+
+    let content: string;
+    try {
+      content = await readFile(resolvedPath, "utf8");
+    } catch {
+      return jsonResponse({ error: `Cannot read: ${filePath}` }, 404);
+    }
+
+    const maxChars = 100_000;
+    return jsonResponse({
+      path: filePath,
+      content: content.slice(0, maxChars),
+      truncated: content.length > maxChars,
+      maxChars,
+    });
+  }
+
+  private async handleRuntimeFsSnapshot(url: URL): Promise<Response> {
+    const { readFile, readdir } = await import("node:fs/promises");
+    const path = await import("node:path");
+
+    const workspaceRoot = process.cwd();
+    const showAllFiles = url.searchParams.get("showAllFiles") === "true";
+    const gitIgnoreContents = showAllFiles
+      ? ""
+      : await readFile(path.join(workspaceRoot, ".gitignore"), "utf8").catch(() => "");
+    const rules = showAllFiles ? [] : parseGitIgnoreRules(gitIgnoreContents);
+    const entries: RuntimeEntry[] = [];
+
+    const walk = async (dir: string): Promise<void> => {
+      const dirents = await readdir(dir, { withFileTypes: true }).catch(() => null);
+      if (!dirents) return;
+      dirents.sort((left, right) => left.name.localeCompare(right.name));
+
+      for (const dirent of dirents) {
+        const fullPath = path.join(dir, dirent.name);
+        const relativePath = toPortableRelativePath(workspaceRoot, fullPath, path);
+        if (!relativePath) continue;
+        if (!showAllFiles && isGitIgnored(relativePath, rules)) continue;
+
+        if (dirent.isDirectory()) {
+          entries.push({ path: relativePath, type: "directory" });
+          await walk(fullPath);
+          continue;
+        }
+
+        entries.push({
+          path: relativePath,
+          type: dirent.isFile() ? "file" : dirent.isSymbolicLink() ? "symlink" : "other",
+        });
+      }
+    };
+
+    await walk(workspaceRoot);
+
+    const maxEntries = 10_000;
+    return jsonResponse({
+      root: workspaceRoot,
+      entries: entries.slice(0, maxEntries),
+      truncated: entries.length > maxEntries,
+      maxEntries,
+    });
+  }
 }
 
 function findFreePort(): Promise<number> {
@@ -207,4 +405,32 @@ function findFreePort(): Promise<number> {
         server.on("error", reject);
       }),
   );
+}
+
+function resolveWorkspacePath(
+  workspaceRoot: string,
+  filePath: string,
+  path: typeof import("node:path"),
+): string | null {
+  if (!filePath || filePath.includes("\0") || path.isAbsolute(filePath)) return null;
+  const resolvedPath = path.resolve(workspaceRoot, filePath);
+  const relativePath = path.relative(workspaceRoot, resolvedPath);
+  if (
+    relativePath === ".." ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath)
+  ) {
+    return null;
+  }
+  return resolvedPath;
+}
+
+function toPortableRelativePath(
+  workspaceRoot: string,
+  fullPath: string,
+  path: typeof import("node:path"),
+): string | null {
+  const relativePath = path.relative(workspaceRoot, fullPath);
+  if (!relativePath || relativePath === ".") return null;
+  return relativePath.split(path.sep).join("/");
 }

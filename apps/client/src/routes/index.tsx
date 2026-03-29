@@ -36,6 +36,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { TerminalPanel } from "@/components/terminal-panel";
 import { useTerminal } from "@/hooks/use-terminal";
+import { resolveRuntimeSelection } from "@/lib/runtime-selection";
 import {
   LoaderCircleIcon,
   PlusIcon,
@@ -75,37 +76,6 @@ function envToString(env: Record<string, string> | undefined): string {
   return Object.entries(env)
     .map(([k, v]) => `${k}=${v}`)
     .join("\n");
-}
-
-function resolveRuntimeSelection(filter: string | undefined, runtimes: RuntimeInfo[] | undefined) {
-  if (!filter || !runtimes) return undefined;
-
-  for (const runtimeInfo of runtimes) {
-    if (runtimeInfo.onlyOne && runtimeInfo.typeName === filter) {
-      return {
-        runtimeInfo,
-        instance: {
-          name: runtimeInfo.typeName,
-          typeName: runtimeInfo.typeName,
-          status: "running",
-        } satisfies RuntimeInstance,
-      };
-    }
-
-    if (runtimeInfo.typeName === filter && runtimeInfo.instances.length === 1) {
-      return {
-        runtimeInfo,
-        instance: runtimeInfo.instances[0],
-      };
-    }
-
-    const instance = runtimeInfo.instances.find((candidate) => candidate.name === filter);
-    if (instance) {
-      return { runtimeInfo, instance };
-    }
-  }
-
-  return undefined;
 }
 
 function SessionsPage() {

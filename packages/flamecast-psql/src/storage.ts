@@ -280,12 +280,14 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
           name: instance.name,
           typeName: instance.typeName,
           status: instance.status,
+          websocketUrl: instance.websocketUrl,
         })
         .onConflictDoUpdate({
           target: runtimeInstances.name,
           set: {
             typeName: instance.typeName,
             status: instance.status,
+            websocketUrl: instance.websocketUrl,
           },
         });
     },
@@ -298,7 +300,12 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
       return rows.map((row) => {
         const status =
           row.status === "stopped" ? "stopped" : row.status === "paused" ? "paused" : "running";
-        return { name: row.name, typeName: row.typeName, status };
+        return {
+          name: row.name,
+          typeName: row.typeName,
+          status,
+          ...(row.websocketUrl ? { websocketUrl: row.websocketUrl } : {}),
+        };
       });
     },
 

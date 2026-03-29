@@ -42,6 +42,21 @@ async function readProxyErrorDetail(response: Response): Promise<string> {
   }
 }
 
+async function probeRuntimeHealthFromWebsocketUrl(
+  websocketUrl: string | undefined,
+): Promise<boolean> {
+  if (!websocketUrl) return false;
+
+  try {
+    const url = new URL(websocketUrl);
+    url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+    const response = await fetch(new URL("/health", url));
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 class ProxyRequestError extends Error {
   readonly status: number;
 
@@ -253,18 +268,55 @@ export class Flamecast<
   async listRuntimes(): Promise<RuntimeInfo[]> {
     await this.ensureReady();
     const storage = this.requireStorage();
-    const instances = await storage.listRuntimeInstances();
+    const persistedInstances = await storage.listRuntimeInstances();
+    const activeSessions = await storage.listActiveSessionsWithRuntime();
+    const activeRuntimeHints = new Map<
+      string,
+      { typeName: string; websocketUrl?: string; hostUrl?: string }
+    >();
+
+    for (const session of activeSessions) {
+      if (!session.runtimeInfo) continue;
+      const instanceName = session.meta.runtime ?? session.runtimeInfo.runtimeName;
+      activeRuntimeHints.set(instanceName, {
+        typeName: session.runtimeInfo.runtimeName,
+        websocketUrl: session.runtimeInfo.websocketUrl,
+        hostUrl: session.runtimeInfo.hostUrl,
+      });
+    }
+
+    const instancesByName = new Map<string, RuntimeInstance>();
+    for (const instance of persistedInstances) {
+      instancesByName.set(instance.name, instance);
+    }
+    for (const [instanceName, hint] of activeRuntimeHints) {
+      if (instancesByName.has(instanceName)) continue;
+      const inferred: RuntimeInstance = {
+        name: instanceName,
+        typeName: hint.typeName,
+        status: "running",
+        ...(hint.websocketUrl ? { websocketUrl: hint.websocketUrl } : {}),
+      };
+      instancesByName.set(instanceName, inferred);
+      await storage.saveRuntimeInstance(inferred).catch(() => {});
+    }
 
     // Resolve live status for instances whose runtime supports it
     const resolvedInstances: RuntimeInstance[] = [];
-    for (const inst of instances) {
+    for (const inst of instancesByName.values()) {
       const runtime = this.runtimesMap[inst.typeName];
       let status = inst.status;
+      const activeHint = activeRuntimeHints.get(inst.name);
+      const persistedWebsocketUrl = activeHint?.websocketUrl ?? inst.websocketUrl;
 
       if (runtime?.getInstanceStatus) {
         const liveStatus = await runtime.getInstanceStatus(inst.name).catch(() => undefined);
         if (liveStatus) {
           status = liveStatus;
+        } else if (activeHint) {
+          status = "running";
+        } else if (await probeRuntimeHealthFromWebsocketUrl(inst.websocketUrl)) {
+          status = "running";
         } else if (inst.status === "running" || inst.status === "paused") {
           // Runtime has no knowledge of this instance (e.g. server restarted) — mark stopped
           status = "stopped";
@@ -275,7 +327,7 @@ export class Flamecast<
         }
       }
 
-      const websocketUrl = runtime?.getWebsocketUrl?.(inst.name);
+      const websocketUrl = runtime?.getWebsocketUrl?.(inst.name) ?? persistedWebsocketUrl;
       resolvedInstances.push({ ...inst, status, ...(websocketUrl ? { websocketUrl } : {}) });
     }
 
@@ -312,7 +364,13 @@ export class Flamecast<
       await runtime.start(name);
     }
 
-    const instance: RuntimeInstance = { name, typeName, status: "running" };
+    const websocketUrl = runtime.getWebsocketUrl?.(name);
+    const instance: RuntimeInstance = {
+      name,
+      typeName,
+      status: "running",
+      ...(websocketUrl ? { websocketUrl } : {}),
+    };
     await this.requireStorage().saveRuntimeInstance(instance);
     return instance;
   }

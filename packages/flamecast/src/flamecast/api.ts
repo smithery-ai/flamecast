@@ -9,6 +9,7 @@ import {
   createRegisterAgentTemplateBodySchema,
 } from "../shared/session.js";
 import type { Session } from "../shared/session.js";
+import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
 import { toWsChannelEvent } from "./events/channels.js";
 
 export type FlamecastApi = Pick<
@@ -103,6 +104,25 @@ export function createApi(flamecast: FlamecastApi) {
     return { ...session, websocketUrl };
   };
 
+  const toClientRuntimeInstance = (
+    requestUrl: string,
+    instance: RuntimeInstance,
+  ): RuntimeInstance => {
+    const websocketUrl = rewriteWebsocketUrl(requestUrl, instance.websocketUrl);
+    if (!websocketUrl || websocketUrl === instance.websocketUrl) {
+      return instance;
+    }
+
+    return { ...instance, websocketUrl };
+  };
+
+  const toClientRuntimeInfo = (requestUrl: string, runtimeInfo: RuntimeInfo): RuntimeInfo => ({
+    ...runtimeInfo,
+    instances: runtimeInfo.instances.map((instance) =>
+      toClientRuntimeInstance(requestUrl, instance),
+    ),
+  });
+
   // The agent routes are public API sugar over the current single-session runtime model.
   const getAgentSnapshot = async (c: Context, agentId: string) => {
     try {
@@ -161,7 +181,8 @@ export function createApi(flamecast: FlamecastApi) {
       // ---- Runtime lifecycle ----
       .get("/runtimes", async (c) => {
         try {
-          return c.json(await flamecast.listRuntimes());
+          const runtimes = await flamecast.listRuntimes();
+          return c.json(runtimes.map((runtime) => toClientRuntimeInfo(c.req.url, runtime)));
         } catch (error) {
           console.error("List runtimes failed:", error);
           return c.json({ error: toErrorMessage(error) }, 500);
@@ -173,7 +194,7 @@ export function createApi(flamecast: FlamecastApi) {
           const body = await c.req.json().catch(() => ({}));
           const name = body && typeof body === "object" && "name" in body ? body.name : undefined;
           const instance = await flamecast.startRuntime(typeName, name);
-          return c.json(instance, 201);
+          return c.json(toClientRuntimeInstance(c.req.url, instance), 201);
         } catch (error) {
           const msg = toErrorMessage(error);
           const status = isClientError(error) ? 400 : 500;

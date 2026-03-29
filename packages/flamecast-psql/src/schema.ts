@@ -46,5 +46,6 @@ export const runtimeInstances = flamecastSchema.table("runtime_instances", {
   name: text("name").primaryKey(),
   typeName: text("type_name").notNull(),
   status: text("status").notNull().default("running"),
+  websocketUrl: text("websocket_url"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 });

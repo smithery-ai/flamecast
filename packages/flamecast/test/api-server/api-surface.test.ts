@@ -10,6 +10,7 @@ import type {
 import { createServerApp } from "../../src/flamecast/app.js";
 import type { FlamecastApi } from "../../src/flamecast/api.js";
 import { EventBus } from "../../src/flamecast/events/bus.js";
+import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
 
 const sampleAgentTemplate: AgentTemplate = {
   id: "codex",
@@ -46,6 +47,17 @@ const sampleFileSystem: FileSystemSnapshot = {
   ],
   truncated: false,
   maxEntries: 10_000,
+};
+const sampleRuntimeInstance: RuntimeInstance = {
+  name: "default",
+  typeName: "default",
+  status: "running",
+  websocketUrl: "ws://localhost:9999",
+};
+const sampleRuntimeInfo: RuntimeInfo = {
+  typeName: "default",
+  onlyOne: true,
+  instances: [sampleRuntimeInstance],
 };
 
 function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastApi {
@@ -385,6 +397,40 @@ describe("API server surface", () => {
     expect(response.status).toBe(200);
     expect(await readJson(response)).toEqual(sampleFilePreview);
     expect(flamecast.fetchRuntimeFilePreview).toHaveBeenCalledWith("default", "src/index.ts");
+  });
+
+  it("rewrites runtime websocket URLs for the client origin", async () => {
+    const flamecast = createFlamecastStub({
+      listRuntimes: vi.fn(async () => [sampleRuntimeInfo]),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("https://app.flamecast.dev/api/runtimes");
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual([
+      {
+        ...sampleRuntimeInfo,
+        instances: [{ ...sampleRuntimeInstance, websocketUrl: "wss://app.flamecast.dev:9999/" }],
+      },
+    ]);
+  });
+
+  it("rewrites runtime websocket URLs when starting a runtime", async () => {
+    const flamecast = createFlamecastStub({
+      startRuntime: vi.fn(async () => sampleRuntimeInstance),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("https://app.flamecast.dev/api/runtimes/default/start", {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(201);
+    expect(await readJson(response)).toEqual({
+      ...sampleRuntimeInstance,
+      websocketUrl: "wss://app.flamecast.dev:9999/",
+    });
   });
 
   it("returns a runtime filesystem snapshot through Flamecast", async () => {

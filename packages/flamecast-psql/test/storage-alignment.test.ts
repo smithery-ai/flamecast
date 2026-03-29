@@ -132,6 +132,7 @@ describe("storage alignment", () => {
         name: "alpha",
         typeName: "docker",
         status: "running",
+        websocketUrl: "ws://localhost:9001/",
       });
       await new Promise((resolve) => setTimeout(resolve, 10));
       await storage.saveRuntimeInstance({
@@ -143,12 +144,15 @@ describe("storage alignment", () => {
         name: "alpha",
         typeName: "docker",
         status: "paused",
+        websocketUrl: "ws://localhost:9002/",
       });
 
       const instances = await storage.listRuntimeInstances();
 
       expect(instances.map((instance) => instance.name)).toEqual(["alpha", "beta"]);
       expect(instances.map((instance) => instance.status)).toEqual(["paused", "running"]);
+      expect(instances[0]?.websocketUrl).toBe("ws://localhost:9002/");
+      expect(instances[1]?.websocketUrl).toBeUndefined();
     } finally {
       await close();
       await rm(dataDir, { recursive: true, force: true });

@@ -1,5 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createServer, type Server } from "node:http";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { NodeRuntime } from "../src/flamecast/runtime-node.js";
 
 /** Start a simple HTTP server that records incoming requests and responds. */
@@ -34,12 +37,19 @@ function startMockServer(
 }
 
 describe("NodeRuntime", () => {
+  const originalCwd = process.cwd();
   let serverToCleanup: Server | null = null;
+  let tempDirToCleanup: string | null = null;
 
-  afterEach(() => {
+  afterEach(async () => {
     if (serverToCleanup) {
       serverToCleanup.close();
       serverToCleanup = null;
+    }
+    process.chdir(originalCwd);
+    if (tempDirToCleanup) {
+      await rm(tempDirToCleanup, { recursive: true, force: true });
+      tempDirToCleanup = null;
     }
   });
 
@@ -129,5 +139,70 @@ describe("NodeRuntime", () => {
     expect(requests[0].method).toBe("GET");
     expect(requests[0].url).toBe("/fs/snapshot?showAllFiles=true");
     expect(requests[0].body).toBe("");
+  });
+
+  it("serves runtime filesystem snapshots without requiring an active session", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "node-runtime-"));
+    tempDirToCleanup = workspace;
+    process.chdir(workspace);
+
+    await mkdir(join(workspace, "src"), { recursive: true });
+    await mkdir(join(workspace, "ignored"), { recursive: true });
+    await writeFile(join(workspace, ".gitignore"), "ignored/\nsecret.txt\n");
+    await writeFile(join(workspace, "src", "index.ts"), "export const answer = 42;\n");
+    await writeFile(join(workspace, "ignored", "keep.txt"), "hidden\n");
+    await writeFile(join(workspace, "secret.txt"), "secret\n");
+
+    const runtime = new NodeRuntime();
+
+    const visibleResponse = await runtime.fetchInstance(
+      "local",
+      new Request("http://host/fs/snapshot", { method: "GET" }),
+    );
+
+    expect(visibleResponse.status).toBe(200);
+    const visibleSnapshot: { root: string; entries: Array<{ path: string }> } =
+      await visibleResponse.json();
+    expect(visibleSnapshot.root).toBe(process.cwd());
+    expect(visibleSnapshot.entries.map((entry) => entry.path)).toContain(".gitignore");
+    expect(visibleSnapshot.entries.map((entry) => entry.path)).toContain("src");
+    expect(visibleSnapshot.entries.map((entry) => entry.path)).toContain("src/index.ts");
+    expect(visibleSnapshot.entries.map((entry) => entry.path)).not.toContain("ignored");
+    expect(visibleSnapshot.entries.map((entry) => entry.path)).not.toContain("ignored/keep.txt");
+    expect(visibleSnapshot.entries.map((entry) => entry.path)).not.toContain("secret.txt");
+
+    const allFilesResponse = await runtime.fetchInstance(
+      "local",
+      new Request("http://host/fs/snapshot?showAllFiles=true", { method: "GET" }),
+    );
+
+    expect(allFilesResponse.status).toBe(200);
+    const fullSnapshot: { entries: Array<{ path: string }> } = await allFilesResponse.json();
+    expect(fullSnapshot.entries.map((entry) => entry.path)).toContain("ignored");
+    expect(fullSnapshot.entries.map((entry) => entry.path)).toContain("ignored/keep.txt");
+    expect(fullSnapshot.entries.map((entry) => entry.path)).toContain("secret.txt");
+  });
+
+  it("reads runtime file previews from the local workspace", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "node-runtime-"));
+    tempDirToCleanup = workspace;
+    process.chdir(workspace);
+
+    await mkdir(join(workspace, "src"), { recursive: true });
+    await writeFile(join(workspace, "src", "index.ts"), "console.log('local runtime');\n");
+
+    const runtime = new NodeRuntime();
+    const response = await runtime.fetchInstance(
+      "local",
+      new Request("http://host/files?path=src%2Findex.ts", { method: "GET" }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      path: "src/index.ts",
+      content: "console.log('local runtime');\n",
+      truncated: false,
+      maxChars: 100_000,
+    });
   });
 });
