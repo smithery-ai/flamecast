@@ -12,13 +12,12 @@ dotenv.config();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const agentSource = readFileSync(resolve(__dirname, "../agent.ts"), "utf8");
 
-const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
 const e2bApiKey = process.env.E2B_API_KEY;
 const agentJsBaseUrl = process.env.FLAMECAST_AGENT_JS_BASE_URL;
 const agentJsRuntime = agentJsBaseUrl ? new NodeRuntime(agentJsBaseUrl) : null;
 
 const flamecast = new Flamecast({
-  storage: await createPsqlStorage(url ? { url } : undefined),
+  storage: await createPsqlStorage(),
   runtimes: {
     default: new NodeRuntime(),
     ...(agentJsRuntime ? { agentjs: agentJsRuntime } : {}),

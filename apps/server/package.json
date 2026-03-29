@@ -6,6 +6,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc --project tsconfig.json --noEmit",
     "start": "tsx src/index.ts",
+    "db:migrate": "flamecast db migrate",
+    "db:studio": "flamecast db studio",
     "test": "vitest run --config vitest.config.ts",
     "build-template": "tsx build-template.ts"
   },

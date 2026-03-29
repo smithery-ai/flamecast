@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "tsx index.ts"
+    "start": "tsx index.ts",
+    "db:migrate": "flamecast db migrate",
+    "db:studio": "flamecast db studio"
   },
   "dependencies": {
     "@flamecast/example-shared": "workspace:*",

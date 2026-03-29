@@ -2,12 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createDatabase } from "../src/db.js";
+import { createDatabase, migrateDatabase } from "../src/db.js";
 import { createStorageFromDb } from "../src/storage.js";
 
 describe("storage alignment", () => {
   it("stores managed and user templates in pglite-backed storage", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "flamecast-storage-"));
+    await migrateDatabase({ dataDir });
     const { db, close } = await createDatabase({ dataDir });
     const storage = createStorageFromDb(db);
 
@@ -72,6 +73,7 @@ describe("storage alignment", () => {
 
   it("stores sessions in pglite-backed storage", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "flamecast-sessions-"));
+    await migrateDatabase({ dataDir });
     const { db, close } = await createDatabase({ dataDir });
     const storage = createStorageFromDb(db);
 
@@ -124,6 +126,7 @@ describe("storage alignment", () => {
 
   it("lists runtime instances oldest first", async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), "flamecast-runtime-instances-"));
+    await migrateDatabase({ dataDir });
     const { db, close } = await createDatabase({ dataDir });
     const storage = createStorageFromDb(db);
 

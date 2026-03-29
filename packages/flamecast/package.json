@@ -47,6 +47,8 @@
     "@flamecast/storage-psql": "workspace:*",
     "@hono/node-server": "^1.19.11",
     "@hono/zod-validator": "^0.7.6",
+    "dotenv": "^17.3.1",
+    "drizzle-kit": "^0.31.8",
     "hono": "^4.12.8",
     "zod": "^4.3.6"
   },

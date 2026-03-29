@@ -24,7 +24,7 @@ vi.mock("@electric-sql/pglite", () => ({
 vi.mock("drizzle-orm/pglite", () => ({ drizzle: mocks.drizzlePgLite }));
 vi.mock("drizzle-orm/pglite/migrator", () => ({ migrate: mocks.migratePgLite }));
 
-import { createDatabase } from "../src/db.js";
+import { createDatabase, migrateDatabase, resolveDatabaseOptions } from "../src/db.js";
 
 function resetPgliteMocks() {
   mocks.mkdir.mockReset().mockImplementation(async () => {});
@@ -61,7 +61,7 @@ describe("database client pglite branch", () => {
       path.resolve(path.join(process.cwd(), ".flamecast", "pglite")),
     );
     expect(mocks.mkdir).toHaveBeenCalledTimes(3);
-    expect(mocks.migratePgLite).toHaveBeenCalledTimes(3);
+    expect(mocks.migratePgLite).not.toHaveBeenCalled();
     expect(mocks.drizzlePgLite).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
@@ -76,6 +76,36 @@ describe("database client pglite branch", () => {
     await flamecastEnvBundle.close();
     await defaultBundle.close();
     expect(mocks.close).toHaveBeenCalledTimes(3);
+  });
+
+  test("prefers DATABASE_URL or POSTGRES_URL when resolving database options", () => {
+    process.env.DATABASE_URL = "postgres://db/flamecast";
+    expect(resolveDatabaseOptions({})).toEqual({ url: "postgres://db/flamecast" });
+    expect(resolveDatabaseOptions({ dataDir: "/tmp/explicit-pglite" })).toEqual({
+      dataDir: path.resolve("/tmp/explicit-pglite"),
+    });
+
+    delete process.env.DATABASE_URL;
+    process.env.POSTGRES_URL = "postgres://legacy/flamecast";
+    expect(resolveDatabaseOptions({})).toEqual({ url: "postgres://legacy/flamecast" });
+  });
+
+  test("runs pglite migrations explicitly", async () => {
+    await migrateDatabase({ dataDir: "/tmp/explicit-pglite" });
+
+    expect(mocks.createPGlite).toHaveBeenCalledWith(path.resolve("/tmp/explicit-pglite"));
+    expect(mocks.drizzlePgLite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        client: expect.any(Object),
+      }),
+    );
+    expect(mocks.migratePgLite).toHaveBeenCalledWith(
+      { kind: "pglite" },
+      expect.objectContaining({
+        migrationsFolder: expect.stringContaining(path.join("src", "migrations")),
+      }),
+    );
+    expect(mocks.close).toHaveBeenCalledTimes(1);
   });
 
   test("rewrites locked-directory startup failures to a friendlier message", async () => {

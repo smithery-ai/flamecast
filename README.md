@@ -352,7 +352,7 @@ export default flamecast.fetch;
 
 ### Storage options
 
-Use `@flamecast/storage-psql` for SQL-backed persistence. `createPsqlStorage()` defaults to embedded PGLite when no `url` is provided:
+Use `@flamecast/storage-psql` for SQL-backed persistence. `createPsqlStorage()` defaults to embedded PGLite when no `url`, `DATABASE_URL`, or `POSTGRES_URL` is provided:
 
 ```ts
 import { createPsqlStorage } from "@flamecast/storage-psql";
@@ -362,6 +362,13 @@ const storage = await createPsqlStorage({ url: "postgres://localhost/flamecast" 
 
 // Embedded PGLite (default)
 const storage = await createPsqlStorage();
+```
+
+Run migrations before starting the server:
+
+```bash
+flamecast db migrate
+flamecast db studio
 ```
 
 | Option | Description |
@@ -374,6 +381,8 @@ const storage = await createPsqlStorage();
 | Variable | Purpose |
 |---|---|
 | `FLAMECAST_PGLITE_DIR` | Override the default PGLite data directory (`<cwd>/.flamecast/pglite`) |
+| `DATABASE_URL` | Postgres connection string for `createPsqlStorage()` and `flamecast db ...` |
+| `POSTGRES_URL` | Legacy alias for `DATABASE_URL` |
 | `SESSION_HOST_BINARY` | Path to a local session-host binary (for docker/local providers) |
 | `SESSION_HOST_URL` | URL to download the session-host binary (for e2b/bundled environments). Overrides the default GitHub release URL |
 

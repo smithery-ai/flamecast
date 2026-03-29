@@ -24,7 +24,7 @@ vi.mock("pg", () => ({ Pool: mocks.Pool }));
 vi.mock("drizzle-orm/node-postgres", () => ({ drizzle: mocks.drizzleNodePg }));
 vi.mock("drizzle-orm/node-postgres/migrator", () => ({ migrate: mocks.migrateNodePg }));
 
-import { createDatabase } from "../src/db.js";
+import { createDatabase, migrateDatabase } from "../src/db.js";
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -42,15 +42,30 @@ describe("database client postgres branch", () => {
         }),
       }),
     );
+    expect(mocks.migrateNodePg).not.toHaveBeenCalled();
+    expect(bundle.db).toEqual({ kind: "pg-db" });
+
+    await bundle.close();
+    expect(mocks.poolEnd).toHaveBeenCalledTimes(1);
+  });
+
+  test("runs postgres migrations explicitly", async () => {
+    await migrateDatabase({ url: "postgres://db/flamecast" });
+
+    expect(mocks.Pool).toHaveBeenCalledWith({ connectionString: "postgres://db/flamecast" });
+    expect(mocks.drizzleNodePg).toHaveBeenCalledWith(
+      expect.objectContaining({
+        client: expect.objectContaining({
+          connectionString: "postgres://db/flamecast",
+        }),
+      }),
+    );
     expect(mocks.migrateNodePg).toHaveBeenCalledWith(
       { kind: "pg-db" },
       expect.objectContaining({
         migrationsFolder: expect.stringContaining(path.join("src", "migrations")),
       }),
     );
-    expect(bundle.db).toEqual({ kind: "pg-db" });
-
-    await bundle.close();
     expect(mocks.poolEnd).toHaveBeenCalledTimes(1);
   });
 });

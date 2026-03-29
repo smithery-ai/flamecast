@@ -14,7 +14,7 @@ Flamecast persists session metadata and agent templates through Drizzle-backed s
 
 ## Configuration
 
-`Flamecast` requires an explicit `storage` instance. In Node environments, `createPsqlStorage()` defaults to embedded PGLite when no `url` is provided.
+`Flamecast` requires an explicit `storage` instance. In Node environments, `createPsqlStorage()` defaults to embedded PGLite when no `url`, `DATABASE_URL`, or `POSTGRES_URL` is provided.
 
 ### PGLite (default Node path)
 
@@ -28,6 +28,13 @@ const flamecast = new Flamecast({
 ```
 
 PGLite stores data in `<cwd>/.flamecast/pglite` by default. Override with the `FLAMECAST_PGLITE_DIR` environment variable or the `dataDir` option.
+
+Run migrations before starting Flamecast:
+
+```bash
+flamecast db migrate
+flamecast db studio
+```
 
 ### PostgreSQL
 

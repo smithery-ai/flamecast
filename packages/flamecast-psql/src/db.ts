@@ -10,6 +10,13 @@ import type { PsqlAppDb } from "./types.js";
 import { PSQL_MIGRATIONS_FOLDER } from "./migrations-path.js";
 import * as schema from "./schema.js";
 
+export type DatabaseOptions = {
+  url?: string;
+  dataDir?: string;
+};
+
+export type ResolvedDatabaseOptions = { url: string } | { dataDir: string };
+
 export type DatabaseBundle = {
   db: PsqlAppDb;
   /** Postgres pool end, or PGlite close. */
@@ -31,17 +38,40 @@ function toPgliteStartupError(dataDir: string, error: unknown): Error {
   return error instanceof Error ? error : new Error(message);
 }
 
-/** Connect to **Postgres** when a URL is provided; otherwise **PGLite** on disk. */
-export async function createDatabase(options: {
-  url?: string;
-  dataDir?: string;
-}): Promise<DatabaseBundle> {
-  const migrationsFolder = PSQL_MIGRATIONS_FOLDER;
+export function resolvePgliteDataDir(dataDir?: string): string {
+  return path.resolve(
+    dataDir ?? process.env.FLAMECAST_PGLITE_DIR ?? path.join(process.cwd(), ".flamecast", "pglite"),
+  );
+}
 
+/**
+ * Resolve the active Flamecast database connection from explicit options or
+ * the standard environment variables used by the server and CLI.
+ */
+export function resolveDatabaseOptions(options: DatabaseOptions = {}): ResolvedDatabaseOptions {
   if (options.url) {
-    const pool = new Pool({ connectionString: options.url });
+    return { url: options.url };
+  }
+
+  if (options.dataDir) {
+    return { dataDir: resolvePgliteDataDir(options.dataDir) };
+  }
+
+  const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
+  if (url) {
+    return { url };
+  }
+
+  return { dataDir: resolvePgliteDataDir() };
+}
+
+/** Connect to **Postgres** when a URL is provided; otherwise **PGLite** on disk. */
+export async function createDatabase(options: DatabaseOptions = {}): Promise<DatabaseBundle> {
+  const resolved = resolveDatabaseOptions(options);
+
+  if ("url" in resolved) {
+    const pool = new Pool({ connectionString: resolved.url });
     const db = drizzleNodePg({ client: pool, schema });
-    await migrateNodePg(db, { migrationsFolder });
     return {
       db,
       close: async () => {
@@ -50,11 +80,7 @@ export async function createDatabase(options: {
     };
   }
 
-  const dataDir = path.resolve(
-    options.dataDir ??
-      process.env.FLAMECAST_PGLITE_DIR ??
-      path.join(process.cwd(), ".flamecast", "pglite"),
-  );
+  const dataDir = resolved.dataDir;
   await mkdir(dataDir, { recursive: true });
   let client: Awaited<ReturnType<typeof PGlite.create>>;
   try {
@@ -63,11 +89,43 @@ export async function createDatabase(options: {
     throw toPgliteStartupError(dataDir, error);
   }
   const db = drizzlePgLite({ client, schema });
-  await migratePgLite(db, { migrationsFolder });
   return {
     db,
     close: async () => {
       await client.close();
     },
   };
+}
+
+/** Apply bundled Drizzle migrations to the active Flamecast database. */
+export async function migrateDatabase(options: DatabaseOptions = {}): Promise<void> {
+  const resolved = resolveDatabaseOptions(options);
+  const migrationsFolder = PSQL_MIGRATIONS_FOLDER;
+
+  if ("url" in resolved) {
+    const pool = new Pool({ connectionString: resolved.url });
+    try {
+      const db = drizzleNodePg({ client: pool, schema });
+      await migrateNodePg(db, { migrationsFolder });
+    } finally {
+      await pool.end();
+    }
+    return;
+  }
+
+  const dataDir = resolved.dataDir;
+  await mkdir(dataDir, { recursive: true });
+  let client: Awaited<ReturnType<typeof PGlite.create>>;
+  try {
+    client = await PGlite.create(dataDir);
+  } catch (error) {
+    throw toPgliteStartupError(dataDir, error);
+  }
+
+  try {
+    const db = drizzlePgLite({ client, schema });
+    await migratePgLite(db, { migrationsFolder });
+  } finally {
+    await client.close();
+  }
 }
