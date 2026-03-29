@@ -1,29 +1,22 @@
 ---
 title: "Storage"
-description: "Persist session metadata with pluggable backends"
+description: "Persist session metadata with Drizzle-backed storage"
 ---
 
-Flamecast supports multiple storage backends for persisting session metadata and agent templates.
+Flamecast persists session metadata and agent templates through Drizzle-backed storage.
 
 ## Backends
 
 | Backend | Package | Use case |
 |---|---|---|
-| Memory | Built-in | Development and testing. Data lost on restart |
 | PGLite | `@flamecast/storage-psql` | Embedded Postgres. No external database needed |
 | PostgreSQL | `@flamecast/storage-psql` | Production. Full Postgres with connection pooling |
 
 ## Configuration
 
-### In-memory (default)
+`Flamecast` requires an explicit `storage` instance. In Node environments, `createPsqlStorage()` defaults to embedded PGLite when no `url` is provided.
 
-```typescript
-import { Flamecast } from "@flamecast/sdk";
-
-const flamecast = new Flamecast();
-```
-
-### PGLite
+### PGLite (default Node path)
 
 ```typescript
 import { Flamecast } from "@flamecast/sdk";
@@ -55,7 +48,7 @@ const flamecast = new Flamecast({ storage });
 | `url` | Postgres connection string |
 | `dataDir` | PGLite data directory (default: `<cwd>/.flamecast/pglite`) |
 
-The SQL storage backend uses Drizzle ORM. Generate migrations with:
+The storage package uses Drizzle ORM. Generate migrations with:
 
 ```bash
 pnpm psql:generate

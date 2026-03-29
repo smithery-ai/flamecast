@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { serve } from "@hono/node-server";
+import { createPsqlStorage } from "@flamecast/storage-psql";
 import { Flamecast, NodeRuntime } from "./index.js";
 
 function parsePort(value: string | undefined): number {
@@ -13,8 +14,10 @@ function parsePort(value: string | undefined): number {
 }
 
 const port = parsePort(process.env.FLAMECAST_PORT ?? process.env.PORT);
+const storage = await createPsqlStorage();
 
 const flamecast = new Flamecast({
+  storage,
   runtimes: { default: new NodeRuntime() },
 });
 

@@ -2,17 +2,17 @@
  * Tier 1 Integration Test: Session Lifecycle
  *
  * Tests the full happy path through the public API using InProcessSessionHost.
- * No child processes, no Docker, no ports — pure in-memory.
+ * No child processes, no Docker, no ports — just the in-process host plus
+ * temporary PGLite-backed storage.
  */
 
 /* oxlint-disable no-type-assertion/no-type-assertion */
 import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
 import { Flamecast } from "../src/flamecast/index.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import { createApi } from "../src/flamecast/api.js";
 import { InProcessSessionHost } from "./fixtures/in-process-session-host.js";
-import { createClient } from "./fixtures/test-helpers.js";
+import { createClient, createTestStorage } from "./fixtures/test-helpers.js";
 import type { AgentTemplate } from "../src/shared/session.js";
 
 const exampleTemplate: AgentTemplate = {
@@ -29,7 +29,7 @@ const exampleTemplate: AgentTemplate = {
 describe("session lifecycle with InProcessSessionHost", () => {
   it("full happy path - create, get, list, terminate, verify status", async () => {
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -101,7 +101,7 @@ describe("session lifecycle with InProcessSessionHost", () => {
 
   it("create session with inline spawn (no template)", async () => {
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -132,7 +132,7 @@ describe("session lifecycle with InProcessSessionHost", () => {
 
   it("multiple concurrent sessions are isolated", async () => {
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -173,7 +173,7 @@ describe("session lifecycle with InProcessSessionHost", () => {
 
   it("health endpoint reflects session count", async () => {
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -203,7 +203,7 @@ describe("session lifecycle with InProcessSessionHost", () => {
 
   it("terminate already-killed session returns 409", async () => {
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -234,7 +234,7 @@ describe("session lifecycle with InProcessSessionHost", () => {
 
   it("get nonexistent session returns 404", async () => {
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },

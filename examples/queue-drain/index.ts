@@ -10,6 +10,7 @@
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
 import { createFlamecastClient } from "@flamecast/sdk/client";
 import { EXAMPLE_TEMPLATE, startServer } from "@flamecast/example-shared/create-example.js";
+import { createPsqlStorage } from "@flamecast/storage-psql";
 
 const PROMPTS = [
   "list files in the current directory",
@@ -18,8 +19,10 @@ const PROMPTS = [
   "delete hello.txt",
   "confirm hello.txt is deleted",
 ];
+const storage = await createPsqlStorage();
 
 const flamecast = new Flamecast({
+  storage,
   runtimes: { default: new NodeRuntime() },
   agentTemplates: [EXAMPLE_TEMPLATE],
   onPermissionRequest: async (c) => {

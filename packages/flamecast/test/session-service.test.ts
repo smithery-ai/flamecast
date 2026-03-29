@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { SessionService } from "../src/flamecast/session-service.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
+import { createTestStorage } from "./fixtures/test-helpers.js";
 import type { Runtime } from "@flamecast/protocol/runtime";
 
 function createMockRuntime(): Runtime & {
@@ -43,7 +43,7 @@ describe("SessionService", () => {
     const mockA = createMockRuntime();
     const mockB = createMockRuntime();
     const service = new SessionService({ a: mockA, b: mockB });
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
 
     await service.startSession(storage, defaultStartOpts("a"));
 
@@ -56,7 +56,7 @@ describe("SessionService", () => {
     const mockA = createMockRuntime();
     const mockB = createMockRuntime();
     const service = new SessionService({ a: mockA, b: mockB });
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
 
     await expect(service.startSession(storage, defaultStartOpts("nonexistent"))).rejects.toThrow(
       /Unknown runtime: "nonexistent"/,
@@ -71,7 +71,7 @@ describe("SessionService", () => {
     const mockA = createMockRuntime();
     const mockB = createMockRuntime();
     const service = new SessionService({ a: mockA, b: mockB });
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
 
     const { sessionId } = await service.startSession(storage, defaultStartOpts("a"));
     mockA.calls.length = 0; // reset after start
@@ -87,7 +87,7 @@ describe("SessionService", () => {
   it("tracks sessions via hasSession and listSessionIds", async () => {
     const mock = createMockRuntime();
     const service = new SessionService({ local: mock });
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
 
     const { sessionId } = await service.startSession(storage, defaultStartOpts("local"));
 

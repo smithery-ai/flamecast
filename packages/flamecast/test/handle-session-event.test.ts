@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
+import { createTestStorage } from "./fixtures/test-helpers.js";
 import type { Runtime } from "@flamecast/protocol/runtime";
 import type { SessionHostStartResponse } from "@flamecast/protocol/session-host";
 import type { PermissionRequestContext } from "../src/flamecast/index.js";
@@ -48,7 +48,7 @@ async function setup(
     ? Omit<O, "runtimes" | "storage">
     : never = {},
 ) {
-  const storage = new MemoryFlamecastStorage();
+  const storage = await createTestStorage();
   const flamecast = new Flamecast({
     storage,
     runtimes: { local: createMockRuntime() },

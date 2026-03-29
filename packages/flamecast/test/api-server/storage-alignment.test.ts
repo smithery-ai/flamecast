@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Flamecast } from "../../src/flamecast/index.js";
 import type { Runtime } from "@flamecast/protocol/runtime";
-import { MemoryFlamecastStorage } from "../../src/flamecast/storage/memory/index.js";
+import { createTestStorage } from "../fixtures/test-helpers.js";
 
 const noopRuntime: Runtime = {
   async fetchSession() {
@@ -11,7 +11,7 @@ const noopRuntime: Runtime = {
 
 describe("storage alignment", () => {
   it("persists registered agent templates through Flamecast storage", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecastA = new Flamecast({ storage, runtimes: { local: noopRuntime } });
 
     const template = await flamecastA.registerAgentTemplate({

@@ -22,7 +22,7 @@ Open **http://localhost:3000**. The home page lists the registered agent templat
 | Control plane | `Flamecast` class + Hono API + ACP client connection |
 | Real-time layer | WebSocket server (`ws`) for live session events and control |
 | Bridge | `AcpBridge` + `@acp/runtime-bridge` sidecar for agent ↔ client communication |
-| Storage | `FlamecastStorage` with memory, PGLite, or Postgres backends |
+| Storage | `FlamecastStorage` with Drizzle-backed PGLite or Postgres backends |
 | Runtime providers | Built-in `local` and `docker` providers, plus custom provider registry support |
 | Infrastructure | [Alchemy](https://alchemy.run) for Docker provisioning and experimental deployment flows |
 | API | [Hono](https://hono.dev/) on Node (`@hono/node-server`), port 3001 |
@@ -36,9 +36,9 @@ Open **http://localhost:3000**. The home page lists the registered agent templat
 
 ```mermaid
 graph TD
-    A["Server (apps/server/src/index.ts)<br/>Creates new Flamecast()<br/>Exposes the Hono app on port 3001"]
+    A["Server (apps/server/src/index.ts)<br/>Creates storage + Flamecast<br/>Exposes the Hono app on port 3001"]
     B["Flamecast (packages/flamecast/src/flamecast/index.ts)<br/>Owns session lifecycle, ACP client wiring,<br/>storage initialization, and runtime provider dispatch"]
-    C["Storage<br/>memory / pglite / postgres<br/>metadata + logs"]
+    C["Storage<br/>pglite / postgres<br/>metadata + logs"]
     D["Runtime providers<br/>local / docker<br/>custom providers"]
     E["ACP-compatible agent<br/>process or container"]
     F["AcpBridge<br/>Wraps ACP ClientSideConnection<br/>Emits typed events, queues prompts,<br/>brokers permissions"]
@@ -56,7 +56,7 @@ graph TD
 
 ### How it works
 
-1. `Flamecast` lazily resolves storage and its runtime provider registry when the first API call or `listen()` happens.
+1. `Flamecast` uses the caller-provided storage and lazily seeds initial agent templates when the first API call or `listen()` happens.
 2. `POST /api/agents` resolves either an `agentTemplateId` or an ad-hoc `spawn` definition.
 3. The selected runtime provider starts the agent and returns an ACP transport plus a termination handle.
 4. `AcpBridge` wraps the transport in an ACP `ClientSideConnection`, performs `initialize` and `session/new`, and begins emitting typed events (RPC calls, permission requests, logs).
@@ -287,8 +287,6 @@ packages/
         agent-templates.ts  # Built-in agent templates
         transport.ts        # AcpTransport, local/tcp helpers
         agent.ts            # Example ACP agent (stdio + TCP modes)
-        storage/
-          memory/           # In-memory FlamecastStorage
       runtime/
         acp-bridge.ts       # AcpBridge — ACP ↔ Flamecast event adapter
         client.ts           # RuntimeClient interface
@@ -333,9 +331,10 @@ The same instance also exposes a standard `fetch` handler:
 
 ```ts
 import { Flamecast } from "@flamecast/sdk";
+import { createPsqlStorage } from "@flamecast/storage-psql";
 
 const flamecast = new Flamecast({
-  storage: { type: "postgres", url: process.env.DATABASE_URL! },
+  storage: await createPsqlStorage({ url: process.env.DATABASE_URL! }),
 });
 
 export default flamecast.fetch;
@@ -345,7 +344,7 @@ export default flamecast.fetch;
 
 | Option | Description |
 |---|---|
-| `storage` | Persistence backend. Defaults to in-memory |
+| `storage` | Persistence backend. Required |
 | `runtimeProviders` | Registry overrides or additional runtime providers |
 | `agentTemplates` | Initial agent template list. Replaces bundled defaults when provided |
 | `handleSignals` | Auto shutdown on SIGINT/SIGTERM. Defaults to `true` |
@@ -353,7 +352,7 @@ export default flamecast.fetch;
 
 ### Storage options
 
-The SDK defaults to an in-memory backend. Use `@flamecast/storage-psql` for SQL-backed persistence:
+Use `@flamecast/storage-psql` for SQL-backed persistence. `createPsqlStorage()` defaults to embedded PGLite when no `url` is provided:
 
 ```ts
 import { createPsqlStorage } from "@flamecast/storage-psql";

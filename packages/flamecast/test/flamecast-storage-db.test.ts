@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
+import { createTestStorage } from "./fixtures/test-helpers.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -31,9 +31,9 @@ function createSessionMeta(id: string) {
   };
 }
 
-describe("memory storage", () => {
+describe("drizzle-backed storage", () => {
   test("seeds templates, preserves user templates, and clones stored values", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const presetOne = createTemplate("preset-1", "Preset One");
     const presetTwo = createTemplate("preset-2", "Preset Two");
     const custom = createTemplate("custom-1", "Custom One");
@@ -60,13 +60,11 @@ describe("memory storage", () => {
     expect(await storage.getAgentTemplate("missing")).toBeNull();
   });
 
-  test("stores sessions with the expected error handling", async () => {
-    const storage = new MemoryFlamecastStorage();
+  test("stores sessions with the expected update behavior", async () => {
+    const storage = await createTestStorage();
     const meta = createSessionMeta("session-1");
 
-    await expect(storage.updateSession("missing", {})).rejects.toThrow(
-      'Session "missing" not found in storage',
-    );
+    await expect(storage.updateSession("missing", {})).resolves.toBeUndefined();
 
     await storage.createSession(meta);
     await storage.updateSession(meta.id, { lastUpdatedAt: "2024-01-02T00:00:00.000Z" });
@@ -79,8 +77,12 @@ describe("memory storage", () => {
       },
     });
 
-    expect(await storage.getSessionMeta(meta.id)).toMatchObject({
-      lastUpdatedAt: "2024-01-02T00:00:00.000Z",
+    const storedMeta = await storage.getSessionMeta(meta.id);
+
+    expect(new Date(storedMeta?.lastUpdatedAt ?? "").toISOString()).toBe(
+      "2024-01-02T00:00:00.000Z",
+    );
+    expect(storedMeta).toMatchObject({
       pendingPermission: {
         requestId: "request-1",
       },

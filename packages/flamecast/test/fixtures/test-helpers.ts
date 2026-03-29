@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { hc } from "hono/client";
 import type { Flamecast } from "../../src/flamecast/index.js";
 import { createApi, type AppType } from "../../src/flamecast/api.js";
+export { createTestStorage } from "./storage.js";
 
 // ---------------------------------------------------------------------------
 // Hono test client

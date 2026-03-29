@@ -4,7 +4,7 @@ import type {
   AgentTemplateRuntime,
   PendingPermission,
   WebhookConfig,
-} from "@flamecast/sdk";
+} from "@flamecast/protocol/session";
 
 export const flamecastSchema = pgSchema("flamecast");
 

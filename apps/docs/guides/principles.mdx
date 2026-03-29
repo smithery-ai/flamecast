@@ -11,12 +11,15 @@ The reference server in `apps/server` is intentionally minimal. It creates a `Fl
 
 ```typescript
 import { Flamecast } from "@flamecast/sdk";
+import { createPsqlStorage } from "@flamecast/storage-psql";
 
-const flamecast = new Flamecast();
+const flamecast = new Flamecast({
+  storage: await createPsqlStorage(),
+});
 await flamecast.listen(3001);
 ```
 
-This works out of the box — in-memory storage, local process runtime, built-in agent templates. But every piece is replaceable. Swap in Postgres storage, add a custom runtime provider, register your own templates, or use the `fetch` handler for serverless deployments.
+This works out of the box with embedded PGLite storage, local process runtime, and built-in agent templates. But every piece is replaceable. Swap in Postgres storage, add a custom runtime provider, register your own templates, or use the `fetch` handler for serverless deployments.
 
 The goal is that `apps/server` never needs to change. It exists as a starting point. All customization flows through the `Flamecast` constructor and the packages you choose to install.
 
@@ -51,7 +54,9 @@ Flamecast adapts to your deployment model. The same `Flamecast` instance works i
 **Stateful (long-running server)** — call `listen()`. This starts an HTTP + WebSocket server that manages agent processes, holds connections open, and persists state locally. Ideal for running on a VM, a VPS, or your own machine.
 
 ```typescript
-const flamecast = new Flamecast();
+const flamecast = new Flamecast({
+  storage: await createPsqlStorage(),
+});
 await flamecast.listen(3001);
 ```
 

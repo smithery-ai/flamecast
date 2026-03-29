@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
+import { createTestStorage } from "./fixtures/test-helpers.js";
 import type { Runtime } from "@flamecast/protocol/runtime";
 import type { PermissionRequestContext, SessionEndContext } from "../src/flamecast/index.js";
 import type { SessionHostStartResponse } from "@flamecast/protocol/session-host";
@@ -59,6 +59,7 @@ describe("generic Flamecast<R> type safety", () => {
     // This test primarily verifies compile-time correctness.
     // If it compiles, the generics work.
     const flamecast = new Flamecast({
+      storage: await createTestStorage(),
       runtimes: {
         local: createMockRuntime(),
         cloud: createMockRuntime(),
@@ -78,6 +79,7 @@ describe("generic Flamecast<R> type safety", () => {
     const onSessionEnd = vi.fn<[SessionEndContext<{ local: Runtime }>]>();
 
     const flamecast = new Flamecast({
+      storage: await createTestStorage(),
       runtimes: { local: createMockRuntime() },
       onSessionEnd,
     });
@@ -93,6 +95,7 @@ describe("generic Flamecast<R> type safety", () => {
   it("defaults to Record<string, Runtime> when no generic specified", async () => {
     // Unparameterized Flamecast should still work (backward compatible)
     const flamecast: Flamecast = new Flamecast({
+      storage: await createTestStorage(),
       runtimes: { local: createMockRuntime() },
     });
 
@@ -113,7 +116,7 @@ describe("onSessionEnd handler", () => {
   it("is called when a session is terminated", async () => {
     const onSessionEnd = vi.fn<[SessionEndContext<{ local: Runtime }>]>();
 
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -144,7 +147,7 @@ describe("onSessionEnd handler", () => {
   });
 
   it("is not called when no handler is registered", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -166,7 +169,7 @@ describe("onSessionEnd handler", () => {
   it("handler errors are caught and do not break termination", async () => {
     const onSessionEnd = vi.fn().mockRejectedValue(new Error("handler boom"));
 
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -202,7 +205,7 @@ describe("onPermissionRequest handler", () => {
       return c.allow();
     });
 
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -246,7 +249,7 @@ describe("onPermissionRequest handler", () => {
       return c.deny();
     });
 
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -276,7 +279,7 @@ describe("onPermissionRequest handler", () => {
   });
 
   it("returns undefined when no handler is registered", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -303,7 +306,7 @@ describe("onPermissionRequest handler", () => {
   it("handler errors are caught and return undefined", async () => {
     const onPermissionRequest = vi.fn().mockRejectedValue(new Error("handler boom"));
 
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -334,7 +337,7 @@ describe("onPermissionRequest handler", () => {
       return c.allow();
     });
 
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },

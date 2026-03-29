@@ -1,7 +1,7 @@
-import type { FlamecastStorage } from "@flamecast/sdk";
 import { createDatabase } from "./db.js";
 import { createStorageFromDb } from "./storage.js";
 import { defaultAgentTemplates } from "./default-templates.js";
+import type { PsqlFlamecastStorage } from "./flamecast-storage.js";
 
 export type PsqlStorageOptions = {
   /** Postgres connection URL. If omitted, falls back to embedded PGLite. */
@@ -13,7 +13,7 @@ export type PsqlStorageOptions = {
 };
 
 /**
- * Create a {@link FlamecastStorage} backed by PostgreSQL (or embedded PGLite).
+ * Create a Drizzle-backed Flamecast storage backed by PostgreSQL (or embedded PGLite).
  *
  * When using PGLite (no `url`), builtin agent templates are auto-seeded unless
  * `seedDefaults: false` is passed. When using Postgres, templates are not seeded
@@ -30,7 +30,7 @@ export type PsqlStorageOptions = {
  */
 export async function createPsqlStorage(
   options: PsqlStorageOptions = {},
-): Promise<FlamecastStorage> {
+): Promise<PsqlFlamecastStorage> {
   const { db } = await createDatabase(options);
   const storage = createStorageFromDb(db);
 
@@ -45,5 +45,11 @@ export async function createPsqlStorage(
 export { createStorageFromDb } from "./storage.js";
 export type { PsqlAppDb } from "./types.js";
 export type { DatabaseBundle } from "./db.js";
+export type {
+  PsqlFlamecastStorage,
+  SessionMeta,
+  SessionRuntimeInfo,
+  StoredSession,
+} from "./flamecast-storage.js";
 export { createDatabase } from "./db.js";
 export { defaultAgentTemplates } from "./default-templates.js";

@@ -1,12 +1,12 @@
 import { and, asc, desc, eq, inArray, not } from "drizzle-orm";
+import type { RuntimeInstance } from "@flamecast/protocol/runtime";
+import type { AgentTemplate } from "@flamecast/protocol/session";
 import type {
-  AgentTemplate,
-  FlamecastStorage,
-  RuntimeInstance,
+  PsqlFlamecastStorage,
   SessionMeta,
   SessionRuntimeInfo,
   StoredSession,
-} from "@flamecast/sdk";
+} from "./flamecast-storage.js";
 import { agentTemplates, runtimeInstances, sessions } from "./schema.js";
 import type { PsqlAppDb } from "./types.js";
 
@@ -39,7 +39,7 @@ function rowToTemplate(row: typeof agentTemplates.$inferSelect): AgentTemplate {
 }
 
 /** SQL-backed state manager (Postgres `Pool` or embedded **PGLite** file) via Drizzle. */
-export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
+export function createStorageFromDb(db: PsqlAppDb): PsqlFlamecastStorage {
   return {
     async seedAgentTemplates(templates: AgentTemplate[]) {
       const managedTemplateIds = templates.map((template) => template.id);

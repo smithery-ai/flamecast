@@ -2,9 +2,8 @@
 import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
 import { Flamecast } from "../src/flamecast/index.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import { createApi } from "../src/flamecast/api.js";
-import { createClient } from "./fixtures/test-helpers.js";
+import { createClient, createTestStorage } from "./fixtures/test-helpers.js";
 import type { Runtime } from "@flamecast/protocol/runtime";
 import type { AgentTemplate, PendingPermission } from "../src/shared/session.js";
 import type {
@@ -89,7 +88,7 @@ const codexTemplate: AgentTemplate = {
 
 describe("template seeding", () => {
   it("returns seeded templates via GET /api/agent-templates", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -126,7 +125,7 @@ describe("template seeding", () => {
   });
 
   it("returns empty templates when none are seeded", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -149,7 +148,7 @@ describe("template seeding", () => {
 
 describe("start from template", () => {
   it("creates a session via POST /api/agents with agentTemplateId", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -175,7 +174,7 @@ describe("start from template", () => {
   });
 
   it("rejects unknown template id", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -277,7 +276,7 @@ describe("permission event shape", () => {
     // Create a Flamecast instance, create a session, then manually
     // inject a pendingPermission into storage and verify the GET response
     // returns it at the top level (not nested).
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -343,7 +342,7 @@ describe("permission event shape", () => {
 
 describe("API contract with runtimes option", () => {
   it("list agents (empty)", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -360,7 +359,7 @@ describe("API contract with runtimes option", () => {
   });
 
   it("404 for unknown agent", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -378,7 +377,7 @@ describe("API contract with runtimes option", () => {
   });
 
   it("session lifecycle with create get list terminate", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -426,7 +425,7 @@ describe("API contract with runtimes option", () => {
   });
 
   it("health endpoint works with runtimes", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },
@@ -446,7 +445,7 @@ describe("API contract with runtimes option", () => {
   });
 
   it("session uses template runtime provider", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const localRuntime = createMockRuntime();
     const flamecast = new Flamecast({
       storage,
@@ -471,7 +470,7 @@ describe("API contract with runtimes option", () => {
   });
 
   it("rejects session when runtime provider is missing", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     // Only register a "cloud" runtime, but template references "local"
     const flamecast = new Flamecast({
       storage,
@@ -494,7 +493,7 @@ describe("API contract with runtimes option", () => {
   });
 
   it("register and list user templates alongside seeded templates", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime() },

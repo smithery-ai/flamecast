@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
 import type { Runtime } from "@flamecast/protocol/runtime";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import type { FlamecastStorage } from "../src/flamecast/storage.js";
-import { createClient } from "./fixtures/test-helpers.js";
+import { createClient, createTestStorage } from "./fixtures/test-helpers.js";
 
 /** Mock runtime that handles /start and /terminate via the Runtime interface. */
 function createMockRuntime(storage: FlamecastStorage): Runtime {
@@ -43,7 +42,7 @@ function createMockRuntime(storage: FlamecastStorage): Runtime {
 
 describe("api contract", () => {
   it("list agent templates (empty by default)", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime(storage) },
@@ -57,7 +56,7 @@ describe("api contract", () => {
   });
 
   it("list agents (empty)", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime(storage) },
@@ -70,7 +69,7 @@ describe("api contract", () => {
   });
 
   it("404 for unknown agent", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime(storage) },
@@ -82,7 +81,7 @@ describe("api contract", () => {
   });
 
   it("session lifecycle with create get list terminate", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: createMockRuntime(storage) },

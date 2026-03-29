@@ -4,9 +4,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
 import { InProcessSessionHost } from "./fixtures/in-process-session-host.js";
-import { createClient } from "./fixtures/test-helpers.js";
+import { createClient, createTestStorage } from "./fixtures/test-helpers.js";
 import type { Runtime } from "@flamecast/protocol/runtime";
 
 /**
@@ -19,7 +18,7 @@ import type { Runtime } from "@flamecast/protocol/runtime";
 describe("ACP permission response shape", () => {
   it("c.allow() returns optionId matching first allow_once option", async () => {
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
 
     let handlerResult: unknown = null;
     const flamecast = new Flamecast({
@@ -76,7 +75,7 @@ describe("ACP permission response shape", () => {
 describe("multi-session isolation", () => {
   it("two sessions on same runtime do not collide", async () => {
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { default: runtime },
@@ -118,7 +117,7 @@ describe("multi-session isolation", () => {
 
   it("three concurrent sessions all tracked independently", async () => {
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { default: runtime },
@@ -165,7 +164,7 @@ describe("template provider dispatch", () => {
   it("template with provider 'docker' dispatches to docker runtime, not default", async () => {
     const defaultRuntime = new InProcessSessionHost();
     const dockerRuntime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: {
@@ -209,7 +208,7 @@ describe("template provider dispatch", () => {
   });
 
   it("unknown provider returns clear error listing available runtimes", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { default: new InProcessSessionHost() },
@@ -267,7 +266,7 @@ describe("workspace cwd propagation", () => {
       },
     };
 
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { default: spyRuntime },
@@ -316,7 +315,7 @@ describe("workspace cwd propagation", () => {
       },
     };
 
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { default: spyRuntime },

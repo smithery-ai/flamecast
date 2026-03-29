@@ -34,7 +34,7 @@ await flamecast.listen(3001);
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `storage` | `FlamecastStorage` | `MemoryFlamecastStorage` | Persistence backend. Use `createPsqlStorage()` for embedded PGLite or Postgres |
+| `storage` | `FlamecastStorage` | Required | Persistence backend. Use `createPsqlStorage()` for embedded PGLite or Postgres |
 | `runtimes` | `Record<string, Runtime>` | Built-in `LocalRuntime` + `LocalDockerRuntime` | Named runtime instances. Agent templates reference these by key |
 | `agentTemplates` | `AgentTemplate[]` | Built-in templates | Initial template list. Replaces defaults when provided |
 | `handleSignals` | `boolean` | `true` | Auto shutdown on SIGINT/SIGTERM |

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
+import { createTestStorage } from "./fixtures/test-helpers.js";
 import type { Runtime } from "@flamecast/protocol/runtime";
 import type { SessionHostStartResponse } from "@flamecast/protocol/session-host";
 
@@ -90,7 +90,7 @@ afterEach(() => {
 
 describe("stateless control plane", () => {
   it("lazy-recovers a session from storage for prompt proxying", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const runtime = createRecoverableRuntime();
     const agentTemplates = [
       {
@@ -130,7 +130,7 @@ describe("stateless control plane", () => {
   });
 
   it("restores persisted webhooks and pending permission state after a cold start", async () => {
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const runtime = createRecoverableRuntime();
     const agentTemplates = [
       {

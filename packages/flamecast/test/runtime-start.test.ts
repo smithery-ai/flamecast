@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import type { Runtime } from "@flamecast/protocol/runtime";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
+import { createTestStorage } from "./fixtures/test-helpers.js";
 
 vi.mock("@flamecast/protocol/verify", () => ({
   signWebhookPayload: () => "signature",
@@ -29,7 +29,10 @@ describe("Flamecast.startRuntime", () => {
       },
     };
 
-    const flamecast = new Flamecast({ runtimes: { local: runtime } });
+    const flamecast = new Flamecast({
+      storage: await createTestStorage(),
+      runtimes: { local: runtime },
+    });
     const instance = await flamecast.startRuntime("local");
 
     expect(instance).toEqual({
@@ -68,7 +71,10 @@ describe("Flamecast.startRuntime", () => {
       },
     };
 
-    const flamecast = new Flamecast({ runtimes: { local: runtime } });
+    const flamecast = new Flamecast({
+      storage: await createTestStorage(),
+      runtimes: { local: runtime },
+    });
 
     await flamecast.createSession({
       spawn: { command: "echo", args: ["hello"] },
@@ -104,7 +110,7 @@ describe("Flamecast.startRuntime", () => {
       throw new Error("expected TCP server address");
     }
 
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     await storage.saveRuntimeInstance({
       name: "default",
       typeName: "default",

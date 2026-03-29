@@ -9,7 +9,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
 import { SessionService } from "../src/flamecast/session-service.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
+import { createTestStorage } from "./fixtures/test-helpers.js";
 import type { Runtime } from "@flamecast/protocol/runtime";
 import type { PermissionRequestContext, SessionEndContext } from "../src/flamecast/index.js";
 import { InProcessSessionHost } from "./fixtures/in-process-session-host.js";
@@ -36,7 +36,7 @@ describe("runtime dispatch with InProcessSessionHost", () => {
   it("dispatches to InProcessSessionHost and creates session", async () => {
     const runtime = new InProcessSessionHost();
     const service = new SessionService({ local: runtime });
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
 
     const { sessionId } = await service.startSession(storage, defaultStartOpts("local"));
 
@@ -61,7 +61,7 @@ describe("runtime dispatch with InProcessSessionHost", () => {
   it("terminate cleans up both service and runtime", async () => {
     const runtime = new InProcessSessionHost();
     const service = new SessionService({ local: runtime });
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
 
     const { sessionId } = await service.startSession(storage, defaultStartOpts("local"));
     expect(runtime.getSessionIds()).toContain(sessionId);
@@ -79,7 +79,7 @@ describe("runtime dispatch with InProcessSessionHost", () => {
   it("websocket URL is returned from InProcessSessionHost", async () => {
     const runtime = new InProcessSessionHost();
     const service = new SessionService({ local: runtime });
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
 
     const { sessionId } = await service.startSession(storage, defaultStartOpts("local"));
 
@@ -99,7 +99,7 @@ describe("multiple runtimes isolation", () => {
     const runtimeA = new InProcessSessionHost({ responseText: "I am runtime A" });
     const runtimeB = new InProcessSessionHost({ responseText: "I am runtime B" });
     const service = new SessionService({ alpha: runtimeA, beta: runtimeB });
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
 
     const { sessionId: idA } = await service.startSession(storage, defaultStartOpts("alpha"));
     const { sessionId: idB } = await service.startSession(storage, defaultStartOpts("beta"));
@@ -129,7 +129,7 @@ describe("multiple runtimes isolation", () => {
   it("Flamecast with multiple runtimes routes by template provider", async () => {
     const runtimeLocal = new InProcessSessionHost();
     const runtimeCloud = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
 
     const flamecast = new Flamecast({
       storage,
@@ -172,7 +172,7 @@ describe("multiple runtimes isolation", () => {
     const runtimeA = new InProcessSessionHost();
     const runtimeB = new InProcessSessionHost();
     const service = new SessionService({ alpha: runtimeA, beta: runtimeB });
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
 
     await expect(service.startSession(storage, defaultStartOpts("nonexistent"))).rejects.toThrow(
       /Unknown runtime: "nonexistent"/,
@@ -207,7 +207,7 @@ describe("onSessionEnd fires on terminate with correct context", () => {
     });
 
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -236,7 +236,7 @@ describe("onSessionEnd fires on terminate with correct context", () => {
     const onSessionEnd = vi.fn(async () => {});
 
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -285,7 +285,7 @@ describe("onPermissionRequest with InProcessSessionHost context", () => {
     });
 
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -321,7 +321,7 @@ describe("onPermissionRequest with InProcessSessionHost context", () => {
     );
 
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -362,7 +362,7 @@ describe("onPermissionRequest with InProcessSessionHost context", () => {
 
     const runtimeLocal = new InProcessSessionHost();
     const runtimeCloud = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtimeLocal, cloud: runtimeCloud },
@@ -424,7 +424,7 @@ describe("InProcessSessionHost filesystem events", () => {
         { path: "dist", type: "directory" },
       ],
     });
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },

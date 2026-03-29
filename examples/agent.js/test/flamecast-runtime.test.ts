@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { Flamecast, NodeRuntime } from "../../../packages/flamecast/src/flamecast/index.ts";
-import { MemoryFlamecastStorage } from "../../../packages/flamecast/src/flamecast/storage/memory/index.ts";
+import { createTestStorage } from "../../../packages/flamecast/test/fixtures/test-helpers.js";
 import { openSessionSocket, promptSession, readJson } from "./session-host.js";
 import { startExampleWorker } from "./wrangler.js";
 
@@ -23,7 +23,7 @@ describe("agent.js runtime", () => {
     cleanup.push(() => remoteAgent.dispose());
 
     const flamecast = new Flamecast({
-      storage: new MemoryFlamecastStorage(),
+      storage: await createTestStorage(),
       runtimes: {
         agentjs: new NodeRuntime(remoteAgent.baseUrl),
       },

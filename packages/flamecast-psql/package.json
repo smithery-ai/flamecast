@@ -26,7 +26,7 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.4.1",
-    "@flamecast/sdk": "workspace:*",
+    "@flamecast/protocol": "workspace:*",
     "drizzle-orm": "^0.45.1",
     "pg": "^8.20.0"
   },

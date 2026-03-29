@@ -9,7 +9,7 @@
 /* oxlint-disable no-type-assertion/no-type-assertion */
 import { describe, it, expect, vi } from "vitest";
 import { Flamecast } from "../src/flamecast/index.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
+import { createTestStorage } from "./fixtures/test-helpers.js";
 import type { Runtime } from "@flamecast/protocol/runtime";
 import type { PermissionRequestContext } from "../src/flamecast/index.js";
 import type { PermissionRequestEvent } from "@flamecast/protocol/session-host";
@@ -22,7 +22,7 @@ import { InProcessSessionHost } from "./fixtures/in-process-session-host.js";
 describe("permission event shape", () => {
   it("injected permission request matches PermissionRequestEvent shape", async () => {
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -78,7 +78,7 @@ describe("permission approve flow", () => {
     });
 
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -131,7 +131,7 @@ describe("permission reject flow", () => {
     });
 
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -167,7 +167,7 @@ describe("permission reject flow", () => {
     });
 
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -219,7 +219,7 @@ describe("onPermissionRequest handler", () => {
     });
 
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -250,7 +250,7 @@ describe("onPermissionRequest handler", () => {
 
   it("returning undefined defers (no handler registered)", async () => {
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     // No onPermissionRequest handler registered
     const flamecast = new Flamecast({
       storage,
@@ -283,7 +283,7 @@ describe("onPermissionRequest handler", () => {
     });
 
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -317,7 +317,7 @@ describe("onPermissionRequest handler", () => {
 describe("InProcessSessionHost permission management", () => {
   it("inject, list, and resolve permissions", async () => {
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -358,7 +358,7 @@ describe("InProcessSessionHost permission management", () => {
 
   it("cancel permission resolves with cancelled outcome", async () => {
     const runtime = new InProcessSessionHost();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -391,7 +391,7 @@ describe("InProcessSessionHost permission management", () => {
 
   it("permissions auto-emitted with permissionBehavior config", async () => {
     const runtime = new InProcessSessionHost({ permissionBehavior: "approve" });
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },

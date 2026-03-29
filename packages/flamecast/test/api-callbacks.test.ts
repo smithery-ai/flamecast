@@ -8,7 +8,7 @@ import { describe, it, expect, vi } from "vitest";
 import { Hono } from "hono";
 import { Flamecast } from "../src/flamecast/index.js";
 import { createApi } from "../src/flamecast/api.js";
-import { MemoryFlamecastStorage } from "../src/flamecast/storage/memory/index.js";
+import { createTestStorage } from "./fixtures/test-helpers.js";
 import type { Runtime } from "@flamecast/protocol/runtime";
 import type { SessionHostStartResponse } from "@flamecast/protocol/session-host";
 import type { PermissionRequestContext } from "../src/flamecast/index.js";
@@ -90,7 +90,7 @@ describe("POST /api/agents/:id/events", () => {
     });
 
     const { runtime } = createMockRuntime();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -136,7 +136,7 @@ describe("POST /api/agents/:id/events", () => {
 
   it("returns deferred when no handler is registered", async () => {
     const { runtime } = createMockRuntime();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -175,7 +175,7 @@ describe("POST /api/agents/:id/events", () => {
   it("handles session_end event", async () => {
     const onSessionEnd = vi.fn();
     const { runtime } = createMockRuntime();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -212,7 +212,7 @@ describe("POST /api/agents/:id/events", () => {
   it("handles error event", async () => {
     const onError = vi.fn();
     const { runtime } = createMockRuntime();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -248,7 +248,10 @@ describe("POST /api/agents/:id/events", () => {
 
   it("rejects events without type field (400)", async () => {
     const { runtime } = createMockRuntime();
-    const flamecast = new Flamecast({ runtimes: { local: runtime } });
+    const flamecast = new Flamecast({
+      storage: await createTestStorage(),
+      runtimes: { local: runtime },
+    });
     const fetch = createFetch(flamecast);
 
     try {
@@ -268,7 +271,10 @@ describe("POST /api/agents/:id/events", () => {
 
   it("rejects events without data field (400)", async () => {
     const { runtime } = createMockRuntime();
-    const flamecast = new Flamecast({ runtimes: { local: runtime } });
+    const flamecast = new Flamecast({
+      storage: await createTestStorage(),
+      runtimes: { local: runtime },
+    });
     const fetch = createFetch(flamecast);
 
     try {
@@ -294,7 +300,7 @@ describe("POST /api/agents/:id/events", () => {
 describe("POST /api/agents/:id/prompts", () => {
   it("proxies prompt to session-host and returns result", async () => {
     const mock = createMockRuntime();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: mock.runtime },
@@ -325,7 +331,7 @@ describe("POST /api/agents/:id/prompts", () => {
 
   it("rejects missing text field (400)", async () => {
     const { runtime } = createMockRuntime();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -356,7 +362,7 @@ describe("POST /api/agents/:id/prompts", () => {
 
   it("rejects non-string text field (400)", async () => {
     const { runtime } = createMockRuntime();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: runtime },
@@ -385,7 +391,10 @@ describe("POST /api/agents/:id/prompts", () => {
 
   it("returns 404 for unknown session", async () => {
     const { runtime } = createMockRuntime();
-    const flamecast = new Flamecast({ runtimes: { local: runtime } });
+    const flamecast = new Flamecast({
+      storage: await createTestStorage(),
+      runtimes: { local: runtime },
+    });
     const fetch = createFetch(flamecast);
 
     try {
@@ -409,7 +418,7 @@ describe("POST /api/agents/:id/prompts", () => {
 describe("callbackUrl plumbing", () => {
   it("passes sessionId and callbackUrl in /start body", async () => {
     const mock = createMockRuntime();
-    const storage = new MemoryFlamecastStorage();
+    const storage = await createTestStorage();
     const flamecast = new Flamecast({
       storage,
       runtimes: { local: mock.runtime },

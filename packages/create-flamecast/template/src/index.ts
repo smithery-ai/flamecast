@@ -1,9 +1,12 @@
 import { Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
+import { createPsqlStorage } from "@flamecast/storage-psql";
 import dotenv from "dotenv";
 
 dotenv.config();
+const storage = await createPsqlStorage();
 
 const flamecast = new Flamecast({
+  storage,
   runtimes: {
     default: new NodeRuntime(),
   },

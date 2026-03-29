@@ -274,6 +274,9 @@ importers:
       '@flamecast/sdk':
         specifier: workspace:*
         version: link:../../packages/flamecast
+      '@flamecast/storage-psql':
+        specifier: workspace:*
+        version: link:../../packages/flamecast-psql
     devDependencies:
       tsx:
         specifier: ^4.21.0
@@ -337,6 +340,9 @@ importers:
       '@flamecast/sdk':
         specifier: workspace:*
         version: link:../../packages/flamecast
+      '@flamecast/storage-psql':
+        specifier: workspace:*
+        version: link:../../packages/flamecast-psql
     devDependencies:
       tsx:
         specifier: ^4.21.0
@@ -373,6 +379,9 @@ importers:
       '@flamecast/session-host-go':
         specifier: workspace:*
         version: link:../session-host-go
+      '@flamecast/storage-psql':
+        specifier: workspace:*
+        version: link:../flamecast-psql
       '@hono/node-server':
         specifier: ^1.19.11
         version: 1.19.11(hono@4.12.8)
@@ -401,9 +410,9 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.4.1
         version: 0.4.1
-      '@flamecast/sdk':
+      '@flamecast/protocol':
         specifier: workspace:*
-        version: link:../flamecast
+        version: link:../protocol
       drizzle-orm:
         specifier: ^0.45.1
         version: 0.45.1(@cloudflare/workers-types@4.20260317.1)(@electric-sql/pglite@0.4.1)(@libsql/client@0.17.2)(@opentelemetry/api@1.9.0)(@types/pg@8.20.0)(pg@8.20.0)

@@ -11,12 +11,15 @@
  */
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
 import { EXAMPLE_TEMPLATE, PORTS, startServer } from "@flamecast/example-shared/create-example.js";
+import { createPsqlStorage } from "@flamecast/storage-psql";
 import { createWebhookReceiver } from "./webhook-receiver.js";
 import { runDemo } from "./run-demo.js";
 
 const WEBHOOK_SECRET = "demo-secret";
+const storage = await createPsqlStorage();
 
 const flamecast = new Flamecast({
+  storage,
   runtimes: { default: new NodeRuntime() },
   agentTemplates: [EXAMPLE_TEMPLATE],
 
