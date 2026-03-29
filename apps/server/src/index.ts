@@ -4,21 +4,25 @@ import { fileURLToPath } from "node:url";
 import { Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
 import { DockerRuntime } from "@flamecast/runtime-docker";
 import { E2BRuntime } from "@flamecast/runtime-e2b";
-import { createPsqlStorage } from "@flamecast/storage-psql";
 import dotenv from "dotenv";
 import { createAgentTemplates } from "./agent-templates.js";
+import { storage } from "./db.js";
+
+const auth =
+  process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
+    ? (await import("./auth.js")).auth
+    : undefined;
 
 dotenv.config();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const agentSource = readFileSync(resolve(__dirname, "../agent.ts"), "utf8");
 
-const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
 const e2bApiKey = process.env.E2B_API_KEY;
 const agentJsBaseUrl = process.env.FLAMECAST_AGENT_JS_BASE_URL;
 const agentJsRuntime = agentJsBaseUrl ? new NodeRuntime(agentJsBaseUrl) : null;
 
 const flamecast = new Flamecast({
-  storage: await createPsqlStorage(url ? { url } : undefined),
+  storage,
   runtimes: {
     default: new NodeRuntime(),
     ...(agentJsRuntime ? { agentjs: agentJsRuntime } : {}),
@@ -33,6 +37,7 @@ const flamecast = new Flamecast({
     hostAgentPath: resolve(__dirname, "../agent.ts"),
     agentSource,
   }),
+  auth,
 });
 
 listen(flamecast, { port: 3001 }, (info) => {

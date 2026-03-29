@@ -15,10 +15,12 @@ export default {
     }
 
     try {
-      return await handleRequest(request, env.HYPERDRIVE.connectionString, {
-        e2bApiKey: env.E2B_API_KEY,
-        agentSource,
-      });
+      return await handleRequest(
+        request,
+        env.HYPERDRIVE.connectionString,
+        { e2bApiKey: env.E2B_API_KEY, agentSource },
+        env,
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[worker] Unhandled error:", message, err instanceof Error ? err.stack : "");

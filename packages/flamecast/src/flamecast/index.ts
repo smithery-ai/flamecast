@@ -138,6 +138,21 @@ export interface FlamecastEventHandlers<
 }
 
 // ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal interface for an auth handler (e.g. a `betterAuth()` instance).
+ *
+ * When provided, Flamecast mounts the handler at `/api/auth/*` so the auth
+ * endpoints are served alongside the control-plane API. When omitted, the API
+ * runs without any authentication.
+ */
+export interface FlamecastAuth {
+  handler: (request: Request) => Response | Promise<Response>;
+}
+
+// ---------------------------------------------------------------------------
 // FlamecastOptions & Flamecast class
 // ---------------------------------------------------------------------------
 
@@ -151,6 +166,8 @@ export type FlamecastOptions<
   callbackUrl?: string;
   /** Global webhooks delivered for all sessions. Merged with per-session webhooks at creation time. */
   webhooks?: Omit<WebhookConfig, "id">[];
+  /** Optional auth handler (e.g. `betterAuth()`). Mounted at `/api/auth/*` when provided. */
+  auth?: FlamecastAuth;
 } & FlamecastEventHandlers<R>;
 
 export class Flamecast<
@@ -185,7 +202,7 @@ export class Flamecast<
     this.globalWebhooks = opts.webhooks ?? [];
     this.runtimesMap = opts.runtimes;
     this.sessionService = new SessionService(opts.runtimes);
-    this.app = createServerApp(this);
+    this.app = createServerApp(this, opts.auth);
     this.handlers = {
       onPermissionRequest: opts.onPermissionRequest,
       onSessionEnd: opts.onSessionEnd,

@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -22,6 +23,7 @@ import {
   SidebarMenuItem,
   SidebarMenuSkeleton,
 } from "@/components/ui/sidebar";
+import { UserMenu } from "@/components/user-menu";
 import {
   LoaderCircleIcon,
   PauseIcon,
@@ -216,6 +218,9 @@ export function SessionsSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter>
+        <UserMenu />
+      </SidebarFooter>
     </Sidebar>
   );
 }
