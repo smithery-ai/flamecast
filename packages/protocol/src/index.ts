@@ -46,6 +46,13 @@ export type {
 } from "./session.js";
 
 export type {
+  FlamecastStorage,
+  SessionMeta,
+  SessionRuntimeInfo,
+  StoredSession,
+} from "./storage.js";
+
+export type {
   WsServerMessage,
   WsControlMessage,
   WsEventMessage,

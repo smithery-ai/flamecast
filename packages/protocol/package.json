@@ -19,6 +19,10 @@
       "types": "./dist/session.d.ts",
       "import": "./dist/session.js"
     },
+    "./storage": {
+      "types": "./dist/storage.d.ts",
+      "import": "./dist/storage.js"
+    },
     "./ws": {
       "types": "./dist/ws.d.ts",
       "import": "./dist/ws.js"
