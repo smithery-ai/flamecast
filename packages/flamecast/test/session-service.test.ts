@@ -91,12 +91,12 @@ describe("SessionService", () => {
 
     const { sessionId } = await service.startSession(storage, defaultStartOpts("local"));
 
-    expect(service.hasSession(sessionId)).toBe(true);
-    expect(service.listSessionIds()).toContain(sessionId);
+    expect(await service.hasSession(sessionId)).toBe(true);
+    expect(await service.listSessionIds()).toContain(sessionId);
 
     await service.terminateSession(storage, sessionId);
 
-    expect(service.hasSession(sessionId)).toBe(false);
-    expect(service.listSessionIds()).not.toContain(sessionId);
+    expect(await service.hasSession(sessionId)).toBe(false);
+    expect(await service.listSessionIds()).not.toContain(sessionId);
   });
 });

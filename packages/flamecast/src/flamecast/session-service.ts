@@ -6,6 +6,39 @@ import type {
   SessionHostStartResponse,
 } from "@flamecast/protocol";
 
+export interface ISessionService {
+  startSession(
+    storage: FlamecastStorage,
+    opts: {
+      agentName: string;
+      spawn: AgentSpawn;
+      cwd: string;
+      runtime: AgentTemplateRuntime;
+      runtimeInstance?: string;
+      startedAt: string;
+      callbackUrl?: string;
+      webhooks?: WebhookConfig[];
+    },
+  ): Promise<{ sessionId: string }>;
+
+  recoverSession(
+    sessionId: string,
+    runtimeInfo: SessionRuntimeInfo,
+    webhooks?: WebhookConfig[],
+  ): Promise<boolean>;
+
+  terminateSession(storage: FlamecastStorage, sessionId: string): Promise<void>;
+
+  hasSession(sessionId: string): Promise<boolean>;
+  listSessionIds(): Promise<string[]>;
+  getWebsocketUrl(sessionId: string): Promise<string | undefined>;
+  getRuntimeName(sessionId: string): Promise<string | undefined>;
+  getWebhooks(sessionId: string): Promise<WebhookConfig[]>;
+
+  proxyRequest(sessionId: string, path: string, init: RequestInit): Promise<Response>;
+  proxyWebSocket(sessionId: string, request: Request): Promise<Response>;
+}
+
 interface ManagedSession {
   id: string;
   hostUrl: string;
@@ -14,7 +47,7 @@ interface ManagedSession {
   webhooks: WebhookConfig[];
 }
 
-export class SessionService {
+export class SessionService implements ISessionService {
   private readonly runtimes: Record<string, Runtime<Record<string, unknown>>>;
   private readonly sessions = new Map<string, ManagedSession>();
 
@@ -202,23 +235,23 @@ export class SessionService {
     this.sessions.delete(sessionId);
   }
 
-  hasSession(sessionId: string): boolean {
+  async hasSession(sessionId: string): Promise<boolean> {
     return this.sessions.has(sessionId);
   }
 
-  listSessionIds(): string[] {
+  async listSessionIds(): Promise<string[]> {
     return [...this.sessions.keys()];
   }
 
-  getWebsocketUrl(sessionId: string): string | undefined {
+  async getWebsocketUrl(sessionId: string): Promise<string | undefined> {
     return this.sessions.get(sessionId)?.websocketUrl;
   }
 
-  getRuntimeName(sessionId: string): string | undefined {
+  async getRuntimeName(sessionId: string): Promise<string | undefined> {
     return this.sessions.get(sessionId)?.runtimeName;
   }
 
-  getWebhooks(sessionId: string): WebhookConfig[] {
+  async getWebhooks(sessionId: string): Promise<WebhookConfig[]> {
     return this.sessions.get(sessionId)?.webhooks ?? [];
   }
 

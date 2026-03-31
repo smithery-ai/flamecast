@@ -14,7 +14,7 @@ import type {
 } from "../shared/session.js";
 import { createServerApp } from "./app.js";
 import type { FlamecastStorage, StoredSession } from "./storage.js";
-import { SessionService } from "./session-service.js";
+import { SessionService, type ISessionService } from "./session-service.js";
 import { WebhookDeliveryEngine } from "./events/webhooks.js";
 import { EventBus } from "./events/bus.js";
 import { resolveAgentId } from "./events/channels.js";
@@ -90,6 +90,7 @@ export type {
   FlamecastStorage,
   StoredSession,
 } from "./storage.js";
+export type { ISessionService } from "./session-service.js";
 export { NodeRuntime } from "./runtime-node.js";
 
 // ---------------------------------------------------------------------------
@@ -165,6 +166,8 @@ export type FlamecastOptions<
   callbackUrl?: string;
   /** Global webhooks delivered for all sessions. Merged with per-session webhooks at creation time. */
   webhooks?: Omit<WebhookConfig, "id">[];
+  /** Custom session service implementation (e.g. Restate-backed). Defaults to in-memory SessionService. */
+  sessionService?: ISessionService;
 } & FlamecastEventHandlers<R>;
 
 export class Flamecast<
@@ -172,7 +175,7 @@ export class Flamecast<
 > {
   private readonly initialAgentTemplates: AgentTemplate[] | undefined;
   private readonly storageConfig: FlamecastStorage;
-  private readonly sessionService: SessionService;
+  private readonly sessionService: ISessionService;
   private readonly runtimesMap: Record<string, Runtime<Record<string, unknown>>>;
   private readonly callbackUrl?: string;
   private readonly globalWebhooks: Omit<WebhookConfig, "id">[];
@@ -198,7 +201,7 @@ export class Flamecast<
     this.callbackUrl = opts.callbackUrl;
     this.globalWebhooks = opts.webhooks ?? [];
     this.runtimesMap = opts.runtimes;
-    this.sessionService = new SessionService(opts.runtimes);
+    this.sessionService = opts.sessionService ?? new SessionService(opts.runtimes);
     this.app = createServerApp(this);
     this.handlers = {
       onPermissionRequest: opts.onPermissionRequest,
@@ -231,7 +234,7 @@ export class Flamecast<
    * and disposes all runtimes. Sessions will NOT be recoverable after this.
    */
   async shutdown(): Promise<void> {
-    for (const id of this.sessionService.listSessionIds()) {
+    for (const id of await this.sessionService.listSessionIds()) {
       await this.terminateSession(id).catch(() => {});
     }
     await this.close();
@@ -640,7 +643,7 @@ export class Flamecast<
   async terminateSession(id: string): Promise<void> {
     await this.ensureReady();
     const stored = await this.ensureSessionRegistered(id);
-    if (!this.sessionService.hasSession(id)) {
+    if (!(await this.sessionService.hasSession(id))) {
       const meta = stored?.meta ?? (await this.requireStorage().getSessionMeta(id));
       if (meta?.status === "killed") {
         throw new Error("Cannot terminate an already-killed session");
@@ -797,7 +800,7 @@ export class Flamecast<
     });
 
     // 3. Deliver to external webhooks (fire-and-forget, does not block response)
-    this.deliverWebhooks(sessionId, event);
+    void this.deliverWebhooks(sessionId, event);
 
     return result;
   }
@@ -811,10 +814,10 @@ export class Flamecast<
   ]);
 
   /** Fire-and-forget webhook delivery for a session event. */
-  private deliverWebhooks(sessionId: string, event: SessionCallbackEvent): void {
+  private async deliverWebhooks(sessionId: string, event: SessionCallbackEvent): Promise<void> {
     if (!Flamecast.WEBHOOK_EVENT_TYPES.has(event.type)) return;
 
-    const webhooks = this.sessionService.getWebhooks(sessionId);
+    const webhooks = await this.sessionService.getWebhooks(sessionId);
     if (webhooks.length === 0) return;
 
     let ac = this.webhookAbortControllers.get(sessionId);
@@ -895,7 +898,7 @@ export class Flamecast<
     // Determine which runtime provider this session uses. SessionService
     // tracks this internally, but the meta doesn't persist the runtime name.
     // Fallback to "unknown" if the session is already removed from the service.
-    const runtimeName = this.sessionService.getRuntimeName(sessionId) ?? "unknown";
+    const runtimeName = (await this.sessionService.getRuntimeName(sessionId)) ?? "unknown";
 
     return {
       id: meta.id,
@@ -918,7 +921,7 @@ export class Flamecast<
     const stored = await this.loadStoredSession(sessionId);
     if (!stored) return null;
     if (stored.meta.status !== "active") return stored;
-    if (this.sessionService.hasSession(sessionId)) return stored;
+    if (await this.sessionService.hasSession(sessionId)) return stored;
 
     // No runtime info → session can never be recovered
     if (!stored.runtimeInfo) {
@@ -1108,10 +1111,10 @@ export class Flamecast<
     }
     const { meta, runtimeInfo } = stored;
 
-    const websocketUrl = this.sessionService.getWebsocketUrl(id) ?? runtimeInfo?.websocketUrl;
+    const websocketUrl = (await this.sessionService.getWebsocketUrl(id)) ?? runtimeInfo?.websocketUrl;
 
     // Fetch queue state from session-host if the session is active
-    const promptQueue = this.sessionService.hasSession(id)
+    const promptQueue = (await this.sessionService.hasSession(id))
       ? await this.sessionService
           .proxyRequest(id, "/queue", { method: "GET" })
           .then((r) => (r.ok ? r.json().catch(() => null) : null))
@@ -1127,7 +1130,7 @@ export class Flamecast<
       : [];
 
     const fileSystem =
-      opts.includeFileSystem && this.sessionService.hasSession(id)
+      opts.includeFileSystem && (await this.sessionService.hasSession(id))
         ? await this.fetchSessionFileSystem(id, { showAllFiles: opts.showAllFiles }).catch(
             () => null,
           )

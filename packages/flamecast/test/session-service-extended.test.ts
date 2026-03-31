@@ -41,7 +41,7 @@ describe("runtime dispatch with InProcessSessionHost", () => {
     const { sessionId } = await service.startSession(storage, defaultStartOpts("local"));
 
     // Verify session exists in both service and runtime
-    expect(service.hasSession(sessionId)).toBe(true);
+    expect(await service.hasSession(sessionId)).toBe(true);
     expect(runtime.getSessionIds()).toContain(sessionId);
 
     // Verify the session in the runtime has correct command
@@ -68,7 +68,7 @@ describe("runtime dispatch with InProcessSessionHost", () => {
 
     await service.terminateSession(storage, sessionId);
 
-    expect(service.hasSession(sessionId)).toBe(false);
+    expect(await service.hasSession(sessionId)).toBe(false);
     expect(runtime.getSessionIds()).not.toContain(sessionId);
 
     // Storage should show killed
@@ -83,7 +83,7 @@ describe("runtime dispatch with InProcessSessionHost", () => {
 
     const { sessionId } = await service.startSession(storage, defaultStartOpts("local"));
 
-    const wsUrl = service.getWebsocketUrl(sessionId);
+    const wsUrl = await service.getWebsocketUrl(sessionId);
     expect(wsUrl).toBeTruthy();
     expect(wsUrl).toContain(sessionId);
     expect(wsUrl).toMatch(/^ws:\/\//);
@@ -111,19 +111,19 @@ describe("multiple runtimes isolation", () => {
     expect(runtimeB.getSessionIds()).not.toContain(idA);
 
     // Service tracks both
-    expect(service.hasSession(idA)).toBe(true);
-    expect(service.hasSession(idB)).toBe(true);
-    expect(service.listSessionIds()).toHaveLength(2);
+    expect(await service.hasSession(idA)).toBe(true);
+    expect(await service.hasSession(idB)).toBe(true);
+    expect(await service.listSessionIds()).toHaveLength(2);
 
     // getRuntimeName returns the correct provider
-    expect(service.getRuntimeName(idA)).toBe("alpha");
-    expect(service.getRuntimeName(idB)).toBe("beta");
+    expect(await service.getRuntimeName(idA)).toBe("alpha");
+    expect(await service.getRuntimeName(idB)).toBe("beta");
 
     // Terminate one doesn't affect the other
     await service.terminateSession(storage, idA);
     expect(runtimeA.getSessionIds()).not.toContain(idA);
     expect(runtimeB.getSessionIds()).toContain(idB);
-    expect(service.hasSession(idB)).toBe(true);
+    expect(await service.hasSession(idB)).toBe(true);
   });
 
   it("Flamecast with multiple runtimes routes by template provider", async () => {
