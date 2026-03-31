@@ -15,6 +15,7 @@ import { FlamecastSession } from "./session-object.js";
  */
 export class RestateSessionService implements ISessionService {
   private readonly restateClient: clients.Ingress;
+  private readonly restateUrl: string;
   private readonly runtimes: Record<string, Runtime<Record<string, unknown>>>;
   private readonly hostUrlCache = new Map<string, string>();
 
@@ -23,6 +24,7 @@ export class RestateSessionService implements ISessionService {
     restateUrl: string,
   ) {
     this.runtimes = runtimes;
+    this.restateUrl = restateUrl;
     this.restateClient = clients.connect({ url: restateUrl });
   }
 
@@ -65,6 +67,11 @@ export class RestateSessionService implements ISessionService {
       .replace(/^wss:/, "https:")
       .replace(/^ws:/, "http:");
 
+    // Callback URL points to the VO's handleCallback handler so all session
+    // events (permission_request, end_turn, session_end) flow through Restate,
+    // activating durable permissions, webhook delivery, and pubsub streaming.
+    const callbackUrl = `${this.restateUrl}/FlamecastSession/${sessionId}/handleCallback`;
+
     // Delegate to the FlamecastSession Virtual Object
     const result = await this.restateClient
       .objectClient(FlamecastSession, sessionId)
@@ -74,7 +81,7 @@ export class RestateSessionService implements ISessionService {
         cwd: opts.cwd,
         setup: opts.runtime.setup as string | undefined,
         env: opts.runtime.env as Record<string, string> | undefined,
-        callbackUrl: opts.callbackUrl,
+        callbackUrl,
         agentName: opts.agentName,
         runtimeName: providerName,
         webhooks: opts.webhooks,
@@ -142,6 +149,22 @@ export class RestateSessionService implements ISessionService {
     path: string,
     init: RequestInit,
   ): Promise<Response> {
+    // Route prompts through the VO's turn handler for journaling and
+    // automatic serialization via VO exclusivity.
+    if (path === "/prompt" && init.method === "POST" && init.body) {
+      const body = JSON.parse(
+        typeof init.body === "string" ? init.body : new TextDecoder().decode(init.body as ArrayBuffer),
+      ) as { text: string };
+      const result = await this.restateClient
+        .objectClient(FlamecastSession, sessionId)
+        .turn({ text: body.text });
+      return new Response(JSON.stringify(result), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Everything else proxies directly to the session-host
     let hostUrl = this.hostUrlCache.get(sessionId);
     if (!hostUrl) {
       const meta = await this.restateClient
