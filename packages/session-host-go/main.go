@@ -128,17 +128,19 @@ type clientHandler struct {
 	sessionID           string
 	agentID             string
 	workspace           string
+	callbackUrl         string
 	permissionResolvers map[string]chan json.RawMessage
 	terminals           *terminal.Registry
 	mu                  sync.Mutex
 }
 
-func newClientHandler(hub *ws.Hub, sessionID, workspace string) *clientHandler {
+func newClientHandler(hub *ws.Hub, sessionID, workspace, callbackUrl string) *clientHandler {
 	h := &clientHandler{
 		hub:                 hub,
 		sessionID:           sessionID,
 		agentID:             sessionID, // 1:1 for now
 		workspace:           workspace,
+		callbackUrl:         callbackUrl,
 		permissionResolvers: make(map[string]chan json.RawMessage),
 	}
 	h.terminals = terminal.NewRegistry(func(terminalID string, data []byte) {
@@ -426,6 +428,69 @@ func (h *clientHandler) TerminalKill(params json.RawMessage) (json.RawMessage, e
 	return result, nil
 }
 
+func (h *clientHandler) forwardToControlPlane(eventType string, params json.RawMessage) (json.RawMessage, error) {
+	if h.callbackUrl == "" {
+		return nil, fmt.Errorf("temporal primitive %q requires a callbackUrl (Restate-backed session)", eventType)
+	}
+
+	url := fmt.Sprintf("%s/%s", h.callbackUrl, h.sessionID)
+
+	body, err := json.Marshal(map[string]any{
+		"type": eventType,
+		"data": params,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal %s event: %w", eventType, err)
+	}
+
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("POST %s to control plane: %w", eventType, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read %s response: %w", eventType, err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("control plane %s returned %d: %s", eventType, resp.StatusCode, string(respBody))
+	}
+
+	return json.RawMessage(respBody), nil
+}
+
+func (h *clientHandler) WaitFor(params json.RawMessage) (json.RawMessage, error) {
+	h.emitRPC(acp.MethodWaitFor, "agent_to_client", "request", json.RawMessage(params))
+	result, err := h.forwardToControlPlane("wait_for", params)
+	if err != nil {
+		return nil, err
+	}
+	h.emitRPC(acp.MethodWaitFor, "client_to_agent", "response", result)
+	return result, nil
+}
+
+func (h *clientHandler) Wait(params json.RawMessage) (json.RawMessage, error) {
+	h.emitRPC(acp.MethodWait, "agent_to_client", "request", json.RawMessage(params))
+	result, err := h.forwardToControlPlane("wait", params)
+	if err != nil {
+		return nil, err
+	}
+	h.emitRPC(acp.MethodWait, "client_to_agent", "response", result)
+	return result, nil
+}
+
+func (h *clientHandler) Schedule(params json.RawMessage) (json.RawMessage, error) {
+	h.emitRPC(acp.MethodSchedule, "agent_to_client", "request", json.RawMessage(params))
+	result, err := h.forwardToControlPlane("schedule", params)
+	if err != nil {
+		return nil, err
+	}
+	h.emitRPC(acp.MethodSchedule, "client_to_agent", "response", result)
+	return result, nil
+}
+
 // ---------- Session lifecycle ----------
 
 func startSession(sessionID string, req startRequest, hub *ws.Hub, registry *sessionRegistry) (*startResponse, error) {
@@ -484,7 +549,7 @@ func startSession(sessionID string, req startRequest, hub *ws.Hub, registry *ses
 		return nil, fmt.Errorf("start agent: %w", err)
 	}
 
-	handler := newClientHandler(hub, sessionID, workspace)
+	handler := newClientHandler(hub, sessionID, workspace, req.CallbackUrl)
 
 	// Race handshake against agent exit
 	type handshakeResult struct {
@@ -513,6 +578,16 @@ func startSession(sessionID string, req startRequest, hub *ws.Hub, registry *ses
 		if err != nil {
 			hsCh <- handshakeResult{err: fmt.Errorf("initialize: %w", err)}
 			return
+		}
+		// Advertise platform capabilities based on whether callbackUrl is available
+		if req.CallbackUrl != "" {
+			initResp.ServerCapabilities = &acp.ServerCapabilities{
+				Platform: &acp.PlatformCapabilities{
+					DurableSleep: true,
+					WaitFor:      true,
+					Schedule:     true,
+				},
+			}
 		}
 		handler.emitRPC(acp.MethodInitialize, "agent_to_client", "response", initResp)
 

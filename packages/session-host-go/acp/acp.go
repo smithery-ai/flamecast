@@ -31,6 +31,9 @@ const (
 	MethodTerminalRelease   = "terminal/release"
 	MethodTerminalWaitExit  = "terminal/wait_for_exit"
 	MethodTerminalKill      = "terminal/kill"
+	MethodWaitFor           = "session/wait_for"
+	MethodWait              = "session/wait"
+	MethodSchedule          = "session/schedule"
 )
 
 // ---------- Request/Response types ----------
@@ -50,9 +53,22 @@ type FSCapabilities struct {
 	WriteTextFile bool `json:"writeTextFile,omitempty"`
 }
 
+// ServerCapabilities advertises platform-provided capabilities during initialize.
+type ServerCapabilities struct {
+	Platform *PlatformCapabilities `json:"platform,omitempty"`
+}
+
+// PlatformCapabilities describes temporal primitive support from the hosting platform.
+type PlatformCapabilities struct {
+	DurableSleep bool `json:"durableSleep,omitempty"`
+	WaitFor      bool `json:"waitFor,omitempty"`
+	Schedule     bool `json:"schedule,omitempty"`
+}
+
 type InitializeResponse struct {
-	ProtocolVersion int             `json:"protocolVersion"`
-	AgentInfo       json.RawMessage `json:"agentInfo,omitempty"`
+	ProtocolVersion    int                 `json:"protocolVersion"`
+	AgentInfo          json.RawMessage     `json:"agentInfo,omitempty"`
+	ServerCapabilities *ServerCapabilities `json:"serverCapabilities,omitempty"`
 }
 
 type NewSessionRequest struct {
@@ -90,6 +106,9 @@ type ClientHandler interface {
 	TerminalRelease(params json.RawMessage) (json.RawMessage, error)
 	TerminalWaitExit(params json.RawMessage) (json.RawMessage, error)
 	TerminalKill(params json.RawMessage) (json.RawMessage, error)
+	WaitFor(params json.RawMessage) (json.RawMessage, error)
+	Wait(params json.RawMessage) (json.RawMessage, error)
+	Schedule(params json.RawMessage) (json.RawMessage, error)
 }
 
 // Connection wraps a JSON-RPC conn and presents typed ACP operations.
@@ -123,6 +142,12 @@ func NewConnection(agentStdout io.Reader, agentStdin io.Writer, handler ClientHa
 			return handler.TerminalWaitExit(params)
 		case MethodTerminalKill:
 			return handler.TerminalKill(params)
+		case MethodWaitFor:
+			return handler.WaitFor(params)
+		case MethodWait:
+			return handler.Wait(params)
+		case MethodSchedule:
+			return handler.Schedule(params)
 		default:
 			return nil, jsonrpc.MethodNotFoundError(method)
 		}

@@ -11,3 +11,9 @@ export {
 } from "./session-object.js";
 export { WebhookDeliveryService } from "./webhook-service.js";
 export { createRestateEndpoint } from "./endpoint.js";
+export { autoStartRestate, type AutoStartResult } from "./auto-start.js";
+export {
+  PubsubSseConsumer,
+  type PubsubSseConsumerOptions,
+  type ChannelEvent as PubsubChannelEvent,
+} from "./sse-consumer.js";
