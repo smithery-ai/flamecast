@@ -5,7 +5,7 @@ import { Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
 import { DockerRuntime } from "@flamecast/runtime-docker";
 import { E2BRuntime } from "@flamecast/runtime-e2b";
 import { createPsqlStorage } from "@flamecast/storage-psql";
-import { RestateSessionService, RestateStorage, autoStartRestate } from "@flamecast/restate";
+import { RestateSessionService, RestateStorage } from "@flamecast/restate";
 import dotenv from "dotenv";
 import { createAgentTemplates } from "./agent-templates.js";
 
@@ -27,12 +27,11 @@ const runtimes = {
 };
 
 // ---------------------------------------------------------------------------
-// Restate — auto-start server + endpoint + registration
+// Restate — ports configured in packages/flamecast-restate/restate.toml
 // ---------------------------------------------------------------------------
 
-const restate = await autoStartRestate();
-const restateIngressUrl = process.env.RESTATE_INGRESS_URL ?? restate.ingressUrl;
-const restateAdminUrl = process.env.RESTATE_ADMIN_URL ?? restate.adminUrl;
+const restateIngressUrl = process.env.RESTATE_INGRESS_URL ?? "http://localhost:18080";
+const restateAdminUrl = process.env.RESTATE_ADMIN_URL ?? "http://localhost:19070";
 
 // ---------------------------------------------------------------------------
 // Flamecast instance
@@ -59,7 +58,6 @@ listen(flamecast, { port: 3001 }, (info) => {
 
 async function shutdown() {
   await flamecast.close();
-  restate.stop();
   process.exit(0);
 }
 process.on("SIGINT", shutdown);

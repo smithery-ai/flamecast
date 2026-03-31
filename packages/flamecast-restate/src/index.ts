@@ -11,7 +11,6 @@ export {
 } from "./session-object.js";
 export { WebhookDeliveryService } from "./webhook-service.js";
 export { createRestateEndpoint } from "./endpoint.js";
-export { autoStartRestate } from "./auto-start.js";
 export { RestateStorage } from "./restate-storage.js";
 export {
   PubsubSseConsumer,

@@ -10,7 +10,9 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch",
+    "dev": "tsx src/serve-endpoint.ts",
+    "dev:server": "npx @restatedev/restate-server --config-file=restate.toml",
+    "dev:register": "npx @restatedev/restate -y deployments register http://localhost:9080",
     "test": "vitest run"
   },
   "dependencies": {
@@ -19,8 +21,7 @@
     "@restatedev/pubsub": "^0.1.0",
     "@restatedev/pubsub-client": "^0.1.0",
     "@restatedev/restate-sdk": "^1.5.0",
-    "@restatedev/restate-sdk-clients": "^1.5.0",
-    "@restatedev/restate-server": "^1.6.2"
+    "@restatedev/restate-sdk-clients": "^1.5.0"
   },
   "devDependencies": {
     "@restatedev/restate-sdk-testcontainers": "^1.11.1",

@@ -9,6 +9,14 @@
       "persistent": true,
       "dependsOn": ["^build:package"]
     },
+    "dev:server": {
+      "cache": false,
+      "persistent": true
+    },
+    "dev:register": {
+      "cache": false,
+      "dependsOn": ["dev:server", "dev"]
+    },
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
