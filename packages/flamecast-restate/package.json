@@ -12,7 +12,7 @@
     "build": "tsc",
     "dev": "tsx src/serve-endpoint.ts",
     "dev:server": "npx @restatedev/restate-server --config-file=restate.toml",
-    "dev:register": "sleep 5 && npx @restatedev/restate -y deployments register http://localhost:9080",
+    "dev:register": "sleep 5 && RESTATE_ADMIN_BASE_URL=http://localhost:19070 npx @restatedev/restate -y deployments register http://localhost:9080",
     "test": "vitest run"
   },
   "dependencies": {
@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@restatedev/restate-sdk-testcontainers": "^1.11.1",
+    "@restatedev/restate-server": "^1.6.2",
     "typescript": "^5.8.3",
     "vitest": "^4.1.0"
   }

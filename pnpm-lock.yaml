@@ -457,6 +457,9 @@ importers:
       '@restatedev/restate-sdk-testcontainers':
         specifier: ^1.11.1
         version: 1.11.1
+      '@restatedev/restate-server':
+        specifier: ^1.6.2
+        version: 1.6.2
       typescript:
         specifier: ^5.8.3
         version: 5.9.3
@@ -3514,6 +3517,30 @@ packages:
   '@restatedev/restate-sdk@1.11.1':
     resolution: {integrity: sha512-qJNpA5POJOOTx4piMNp3zwMbyS6SPn9DWpFYmWXV9zCdX1nl/mflUrSOMIdAp97xSJUo3D4thRKRuRTyv4SSzg==}
 
+  '@restatedev/restate-server-darwin-arm64@1.6.2':
+    resolution: {integrity: sha512-/cw2HE16bTLaNTjvPncwHpN+Sv61O8y9IYYUGeal0n23wTG4pUR33ZgpiqNv81ODsHnORFkiEil5UXmzgFCdNQ==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@restatedev/restate-server-darwin-x64@1.6.2':
+    resolution: {integrity: sha512-voZ39O7AUyQUbDBXxjCRgNT7w/XN6DjVfwVSRchGSS7psQlsmoZzk8j9QoFJ2YsRmNwOHZadwP9ffs2mKlnA4A==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@restatedev/restate-server-linux-arm64@1.6.2':
+    resolution: {integrity: sha512-JOEweul86tVoi+HZUJ7uviCFDwuQ0qTUcCxYqcVJz6fTEQ6LEWjAOquGXeExbsrEfqIKvSGjJNhdnodaZbWcPw==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@restatedev/restate-server-linux-x64@1.6.2':
+    resolution: {integrity: sha512-hx83ecX0WqSsc9Kpqz13mPojfRqAi4OJ7yEPGtBvfw9sRrjXUXAytwDaNB7NUHeRwjMKYxCLzMxDWhphI9SJBA==}
+    cpu: [x64]
+    os: [linux]
+
+  '@restatedev/restate-server@1.6.2':
+    resolution: {integrity: sha512-E830abSSYT7yvw7Njnou53wEL7eWH4fGiy03Krg2lVK2AWRPf92btVFmY6LO7GFxGFrY/mqzAzIJlw0wOpNxNQ==}
+    hasBin: true
+
   '@rolldown/binding-android-arm64@1.0.0-rc.10':
     resolution: {integrity: sha512-jOHxwXhxmFKuXztiu1ORieJeTbx5vrTkcOkkkn2d35726+iwhrY1w/+nYY/AGgF12thg33qC3R1LMBF5tHTZHg==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -3625,6 +3652,9 @@ packages:
 
   '@rolldown/pluginutils@1.0.0-rc.7':
     resolution: {integrity: sha512-qujRfC8sFVInYSPPMLQByRh7zhwkGFS4+tyMQ83srV1qrxL4g8E2tyxVVyxd0+8QeBM1mIk9KbWxkegRr76XzA==}
+
+  '@scarf/scarf@1.4.0':
+    resolution: {integrity: sha512-xxeapPiUXdZAE3che6f3xogoJPeZgig6omHEy1rIY5WVsB3H2BHNnZH+gHG6x91SCWyQCzWGsuL2Hh3ClO5/qQ==}
 
   '@sec-ant/readable-stream@0.4.1':
     resolution: {integrity: sha512-831qok9r2t8AlxLko40y2ebgSDhenenCatLVeW/uBtnHPyhHOvG0C7TvfgecV+wHzIm5KUICgzmVpWS+IMEAeg==}
@@ -12525,6 +12555,27 @@ snapshots:
     dependencies:
       '@restatedev/restate-sdk-core': 1.11.1
 
+  '@restatedev/restate-server-darwin-arm64@1.6.2':
+    optional: true
+
+  '@restatedev/restate-server-darwin-x64@1.6.2':
+    optional: true
+
+  '@restatedev/restate-server-linux-arm64@1.6.2':
+    optional: true
+
+  '@restatedev/restate-server-linux-x64@1.6.2':
+    optional: true
+
+  '@restatedev/restate-server@1.6.2':
+    dependencies:
+      '@scarf/scarf': 1.4.0
+    optionalDependencies:
+      '@restatedev/restate-server-darwin-arm64': 1.6.2
+      '@restatedev/restate-server-darwin-x64': 1.6.2
+      '@restatedev/restate-server-linux-arm64': 1.6.2
+      '@restatedev/restate-server-linux-x64': 1.6.2
+
   '@rolldown/binding-android-arm64@1.0.0-rc.10':
     optional: true
 
@@ -12584,6 +12635,8 @@ snapshots:
   '@rolldown/pluginutils@1.0.0-rc.10': {}
 
   '@rolldown/pluginutils@1.0.0-rc.7': {}
+
+  '@scarf/scarf@1.4.0': {}
 
   '@sec-ant/readable-stream@0.4.1': {}
 
