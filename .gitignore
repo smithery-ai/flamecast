@@ -49,3 +49,4 @@ apps/client/src/routeTree.gen.ts
 apps/client/.tanstack
 .vercel
 worker-configuration.d.ts
+restate-data/
