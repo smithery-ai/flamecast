@@ -10,8 +10,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch",
-    "dev:serve": "tsx src/serve.ts",
+    "dev": "tsx src/serve.ts",
     "test": "vitest run"
   },
   "dependencies": {

@@ -1,14 +1,10 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "futureFlags": { "experimentalObservability": true },
+  "ui": "tui",
   "globalPassThroughEnv": ["FLAMECAST_AGENT_JS_BASE_URL", "ROUTER_PORT", "RESTATE_INGRESS_URL", "RESTATE_ADMIN_URL", "RESTATE_ENDPOINT_PORT"],
   "tasks": {
     "dev": {
-      "cache": false,
-      "persistent": true,
-      "dependsOn": ["^build:package"]
-    },
-    "dev:serve": {
       "cache": false,
       "persistent": true,
       "dependsOn": ["^build:package"]
