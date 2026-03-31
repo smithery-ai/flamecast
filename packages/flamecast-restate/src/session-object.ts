@@ -1,10 +1,18 @@
+/**
+ * FlamecastSession Virtual Object — thin Restate wrapper around session lifecycle.
+ *
+ * Handlers delegate to session-lifecycle.ts via SessionRuntime.
+ * No business logic here — just create the runtime and call through.
+ */
+
 import * as restate from "@restatedev/restate-sdk";
-import { createPubsubObject, createPubsubPublisher } from "@restatedev/pubsub";
-import type { WebhookConfig, WebhookEventType } from "@flamecast/protocol/session";
-import { WebhookDeliveryService } from "./webhook-service.js";
+import { createPubsubObject } from "@restatedev/pubsub";
+import type { WebhookConfig } from "@flamecast/protocol/session";
+import { createRestateSessionRuntime } from "./session-runtime-restate.js";
+import * as lifecycle from "./session-lifecycle.js";
 
 // ---------------------------------------------------------------------------
-// Types
+// Types (re-exported for consumers)
 // ---------------------------------------------------------------------------
 
 export interface SessionMeta {
@@ -37,7 +45,6 @@ export interface SessionCallbackEvent {
   data: unknown;
 }
 
-/** Typed state keys for the FlamecastSession VO. */
 export interface SessionState {
   meta: SessionMeta;
   webhooks: WebhookConfig[];
@@ -46,7 +53,7 @@ export interface SessionState {
   waiting_for: { awakeableId: string; filter: Record<string, unknown> } | null;
 }
 
-// Phase 5 temporal primitive inputs — not yet wired to any code path
+// Phase 5 — not yet wired
 export interface WaitForInput {
   filter: Record<string, unknown>;
   timeoutMs?: number;
@@ -58,146 +65,38 @@ export interface ScheduleInput {
 }
 
 // ---------------------------------------------------------------------------
-// Pubsub
+// Pubsub object — registered on the Restate endpoint alongside FlamecastSession
 // ---------------------------------------------------------------------------
 
 export const pubsubObject = createPubsubObject("pubsub", {});
-const publish = createPubsubPublisher("pubsub");
 
 // ---------------------------------------------------------------------------
-// Helpers — extracted from handlers to keep the VO thin
-// ---------------------------------------------------------------------------
-
-async function updateMeta(
-  ctx: restate.ObjectContext,
-  patch: Partial<SessionMeta>,
-): Promise<void> {
-  const meta = await ctx.get<SessionMeta>("meta");
-  if (!meta) return;
-  ctx.set("meta", { ...meta, ...patch });
-}
-
-async function dispatchWebhooks(
-  ctx: restate.ObjectContext,
-  sessionId: string,
-  event: SessionCallbackEvent,
-): Promise<void> {
-  const webhooks = (await ctx.get<WebhookConfig[]>("webhooks")) ?? [];
-  for (const wh of webhooks) {
-    if (wh.events && !wh.events.includes(event.type as WebhookEventType)) continue;
-    ctx.serviceSendClient(WebhookDeliveryService).deliver({
-      webhook: wh,
-      sessionId,
-      event,
-    });
-  }
-}
-
-async function handlePermissionRequest(
-  ctx: restate.ObjectContext,
-  data: unknown,
-): Promise<unknown> {
-  const { id, promise } = ctx.awakeable<unknown>();
-  const now = new Date(await ctx.date.now()).toISOString();
-  const permData = { ...(data as Record<string, unknown>), awakeableId: id };
-
-  ctx.set("pending_permission", { awakeableId: id, data });
-  await updateMeta(ctx, { lastUpdatedAt: now, pendingPermission: permData });
-  publish(ctx, `session:${ctx.key}`, { type: "permission_request", data: permData });
-
-  // Suspend — zero compute until resolved via resolveEvent
-  const response = await promise;
-
-  ctx.clear("pending_permission");
-  await updateMeta(ctx, {
-    lastUpdatedAt: new Date(await ctx.date.now()).toISOString(),
-    pendingPermission: null,
-  });
-  return response;
-}
-
-// ---------------------------------------------------------------------------
-// FlamecastSession Virtual Object
+// Virtual Object
 // ---------------------------------------------------------------------------
 
 export const FlamecastSession = restate.object({
   name: "FlamecastSession",
   handlers: {
     start: async (ctx: restate.ObjectContext, input: StartSessionInput) => {
-      await ctx.run("spawn-agent", async () => {
-        const resp = await fetch(`${input.runtimeUrl}/sessions/${ctx.key}/start`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId: ctx.key,
-            command: input.spawn.command,
-            args: input.spawn.args,
-            workspace: input.cwd,
-            setup: input.setup,
-            env: input.env,
-            callbackUrl: input.callbackUrl,
-          }),
-        });
-        if (!resp.ok) throw new Error(`Session-host /start failed: ${resp.status}`);
-        return await resp.json();
-      });
-
-      const hostUrl = input.runtimeUrl;
-      const websocketUrl = input.runtimeUrl.replace(/^http/, "ws");
-      const startedAt = new Date(await ctx.date.now()).toISOString();
-      ctx.set<SessionMeta>("meta", {
-        id: ctx.key,
-        agentName: input.agentName,
-        hostUrl,
-        websocketUrl,
-        runtimeName: input.runtimeName,
-        status: "active",
-        startedAt,
-        lastUpdatedAt: startedAt,
-        spawn: input.spawn,
-        pendingPermission: null,
-      });
-      ctx.set("webhooks", input.webhooks ?? []);
-      publish(ctx, `session:${ctx.key}`, { type: "session.created", sessionId: ctx.key });
-
-      return { sessionId: ctx.key, hostUrl, websocketUrl };
+      const rt = createRestateSessionRuntime(ctx);
+      return lifecycle.startSession(rt, input);
     },
 
     terminate: async (ctx: restate.ObjectContext) => {
-      const meta = await ctx.get<SessionMeta>("meta");
-      if (!meta) return;
-
-      await ctx.run("terminate-agent", async () => {
-        await fetch(`${meta.hostUrl}/sessions/${ctx.key}/terminate`, { method: "POST" });
-      });
-
-      const now = new Date(await ctx.date.now()).toISOString();
-      ctx.set("meta", { ...meta, status: "killed" as const, lastUpdatedAt: now, pendingPermission: null });
-      publish(ctx, `session:${ctx.key}`, { type: "session.terminated", sessionId: ctx.key });
-
+      const rt = createRestateSessionRuntime(ctx);
+      await lifecycle.terminateSession(rt);
       // Schedule state cleanup after 7 days
       ctx.objectSendClient(FlamecastSession, ctx.key, { delay: 7 * 24 * 60 * 60 * 1000 }).cleanup();
     },
 
     handleCallback: async (ctx: restate.ObjectContext, event: SessionCallbackEvent) => {
-      if (event.type === "permission_request") {
-        return await handlePermissionRequest(ctx, event.data);
-      }
-
-      const now = new Date(await ctx.date.now()).toISOString();
+      const rt = createRestateSessionRuntime(ctx);
+      const result = await lifecycle.handleCallback(rt, event);
+      // Schedule cleanup on session end
       if (event.type === "session_end") {
-        await updateMeta(ctx, { status: "killed", lastUpdatedAt: now, pendingPermission: null });
         ctx.objectSendClient(FlamecastSession, ctx.key, { delay: 7 * 24 * 60 * 60 * 1000 }).cleanup();
-      } else {
-        await updateMeta(ctx, { lastUpdatedAt: now });
       }
-      if (event.type === "end_turn") {
-        ctx.set("currentTurn", null);
-      }
-
-      publish(ctx, `session:${ctx.key}`, event);
-      await dispatchWebhooks(ctx, ctx.key, event);
-      return { ok: true };
+      return result;
     },
 
     // Shared handlers — concurrent, non-blocking, lazy state
@@ -225,14 +124,12 @@ export const FlamecastSession = restate.object({
 
     // -----------------------------------------------------------------
     // Phase 5 — temporal primitives. Not yet wired to any code path.
-    // The Go session-host has dispatch stubs (session/wait_for,
-    // session/wait, session/schedule) but no agent exercises them yet.
     // -----------------------------------------------------------------
 
     waitFor: async (ctx: restate.ObjectContext, input: WaitForInput) => {
+      // Uses ctx directly — RestatePromise.any requires Restate-native promises
       const { id, promise } = ctx.awakeable<unknown>();
       ctx.set("waiting_for", { awakeableId: id, filter: input.filter });
-      publish(ctx, `session:${ctx.key}`, { type: "waiting", data: { filter: input.filter, awakeableId: id } });
 
       let result: unknown;
       if (input.timeoutMs) {
