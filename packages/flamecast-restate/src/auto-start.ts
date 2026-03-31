@@ -1,5 +1,16 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { createRequire } from "node:module";
+import { platform, arch } from "node:os";
 import { createRestateEndpoint } from "./endpoint.js";
+
+// Same resolution logic as @restatedev/restate-server's own index.ts
+function getExePath(): string {
+  const require = createRequire(import.meta.url);
+  const pkg = require.resolve("@restatedev/restate-server/package.json");
+  return createRequire(pkg).resolve(
+    `@restatedev/restate-server-${platform()}-${arch()}/bin/restate-server`,
+  );
+}
 
 /**
  * Start the Flamecast Restate endpoint, a local restate-server, and register
@@ -21,8 +32,8 @@ export async function autoStartRestate(opts?: {
   await createRestateEndpoint().listen(endpointPort);
   console.log(`[restate] Endpoint listening on :${endpointPort}`);
 
-  // 2. Start restate-server via the npm wrapper (handles platform binary resolution)
-  const server: ChildProcess = spawn("npx", ["@restatedev/restate-server"], {
+  // 2. Start restate-server directly (no npx indirection)
+  const server: ChildProcess = spawn(getExePath(), [], {
     stdio: ["ignore", "inherit", "inherit"],
     env: {
       ...process.env,
