@@ -42,3 +42,9 @@ export {
   pullSessionEvents,
   type SessionSSEOptions,
 } from "./session-sse.js";
+export {
+  startBridgeServer,
+  HttpJsonRpcConnection,
+  type BridgeServer,
+  type BridgeServerOptions,
+} from "./http-bridge.js";

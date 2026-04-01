@@ -21,6 +21,7 @@ import type {
   PromptResult,
   SessionHandle,
 } from "./adapter.js";
+import { HttpJsonRpcConnection } from "./http-bridge.js";
 
 // ─── JSON-RPC message types ──────────────────────────────────────────────────
 
@@ -151,9 +152,13 @@ class JsonRpcConnection {
   }
 }
 
+// ─── Connection interface (shared by stdio + HTTP bridge) ───────────────────
+
+type AnyJsonRpcConnection = JsonRpcConnection | HttpJsonRpcConnection;
+
 // ─── Active connections by sessionId ─────────────────────────────────────────
 
-const connections = new Map<string, JsonRpcConnection>();
+const connections = new Map<string, AnyJsonRpcConnection>();
 
 // ─── Adapter ─────────────────────────────────────────────────────────────────
 
@@ -163,20 +168,48 @@ export class ZedAcpAdapter implements AgentAdapter {
   async start(config: AgentStartConfig): Promise<SessionHandle> {
     const sessionId = config.sessionId ?? randomUUID();
 
-    // If config.agent is a URL (containerized agent via session-host), use HTTP.
-    // The VO spawns the container separately and passes the URL here.
+    // If config.agent is a URL (containerized agent behind HTTP bridge),
+    // connect via HttpJsonRpcConnection instead of spawning locally.
     if (
       config.agent.startsWith("http://") ||
       config.agent.startsWith("https://")
     ) {
-      return {
-        sessionId,
+      const conn = await HttpJsonRpcConnection.connect(config.agent);
+
+      // Initialize the ACP session (same protocol as stdio)
+      const initResult = (await conn.request("initialize", {
+        capabilities: {},
+        clientInfo: { name: "flamecast", version: "1.0.0" },
+      })) as {
+        serverInfo?: { name?: string; description?: string };
+        capabilities?: Record<string, unknown>;
+      };
+
+      const sessionResult = (await conn.request("session/new", {})) as {
+        id?: string;
+      };
+
+      const handle: SessionHandle = {
+        sessionId: sessionResult?.id ?? sessionId,
         protocol: "zed",
         agent: {
-          name: config.agent.split("/").pop() ?? "zed-agent",
+          name:
+            initResult?.serverInfo?.name ??
+            config.agent.split("/").pop() ??
+            "zed-agent",
+          description: initResult?.serverInfo?.description,
+          capabilities: initResult?.capabilities,
         },
         connection: { url: config.agent },
       };
+
+      connections.set(handle.sessionId, conn);
+
+      conn.onExit(() => {
+        connections.delete(handle.sessionId);
+      });
+
+      return handle;
     }
 
     // Local process — spawn with --acp flag
