@@ -23,10 +23,10 @@ export class IbmAcpAdapter implements IbmAcpAdapterInterface {
 
   async start(config: AgentStartConfig): Promise<SessionHandle> {
     // config.agent is the base URL + agent name, e.g. "http://localhost:8000/agents/echo"
-    // Parse baseUrl and agentName from config.agent
+    // Parse baseUrl (origin) and agentName from config.agent
     const url = new URL(config.agent);
     const agentName = url.pathname.split("/").pop()!;
-    const baseUrl = `${url.origin}${url.pathname.replace(/\/[^/]+$/, "")}`;
+    const baseUrl = url.origin;
 
     // GET /agents/{name} to verify agent exists
     const res = await fetch(config.agent);
@@ -264,30 +264,60 @@ export class IbmAcpAdapter implements IbmAcpAdapterInterface {
     }
   }
 
+  /**
+   * Map an SSE event to an AgentEvent.
+   *
+   * IBM ACP servers may use either:
+   * - Standard SSE: `event:` header sets the type, `data:` is the payload.
+   * - Inline type:  No `event:` header; `data.type` carries the event type
+   *   and the payload is nested under a key (e.g. `data.part`, `data.run`).
+   */
   private mapSSEEvent(type: string, data: string): AgentEvent | null {
     try {
-      const parsed = JSON.parse(data);
-      switch (type) {
-        case "message.part":
+      const parsed = JSON.parse(data) as Record<string, unknown>;
+
+      // Resolve event type: prefer explicit SSE event header, fall back to
+      // the `type` field inside the JSON payload.
+      const eventType = type || (parsed.type as string) || "";
+
+      switch (eventType) {
+        case "message.part": {
+          // Inline format: { type, part: { content, ... } }
+          // Legacy format: { content, ... }
+          const part = (parsed.part ?? parsed) as Record<string, unknown>;
           return {
             type: "text",
-            text: (parsed.content as string) ?? "",
+            text: (part.content as string) ?? "",
             role: "assistant",
           };
-        case "run.completed":
+        }
+        case "run.completed": {
+          // Inline format: { type, run: { output, ... } }
+          // Legacy format: { output, ... }
+          const run = (parsed.run ?? parsed) as Record<string, unknown>;
           return {
             type: "complete",
             reason: "end_turn",
-            output: parsed.output as AgentMessage[],
+            output: run.output as AgentMessage[],
           };
-        case "run.failed":
+        }
+        case "run.failed": {
+          const run = (parsed.run ?? parsed) as Record<string, unknown>;
+          const error = run.error as Record<string, unknown> | string | undefined;
+          const message =
+            typeof error === "string"
+              ? error
+              : (error?.message as string) ?? "Run failed";
           return {
             type: "error",
             code: "RUN_FAILED",
-            message: (parsed.error as string) ?? "Run failed",
+            message,
           };
-        case "run.awaiting":
-          return { type: "pause", request: parsed.await_request };
+        }
+        case "run.awaiting": {
+          const run = (parsed.run ?? parsed) as Record<string, unknown>;
+          return { type: "pause", request: run.await_request };
+        }
         default:
           return null;
       }

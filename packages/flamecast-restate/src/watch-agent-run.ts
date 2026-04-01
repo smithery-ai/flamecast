@@ -68,7 +68,10 @@ async function* agentSSE(url: string, signal?: AbortSignal): AsyncIterable<Agent
         } else if (line === "") {
           if (data) {
             try {
-              yield { type: eventType || "message", data: JSON.parse(data) };
+              const parsed = JSON.parse(data);
+              // IBM ACP may embed event type in data.type instead of SSE event: header
+              const resolvedType = eventType || (typeof parsed === "object" && parsed !== null ? parsed.type : "") || "message";
+              yield { type: resolvedType, data: parsed };
             } catch {
               yield { type: eventType || "message", data };
             }
@@ -106,13 +109,17 @@ function createPubsubPublisher(restateUrl: string): PubsubPublisher {
 const TERMINAL_EVENTS = new Set(["run.completed", "run.awaiting", "run.failed"]);
 
 function toPromptResult(type: string, data: RunTerminalData): PromptResult {
+  // IBM ACP may nest run data under a `run` key (inline type format)
+  const run = (data as unknown as Record<string, unknown>).run as RunTerminalData | undefined;
+  const d = run ?? data;
+
   switch (type) {
     case "run.completed":
-      return { status: "completed", output: data.output };
+      return { status: "completed", output: d.output };
     case "run.awaiting":
-      return { status: "awaiting", awaitRequest: data.await_request };
+      return { status: "awaiting", awaitRequest: d.await_request };
     case "run.failed":
-      return { status: "failed", error: data.error ?? "Agent run failed" };
+      return { status: "failed", error: d.error ?? "Agent run failed" };
     default:
       return { status: "failed", error: `Unexpected terminal event: ${type}` };
   }
@@ -121,7 +128,7 @@ function toPromptResult(type: string, data: RunTerminalData): PromptResult {
 // ─── Main watcher ──────────────────────────────────────────────────────────
 
 export interface WatchAgentRunOptions {
-  /** Base URL of the IBM ACP agent (e.g. http://localhost:8000/agents/echo) */
+  /** Base URL of the IBM ACP agent (e.g. http://localhost:8000) */
   agentUrl: string;
   /** Run ID to watch */
   runId: string;
