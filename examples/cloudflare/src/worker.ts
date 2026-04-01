@@ -15,9 +15,10 @@ export default {
     }
 
     try {
-      return await handleRequest(request, env.HYPERDRIVE.connectionString, {
+      return await handleRequest(request, {
         e2bApiKey: env.E2B_API_KEY,
         agentSource,
+        restateUrl: env.RESTATE_INGRESS_URL,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

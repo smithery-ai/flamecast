@@ -25,7 +25,7 @@ test("runs the agent entrypoint automatically when imported as the main module",
   try {
     vi.resetModules();
     process.argv[1] = fileURLToPath(new URL("../src/flamecast/agent.ts", import.meta.url));
-    await import("../src/flamecast/agent.ts");
+    await import("../src/flamecast/agent.js");
   } finally {
     process.argv[1] = originalArgv1;
   }

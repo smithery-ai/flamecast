@@ -4,6 +4,6 @@ declare module "*.txt" {
 }
 
 interface Env {
-  HYPERDRIVE: Hyperdrive;
   E2B_API_KEY: string;
+  RESTATE_INGRESS_URL?: string;
 }
