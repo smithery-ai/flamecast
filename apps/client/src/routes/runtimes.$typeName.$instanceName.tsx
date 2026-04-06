@@ -278,56 +278,50 @@ function RuntimeDetailPanel({
 
         <ResizableHandle />
 
-        {/* ── Right: Filesystem + Terminals ── */}
+        {/* ── Right: Filesystem (top) + Terminals (bottom) ── */}
         <ResizablePanel defaultSize={35} minSize={20}>
-          <ResizablePanelGroup direction="vertical" className="min-h-0 h-full">
+          <div className="flex h-full min-h-0 flex-col border-l">
             {/* ── Top right: Filesystem ── */}
-            <ResizablePanel defaultSize={50} minSize={15}>
-              <div className="flex min-h-0 h-full flex-col overflow-hidden border-l">
-                {runtimeFsQuery.isLoading ? (
-                  <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
-                    <LoaderCircleIcon className="size-3.5 animate-spin" />
-                    Loading filesystem...
-                  </div>
-                ) : runtimeFsQuery.isError || !runtimeFsQuery.data ? (
-                  <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
-                    <p className="text-xs text-muted-foreground">Could not load filesystem</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void runtimeFsQuery.refetch()}
-                    >
-                      Retry
-                    </Button>
-                  </div>
-                ) : (
-                  <RuntimeFileTree
-                    workspaceRoot={runtimeFsQuery.data.root}
-                    entries={runtimeFsQuery.data.entries}
-                    showAllFiles={showAllFiles}
-                    onShowAllFilesChange={setShowAllFiles}
-                    onFileSelect={openFileTab}
-                  />
-                )}
-              </div>
-            </ResizablePanel>
-
-            <ResizableHandle />
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              {runtimeFsQuery.isLoading ? (
+                <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <LoaderCircleIcon className="size-3.5 animate-spin" />
+                  Loading filesystem...
+                </div>
+              ) : runtimeFsQuery.isError || !runtimeFsQuery.data ? (
+                <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
+                  <p className="text-xs text-muted-foreground">Could not load filesystem</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void runtimeFsQuery.refetch()}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : (
+                <RuntimeFileTree
+                  workspaceRoot={runtimeFsQuery.data.root}
+                  entries={runtimeFsQuery.data.entries}
+                  showAllFiles={showAllFiles}
+                  onShowAllFilesChange={setShowAllFiles}
+                  onFileSelect={openFileTab}
+                />
+              )}
+            </div>
 
             {/* ── Bottom right: Terminals ── */}
-            <ResizablePanel defaultSize={50} minSize={15}>
-              <div className="flex min-h-0 h-full flex-col overflow-hidden border-l">
-                <TerminalPanel
-                  terminals={terminals}
-                  sendInput={sendInput}
-                  resize={resize}
-                  onData={onData}
-                  onCreateTerminal={() => createTerminal()}
-                  onRemoveTerminal={killTerminal}
-                />
-              </div>
-            </ResizablePanel>
-          </ResizablePanelGroup>
+            <div className="flex h-[40%] min-h-[200px] shrink-0 flex-col overflow-hidden border-t">
+              <TerminalPanel
+                terminals={terminals}
+                sendInput={sendInput}
+                resize={resize}
+                onData={onData}
+                onCreateTerminal={() => createTerminal()}
+                onRemoveTerminal={killTerminal}
+              />
+            </div>
+          </div>
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
