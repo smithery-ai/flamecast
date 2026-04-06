@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useRuntimes, useAgentTemplates, useCreateSession } from "@flamecast/ui";
+import { useRuntimes, useAgentTemplates, useCreateSession, useSessions } from "@flamecast/ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -10,9 +10,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronDownIcon, LoaderCircleIcon, PlusIcon, SendIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  LoaderCircleIcon,
+  MessageSquareIcon,
+  PlusIcon,
+  SendIcon,
+} from "lucide-react";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -22,6 +28,7 @@ function HomePage() {
   const navigate = useNavigate();
   const { data: runtimes, isLoading: runtimesLoading } = useRuntimes();
   const { data: templates, isLoading: templatesLoading } = useAgentTemplates();
+  const { data: sessions } = useSessions();
 
   const defaultRuntime = runtimes?.[0]?.typeName ?? "";
   const [selectedRuntime, setSelectedRuntime] = useState<string>("");
@@ -35,6 +42,21 @@ function HomePage() {
   const activeTemplate = selectedTemplateId
     ? (templates?.find((t) => t.id === selectedTemplateId) ?? defaultTemplate)
     : defaultTemplate;
+
+  // Find active sessions matching the selected agent + runtime combo
+  const matchingSessions = useMemo(() => {
+    if (!sessions || !activeTemplate) return [];
+    const runtimeInfo = runtimes?.find((rt) => rt.typeName === activeRuntime);
+    return sessions.filter((s) => {
+      if (s.agentName !== activeTemplate.name) return false;
+      if (s.status !== "active") return false;
+      // For onlyOne runtimes, runtime field may be undefined — match all
+      if (runtimeInfo?.onlyOne) return true;
+      // For multi-instance, match by runtime instance name
+      if (!s.runtime) return true;
+      return runtimeInfo?.instances.some((i) => i.name === s.runtime);
+    });
+  }, [sessions, activeTemplate, runtimes, activeRuntime]);
 
   const [prompt, setPrompt] = useState("");
 
@@ -51,6 +73,17 @@ function HomePage() {
   const handleSend = () => {
     if (!prompt.trim() || !activeTemplate) return;
 
+    // Reuse an existing active session if one exists for this combo
+    if (matchingSessions.length > 0) {
+      void navigate({
+        to: "/sessions/$id",
+        params: { id: matchingSessions[0].id },
+        search: { prompt: prompt.trim() },
+      });
+      return;
+    }
+
+    // Otherwise create a new session
     const runtimeInfo = runtimes?.find((rt) => rt.typeName === activeRuntime);
     const runtimeInstance =
       runtimeInfo && !runtimeInfo.onlyOne
@@ -163,6 +196,26 @@ function HomePage() {
             </DropdownMenu>
           ) : null}
         </div>
+
+        {matchingSessions.length > 0 && (
+          <div className="flex flex-col gap-1.5 pt-1">
+            <span className="text-xs text-muted-foreground">Active sessions</span>
+            {matchingSessions.map((s) => (
+              <Link
+                key={s.id}
+                to="/sessions/$id"
+                params={{ id: s.id }}
+                className="group flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors hover:bg-muted/50"
+              >
+                <MessageSquareIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate font-medium">{s.agentName}</span>
+                <code className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                  ...{s.id.slice(-8)}
+                </code>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
