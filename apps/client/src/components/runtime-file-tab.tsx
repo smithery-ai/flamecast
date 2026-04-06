@@ -59,7 +59,7 @@ export function RuntimeFileTab({
         <FileCode2Icon className="size-3.5 text-muted-foreground" />
         <span className="min-w-0 truncate text-xs text-muted-foreground">{filePath}</span>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="h-0 min-h-0 flex-1 overflow-auto">
         <pre className="whitespace-pre-wrap break-all p-4 text-xs font-mono">
           {preview.content}
           {preview.truncated && (

@@ -48,7 +48,7 @@ export function TerminalPanel({
 
   if (terminals.length === 0) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-border/70 bg-card">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-card">
         <TerminalSquareIcon className="size-8 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">No terminals open.</p>
         <Button variant="outline" size="sm" onClick={onCreateTerminal}>
@@ -66,7 +66,7 @@ export function TerminalPanel({
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
       <div className="flex shrink-0 items-center gap-2">
-        <TabsList className="h-8">
+        <TabsList className="h-8 rounded-none">
           {terminals.map((term, i) => (
             <TabsTrigger
               key={term.terminalId}
@@ -102,7 +102,7 @@ export function TerminalPanel({
         <TabsContent
           key={term.terminalId}
           value={term.terminalId}
-          className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-black"
+          className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden bg-black"
           forceMount={activeTab === term.terminalId ? undefined : true}
           hidden={activeTab !== term.terminalId}
         >

@@ -48,7 +48,7 @@ function RootLayout() {
               <Breadcrumbs {...breadcrumbs} />
             </nav>
           </header>
-          <main className="flex min-h-0 flex-1 flex-col p-6">
+          <main className="flex min-h-0 flex-1 flex-col">
             <Outlet />
           </main>
         </SidebarInset>
