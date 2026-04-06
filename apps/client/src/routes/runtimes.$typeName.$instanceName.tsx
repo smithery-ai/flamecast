@@ -128,71 +128,64 @@ function RuntimeDetailPanel({
   }, []);
 
   const openSessionTab = useCallback((sessionId: string, agentName: string) => {
-    // Check if session already open
-    setTabs((prev) => {
-      const existing = prev.find((t) => t.type === "session" && t.sessionId === sessionId);
-      if (existing) {
-        setActiveTabId(existing.id);
-        return prev;
-      }
-      const tab: Tab = {
-        id: makeTabId(),
-        type: "session",
-        sessionId,
-        label: agentName,
-      };
-      setActiveTabId(tab.id);
-      // Replace the current new-tab if the active tab is a new-tab
-      const activeTab = prev.find((t) => t.id === activeTabId);
-      if (activeTab?.type === "new-tab") {
-        return prev.map((t) => (t.id === activeTab.id ? tab : t));
-      }
-      return [...prev, tab];
-    });
-  }, [activeTabId]);
+    const existing = tabs.find((t) => t.type === "session" && t.sessionId === sessionId);
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
+    const tab: Tab = {
+      id: makeTabId(),
+      type: "session",
+      sessionId,
+      label: agentName,
+    };
+    // Replace the current active new-tab, otherwise append
+    const activeTab = tabs.find((t) => t.id === activeTabId);
+    if (activeTab?.type === "new-tab") {
+      setTabs((prev) => prev.map((t) => (t.id === activeTab.id ? tab : t)));
+    } else {
+      setTabs((prev) => [...prev, tab]);
+    }
+    setActiveTabId(tab.id);
+  }, [tabs, activeTabId]);
 
   const openFileTab = useCallback((filePath: string) => {
-    setTabs((prev) => {
-      const existing = prev.find((t) => t.type === "file" && t.filePath === filePath);
-      if (existing) {
-        setActiveTabId(existing.id);
-        return prev;
-      }
-      const tab: Tab = {
-        id: makeTabId(),
-        type: "file",
-        filePath,
-        label: fileNameFromPath(filePath),
-      };
-      setActiveTabId(tab.id);
-      return [...prev, tab];
-    });
-  }, []);
+    const existing = tabs.find((t) => t.type === "file" && t.filePath === filePath);
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
+    const tab: Tab = {
+      id: makeTabId(),
+      type: "file",
+      filePath,
+      label: fileNameFromPath(filePath),
+    };
+    setTabs((prev) => [...prev, tab]);
+    setActiveTabId(tab.id);
+  }, [tabs]);
 
   const closeTab = useCallback(
     (tabId: string) => {
-      setTabs((prev) => {
-        const idx = prev.findIndex((t) => t.id === tabId);
-        if (idx === -1) return prev;
+      const idx = tabs.findIndex((t) => t.id === tabId);
+      if (idx === -1) return;
 
-        const next = prev.filter((t) => t.id !== tabId);
+      const next = tabs.filter((t) => t.id !== tabId);
 
-        // If we closed the active tab, switch to an adjacent one
-        if (activeTabId === tabId) {
-          if (next.length === 0) {
-            // Last tab closed - create a new tab
-            const newTab: Tab = { id: makeTabId(), type: "new-tab" };
-            setActiveTabId(newTab.id);
-            return [newTab];
-          }
-          const newIdx = Math.min(idx, next.length - 1);
-          setActiveTabId(next[newIdx].id);
-        }
+      if (next.length === 0) {
+        const newTab: Tab = { id: makeTabId(), type: "new-tab" };
+        setTabs([newTab]);
+        setActiveTabId(newTab.id);
+        return;
+      }
 
-        return next;
-      });
+      setTabs(next);
+      if (activeTabId === tabId) {
+        const newIdx = Math.min(idx, next.length - 1);
+        setActiveTabId(next[newIdx].id);
+      }
     },
-    [activeTabId],
+    [tabs, activeTabId],
   );
 
   const loadPreview = useCallback(
