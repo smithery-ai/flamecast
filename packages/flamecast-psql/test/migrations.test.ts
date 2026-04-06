@@ -8,7 +8,7 @@ import {
   getMigrationStatus,
   migrateDatabase,
 } from "../src/db.js";
-import { createPsqlStorage } from "../src/index.js";
+import { createPsqlDatabase, createPsqlStorage } from "../src/index.js";
 
 describe("explicit migration flow", () => {
   it("reports pending migrations for a fresh database and becomes ready after migrate", async () => {
@@ -44,6 +44,24 @@ describe("explicit migration flow", () => {
       await expect(createPsqlStorage({ dataDir, seedDefaults: false })).rejects.toThrow(
         "flamecast db migrate",
       );
+    } finally {
+      await rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("exposes a reusable db helper for config-driven migrations", async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), "flamecast-db-helper-"));
+    const db = createPsqlDatabase({ dataDir });
+
+    try {
+      const initialStatus = await db.getMigrationStatus();
+      expect(initialStatus.isUpToDate).toBe(false);
+
+      const result = await db.migrate();
+      expect(result.status.isUpToDate).toBe(true);
+
+      const storage = await db.createStorage({ seedDefaults: false });
+      await expect(storage.listAgentTemplates()).resolves.toEqual([]);
     } finally {
       await rm(dataDir, { recursive: true, force: true });
     }

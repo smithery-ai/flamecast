@@ -315,27 +315,43 @@ packages/
 
 ## Configuration
 
-Configuration is TypeScript via the `Flamecast` constructor:
+Configuration is TypeScript via the `Flamecast` constructor. The preferred Node pattern is to export a configured `Flamecast` instance from `flamecast.config.ts` so app startup and CLI database commands share the same backend:
 
 ```ts
-import { Flamecast } from "@flamecast/sdk";
-import { createPsqlStorage } from "@flamecast/storage-psql";
+import { Flamecast, NodeRuntime } from "@flamecast/sdk";
+import { createPsqlDatabase } from "@flamecast/storage-psql";
 
-const flamecast = new Flamecast({
-  storage: await createPsqlStorage(),
+const db = createPsqlDatabase({
+  url: process.env.DATABASE_URL,
 });
 
-await flamecast.listen(3001);
+export default new Flamecast({
+  backend: db,
+  runtimes: {
+    default: new NodeRuntime(),
+  },
+});
+```
+
+```ts
+import { listen } from "@flamecast/sdk";
+import flamecast from "./flamecast.config.js";
+
+await flamecast.init();
+listen(flamecast, 3001);
 ```
 
 The same instance also exposes a standard `fetch` handler:
 
 ```ts
-import { Flamecast } from "@flamecast/sdk";
+import { Flamecast, NodeRuntime } from "@flamecast/sdk";
 import { createPsqlStorage } from "@flamecast/storage-psql";
 
 const flamecast = new Flamecast({
   storage: await createPsqlStorage({ url: process.env.DATABASE_URL! }),
+  runtimes: {
+    default: new NodeRuntime(),
+  },
 });
 
 export default flamecast.fetch;
@@ -345,18 +361,22 @@ export default flamecast.fetch;
 
 | Option | Description |
 |---|---|
-| `storage` | Persistence backend. Required |
-| `runtimeProviders` | Registry overrides or additional runtime providers |
+| `storage` | Ready-to-use persistence backend |
+| `backend` | Lazy SQL backend handle used by `init()`, `db migrate`, `db status`, and `db studio` |
+| `runtimes` | Named runtime instances that agent templates reference by key |
 | `agentTemplates` | Initial agent template list. Replaces bundled defaults when provided |
-| `handleSignals` | Auto shutdown on SIGINT/SIGTERM. Defaults to `true` |
-| `runtimeClient` | Custom `RuntimeClient` implementation. Defaults to `LocalRuntimeClient` |
+| `callbackUrl` | Override the callback URL used by session hosts to reach the control plane |
+| `webhooks` | Global webhooks merged into every session's webhook delivery config |
 
 ### Storage options
 
-Use `@flamecast/storage-psql` for SQL-backed persistence. `createPsqlStorage()` defaults to embedded PGLite when no `url` is provided, but it no longer auto-applies migrations:
+Use `@flamecast/storage-psql` for SQL-backed persistence. `createPsqlDatabase()` is the preferred entrypoint when you want one exported `Flamecast` instance that the CLI can also load. `createPsqlStorage()` is still available if you want to construct storage eagerly:
 
 ```ts
-import { createPsqlStorage } from "@flamecast/storage-psql";
+import { createPsqlDatabase, createPsqlStorage } from "@flamecast/storage-psql";
+
+// Preferred: shared backend handle for app + CLI
+const db = createPsqlDatabase({ url: "postgres://localhost/flamecast" });
 
 // Postgres
 const storage = await createPsqlStorage({ url: "postgres://localhost/flamecast" });
@@ -370,6 +390,8 @@ Before starting the app for the first time, run:
 ```bash
 flamecast db migrate
 ```
+
+`flamecast db migrate`, `status`, `studio`, and `serve` automatically load `flamecast.config.ts|mts|js|mjs|cts|cjs` from the current working directory. The preferred pattern is to export a configured `Flamecast` instance constructed with a SQL backend handle. Pass `--config <path>` to point at a different module. If no config file is found, the CLI falls back to `DATABASE_URL` or `POSTGRES_URL`.
 
 Useful admin commands:
 
@@ -389,6 +411,7 @@ flamecast db studio
 | Variable | Purpose |
 |---|---|
 | `FLAMECAST_PGLITE_DIR` | Override the default PGLite data directory (`<cwd>/.flamecast/pglite`) |
+| `DATABASE_URL` / `POSTGRES_URL` | Optional fallback for CLI db commands when no `flamecast.config.*` file is present |
 | `SESSION_HOST_BINARY` | Path to a local session-host binary (for docker/local providers) |
 | `SESSION_HOST_URL` | URL to download the session-host binary (for e2b/bundled environments). Overrides the default GitHub release URL |
 

@@ -1,9 +1,9 @@
 ---
 title: "Storage"
-description: "Persist session metadata with Drizzle-backed storage"
+description: "Persist session metadata with SQL-backed storage"
 ---
 
-Flamecast persists session metadata and agent templates through Drizzle-backed storage.
+Flamecast persists session metadata and agent templates through SQL-backed storage adapters.
 
 ## Backends
 
@@ -14,16 +14,39 @@ Flamecast persists session metadata and agent templates through Drizzle-backed s
 
 ## Configuration
 
-`Flamecast` requires an explicit `storage` instance. In Node environments, `createPsqlStorage()` defaults to embedded PGLite when no `url` is provided.
+`Flamecast` can be configured with either a ready `storage` instance or a lazy SQL `backend` handle. In Node environments, the preferred pattern is exporting a configured `Flamecast` instance backed by `createPsqlDatabase()`.
+
+If you want `flamecast db migrate` to reuse the same database settings as your app, put them in `flamecast.config.ts` and import that module from your server entrypoint:
+
+```typescript
+import dotenv from "dotenv";
+import { Flamecast, NodeRuntime } from "@flamecast/sdk";
+import { createPsqlDatabase } from "@flamecast/storage-psql";
+
+dotenv.config();
+const db = createPsqlDatabase({
+  url: process.env.DATABASE_URL,
+});
+
+export default new Flamecast({
+  backend: db,
+  runtimes: {
+    default: new NodeRuntime(),
+  },
+});
+```
 
 ### PGLite (default Node path)
 
 ```typescript
-import { Flamecast } from "@flamecast/sdk";
+import { Flamecast, NodeRuntime } from "@flamecast/sdk";
 import { createPsqlStorage } from "@flamecast/storage-psql";
 
 const flamecast = new Flamecast({
   storage: await createPsqlStorage(),
+  runtimes: {
+    default: new NodeRuntime(),
+  },
 });
 ```
 
@@ -35,16 +58,22 @@ Before first startup, apply migrations explicitly:
 flamecast db migrate
 ```
 
+The CLI auto-loads `flamecast.config.ts|mts|js|mjs|cts|cjs` from the current working directory. The preferred pattern is to export a configured `Flamecast` instance backed by a SQL adapter. Use `--config <path>` to point somewhere else.
+
 ### PostgreSQL
 
 ```typescript
-import { createPsqlStorage } from "@flamecast/storage-psql";
+import { Flamecast, NodeRuntime } from "@flamecast/sdk";
+import { createPsqlDatabase } from "@flamecast/storage-psql";
 
-const storage = await createPsqlStorage({
-  url: "postgres://localhost/flamecast",
+const flamecast = new Flamecast({
+  backend: createPsqlDatabase({
+    url: "postgres://localhost/flamecast",
+  }),
+  runtimes: {
+    default: new NodeRuntime(),
+  },
 });
-
-const flamecast = new Flamecast({ storage });
 ```
 
 ## Options
@@ -54,7 +83,7 @@ const flamecast = new Flamecast({ storage });
 | `url` | Postgres connection string |
 | `dataDir` | PGLite data directory (default: `<cwd>/.flamecast/pglite`) |
 
-The storage package uses Drizzle ORM. Check or apply runtime migrations with:
+The current SQL storage package uses Drizzle ORM under the hood. Check or apply runtime migrations with:
 
 ```bash
 flamecast db status

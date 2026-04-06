@@ -1,24 +1,7 @@
-import { Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
-import { createPsqlStorage } from "@flamecast/storage-psql";
-import dotenv from "dotenv";
+import { listen } from "@flamecast/sdk";
+import flamecast from "../flamecast.config.js";
 
-dotenv.config();
-const storage = await createPsqlStorage();
-
-const flamecast = new Flamecast({
-  storage,
-  runtimes: {
-    default: new NodeRuntime(),
-  },
-  agentTemplates: [
-    {
-      id: "echo-agent",
-      name: "Echo Agent",
-      spawn: { command: "npx", args: ["tsx", "agent.ts"] },
-      runtime: { provider: "default" },
-    },
-  ],
-});
+await flamecast.init();
 
 listen(flamecast, { port: 3001 }, (info) => {
   console.log(`Flamecast running on http://localhost:${info.port}`);

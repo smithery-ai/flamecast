@@ -1,8 +1,20 @@
 import type { FlamecastStorage } from "@flamecast/protocol";
-import { assertDatabaseReady, createDatabase, resolvePsqlConnection } from "./db.js";
+import {
+  assertDatabaseReady,
+  createDatabase,
+  getMigrationStatus,
+  migrateDatabase,
+  resolvePsqlConnection,
+} from "./db.js";
 import { createStorageFromDb } from "./storage.js";
 import { defaultAgentTemplates } from "./default-templates.js";
 import { PSQL_SCHEMA_FILE } from "./migrations-path.js";
+import type {
+  DatabaseBundle,
+  MigrationRecord,
+  MigrationStatus,
+  PsqlConnectionOptions,
+} from "./db.js";
 
 export type PsqlStorageOptions = {
   /** Postgres connection URL. If omitted, falls back to embedded PGLite. */
@@ -12,6 +24,28 @@ export type PsqlStorageOptions = {
   /** Seed default agent templates on startup. Defaults to `true` when using PGLite (no URL). */
   seedDefaults?: boolean;
 };
+
+export type PsqlDatabase = {
+  kind: "psql";
+  open(): Promise<DatabaseBundle>;
+  createStorage(options?: Pick<PsqlStorageOptions, "seedDefaults">): Promise<FlamecastStorage>;
+  getMigrationStatus(): Promise<MigrationStatus>;
+  migrate(): Promise<{ applied: MigrationRecord[]; status: MigrationStatus }>;
+  getStudioConfig(): DrizzleStudioConfig;
+};
+
+async function withDatabase<T>(
+  options: PsqlConnectionOptions,
+  run: (bundle: DatabaseBundle) => Promise<T>,
+): Promise<T> {
+  const bundle = await createDatabase(options);
+
+  try {
+    return await run(bundle);
+  } finally {
+    await bundle.close();
+  }
+}
 
 /**
  * Create a Drizzle-backed Flamecast storage backed by PostgreSQL (or embedded PGLite).
@@ -51,6 +85,17 @@ export async function createPsqlStorage(
     await bundle.close().catch(() => {});
     throw error;
   }
+}
+
+export function createPsqlDatabase(options: PsqlConnectionOptions = {}): PsqlDatabase {
+  return {
+    kind: "psql",
+    open: () => createDatabase(options),
+    createStorage: (storageOptions = {}) => createPsqlStorage({ ...options, ...storageOptions }),
+    getMigrationStatus: () => withDatabase(options, (bundle) => getMigrationStatus(bundle)),
+    migrate: () => withDatabase(options, (bundle) => migrateDatabase(bundle)),
+    getStudioConfig: () => getDrizzleStudioConfig(options),
+  };
 }
 
 export type DrizzleStudioConfig =
@@ -93,13 +138,8 @@ export function getDrizzleStudioConfig(
 
 export { createStorageFromDb } from "./storage.js";
 export type { PsqlAppDb } from "./types.js";
-export type {
-  DatabaseBundle,
-  MigrationRecord,
-  MigrationStatus,
-  PsqlConnectionOptions,
-  ResolvedPsqlConnection,
-} from "./db.js";
+export type { PsqlConnectionOptions, ResolvedPsqlConnection } from "./db.js";
+export type { DatabaseBundle, MigrationRecord, MigrationStatus } from "./db.js";
 export type {
   FlamecastStorage,
   SessionMeta,

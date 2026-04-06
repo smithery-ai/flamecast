@@ -106,27 +106,32 @@ class ParentAgent implements acp.Agent {
 ### Register the parent and children
 
 ```typescript
+import { Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
+import { createPsqlDatabase } from "@flamecast/storage-psql";
+
 const flamecast = new Flamecast({
+  backend: createPsqlDatabase(),
   runtimes: {
-    local: new LocalRuntime(),
+    default: new NodeRuntime(),
   },
   agentTemplates: [
     {
       id: "orchestrator",
       name: "Orchestrator",
       spawn: { command: "node", args: ["parent-agent.js"] },
-      runtime: "local",
+      runtime: "default",
     },
     {
       id: "codex",
       name: "Codex",
       spawn: { command: "pnpm", args: ["dlx", "@zed-industries/codex-acp"] },
-      runtime: "local",
+      runtime: "default",
     },
   ],
 });
 
-await flamecast.listen(3001);
+await flamecast.init();
+listen(flamecast, 3001);
 ```
 
 Now start the orchestrator:

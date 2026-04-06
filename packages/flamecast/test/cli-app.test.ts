@@ -10,9 +10,19 @@ describe("cli command parsing", () => {
   });
 
   it("parses db migrate and studio subcommands", () => {
-    expect(parseCliArgs(["db", "migrate", "--url", "postgres://db/flamecast"])).toEqual({
+    expect(
+      parseCliArgs([
+        "db",
+        "migrate",
+        "--config",
+        "./flamecast.config.ts",
+        "--url",
+        "postgres://db/flamecast",
+      ]),
+    ).toEqual({
       kind: "db-migrate",
       flags: {
+        config: "./flamecast.config.ts",
         url: "postgres://db/flamecast",
       },
     });

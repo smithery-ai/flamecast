@@ -49,6 +49,7 @@
     "@hono/zod-validator": "^0.7.6",
     "drizzle-kit": "^0.31.10",
     "hono": "^4.12.8",
+    "tsx": "^4.21.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

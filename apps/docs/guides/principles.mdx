@@ -7,16 +7,20 @@ Flamecast is designed around two core ideas: **reasonable defaults** and **infin
 
 ## Reasonable defaults, infinite config
 
-The reference server in `apps/server` is intentionally minimal. It creates a `Flamecast` instance with sensible defaults and calls `listen()`. That's it.
+The reference server in `apps/server` is intentionally minimal. It exports a configured `Flamecast` instance with sensible defaults, calls `init()`, and hands that instance to `listen()`. That's it.
 
 ```typescript
-import { Flamecast } from "@flamecast/sdk";
-import { createPsqlStorage } from "@flamecast/storage-psql";
+import { Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
+import { createPsqlDatabase } from "@flamecast/storage-psql";
 
 const flamecast = new Flamecast({
-  storage: await createPsqlStorage(),
+  backend: createPsqlDatabase(),
+  runtimes: {
+    default: new NodeRuntime(),
+  },
 });
-await flamecast.listen(3001);
+await flamecast.init();
+listen(flamecast, 3001);
 ```
 
 This works out of the box with embedded PGLite storage, local process runtime, and built-in agent templates. But every piece is replaceable. Swap in Postgres storage, add a custom runtime provider, register your own templates, or use the `fetch` handler for serverless deployments.
@@ -24,14 +28,16 @@ This works out of the box with embedded PGLite storage, local process runtime, a
 The goal is that `apps/server` never needs to change. It exists as a starting point. All customization flows through the `Flamecast` constructor and the packages you choose to install.
 
 ```typescript
-import { Flamecast } from "@flamecast/sdk";
-import { createPsqlStorage } from "@flamecast/storage-psql";
+import { Flamecast, NodeRuntime } from "@flamecast/sdk";
+import { DockerRuntime } from "@flamecast/runtime-docker";
+import { E2BRuntime } from "@flamecast/runtime-e2b";
+import { createPsqlDatabase } from "@flamecast/storage-psql";
 
 const flamecast = new Flamecast({
-  storage: await createPsqlStorage({ url: process.env.DATABASE_URL }),
+  backend: createPsqlDatabase({ url: process.env.DATABASE_URL }),
   runtimes: {
-    local: new LocalRuntime(),
-    docker: new LocalDockerRuntime(),
+    default: new NodeRuntime(),
+    docker: new DockerRuntime(),
     e2b: new E2BRuntime({ apiKey: process.env.E2B_API_KEY }),
   },
   agentTemplates: [
@@ -51,20 +57,33 @@ If Flamecast doesn't expose a configuration option you need, that's a bug.
 
 Flamecast adapts to your deployment model. The same `Flamecast` instance works in both stateful and stateless environments — you choose how to expose it.
 
-**Stateful (long-running server)** — call `listen()`. This starts an HTTP + WebSocket server that manages agent processes, holds connections open, and persists state locally. Ideal for running on a VM, a VPS, or your own machine.
+**Stateful (long-running server)** - call `listen()`. This starts an HTTP + WebSocket server that manages agent processes, holds connections open, and persists state locally. Ideal for running on a VM, a VPS, or your own machine.
 
 ```typescript
+import { Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
+import { createPsqlDatabase } from "@flamecast/storage-psql";
+
 const flamecast = new Flamecast({
-  storage: await createPsqlStorage(),
+  backend: createPsqlDatabase(),
+  runtimes: {
+    default: new NodeRuntime(),
+  },
 });
-await flamecast.listen(3001);
+await flamecast.init();
+listen(flamecast, 3001);
 ```
 
-**Stateless (serverless / edge)** — export the `fetch` handler. This gives you a standard `Request → Response` function compatible with Cloudflare Workers, Vercel Edge Functions, or any runtime that supports the Web Fetch API.
+**Stateless (serverless / edge)** - export the `fetch` handler. This gives you a standard `Request → Response` function compatible with Cloudflare Workers, Vercel Edge Functions, or any runtime that supports the Web Fetch API.
 
 ```typescript
+import { Flamecast, NodeRuntime } from "@flamecast/sdk";
+import { createPsqlStorage } from "@flamecast/storage-psql";
+
 const flamecast = new Flamecast({
   storage: await createPsqlStorage({ url: process.env.DATABASE_URL }),
+  runtimes: {
+    default: new NodeRuntime(),
+  },
 });
 
 export default flamecast.fetch;

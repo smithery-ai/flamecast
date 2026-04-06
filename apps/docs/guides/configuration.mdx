@@ -5,17 +5,41 @@ description: "Flamecast constructor options and environment variables"
 
 Flamecast is configured through TypeScript via the `Flamecast` constructor. There are no JSON config files.
 
+The preferred Node pattern is to export a configured `Flamecast` instance from `flamecast.config.ts` and import that same instance from your app bootstrap:
+
+```typescript
+import dotenv from "dotenv";
+import { Flamecast, NodeRuntime } from "@flamecast/sdk";
+import { createPsqlDatabase } from "@flamecast/storage-psql";
+
+dotenv.config();
+const db = createPsqlDatabase({
+  url: process.env.DATABASE_URL,
+});
+
+export default new Flamecast({
+  backend: db,
+  runtimes: {
+    default: new NodeRuntime(),
+  },
+});
+```
+
 ## Constructor options
 
 ```typescript
-import { Flamecast } from "@flamecast/sdk";
-import { createPsqlStorage } from "@flamecast/storage-psql";
+import { Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
+import { DockerRuntime } from "@flamecast/runtime-docker";
+import { E2BRuntime } from "@flamecast/runtime-e2b";
+import { createPsqlDatabase } from "@flamecast/storage-psql";
 
 const flamecast = new Flamecast({
-  storage: await createPsqlStorage(),
+  backend: createPsqlDatabase({
+    url: process.env.DATABASE_URL,
+  }),
   runtimes: {
-    local: new LocalRuntime(),
-    docker: new LocalDockerRuntime(),
+    default: new NodeRuntime(),
+    docker: new DockerRuntime(),
     e2b: new E2BRuntime({ apiKey: process.env.E2B_API_KEY }),
   },
   agentTemplates: [
@@ -29,15 +53,20 @@ const flamecast = new Flamecast({
   ],
 });
 
-await flamecast.listen(3001);
+await flamecast.init();
+listen(flamecast, 3001);
 ```
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `storage` | `FlamecastStorage` | Required | Persistence backend. Use `createPsqlStorage()` for embedded PGLite or Postgres |
-| `runtimes` | `Record<string, Runtime>` | Built-in `LocalRuntime` + `LocalDockerRuntime` | Named runtime instances. Agent templates reference these by key |
+| `storage` | `FlamecastStorage` | Optional | Ready-to-use persistence backend |
+| `backend` | `FlamecastBackend` | Optional | Lazy SQL backend handle. Use `createPsqlDatabase()` when you want one exported app instance plus CLI migration support |
+| `runtimes` | `Record<string, Runtime>` | Required | Named runtime instances. Agent templates reference these by key |
 | `agentTemplates` | `AgentTemplate[]` | Built-in templates | Initial template list. Replaces defaults when provided |
-| `handleSignals` | `boolean` | `true` | Auto shutdown on SIGINT/SIGTERM |
+| `callbackUrl` | `string` | Auto-detected | Override the callback URL session hosts use to reach the control plane |
+| `webhooks` | `WebhookConfig[]` | `[]` | Global webhook destinations merged into every session |
+
+Provide exactly one of `storage` or `backend`. When using `backend`, call `await flamecast.init()` during startup if you want failures such as pending migrations to surface before the server begins accepting requests.
 
 ### Runtimes
 
@@ -62,11 +91,14 @@ See [Orchestrate cloud agents](/guides/cloud-agents) for details on built-in and
 For serverless or custom HTTP setups, use the `fetch` handler:
 
 ```typescript
-import { Flamecast } from "@flamecast/sdk";
+import { Flamecast, NodeRuntime } from "@flamecast/sdk";
 import { createPsqlStorage } from "@flamecast/storage-psql";
 
 const flamecast = new Flamecast({
   storage: await createPsqlStorage({ url: process.env.DATABASE_URL! }),
+  runtimes: {
+    default: new NodeRuntime(),
+  },
 });
 
 export default flamecast.fetch;
@@ -77,7 +109,7 @@ export default flamecast.fetch;
 | Variable | Description |
 |---|---|
 | `FLAMECAST_PGLITE_DIR` | Override PGLite data directory (default: `<cwd>/.flamecast/pglite`) |
-| `DATABASE_URL` | Postgres connection string (when using Postgres storage) |
+| `DATABASE_URL` / `POSTGRES_URL` | Postgres connection string, usually read inside `flamecast.config.ts` or your app bootstrap |
 | `FLAMECAST_PORT` or `PORT` | Override the default listen port (default: `3001`) |
 
 ## Current limitations

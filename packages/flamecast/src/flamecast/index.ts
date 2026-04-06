@@ -151,27 +151,62 @@ export interface FlamecastEventHandlers<
   onError?: (c: ErrorContext<R>) => Promise<void>;
 }
 
+export type FlamecastMigrationRecord = {
+  tag: string;
+};
+
+export type FlamecastMigrationStatus = {
+  pending: FlamecastMigrationRecord[];
+  current: FlamecastMigrationRecord | null;
+  isUpToDate: boolean;
+};
+
+export type FlamecastMigrationResult = {
+  applied: FlamecastMigrationRecord[];
+  status: FlamecastMigrationStatus;
+};
+
+export interface FlamecastBackend {
+  createStorage(): Promise<FlamecastStorage>;
+  migrate?(): Promise<FlamecastMigrationResult>;
+  getMigrationStatus?(): Promise<FlamecastMigrationStatus>;
+  getStudioConfig?(): unknown | Promise<unknown>;
+}
+
 // ---------------------------------------------------------------------------
 // FlamecastOptions & Flamecast class
 // ---------------------------------------------------------------------------
 
 export type FlamecastOptions<
   R extends Record<string, Runtime<Record<string, unknown>>> = Record<string, Runtime>,
-> = {
-  storage: FlamecastStorage;
-  runtimes: R;
-  agentTemplates?: AgentTemplate[];
-  /** Override the auto-detected callback URL for session-host → control plane events. */
-  callbackUrl?: string;
-  /** Global webhooks delivered for all sessions. Merged with per-session webhooks at creation time. */
-  webhooks?: Omit<WebhookConfig, "id">[];
-} & FlamecastEventHandlers<R>;
+> =
+  | ({
+      storage: FlamecastStorage;
+      backend?: never;
+      runtimes: R;
+      agentTemplates?: AgentTemplate[];
+      /** Override the auto-detected callback URL for session-host → control plane events. */
+      callbackUrl?: string;
+      /** Global webhooks delivered for all sessions. Merged with per-session webhooks at creation time. */
+      webhooks?: Omit<WebhookConfig, "id">[];
+    } & FlamecastEventHandlers<R>)
+  | ({
+      backend: FlamecastBackend;
+      storage?: never;
+      runtimes: R;
+      agentTemplates?: AgentTemplate[];
+      /** Override the auto-detected callback URL for session-host → control plane events. */
+      callbackUrl?: string;
+      /** Global webhooks delivered for all sessions. Merged with per-session webhooks at creation time. */
+      webhooks?: Omit<WebhookConfig, "id">[];
+    } & FlamecastEventHandlers<R>);
 
 export class Flamecast<
   R extends Record<string, Runtime<Record<string, unknown>>> = Record<string, Runtime>,
 > {
   private readonly initialAgentTemplates: AgentTemplate[] | undefined;
-  private readonly storageConfig: FlamecastStorage;
+  private readonly storageConfig: FlamecastStorage | null;
+  private readonly backendConfig: FlamecastBackend | null;
   private readonly sessionService: SessionService;
   private readonly runtimesMap: Record<string, Runtime<Record<string, unknown>>>;
   private readonly callbackUrl?: string;
@@ -193,7 +228,8 @@ export class Flamecast<
   readonly app;
 
   constructor(opts: FlamecastOptions<R>) {
-    this.storageConfig = opts.storage;
+    this.storageConfig = "storage" in opts ? (opts.storage ?? null) : null;
+    this.backendConfig = "backend" in opts ? (opts.backend ?? null) : null;
     this.initialAgentTemplates = opts.agentTemplates;
     this.callbackUrl = opts.callbackUrl;
     this.globalWebhooks = opts.webhooks ?? [];
@@ -211,6 +247,34 @@ export class Flamecast<
   /** Names of registered runtimes (used for API validation). */
   get runtimeNames(): string[] {
     return Object.keys(this.runtimesMap);
+  }
+
+  async init(): Promise<void> {
+    await this.ensureReady();
+  }
+
+  async migrate(): Promise<FlamecastMigrationResult> {
+    const backend = this.requireBackend("migrate");
+    if (!backend.migrate) {
+      throw new Error("Configured Flamecast backend does not support migrations");
+    }
+    return backend.migrate();
+  }
+
+  async getMigrationStatus(): Promise<FlamecastMigrationStatus> {
+    const backend = this.requireBackend("get migration status");
+    if (!backend.getMigrationStatus) {
+      throw new Error("Configured Flamecast backend does not report migration status");
+    }
+    return backend.getMigrationStatus();
+  }
+
+  async getStudioConfig(): Promise<unknown> {
+    const backend = this.requireBackend("open studio");
+    if (!backend.getStudioConfig) {
+      throw new Error("Configured Flamecast backend does not expose studio config");
+    }
+    return backend.getStudioConfig();
   }
 
   /**
@@ -981,7 +1045,7 @@ export class Flamecast<
       // Also set readyPromise so ensureReady() skips re-initialization later.
       if (!this.readyPromise) {
         this.readyPromise = (async () => {
-          const storage = this.storageConfig;
+          const storage = await this.resolveStorage();
           this.storage = storage;
           if (this.initialAgentTemplates) {
             await storage.seedAgentTemplates(this.initialAgentTemplates);
@@ -1030,7 +1094,7 @@ export class Flamecast<
   private async ensureReady(): Promise<void> {
     if (!this.readyPromise) {
       this.readyPromise = (async () => {
-        const storage = this.storageConfig;
+        const storage = await this.resolveStorage();
         this.storage = storage;
         if (this.initialAgentTemplates) {
           await storage.seedAgentTemplates(this.initialAgentTemplates);
@@ -1048,6 +1112,25 @@ export class Flamecast<
       throw new Error("Flamecast storage is not ready");
     }
     return this.storage;
+  }
+
+  private requireBackend(action: string): FlamecastBackend {
+    if (!this.backendConfig) {
+      throw new Error(`Flamecast was configured with storage only and cannot ${action}`);
+    }
+    return this.backendConfig;
+  }
+
+  private async resolveStorage(): Promise<FlamecastStorage> {
+    if (this.storageConfig) {
+      return this.storageConfig;
+    }
+
+    if (!this.backendConfig) {
+      throw new Error("Flamecast storage backend is not configured");
+    }
+
+    return this.backendConfig.createStorage();
   }
 
   private async resolveSessionDefinition(opts: CreateSessionBody): Promise<{
