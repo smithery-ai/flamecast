@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createWsMessageDedupeState, rememberWsMessage } from "../src/lib/ws-message-dedupe.js";
+import { createWsMessageDedupeState, rememberWsMessage } from "@flamecast/ui";
 
 describe("rememberWsMessage", () => {
   it("drops duplicate replayed websocket messages", () => {

@@ -19,7 +19,7 @@ export function useStartRuntime(options?: {
       options?.onSuccess?.(instance);
     },
     onError: options?.onError
-      ? (err: Error, vars: { typeName: string; name?: string }) => options.onError!(err, vars)
+      ? (err: Error, vars: { typeName: string; name?: string }) => options.onError?.(err, vars)
       : undefined,
     onSettled: options?.onSettled,
   });

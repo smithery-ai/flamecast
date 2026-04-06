@@ -1,2 +1,2 @@
 export * from "./flamecast/index.js";
-export { listen } from "./node/listen.js";
+export { listen, type ListenOptions } from "./node/listen.js";

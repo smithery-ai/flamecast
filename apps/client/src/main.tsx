@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { FlamecastProvider } from "@flamecast/ui";
 import { routeTree } from "./routeTree.gen";
+import { resolveApiBaseUrl } from "./lib/api-base-url";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
@@ -12,11 +13,6 @@ declare module "@tanstack/react-router" {
   interface Register {
     router: typeof router;
   }
-}
-
-function resolveApiBaseUrl(env: { VITE_API_URL?: string; DEV?: boolean }): string {
-  if (env.VITE_API_URL) return env.VITE_API_URL;
-  return env.DEV ? "/api" : "http://localhost:3001/api";
 }
 
 // oxlint-disable-next-line no-type-assertion/no-type-assertion

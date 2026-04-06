@@ -31,3 +31,7 @@ export { useIsMobile } from "./hooks/use-mobile.js";
 export { sessionLogsToSegments } from "./lib/logs-markdown.js";
 export type { SessionLogMarkdownSegment } from "./lib/logs-markdown.js";
 export { resolveRuntimeSelection } from "./lib/runtime-selection.js";
+export { reduceRuntimeTerminalSessions } from "./lib/runtime-terminal-state.js";
+export type { RuntimeTerminalSession } from "./lib/runtime-terminal-state.js";
+export { createWsMessageDedupeState, rememberWsMessage } from "./lib/ws-message-dedupe.js";
+export type { WsMessageDedupeState } from "./lib/ws-message-dedupe.js";

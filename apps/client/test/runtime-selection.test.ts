@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveRuntimeSelection } from "../src/lib/runtime-selection.js";
+import { resolveRuntimeSelection } from "@flamecast/ui";
 import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 
 describe("resolveRuntimeSelection", () => {
