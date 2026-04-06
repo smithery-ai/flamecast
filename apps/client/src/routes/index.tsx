@@ -1,15 +1,16 @@
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  createSession,
-  fetchAgentTemplates,
-  fetchRuntimeFilePreview,
-  fetchRuntimeFileSystem,
-  fetchRuntimes,
-  registerAgentTemplate,
-  startRuntime,
-  updateAgentTemplate,
-} from "@/lib/api";
+  useAgentTemplates,
+  useRuntimes,
+  useRuntimeFileSystem,
+  useCreateSession,
+  useRegisterAgentTemplate,
+  useUpdateAgentTemplate,
+  useStartRuntimeWithOptimisticUpdate,
+  useTerminal,
+  useFlamecastClient,
+  resolveRuntimeSelection,
+} from "@flamecast/ui";
 import { FileSystemPanel } from "@/components/filesystem-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,8 +36,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { TerminalPanel } from "@/components/terminal-panel";
-import { useTerminal } from "@/hooks/use-terminal";
-import { resolveRuntimeSelection } from "@/lib/runtime-selection";
 import {
   LoaderCircleIcon,
   PlusIcon,
@@ -79,7 +78,6 @@ function envToString(env: Record<string, string> | undefined): string {
 }
 
 function SessionsPage() {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   // oxlint-disable-next-line no-type-assertion/no-type-assertion -- TanStack Router search params are untyped with strict:false
   const search = useSearch({ strict: false }) as Record<string, unknown>;
@@ -92,19 +90,9 @@ function SessionsPage() {
   const [newSetup, setNewSetup] = useState("");
   const [newEnv, setNewEnv] = useState("");
 
-  const { data: allTemplates = [], isLoading: templatesLoading } = useQuery({
-    queryKey: ["agent-templates"],
-    queryFn: fetchAgentTemplates,
-  });
+  const { data: allTemplates = [], isLoading: templatesLoading } = useAgentTemplates();
+  const { data: runtimes } = useRuntimes();
 
-  const { data: runtimes } = useQuery({
-    queryKey: ["runtimes"],
-    queryFn: fetchRuntimes,
-    refetchInterval: 30_000,
-  });
-
-  // Resolve instance name → type name so templates (which store provider/type)
-  // match when filtering by a specific instance like "staging".
   const resolvedTypeName = (() => {
     if (!runtimeFilter || !runtimes) return runtimeFilter;
     for (const rt of runtimes) {
@@ -118,43 +106,13 @@ function SessionsPage() {
     ? allTemplates.filter((t) => t.runtime.provider === resolvedTypeName)
     : allTemplates;
 
-  const createMutation = useMutation({
-    mutationFn: ({
-      agentTemplateId,
-      runtimeInstance,
-    }: {
-      agentTemplateId: string;
-      runtimeInstance?: string;
-    }) => createSession({ agentTemplateId, cwd: undefined, runtimeInstance }),
-    onSuccess: (session) => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      navigate({ to: "/sessions/$id", params: { id: session.id } });
-    },
-    onError: (err) => {
-      toast.error("Failed to create session", { description: String(err.message) });
-    },
+  const createMutation = useCreateSession({
+    onSuccess: (session) => navigate({ to: "/sessions/$id", params: { id: session.id } }),
+    onError: (err) => toast.error("Failed to create session", { description: String(err.message) }),
   });
 
-  const registerMutation = useMutation({
-    mutationFn: (body: {
-      name: string;
-      command: string;
-      args: string[];
-      provider?: string;
-      setup?: string;
-      env?: Record<string, string>;
-    }) =>
-      registerAgentTemplate({
-        name: body.name,
-        spawn: { command: body.command, args: body.args },
-        runtime: {
-          provider: body.provider ?? "default",
-          ...(body.setup ? { setup: body.setup } : {}),
-        },
-        ...(body.env && Object.keys(body.env).length > 0 ? { env: body.env } : {}),
-      }),
+  const registerMutation = useRegisterAgentTemplate({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["agent-templates"] });
       setNewName("");
       setNewCommand("");
       setNewArgs("");
@@ -163,9 +121,8 @@ function SessionsPage() {
       setNewEnv("");
       setDialogOpen(false);
     },
-    onError: (err) => {
-      toast.error("Failed to register template", { description: String(err.message) });
-    },
+    onError: (err) =>
+      toast.error("Failed to register template", { description: String(err.message) }),
   });
 
   const handleRegister = () => {
@@ -377,47 +334,23 @@ function RuntimeDetailPanel({
   runtimeInfo: RuntimeInfo;
   instance: RuntimeInstance;
 }) {
-  const queryClient = useQueryClient();
+  const client = useFlamecastClient();
   const [showAllFiles, setShowAllFiles] = useState(false);
   const isRunning = instance.status === "running";
 
-  const runtimeFsQuery = useQuery({
-    queryKey: ["runtime-filesystem", instance.name, showAllFiles],
-    queryFn: () => fetchRuntimeFileSystem(instance.name, { showAllFiles }),
+  const runtimeFsQuery = useRuntimeFileSystem(instance.name, {
     enabled: isRunning,
-    refetchInterval: 30_000,
+    showAllFiles,
   });
 
   const { terminals, sendInput, resize, onData, createTerminal, killTerminal } = useTerminal(
     isRunning ? instance.websocketUrl : undefined,
   );
 
-  const startMutation = useMutation({
-    mutationFn: () =>
-      startRuntime(runtimeInfo.typeName, runtimeInfo.onlyOne ? undefined : instance.name),
-    onSuccess: (startedInstance) => {
-      queryClient.setQueryData<RuntimeInfo[] | undefined>(["runtimes"], (current) =>
-        current?.map((runtime) => {
-          if (runtime.typeName !== runtimeInfo.typeName) return runtime;
-          const existing = runtime.instances.find(
-            (candidate) => candidate.name === startedInstance.name,
-          );
-          return {
-            ...runtime,
-            instances: existing
-              ? runtime.instances.map((candidate) =>
-                  candidate.name === startedInstance.name ? startedInstance : candidate,
-                )
-              : [...runtime.instances, startedInstance],
-          };
-        }),
-      );
-      void queryClient.invalidateQueries({ queryKey: ["runtimes"] });
-      void queryClient.invalidateQueries({ queryKey: ["runtime-filesystem", instance.name] });
-    },
-    onError: (err) => {
-      toast.error("Failed to start runtime", { description: String(err.message) });
-    },
+  const startMutation = useStartRuntimeWithOptimisticUpdate(runtimeInfo, {
+    instanceName: instance.name,
+    onError: (err) =>
+      toast.error("Failed to start runtime", { description: String(err.message) }),
   });
 
   if (!isRunning) {
@@ -526,7 +459,7 @@ function RuntimeDetailPanel({
               entries={runtimeFsQuery.data.entries}
               showAllFiles={showAllFiles}
               onShowAllFilesChange={setShowAllFiles}
-              loadPreview={(path) => fetchRuntimeFilePreview(instance.name, path)}
+              loadPreview={(path) => client.fetchRuntimeFilePreview(instance.name, path)}
               emptyTreeMessage="No filesystem entries returned for this runtime."
             />
           )}
@@ -548,19 +481,14 @@ function AgentTemplateCard({
   template: AgentTemplate;
   runtimeInfo?: RuntimeInfo;
   allRuntimes?: RuntimeInfo[];
-  /** The current ?runtime= filter. If it's a running instance name, pre-select it. */
   defaultInstance?: string;
   onStartSession: (runtimeInstance?: string) => void;
-  /** True when THIS template's session is being created. */
   isStartingSession: boolean;
-  /** True when ANY session is being created (to disable all buttons). */
   isAnyStarting: boolean;
 }) {
-  const queryClient = useQueryClient();
   const needsInstanceSelect = runtimeInfo && !runtimeInfo.onlyOne;
   const runningInstances = runtimeInfo?.instances.filter((i) => i.status === "running") ?? [];
 
-  // If the filter points to a specific running instance (not the type name), default to it.
   const inferredDefault =
     defaultInstance &&
     defaultInstance !== runtimeInfo?.typeName &&
@@ -576,32 +504,9 @@ function AgentTemplateCard({
   const [editSetup, setEditSetup] = useState(template.runtime.setup ?? "");
   const [editEnv, setEditEnv] = useState(envToString({ ...template.runtime.env, ...template.env }));
 
-  const updateMutation = useMutation({
-    mutationFn: (body: {
-      name: string;
-      command: string;
-      args: string[];
-      provider: string;
-      setup?: string;
-      env?: Record<string, string>;
-    }) =>
-      updateAgentTemplate(template.id, {
-        name: body.name,
-        spawn: { command: body.command, args: body.args },
-        runtime: {
-          ...template.runtime,
-          provider: body.provider,
-          setup: body.setup,
-        },
-        env: body.env,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["agent-templates"] });
-      setEditOpen(false);
-    },
-    onError: (err) => {
-      toast.error("Failed to update template", { description: String(err.message) });
-    },
+  const updateMutation = useUpdateAgentTemplate(template.id, {
+    onSuccess: () => setEditOpen(false),
+    onError: (err) => toast.error("Failed to update template", { description: String(err.message) }),
   });
 
   const handleUpdate = () => {
@@ -612,7 +517,7 @@ function AgentTemplateCard({
     const provider = editRuntime;
     const setup = editSetup.trim() || undefined;
     const env = parseEnvString(editEnv);
-    updateMutation.mutate({ name, command, args, provider, setup, env });
+    updateMutation.mutate({ name, command, args, provider, setup, env, currentRuntime: template.runtime });
   };
 
   const canStart = needsInstanceSelect ? Boolean(selectedInstance) : true;

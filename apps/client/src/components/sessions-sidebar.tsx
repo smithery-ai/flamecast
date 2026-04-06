@@ -1,13 +1,12 @@
 import { Link, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  fetchRuntimes,
-  fetchSessions,
-  pauseRuntime,
-  startRuntime,
-  stopRuntime,
-  terminateSession,
-} from "@/lib/api";
+  useSessions,
+  useRuntimes,
+  useStartRuntime,
+  useStopRuntime,
+  usePauseRuntime,
+  useTerminateSession,
+} from "@flamecast/ui";
 import { cn } from "@/lib/utils";
 import {
   Sidebar,
@@ -36,8 +35,6 @@ import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 
 /**
  * Resolve a `?runtime=X` filter value to its parent type name.
- * If X is a type name directly, returns it. If X is a multi-instance
- * instance name, returns the owning type name.
  */
 function resolveTypeName(filter: string, runtimes: RuntimeInfo[]): string | undefined {
   for (const rt of runtimes) {
@@ -48,7 +45,6 @@ function resolveTypeName(filter: string, runtimes: RuntimeInfo[]): string | unde
 }
 
 export function SessionsSidebar() {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   // oxlint-disable-next-line no-type-assertion/no-type-assertion -- TanStack Router search params are untyped with strict:false
   const search = useSearch({ strict: false }) as Record<string, unknown>;
@@ -57,44 +53,27 @@ export function SessionsSidebar() {
     select: (s) => s.matches.find((m) => m.routeId === "/sessions/$id")?.params.id,
   });
 
-  const { data: sessions, isLoading } = useQuery({
-    queryKey: ["sessions"],
-    queryFn: fetchSessions,
-    refetchInterval: 30_000,
-  });
+  const { data: sessions, isLoading } = useSessions();
+  const { data: runtimes } = useRuntimes();
 
-  const { data: runtimes } = useQuery({
-    queryKey: ["runtimes"],
-    queryFn: fetchRuntimes,
-    refetchInterval: 30_000,
-  });
-
-  const terminateMutation = useMutation({
-    mutationFn: terminateSession,
-    onSuccess: (_, id) => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+  const terminateMutation = useTerminateSession({
+    onSuccess: (id) => {
       if (id === activeSessionId) {
         void navigate({ to: "/" });
       }
     },
   });
 
-  // Filter sessions: match by instance name directly, or if the filter is
-  // a type name, match all sessions whose runtime is that type or any of
-  // its instances.
   const filteredSessions = (() => {
     if (!runtimeFilter || !sessions) return sessions;
     const typeName = runtimes ? resolveTypeName(runtimeFilter, runtimes) : undefined;
-    // Collect all instance names for the resolved type
     const matchingType = runtimes?.find((rt) => rt.typeName === typeName);
     const instanceNames = new Set(matchingType?.instances.map((i) => i.name) ?? []);
     if (typeName) instanceNames.add(typeName);
 
     if (runtimeFilter === typeName) {
-      // Clicked a type heading — show all sessions for that type
       return sessions.filter((s) => s.runtime && instanceNames.has(s.runtime));
     }
-    // Clicked a specific instance — show only sessions for that instance
     return sessions.filter((s) => s.runtime === runtimeFilter);
   })();
 
@@ -117,7 +96,6 @@ export function SessionsSidebar() {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        {/* Runtimes group */}
         {runtimes && runtimes.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel>Runtimes</SidebarGroupLabel>
@@ -141,7 +119,6 @@ export function SessionsSidebar() {
           </SidebarGroup>
         )}
 
-        {/* Sessions group */}
         <SidebarGroup>
           <SidebarGroupLabel>
             Sessions{runtimeFilter ? ` (${runtimeFilter})` : ""}
@@ -227,53 +204,32 @@ function RuntimeTypeItem({
   runtime: RuntimeInfo;
   activeFilter?: string;
 }) {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [newInstanceName, setNewInstanceName] = useState("");
   const [showInput, setShowInput] = useState(false);
-  // Track which instance name has an in-flight action
   const [pendingInstance, setPendingInstance] = useState<string | null>(null);
 
-  const startMutation = useMutation({
-    mutationFn: ({ typeName, name }: { typeName: string; name?: string }) =>
-      startRuntime(typeName, name),
+  const startMutation = useStartRuntime({
     onMutate: ({ name }) => setPendingInstance(name ?? null),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["runtimes"] });
-    },
-    onError: (err, { name }) => {
+    onError: (err, vars) => {
       toast.error("Failed to start runtime", { description: String(err.message) });
-      // If creating a new instance failed, restore the input so the user can retry
-      if (name && !runtime.instances.some((i) => i.name === name)) {
-        setNewInstanceName(name);
+      if (vars.name && !runtime.instances.some((i) => i.name === vars.name)) {
+        setNewInstanceName(vars.name);
         setShowInput(true);
       }
     },
     onSettled: () => setPendingInstance(null),
   });
 
-  const stopMutation = useMutation({
-    mutationFn: stopRuntime,
+  const stopMutation = useStopRuntime({
     onMutate: (name) => setPendingInstance(name),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["runtimes"] });
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
-    },
-    onError: (err) => {
-      toast.error("Failed to stop runtime", { description: String(err.message) });
-    },
+    onError: (err) => toast.error("Failed to stop runtime", { description: String(err.message) }),
     onSettled: () => setPendingInstance(null),
   });
 
-  const pauseMutation = useMutation({
-    mutationFn: pauseRuntime,
+  const pauseMutation = usePauseRuntime({
     onMutate: (name) => setPendingInstance(name),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["runtimes"] });
-    },
-    onError: (err) => {
-      toast.error("Failed to pause runtime", { description: String(err.message) });
-    },
+    onError: (err) => toast.error("Failed to pause runtime", { description: String(err.message) }),
     onSettled: () => setPendingInstance(null),
   });
 
@@ -287,7 +243,6 @@ function RuntimeTypeItem({
   };
 
   if (runtime.onlyOne) {
-    // Single-instance: just a clickable label, no play/stop (always implicitly running)
     return (
       <SidebarMenuItem>
         <SidebarMenuButton
@@ -300,7 +255,6 @@ function RuntimeTypeItem({
     );
   }
 
-  // Multi-instance runtime
   return (
     <>
       <SidebarMenuItem>
@@ -354,7 +308,6 @@ function RuntimeTypeItem({
         </SidebarMenuItem>
       )}
 
-      {/* Show a loading row for the instance being created */}
       {pendingInstance &&
         startMutation.isPending &&
         !runtime.instances.some((i) => i.name === pendingInstance) && (
@@ -392,9 +345,7 @@ function RuntimeTypeItem({
                 {instance.status}
               </span>
             </SidebarMenuButton>
-            {/* Action buttons: shown on hover, one at a time based on status */}
             {instance.status === "running" ? (
-              // Running: show pause + stop
               <span className="absolute right-0.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100">
                 <button
                   type="button"
@@ -432,7 +383,6 @@ function RuntimeTypeItem({
                 </button>
               </span>
             ) : (
-              // Stopped or paused: show play (resume)
               <SidebarMenuAction
                 showOnHover
                 title="Resume instance"

@@ -4,7 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlusIcon, XIcon, TerminalSquareIcon } from "lucide-react";
-import type { TerminalSession } from "@/hooks/use-terminal";
+import type { TerminalSession } from "@flamecast/ui";
 
 export function TerminalPanel({
   terminals,
