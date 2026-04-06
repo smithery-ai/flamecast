@@ -6,8 +6,27 @@
  * file, keeping `@hono/node-server` out of the bundle.
  */
 import { serve as honoServe } from "@hono/node-server";
+import { Hono } from "hono";
+import { cors } from "hono/cors";
 import type { AddressInfo } from "node:net";
 import type { Flamecast } from "../flamecast/index.js";
+
+export type ListenOptions = {
+  port: number;
+  /**
+   * Enable CORS for the API. Pass `true` to allow all origins, or a
+   * `cors()` options object to restrict origins, methods, headers, etc.
+   *
+   * @example
+   * // Allow all origins (development)
+   * listen(flamecast, { port: 3001, cors: true })
+   *
+   * @example
+   * // Restrict to a specific origin (production)
+   * listen(flamecast, { port: 3001, cors: { origin: "https://app.example.com" } })
+   */
+  cors?: boolean | Parameters<typeof cors>[0];
+};
 
 /**
  * Start the Flamecast server with the HTTP API.
@@ -28,10 +47,20 @@ import type { Flamecast } from "../flamecast/index.js";
  */
 export function listen(
   flamecast: Flamecast,
-  options: { port: number },
+  options: ListenOptions,
   listeningListener?: (info: AddressInfo) => void,
 ): { close(): Promise<void> } {
-  const server = honoServe({ fetch: flamecast.app.fetch, port: options.port }, listeningListener);
+  let fetchFn = flamecast.app.fetch;
+
+  if (options.cors) {
+    const corsOptions = typeof options.cors === "boolean" ? undefined : options.cors;
+    const wrapper = new Hono();
+    wrapper.use("*", cors(corsOptions));
+    wrapper.all("*", (c) => flamecast.app.fetch(c.req.raw));
+    fetchFn = wrapper.fetch;
+  }
+
+  const server = honoServe({ fetch: fetchFn, port: options.port }, listeningListener);
 
   // Recover previously-active sessions so the HTTP control plane can resume
   // proxying requests after a server restart. Runtime WebSockets are direct,
