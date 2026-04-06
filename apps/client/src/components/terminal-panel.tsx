@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { PlusIcon, XIcon, TerminalSquareIcon } from "lucide-react";
 import type { TerminalSession } from "@flamecast/ui";
 
@@ -60,22 +60,26 @@ export function TerminalPanel({
   }
 
   return (
-    <Tabs
-      value={activeTab}
-      onValueChange={setActiveTab}
-      className="flex min-h-0 flex-1 flex-col overflow-hidden"
-    >
-      <div className="flex shrink-0 items-center gap-2">
-        <TabsList className="h-8 rounded-none">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {/* Terminal tab bar */}
+      <div className="flex shrink-0 items-center border-b bg-muted/30 px-1">
+        <div className="flex min-w-0 flex-1 items-center overflow-x-auto">
           {terminals.map((term, i) => (
-            <TabsTrigger
+            <div
               key={term.terminalId}
-              value={term.terminalId}
-              className="group/tab gap-1 pr-1"
+              className={cn(
+                "group/tab flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs transition-colors cursor-pointer select-none",
+                activeTab === term.terminalId
+                  ? "border-primary bg-background text-foreground"
+                  : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+              )}
+              onClick={() => setActiveTab(term.terminalId)}
+              role="tab"
+              aria-selected={activeTab === term.terminalId}
             >
-              <TerminalSquareIcon className="size-3.5" />
-              <span className="max-w-24 truncate text-xs">
-                {term.command || `Terminal ${i + 1}`}
+              <TerminalSquareIcon className="size-3 shrink-0" />
+              <span className="max-w-24 truncate">
+                {`Terminal ${i + 1}`}
               </span>
               {term.exitCode !== null && (
                 <span className="text-[10px] text-muted-foreground">({term.exitCode})</span>
@@ -90,21 +94,25 @@ export function TerminalPanel({
               >
                 <XIcon className="size-3" />
               </button>
-            </TabsTrigger>
+            </div>
           ))}
-        </TabsList>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onCreateTerminal}>
+        </div>
+        <button
+          type="button"
+          className="flex shrink-0 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          onClick={onCreateTerminal}
+          title="New terminal"
+        >
           <PlusIcon className="size-3.5" />
-        </Button>
+        </button>
       </div>
 
+      {/* Terminal content */}
       {terminals.map((term) => (
-        <TabsContent
+        <div
           key={term.terminalId}
-          value={term.terminalId}
-          className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden bg-black"
-          forceMount={activeTab === term.terminalId ? undefined : true}
-          hidden={activeTab !== term.terminalId}
+          className="min-h-0 flex-1 flex-col overflow-hidden bg-black"
+          style={{ display: activeTab === term.terminalId ? "flex" : "none" }}
         >
           <XTermView
             terminalId={term.terminalId}
@@ -114,9 +122,9 @@ export function TerminalPanel({
             onData={onData}
             visible={activeTab === term.terminalId}
           />
-        </TabsContent>
+        </div>
       ))}
-    </Tabs>
+    </div>
   );
 }
 
