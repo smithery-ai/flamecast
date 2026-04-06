@@ -463,11 +463,9 @@ export class Flamecast<
     );
 
     // Resolve the runtime instance name. For onlyOne runtimes, instance = type name.
-    // For multi-instance runtimes, use the explicitly provided instance or fall back to type name.
+    // For multi-instance runtimes, fall back to the type name as the default instance.
     const runtimeObj = this.runtimesMap[runtime.provider];
-    const runtimeInstance = runtimeObj?.onlyOne
-      ? runtime.provider
-      : (opts.runtimeInstance ?? runtime.provider);
+    const runtimeInstance = runtimeObj?.onlyOne ? runtime.provider : runtime.provider;
 
     const { sessionId } = await this.sessionService.startSession(this.requireStorage(), {
       agentName,

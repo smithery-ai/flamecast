@@ -80,24 +80,6 @@ export const RegisterAgentTemplateBodySchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
 }) satisfies z.ZodType<RegisterAgentTemplateBody>;
 
-/**
- * Create a RegisterAgentTemplateBodySchema with runtime.provider constrained
- * to a known set of runtime names. Use at the API boundary for runtime validation.
- */
-export function createRegisterAgentTemplateBodySchema(runtimeNames: [string, ...string[]]) {
-  return z.object({
-    name: z.string().min(1),
-    spawn: AgentSpawnSchema,
-    runtime: z
-      .object({
-        provider: z.enum(runtimeNames).optional(),
-        setup: z.string().optional(),
-        env: z.record(z.string(), z.string()).optional(),
-      })
-      .optional(),
-    env: z.record(z.string(), z.string()).optional(),
-  });
-}
 
 const SessionLogSchema = z.object({
   timestamp: z.string(),
@@ -182,7 +164,6 @@ export const CreateSessionBodySchema = z
     agentTemplateId: z.string().optional(),
     spawn: AgentSpawnSchema.optional(),
     name: z.string().optional(),
-    runtimeInstance: z.string().optional(),
     webhooks: z.array(WebhookConfigSchema.omit({ id: true })).optional(),
   })
   .refine((b) => Boolean(b.agentTemplateId) !== Boolean(b.spawn), {

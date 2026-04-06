@@ -6,35 +6,26 @@ import {
   CreateSessionBodySchema,
   RegisterAgentTemplateBodySchema,
   UpdateAgentTemplateBodySchema,
-  createRegisterAgentTemplateBodySchema,
 } from "../shared/session.js";
 import type { Session } from "../shared/session.js";
-import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
 import { toWsChannelEvent } from "./events/channels.js";
 
 export type FlamecastApi = Pick<
   Flamecast,
   | "createSession"
   | "eventBus"
-  | "fetchRuntimeFilePreview"
-  | "fetchRuntimeFileSystem"
   | "fetchSessionFilePreview"
   | "fetchSessionFileSystem"
   | "getSession"
   | "handleSessionEvent"
   | "listAgentTemplates"
-  | "listRuntimes"
   | "listSessions"
-  | "pauseRuntime"
   | "promptSession"
   | "proxyQueueRequest"
   | "resolvePermission"
   | "registerAgentTemplate"
   | "updateAgentTemplate"
-  | "startRuntime"
-  | "stopRuntime"
   | "terminateSession"
-  | "runtimeNames"
 >;
 
 function toErrorMessage(error: unknown, fallback = "Unknown error"): string {
@@ -71,12 +62,6 @@ function isClientError(error: unknown): boolean {
 }
 
 export function createApi(flamecast: FlamecastApi) {
-  // Build a runtime-aware schema that validates provider against registered names.
-  const [first, ...rest] = flamecast.runtimeNames;
-  const registerSchema = first
-    ? createRegisterAgentTemplateBodySchema([first, ...rest])
-    : RegisterAgentTemplateBodySchema;
-
   const rewriteWebsocketUrl = (requestUrl: string, websocketUrl?: string): string | undefined => {
     if (!websocketUrl) return undefined;
 
@@ -103,25 +88,6 @@ export function createApi(flamecast: FlamecastApi) {
 
     return { ...session, websocketUrl };
   };
-
-  const toClientRuntimeInstance = (
-    requestUrl: string,
-    instance: RuntimeInstance,
-  ): RuntimeInstance => {
-    const websocketUrl = rewriteWebsocketUrl(requestUrl, instance.websocketUrl);
-    if (!websocketUrl || websocketUrl === instance.websocketUrl) {
-      return instance;
-    }
-
-    return { ...instance, websocketUrl };
-  };
-
-  const toClientRuntimeInfo = (requestUrl: string, runtimeInfo: RuntimeInfo): RuntimeInfo => ({
-    ...runtimeInfo,
-    instances: runtimeInfo.instances.map((instance) =>
-      toClientRuntimeInstance(requestUrl, instance),
-    ),
-  });
 
   // The agent routes are public API sugar over the current single-session runtime model.
   const getAgentSnapshot = async (c: Context, agentId: string) => {
@@ -156,7 +122,7 @@ export function createApi(flamecast: FlamecastApi) {
           return c.json({ error: toErrorMessage(error) }, 500);
         }
       })
-      .post("/agent-templates", zValidator("json", registerSchema), async (c) => {
+      .post("/agent-templates", zValidator("json", RegisterAgentTemplateBodySchema), async (c) => {
         try {
           const body = c.req.valid("json");
           const template = await flamecast.registerAgentTemplate(body);
@@ -175,76 +141,6 @@ export function createApi(flamecast: FlamecastApi) {
         } catch (error) {
           const msg = toErrorMessage(error);
           const status = msg.includes("not found") ? 404 : 500;
-          return c.json({ error: msg }, status);
-        }
-      })
-      // ---- Runtime lifecycle ----
-      .get("/runtimes", async (c) => {
-        try {
-          const runtimes = await flamecast.listRuntimes();
-          return c.json(runtimes.map((runtime) => toClientRuntimeInfo(c.req.url, runtime)));
-        } catch (error) {
-          console.error("List runtimes failed:", error);
-          return c.json({ error: toErrorMessage(error) }, 500);
-        }
-      })
-      .post("/runtimes/:typeName/start", async (c) => {
-        try {
-          const typeName = c.req.param("typeName");
-          const body = await c.req.json().catch(() => ({}));
-          const name = body && typeof body === "object" && "name" in body ? body.name : undefined;
-          const instance = await flamecast.startRuntime(typeName, name);
-          return c.json(toClientRuntimeInstance(c.req.url, instance), 201);
-        } catch (error) {
-          const msg = toErrorMessage(error);
-          const status = isClientError(error) ? 400 : 500;
-          return c.json({ error: msg }, status);
-        }
-      })
-      .post("/runtimes/:instanceName/stop", async (c) => {
-        try {
-          const instanceName = c.req.param("instanceName");
-          await flamecast.stopRuntime(instanceName);
-          return c.json({ ok: true });
-        } catch (error) {
-          const msg = toErrorMessage(error);
-          const status = msg.includes("not found") ? 404 : 500;
-          return c.json({ error: msg }, status);
-        }
-      })
-      .post("/runtimes/:instanceName/pause", async (c) => {
-        try {
-          const instanceName = c.req.param("instanceName");
-          await flamecast.pauseRuntime(instanceName);
-          return c.json({ ok: true });
-        } catch (error) {
-          const msg = toErrorMessage(error);
-          const status = msg.includes("not found") ? 404 : 500;
-          return c.json({ error: msg }, status);
-        }
-      })
-      .get("/runtimes/:instanceName/files", async (c) => {
-        try {
-          const instanceName = c.req.param("instanceName");
-          const path = c.req.query("path");
-          if (!path) {
-            return c.json({ error: "Missing ?path= parameter" }, 400);
-          }
-          return c.json(await flamecast.fetchRuntimeFilePreview(instanceName, path));
-        } catch (error) {
-          const msg = toErrorMessage(error);
-          const status = toErrorStatus(error) ?? (msg.includes("not found") ? 404 : 500);
-          return c.json({ error: msg }, status);
-        }
-      })
-      .get("/runtimes/:instanceName/fs/snapshot", async (c) => {
-        try {
-          const instanceName = c.req.param("instanceName");
-          const showAllFiles = c.req.query("showAllFiles") === "true";
-          return c.json(await flamecast.fetchRuntimeFileSystem(instanceName, { showAllFiles }));
-        } catch (error) {
-          const msg = toErrorMessage(error);
-          const status = toErrorStatus(error) ?? (msg.includes("not found") ? 404 : 500);
           return c.json({ error: msg }, status);
         }
       })

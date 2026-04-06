@@ -108,8 +108,6 @@ export interface CreateSessionBody {
   agentTemplateId?: string;
   spawn?: AgentSpawn;
   name?: string;
-  /** Runtime instance name to run this session on. Required for multi-instance runtimes. */
-  runtimeInstance?: string;
   webhooks?: Omit<WebhookConfig, "id">[];
 }
 
