@@ -247,15 +247,16 @@ function RuntimeDetailPanel({
                     onClose={() => closeTab(tab.id)}
                   />
                 ))}
-              </div>
-              <button
+<button
                 type="button"
-                className="flex shrink-0 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="flex shrink-0 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ml-2"
                 onClick={addNewTab}
                 title="New tab"
               >
                 <PlusIcon className="size-3.5" />
               </button>
+              </div>
+              
             </div>
 
             {/* Tab content */}
@@ -358,7 +359,7 @@ function TabTrigger({
   return (
     <div
       className={cn(
-        "group/tab flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs transition-colors cursor-pointer select-none",
+        "group/tab flex w-36 shrink-0 items-center gap-1.5 border-b-2 px-3 py-3 text-xs transition-colors cursor-pointer select-none flex justify-between",
         isActive
           ? "border-primary bg-background text-foreground"
           : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
@@ -367,8 +368,10 @@ function TabTrigger({
       role="tab"
       aria-selected={isActive}
     >
+      <div className="flex items-center gap-1.5">
       {icon}
       <span className="max-w-32 truncate">{label}</span>
+      </div>
       <button
         type="button"
         className="ml-0.5 rounded p-0.5 opacity-0 transition-opacity hover:bg-muted group-hover/tab:opacity-100"
