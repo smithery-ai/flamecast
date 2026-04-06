@@ -91,16 +91,14 @@ export function useSessionState(sessionId: string, opts?: { showAllFiles?: boole
   const isProcessing = useMemo(() => {
     for (let i = logs.length - 1; i >= 0; i--) {
       const log = logs[i];
-      if (log.type === "end_turn") return false;
-      if (log.type === "prompt_sent") return true;
       if (log.type === "rpc") {
         const d = log.data;
-        if (
-          d.method === "session/prompt" &&
-          d.direction === "client_to_agent" &&
-          d.phase === "request"
-        )
-          return true;
+        if (d.method === "session/prompt") {
+          // RPC response = prompt finished
+          if (d.direction === "agent_to_client" && d.phase === "response") return false;
+          // RPC request = prompt started
+          if (d.direction === "client_to_agent" && d.phase === "request") return true;
+        }
       }
     }
     return false;
