@@ -1,15 +1,16 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useRuntimes, useAgentTemplates, useCreateSession } from "@flamecast/ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { SendIcon } from "lucide-react";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ChevronDownIcon, LoaderCircleIcon, PlusIcon, SendIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 
@@ -19,16 +20,21 @@ export const Route = createFileRoute("/")({
 
 function HomePage() {
   const navigate = useNavigate();
-  const { data: runtimes } = useRuntimes();
-  const { data: templates } = useAgentTemplates();
+  const { data: runtimes, isLoading: runtimesLoading } = useRuntimes();
+  const { data: templates, isLoading: templatesLoading } = useAgentTemplates();
 
   const defaultRuntime = runtimes?.[0]?.typeName ?? "";
   const [selectedRuntime, setSelectedRuntime] = useState<string>("");
   const activeRuntime = selectedRuntime || defaultRuntime;
 
-  // Find the first agent template that matches the selected runtime
-  const defaultTemplate =
-    templates?.find((t) => t.runtime.provider === activeRuntime) ?? templates?.[0];
+  // Filter templates by selected runtime, then pick first as default
+  const matchingTemplates = templates?.filter((t) => t.runtime.provider === activeRuntime) ?? [];
+  const defaultTemplate = matchingTemplates[0] ?? templates?.[0];
+
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  const activeTemplate = selectedTemplateId
+    ? (templates?.find((t) => t.id === selectedTemplateId) ?? defaultTemplate)
+    : defaultTemplate;
 
   const [prompt, setPrompt] = useState("");
 
@@ -43,9 +49,8 @@ function HomePage() {
   });
 
   const handleSend = () => {
-    if (!prompt.trim() || !defaultTemplate) return;
+    if (!prompt.trim() || !activeTemplate) return;
 
-    // Determine runtime instance for multi-instance runtimes
     const runtimeInfo = runtimes?.find((rt) => rt.typeName === activeRuntime);
     const runtimeInstance =
       runtimeInfo && !runtimeInfo.onlyOne
@@ -53,12 +58,13 @@ function HomePage() {
         : undefined;
 
     createMutation.mutate({
-      agentTemplateId: defaultTemplate.id,
+      agentTemplateId: activeTemplate.id,
       runtimeInstance,
     });
   };
 
-  const canSend = prompt.trim() && defaultTemplate && !createMutation.isPending;
+  const isReady = !runtimesLoading && !templatesLoading && runtimes && runtimes.length > 0;
+  const canSend = prompt.trim() && activeTemplate && !createMutation.isPending && isReady;
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col items-center justify-center gap-8 px-1">
@@ -74,48 +80,88 @@ function HomePage() {
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && canSend && handleSend()}
             placeholder="Send a prompt to the agent..."
-            disabled={createMutation.isPending}
+            disabled={createMutation.isPending || !isReady}
             className="flex-1"
           />
           <Button onClick={handleSend} disabled={!canSend}>
-            <SendIcon data-icon="inline-start" />
+            {createMutation.isPending ? (
+              <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
+            ) : (
+              <SendIcon data-icon="inline-start" />
+            )}
             {createMutation.isPending ? "Starting…" : "Send"}
           </Button>
         </div>
 
         <div className="flex items-center gap-3">
-          {runtimes && runtimes.length > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">Runtime</span>
-              <Select value={activeRuntime} onValueChange={setSelectedRuntime}>
-                <SelectTrigger className="h-8 w-auto min-w-[120px] text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {runtimes.map((rt) => (
-                    <SelectItem key={rt.typeName} value={rt.typeName} className="text-xs">
-                      {rt.typeName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+          {runtimesLoading ? (
+            <Skeleton className="h-6 w-28" />
+          ) : runtimes && runtimes.length > 0 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs">
+                  <span className="text-muted-foreground">Runtime:</span>
+                  {activeRuntime}
+                  <ChevronDownIcon className="size-3 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {runtimes.map((rt) => (
+                  <DropdownMenuItem
+                    key={rt.typeName}
+                    onSelect={() => {
+                      setSelectedRuntime(rt.typeName);
+                      setSelectedTemplateId("");
+                    }}
+                  >
+                    {rt.typeName}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
 
-          {defaultTemplate && (
-            <span className="text-xs text-muted-foreground">
-              Agent: <span className="font-medium text-foreground">{defaultTemplate.name}</span>
-            </span>
-          )}
-
-          {!defaultTemplate && templates !== undefined && (
-            <span className="text-xs text-muted-foreground">
-              No agents registered.{" "}
-              <a href="/agents" className="underline underline-offset-2 hover:text-foreground">
-                Create one
-              </a>
-            </span>
-          )}
+          {runtimesLoading || templatesLoading ? (
+            <Skeleton className="h-6 w-24" />
+          ) : isReady ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs">
+                  <span className="text-muted-foreground">Agent:</span>
+                  {activeTemplate?.name ?? "None"}
+                  <ChevronDownIcon className="size-3 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {matchingTemplates.length > 0
+                  ? matchingTemplates.map((t) => (
+                      <DropdownMenuItem key={t.id} onSelect={() => setSelectedTemplateId(t.id)}>
+                        {t.name}
+                      </DropdownMenuItem>
+                    ))
+                  : templates && templates.length > 0
+                    ? templates.map((t) => (
+                        <DropdownMenuItem key={t.id} onSelect={() => setSelectedTemplateId(t.id)}>
+                          {t.name}
+                          <span className="ml-auto text-[10px] text-muted-foreground">
+                            {t.runtime.provider}
+                          </span>
+                        </DropdownMenuItem>
+                      ))
+                    : null}
+                {(!templates || templates.length === 0) && (
+                  <DropdownMenuItem disabled>No agents registered</DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link to="/agents">
+                    <PlusIcon className="size-3.5" />
+                    Create new
+                  </Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </div>
       </div>
     </div>
