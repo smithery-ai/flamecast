@@ -16,13 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  AlertCircleIcon,
-  ChevronDownIcon,
-  LoaderCircleIcon,
-  PlusIcon,
-  SendIcon,
-} from "lucide-react";
+import { ChevronDownIcon, LoaderCircleIcon, PlusIcon, SendIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -36,13 +30,24 @@ function HomePage() {
   const { data: templates, isLoading: templatesLoading } = useAgentTemplates();
   const { data: sessions } = useSessions();
 
-  // --- Runtime selection ---
+  // --- Runtime type selection ---
   const defaultRuntime = runtimes?.[0]?.typeName ?? "";
   const [selectedRuntime, setSelectedRuntime] = useState<string>("");
   const activeRuntime = selectedRuntime || defaultRuntime;
   const runtimeInfo = runtimes?.find((rt) => rt.typeName === activeRuntime);
-  const runningInstance = runtimeInfo?.instances.find((i) => i.status === "running");
-  const needsRunningInstance = runtimeInfo && !runtimeInfo.onlyOne && !runningInstance;
+  const isMultiInstance = runtimeInfo ? !runtimeInfo.onlyOne : false;
+
+  // --- Runtime instance selection (multi-instance only) ---
+  const [selectedInstanceName, setSelectedInstanceName] = useState<string>("");
+  const runningInstances = runtimeInfo?.instances.filter((i) => i.status === "running") ?? [];
+  const stoppedInstances =
+    runtimeInfo?.instances.filter((i) => i.status === "stopped" || i.status === "paused") ?? [];
+  const activeInstance = isMultiInstance
+    ? (runtimeInfo?.instances.find(
+        (i) => i.name === selectedInstanceName && i.status === "running",
+      ) ?? runningInstances[0])
+    : undefined;
+  const needsRunningInstance = isMultiInstance && runningInstances.length === 0;
 
   // --- Agent selection ---
   const matchingTemplates = templates?.filter((t) => t.runtime.provider === activeRuntime) ?? [];
@@ -58,11 +63,12 @@ function HomePage() {
     return sessions.filter((s) => {
       if (s.agentName !== activeTemplate.name) return false;
       if (s.status !== "active") return false;
-      if (runtimeInfo?.onlyOne) return true;
-      if (!s.runtime) return true;
-      return runtimeInfo?.instances.some((i) => i.name === s.runtime);
+      if (!isMultiInstance) return true;
+      // For multi-instance, match sessions on the selected instance
+      if (activeInstance && s.runtime) return s.runtime === activeInstance.name;
+      return true;
     });
-  }, [sessions, activeTemplate, runtimeInfo]);
+  }, [sessions, activeTemplate, isMultiInstance, activeInstance]);
 
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
   const activeSession = selectedSessionId
@@ -82,14 +88,10 @@ function HomePage() {
 
   const isReady = !runtimesLoading && !templatesLoading && runtimes && runtimes.length > 0;
 
-  // Auto-start a runtime instance for multi-instance runtimes with no running instance
-  const autoStartAttempted = useRef<string | null>(null);
-  useEffect(() => {
-    if (!isReady || !needsRunningInstance || startRuntimeMutation.isPending) return;
-    if (autoStartAttempted.current === activeRuntime) return;
-    autoStartAttempted.current = activeRuntime;
-    startRuntimeMutation.mutate({ typeName: activeRuntime });
-  }, [isReady, needsRunningInstance, activeRuntime, startRuntimeMutation]);
+  const handleStartInstance = (instanceName?: string) => {
+    // Pass name to restart an existing stopped/paused instance, omit to create new
+    startRuntimeMutation.mutate({ typeName: activeRuntime, name: instanceName });
+  };
 
   // Auto-create a session when a running instance is available but no matching session exists
   const autoCreateAttempted = useRef<string | null>(null);
@@ -98,13 +100,14 @@ function HomePage() {
     if (needsRunningInstance) return;
     if (matchingSessions.length > 0) return;
 
-    const key = `${activeTemplate.id}:${activeRuntime}`;
+    const instanceKey = activeInstance?.name ?? "";
+    const key = `${activeTemplate.id}:${activeRuntime}:${instanceKey}`;
     if (autoCreateAttempted.current === key) return;
     autoCreateAttempted.current = key;
 
     createMutation.mutate({
       agentTemplateId: activeTemplate.id,
-      runtimeInstance: runningInstance?.name,
+      runtimeInstance: activeInstance?.name,
     });
   }, [
     isReady,
@@ -112,7 +115,7 @@ function HomePage() {
     activeRuntime,
     needsRunningInstance,
     matchingSessions.length,
-    runningInstance,
+    activeInstance,
     createMutation,
   ]);
 
@@ -126,7 +129,7 @@ function HomePage() {
   };
 
   const canSend = prompt.trim() && activeSession && isReady;
-  const isInitializing = startRuntimeMutation.isPending || createMutation.isPending;
+  const isInitializing = createMutation.isPending;
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col items-center justify-center gap-8 px-1">
@@ -156,7 +159,7 @@ function HomePage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* Runtime dropdown */}
+          {/* Runtime type dropdown */}
           {runtimesLoading ? (
             <Skeleton className="h-6 w-28" />
           ) : runtimes && runtimes.length > 0 ? (
@@ -174,6 +177,7 @@ function HomePage() {
                     key={rt.typeName}
                     onSelect={() => {
                       setSelectedRuntime(rt.typeName);
+                      setSelectedInstanceName("");
                       setSelectedTemplateId("");
                       setSelectedSessionId("");
                     }}
@@ -185,10 +189,63 @@ function HomePage() {
             </DropdownMenu>
           ) : null}
 
+          {/* Runtime instance dropdown (multi-instance only) */}
+          {isReady && isMultiInstance ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs">
+                  {startRuntimeMutation.isPending ? (
+                    <LoaderCircleIcon className="size-3 animate-spin" />
+                  ) : null}
+                  <span className="text-muted-foreground">Instance:</span>
+                  {startRuntimeMutation.isPending ? "Starting…" : (activeInstance?.name ?? "None")}
+                  <ChevronDownIcon className="size-3 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {runningInstances.map((inst) => (
+                  <DropdownMenuItem
+                    key={inst.name}
+                    onSelect={() => {
+                      setSelectedInstanceName(inst.name);
+                      setSelectedSessionId("");
+                    }}
+                  >
+                    {inst.name}
+                  </DropdownMenuItem>
+                ))}
+                {stoppedInstances.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    {stoppedInstances.map((inst) => (
+                      <DropdownMenuItem
+                        key={inst.name}
+                        onSelect={() => handleStartInstance(inst.name)}
+                      >
+                        {inst.name}
+                        <span className="ml-auto text-[10px] text-muted-foreground">
+                          {inst.status}
+                        </span>
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => handleStartInstance()}
+                  disabled={startRuntimeMutation.isPending}
+                >
+                  <PlusIcon className="size-3.5" />
+                  Create new
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+
           {/* Agent dropdown */}
           {runtimesLoading || templatesLoading ? (
             <Skeleton className="h-6 w-24" />
-          ) : isReady ? (
+          ) : isReady && !needsRunningInstance ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs">
@@ -274,20 +331,6 @@ function HomePage() {
                 Creating session…
               </span>
             ) : null
-          ) : needsRunningInstance ? (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              {startRuntimeMutation.isPending ? (
-                <>
-                  <LoaderCircleIcon className="size-3 animate-spin" />
-                  Starting {activeRuntime} instance…
-                </>
-              ) : (
-                <>
-                  <AlertCircleIcon className="size-3" />
-                  No running {activeRuntime} instance
-                </>
-              )}
-            </span>
           ) : null}
         </div>
       </div>
