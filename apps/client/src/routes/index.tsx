@@ -18,7 +18,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronDownIcon, LoaderCircleIcon, PlusIcon, SendIcon } from "lucide-react";
 import { toast } from "sonner";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -30,14 +30,14 @@ function HomePage() {
   const { data: templates, isLoading: templatesLoading } = useAgentTemplates();
   const { data: sessions } = useSessions();
 
-  // --- Runtime type selection ---
+  // --- Runtime type selection (default: first) ---
   const defaultRuntime = runtimes?.[0]?.typeName ?? "";
   const [selectedRuntime, setSelectedRuntime] = useState<string>("");
   const activeRuntime = selectedRuntime || defaultRuntime;
   const runtimeInfo = runtimes?.find((rt) => rt.typeName === activeRuntime);
   const isMultiInstance = runtimeInfo ? !runtimeInfo.onlyOne : false;
 
-  // --- Runtime instance selection (multi-instance only) ---
+  // --- Runtime instance selection (default: first running) ---
   const [selectedInstanceName, setSelectedInstanceName] = useState<string>("");
   const runningInstances = runtimeInfo?.instances.filter((i) => i.status === "running") ?? [];
   const stoppedInstances =
@@ -49,7 +49,7 @@ function HomePage() {
     : undefined;
   const needsRunningInstance = isMultiInstance && runningInstances.length === 0;
 
-  // --- Agent selection ---
+  // --- Agent selection (default: first) ---
   const matchingTemplates = templates?.filter((t) => t.runtime.provider === activeRuntime) ?? [];
   const defaultTemplate = matchingTemplates[0] ?? templates?.[0];
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
@@ -57,14 +57,13 @@ function HomePage() {
     ? (templates?.find((t) => t.id === selectedTemplateId) ?? defaultTemplate)
     : defaultTemplate;
 
-  // --- Session matching + selection ---
+  // --- Session selection (default: first active) ---
   const matchingSessions = useMemo(() => {
     if (!sessions || !activeTemplate) return [];
     return sessions.filter((s) => {
       if (s.agentName !== activeTemplate.name) return false;
       if (s.status !== "active") return false;
       if (!isMultiInstance) return true;
-      // For multi-instance, match sessions on the selected instance
       if (activeInstance && s.runtime) return s.runtime === activeInstance.name;
       return true;
     });
@@ -83,46 +82,25 @@ function HomePage() {
   });
 
   const createMutation = useCreateSession({
+    onSuccess: (session) => {
+      setSelectedSessionId(session.id);
+    },
     onError: (err) => toast.error("Failed to create session", { description: String(err.message) }),
   });
 
   const isReady = !runtimesLoading && !templatesLoading && runtimes && runtimes.length > 0;
 
   const handleStartInstance = (instanceName?: string) => {
-    // Pass name to restart an existing stopped/paused instance, omit to create new
     startRuntimeMutation.mutate({ typeName: activeRuntime, name: instanceName });
   };
 
-  // Reset create mutation when selections change so auto-create can fire for the new combo
-  const createComboKey = `${activeTemplate?.id}:${activeRuntime}:${activeInstance?.name ?? ""}`;
-  const prevComboKey = useRef(createComboKey);
-  useEffect(() => {
-    if (prevComboKey.current !== createComboKey) {
-      prevComboKey.current = createComboKey;
-      createMutation.reset();
-    }
-  }, [createComboKey, createMutation]);
-
-  // Auto-create a session when a running instance is available but no matching session exists
-  useEffect(() => {
-    if (!isReady || !activeTemplate) return;
-    if (needsRunningInstance) return;
-    if (matchingSessions.length > 0) return;
-    // Only auto-create once per combo — skip if already pending, succeeded, or errored
-    if (createMutation.status !== "idle") return;
-
+  const handleCreateSession = () => {
+    if (!activeTemplate) return;
     createMutation.mutate({
       agentTemplateId: activeTemplate.id,
       runtimeInstance: activeInstance?.name,
     });
-  }, [
-    isReady,
-    activeTemplate,
-    needsRunningInstance,
-    matchingSessions.length,
-    activeInstance,
-    createMutation,
-  ]);
+  };
 
   const handleSend = () => {
     if (!prompt.trim() || !activeSession) return;
@@ -133,8 +111,9 @@ function HomePage() {
     });
   };
 
-  const canSend = prompt.trim() && activeSession && isReady;
-  const isInitializing = createMutation.isPending;
+  const hasActiveSession = !!activeSession;
+  const canSend = prompt.trim() && hasActiveSession && isReady;
+  const isBusy = startRuntimeMutation.isPending || createMutation.isPending;
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col items-center justify-center gap-8 px-1">
@@ -149,17 +128,21 @@ function HomePage() {
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && canSend && handleSend()}
-            placeholder="Send a prompt to the agent..."
-            disabled={isInitializing || !isReady}
+            placeholder={
+              !isReady
+                ? "Loading…"
+                : needsRunningInstance
+                  ? "Start a runtime instance first…"
+                  : !hasActiveSession
+                    ? "Create a session first…"
+                    : "Send a prompt to the agent..."
+            }
+            disabled={!canSend && !prompt.trim()}
             className="flex-1"
           />
           <Button onClick={handleSend} disabled={!canSend}>
-            {isInitializing ? (
-              <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
-            ) : (
-              <SendIcon data-icon="inline-start" />
-            )}
-            {isInitializing ? "Initializing…" : "Send"}
+            <SendIcon data-icon="inline-start" />
+            Send
           </Button>
         </div>
 
@@ -250,7 +233,7 @@ function HomePage() {
           {/* Agent dropdown */}
           {runtimesLoading || templatesLoading ? (
             <Skeleton className="h-6 w-24" />
-          ) : isReady && !needsRunningInstance ? (
+          ) : isReady ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs">
@@ -304,38 +287,37 @@ function HomePage() {
 
           {/* Session dropdown */}
           {isReady && !needsRunningInstance ? (
-            matchingSessions.length > 0 ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs">
-                    <span className="text-muted-foreground">Session:</span>
-                    {activeSession ? `...${activeSession.id.slice(-8)}` : "None"}
-                    <ChevronDownIcon className="size-3 text-muted-foreground" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {matchingSessions.map((s) => (
-                    <DropdownMenuItem key={s.id} onSelect={() => setSelectedSessionId(s.id)}>
-                      ...{s.id.slice(-8)}
-                    </DropdownMenuItem>
-                  ))}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild>
-                    <Link
-                      to="/sessions/$id"
-                      params={{ id: activeSession?.id ?? matchingSessions[0].id }}
-                    >
-                      Open session
-                    </Link>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs">
+                  {createMutation.isPending ? (
+                    <LoaderCircleIcon className="size-3 animate-spin" />
+                  ) : null}
+                  <span className="text-muted-foreground">Session:</span>
+                  {createMutation.isPending
+                    ? "Creating…"
+                    : activeSession
+                      ? `...${activeSession.id.slice(-8)}`
+                      : "None"}
+                  <ChevronDownIcon className="size-3 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {matchingSessions.map((s) => (
+                  <DropdownMenuItem key={s.id} onSelect={() => setSelectedSessionId(s.id)}>
+                    ...{s.id.slice(-8)}
                   </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : createMutation.isPending ? (
-              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <LoaderCircleIcon className="size-3 animate-spin" />
-                Creating session…
-              </span>
-            ) : null
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={handleCreateSession}
+                  disabled={isBusy || !activeTemplate}
+                >
+                  <PlusIcon className="size-3.5" />
+                  Create new
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : null}
         </div>
       </div>
