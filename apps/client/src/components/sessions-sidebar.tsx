@@ -36,19 +36,22 @@ import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 export function SessionsSidebar() {
   const navigate = useNavigate();
   const { activeSessionId, activeRuntimeTypeName, activeRuntimeInstanceName } = useRouterState({
-    select: (s) => ({
-      activeSessionId: s.matches.find((m) => m.routeId === "/sessions/$id")?.params.id as
-        | string
-        | undefined,
-      activeRuntimeTypeName: s.matches.find(
+    select: (s) => {
+      const sessionMatch = s.matches.find((m) => m.routeId === "/sessions/$id");
+      const runtimeMatch = s.matches.find(
         (m) =>
           m.routeId === "/runtimes/$typeName/$instanceName" ||
           m.routeId === "/runtimes/$typeName",
-      )?.params.typeName as string | undefined,
-      activeRuntimeInstanceName: s.matches.find(
+      );
+      const instanceMatch = s.matches.find(
         (m) => m.routeId === "/runtimes/$typeName/$instanceName",
-      )?.params.instanceName as string | undefined,
-    }),
+      );
+      return {
+        activeSessionId: sessionMatch?.params.id,
+        activeRuntimeTypeName: runtimeMatch?.params.typeName,
+        activeRuntimeInstanceName: instanceMatch?.params.instanceName,
+      };
+    },
   });
   const runtimeFilter = activeRuntimeInstanceName ?? activeRuntimeTypeName;
 

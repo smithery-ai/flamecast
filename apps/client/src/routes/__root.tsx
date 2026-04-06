@@ -16,19 +16,22 @@ export const Route = createRootRoute({
 
 function RootLayout() {
   const { sessionId, runtimeTypeName, runtimeInstanceName } = useRouterState({
-    select: (state) => ({
-      sessionId: state.matches.find((m) => m.routeId === "/sessions/$id")?.params.id as
-        | string
-        | undefined,
-      runtimeTypeName: state.matches.find(
+    select: (state) => {
+      const sessionMatch = state.matches.find((m) => m.routeId === "/sessions/$id");
+      const runtimeMatch = state.matches.find(
         (m) =>
           m.routeId === "/runtimes/$typeName/$instanceName" ||
           m.routeId === "/runtimes/$typeName",
-      )?.params.typeName as string | undefined,
-      runtimeInstanceName: state.matches.find(
+      );
+      const instanceMatch = state.matches.find(
         (m) => m.routeId === "/runtimes/$typeName/$instanceName",
-      )?.params.instanceName as string | undefined,
-    }),
+      );
+      return {
+        sessionId: sessionMatch?.params.id,
+        runtimeTypeName: runtimeMatch?.params.typeName,
+        runtimeInstanceName: instanceMatch?.params.instanceName,
+      };
+    },
   });
 
   return (
