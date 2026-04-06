@@ -8,7 +8,6 @@ import {
   PromptQueueStateSchema,
   SessionSchema,
 } from "../shared/session.js";
-import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
 import type {
   AgentTemplate,
   CreateSessionBody,
@@ -85,17 +84,6 @@ export type FlamecastClient = {
   reorderQueue(id: string, order: string[]): Promise<void>;
   pauseQueue(id: string): Promise<void>;
   resumeQueue(id: string): Promise<void>;
-
-  // Runtimes
-  fetchRuntimes(): Promise<RuntimeInfo[]>;
-  fetchRuntimeFilePreview(instanceName: string, path: string): Promise<FilePreview>;
-  fetchRuntimeFileSystem(
-    instanceName: string,
-    opts?: { showAllFiles?: boolean },
-  ): Promise<FileSystemSnapshot>;
-  startRuntime(typeName: string, name?: string): Promise<RuntimeInstance>;
-  stopRuntime(instanceName: string): Promise<void>;
-  pauseRuntime(instanceName: string): Promise<void>;
 };
 
 async function assertOk(response: Response, message: string): Promise<void> {
@@ -242,52 +230,6 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
         param: { agentId: id },
       });
       await assertOk(response, "Failed to resume queue");
-    },
-
-    // -- Runtimes --
-
-    async fetchRuntimes() {
-      const response = await rpc.runtimes.$get();
-      await assertOk(response, "Failed to fetch runtimes");
-      const data: RuntimeInfo[] = await response.json();
-      return data;
-    },
-    async fetchRuntimeFilePreview(instanceName, path) {
-      const response = await rpc.runtimes[":instanceName"].files.$get({
-        param: { instanceName },
-        query: { path },
-      });
-      return parseOkJson(response, FilePreviewSchema, "Failed to fetch runtime file preview");
-    },
-    async fetchRuntimeFileSystem(instanceName, opts = {}) {
-      const response = await rpc.runtimes[":instanceName"].fs.snapshot.$get({
-        param: { instanceName },
-        query: {
-          showAllFiles: opts.showAllFiles ? "true" : undefined,
-        },
-      });
-      return parseOkJson(response, FileSystemSnapshotSchema, "Failed to fetch runtime filesystem");
-    },
-    async startRuntime(typeName, name?) {
-      const response = await rpc.runtimes[":typeName"].start.$post({
-        param: { typeName },
-        json: name ? { name } : {},
-      });
-      await assertOk(response, "Failed to start runtime");
-      const data: RuntimeInstance = await response.json();
-      return data;
-    },
-    async stopRuntime(instanceName) {
-      const response = await rpc.runtimes[":instanceName"].stop.$post({
-        param: { instanceName },
-      });
-      await assertOk(response, "Failed to stop runtime");
-    },
-    async pauseRuntime(instanceName) {
-      const response = await rpc.runtimes[":instanceName"].pause.$post({
-        param: { instanceName },
-      });
-      await assertOk(response, "Failed to pause runtime");
     },
   };
 }

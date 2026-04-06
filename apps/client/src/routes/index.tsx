@@ -1,27 +1,15 @@
-import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createSession,
   fetchAgentTemplates,
-  fetchRuntimeFilePreview,
-  fetchRuntimeFileSystem,
-  fetchRuntimes,
   registerAgentTemplate,
-  startRuntime,
   updateAgentTemplate,
 } from "@/lib/api";
-import { FileSystemPanel } from "@/components/filesystem-panel";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -32,23 +20,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { TerminalPanel } from "@/components/terminal-panel";
-import { useTerminal } from "@/hooks/use-terminal";
-import { resolveRuntimeSelection } from "@/lib/runtime-selection";
 import {
   LoaderCircleIcon,
   PlusIcon,
   PlayIcon,
   TerminalIcon,
-  TerminalSquareIcon,
   SettingsIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import type { AgentTemplate } from "@flamecast/sdk/session";
-import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
 
 export const Route = createFileRoute("/")({
   component: SessionsPage,
@@ -81,51 +62,21 @@ function envToString(env: Record<string, string> | undefined): string {
 function SessionsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  // oxlint-disable-next-line no-type-assertion/no-type-assertion -- TanStack Router search params are untyped with strict:false
-  const search = useSearch({ strict: false }) as Record<string, unknown>;
-  const runtimeFilter = typeof search.runtime === "string" ? search.runtime : undefined;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newCommand, setNewCommand] = useState("");
   const [newArgs, setNewArgs] = useState("");
-  const [newRuntime, setNewRuntime] = useState("");
   const [newSetup, setNewSetup] = useState("");
   const [newEnv, setNewEnv] = useState("");
 
-  const { data: allTemplates = [], isLoading: templatesLoading } = useQuery({
+  const { data: templates = [], isLoading: templatesLoading } = useQuery({
     queryKey: ["agent-templates"],
     queryFn: fetchAgentTemplates,
   });
 
-  const { data: runtimes } = useQuery({
-    queryKey: ["runtimes"],
-    queryFn: fetchRuntimes,
-    refetchInterval: 30_000,
-  });
-
-  // Resolve instance name → type name so templates (which store provider/type)
-  // match when filtering by a specific instance like "staging".
-  const resolvedTypeName = (() => {
-    if (!runtimeFilter || !runtimes) return runtimeFilter;
-    for (const rt of runtimes) {
-      if (rt.typeName === runtimeFilter) return rt.typeName;
-      if (rt.instances.some((i) => i.name === runtimeFilter)) return rt.typeName;
-    }
-    return runtimeFilter;
-  })();
-
-  const templates = resolvedTypeName
-    ? allTemplates.filter((t) => t.runtime.provider === resolvedTypeName)
-    : allTemplates;
-
   const createMutation = useMutation({
-    mutationFn: ({
-      agentTemplateId,
-      runtimeInstance,
-    }: {
-      agentTemplateId: string;
-      runtimeInstance?: string;
-    }) => createSession({ agentTemplateId, cwd: undefined, runtimeInstance }),
+    mutationFn: ({ agentTemplateId }: { agentTemplateId: string }) =>
+      createSession({ agentTemplateId, cwd: undefined }),
     onSuccess: (session) => {
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
       navigate({ to: "/sessions/$id", params: { id: session.id } });
@@ -140,7 +91,6 @@ function SessionsPage() {
       name: string;
       command: string;
       args: string[];
-      provider?: string;
       setup?: string;
       env?: Record<string, string>;
     }) =>
@@ -148,7 +98,7 @@ function SessionsPage() {
         name: body.name,
         spawn: { command: body.command, args: body.args },
         runtime: {
-          provider: body.provider ?? "default",
+          provider: "default",
           ...(body.setup ? { setup: body.setup } : {}),
         },
         ...(body.env && Object.keys(body.env).length > 0 ? { env: body.env } : {}),
@@ -158,7 +108,6 @@ function SessionsPage() {
       setNewName("");
       setNewCommand("");
       setNewArgs("");
-      setNewRuntime("");
       setNewSetup("");
       setNewEnv("");
       setDialogOpen(false);
@@ -173,24 +122,10 @@ function SessionsPage() {
     const command = newCommand.trim();
     if (!name || !command) return;
     const args = newArgs.trim() ? newArgs.trim().split(/\s+/).filter(Boolean) : [];
-    const provider = newRuntime || undefined;
     const setup = newSetup.trim() || undefined;
     const env = parseEnvString(newEnv);
-    registerMutation.mutate({ name, command, args, provider, setup, env });
+    registerMutation.mutate({ name, command, args, setup, env });
   };
-
-  const selectedRuntimeSelection = resolveRuntimeSelection(runtimeFilter, runtimes);
-
-  if (selectedRuntimeSelection) {
-    return (
-      <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden px-1">
-        <RuntimeDetailPanel
-          runtimeInfo={selectedRuntimeSelection.runtimeInfo}
-          instance={selectedRuntimeSelection.instance}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="mx-auto min-h-0 w-full max-w-3xl flex-1 overflow-y-auto px-1">
@@ -257,23 +192,6 @@ function SessionsPage() {
                         onChange={(e) => setNewArgs(e.target.value)}
                       />
                     </div>
-                    {runtimes && runtimes.length > 0 && (
-                      <div className="flex flex-col gap-2">
-                        <Label>Runtime</Label>
-                        <Select value={newRuntime} onValueChange={setNewRuntime}>
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue placeholder="Default" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {runtimes.map((rt) => (
-                              <SelectItem key={rt.typeName} value={rt.typeName} className="text-xs">
-                                {rt.typeName}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
                     <div className="flex flex-col gap-2">
                       <Label htmlFor="agent-setup">Setup script</Label>
                       <Textarea
@@ -349,11 +267,8 @@ function SessionsPage() {
                 <AgentTemplateCard
                   key={template.id}
                   template={template}
-                  runtimeInfo={runtimes?.find((rt) => rt.typeName === template.runtime.provider)}
-                  allRuntimes={runtimes}
-                  defaultInstance={runtimeFilter}
-                  onStartSession={(runtimeInstance) =>
-                    createMutation.mutate({ agentTemplateId: template.id, runtimeInstance })
+                  onStartSession={() =>
+                    createMutation.mutate({ agentTemplateId: template.id })
                   }
                   isStartingSession={
                     createMutation.isPending &&
@@ -370,209 +285,24 @@ function SessionsPage() {
   );
 }
 
-function RuntimeDetailPanel({
-  runtimeInfo,
-  instance,
-}: {
-  runtimeInfo: RuntimeInfo;
-  instance: RuntimeInstance;
-}) {
-  const queryClient = useQueryClient();
-  const [showAllFiles, setShowAllFiles] = useState(false);
-  const isRunning = instance.status === "running";
-
-  const runtimeFsQuery = useQuery({
-    queryKey: ["runtime-filesystem", instance.name, showAllFiles],
-    queryFn: () => fetchRuntimeFileSystem(instance.name, { showAllFiles }),
-    enabled: isRunning,
-    refetchInterval: 30_000,
-  });
-
-  const { terminals, sendInput, resize, onData, createTerminal, killTerminal } = useTerminal(
-    isRunning ? instance.websocketUrl : undefined,
-  );
-
-  const startMutation = useMutation({
-    mutationFn: () =>
-      startRuntime(runtimeInfo.typeName, runtimeInfo.onlyOne ? undefined : instance.name),
-    onSuccess: (startedInstance) => {
-      queryClient.setQueryData<RuntimeInfo[] | undefined>(["runtimes"], (current) =>
-        current?.map((runtime) => {
-          if (runtime.typeName !== runtimeInfo.typeName) return runtime;
-          const existing = runtime.instances.find(
-            (candidate) => candidate.name === startedInstance.name,
-          );
-          return {
-            ...runtime,
-            instances: existing
-              ? runtime.instances.map((candidate) =>
-                  candidate.name === startedInstance.name ? startedInstance : candidate,
-                )
-              : [...runtime.instances, startedInstance],
-          };
-        }),
-      );
-      void queryClient.invalidateQueries({ queryKey: ["runtimes"] });
-      void queryClient.invalidateQueries({ queryKey: ["runtime-filesystem", instance.name] });
-    },
-    onError: (err) => {
-      toast.error("Failed to start runtime", { description: String(err.message) });
-    },
-  });
-
-  if (!isRunning) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden">
-        <div className="shrink-0">
-          <h1 className="text-2xl font-bold tracking-tight">{instance.name}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {runtimeInfo.typeName === instance.name
-              ? `${instance.status} runtime`
-              : `${runtimeInfo.typeName} runtime`}
-          </p>
-        </div>
-        <Card className="border-dashed">
-          <CardHeader>
-            <CardTitle className="text-base">
-              {startMutation.isPending ? "Starting runtime..." : "Runtime not running"}
-            </CardTitle>
-            <CardDescription>
-              {startMutation.isPending
-                ? "Waiting for the runtime instance to come up."
-                : `This runtime is currently ${instance.status}. Start it to browse its workspace.`}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button onClick={() => startMutation.mutate()} disabled={startMutation.isPending}>
-              {startMutation.isPending ? (
-                <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
-              ) : (
-                <PlayIcon data-icon="inline-start" />
-              )}
-              {startMutation.isPending ? "Starting..." : "Start runtime"}
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-      <div className="shrink-0">
-        <h1 className="text-2xl font-bold tracking-tight">{instance.name}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {runtimeInfo.typeName === instance.name
-            ? `${instance.status} runtime`
-            : `${runtimeInfo.typeName} runtime`}
-        </p>
-      </div>
-
-      <Tabs defaultValue="terminals" className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-        <TabsList>
-          <TabsTrigger value="terminals">
-            <TerminalSquareIcon className="size-3.5" />
-            Terminals
-            {terminals.length > 0 && (
-              <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[10px]">
-                {terminals.length}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="files">Files</TabsTrigger>
-        </TabsList>
-
-        <TabsContent
-          value="terminals"
-          className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
-        >
-          <TerminalPanel
-            terminals={terminals}
-            sendInput={sendInput}
-            resize={resize}
-            onData={onData}
-            onCreateTerminal={() => createTerminal()}
-            onRemoveTerminal={killTerminal}
-          />
-        </TabsContent>
-
-        <TabsContent value="files" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
-          {runtimeFsQuery.isLoading ? (
-            <Card className="flex min-h-[28rem] items-center justify-center">
-              <CardContent className="flex items-center gap-3 py-10 text-sm text-muted-foreground">
-                <LoaderCircleIcon className="size-4 animate-spin" />
-                Loading runtime filesystem...
-              </CardContent>
-            </Card>
-          ) : runtimeFsQuery.isError || !runtimeFsQuery.data ? (
-            <Card className="border-dashed">
-              <CardHeader>
-                <CardTitle className="text-base">Could not load runtime filesystem</CardTitle>
-                <CardDescription>
-                  {runtimeFsQuery.error instanceof Error
-                    ? runtimeFsQuery.error.message
-                    : "Unknown error"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button variant="outline" onClick={() => void runtimeFsQuery.refetch()}>
-                  Retry
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <FileSystemPanel
-              workspaceRoot={runtimeFsQuery.data.root}
-              entries={runtimeFsQuery.data.entries}
-              showAllFiles={showAllFiles}
-              onShowAllFilesChange={setShowAllFiles}
-              loadPreview={(path) => fetchRuntimeFilePreview(instance.name, path)}
-              emptyTreeMessage="No filesystem entries returned for this runtime."
-            />
-          )}
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-}
-
 function AgentTemplateCard({
   template,
-  runtimeInfo,
-  allRuntimes,
-  defaultInstance,
   onStartSession,
   isStartingSession,
   isAnyStarting,
 }: {
   template: AgentTemplate;
-  runtimeInfo?: RuntimeInfo;
-  allRuntimes?: RuntimeInfo[];
-  /** The current ?runtime= filter. If it's a running instance name, pre-select it. */
-  defaultInstance?: string;
-  onStartSession: (runtimeInstance?: string) => void;
+  onStartSession: () => void;
   /** True when THIS template's session is being created. */
   isStartingSession: boolean;
   /** True when ANY session is being created (to disable all buttons). */
   isAnyStarting: boolean;
 }) {
   const queryClient = useQueryClient();
-  const needsInstanceSelect = runtimeInfo && !runtimeInfo.onlyOne;
-  const runningInstances = runtimeInfo?.instances.filter((i) => i.status === "running") ?? [];
-
-  // If the filter points to a specific running instance (not the type name), default to it.
-  const inferredDefault =
-    defaultInstance &&
-    defaultInstance !== runtimeInfo?.typeName &&
-    runningInstances.some((i) => i.name === defaultInstance)
-      ? defaultInstance
-      : "";
-  const [selectedInstance, setSelectedInstance] = useState<string>(inferredDefault);
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState(template.name);
   const [editCommand, setEditCommand] = useState(template.spawn.command);
   const [editArgs, setEditArgs] = useState((template.spawn.args ?? []).join(" "));
-  const [editRuntime, setEditRuntime] = useState(template.runtime.provider);
   const [editSetup, setEditSetup] = useState(template.runtime.setup ?? "");
   const [editEnv, setEditEnv] = useState(envToString({ ...template.runtime.env, ...template.env }));
 
@@ -581,7 +311,6 @@ function AgentTemplateCard({
       name: string;
       command: string;
       args: string[];
-      provider: string;
       setup?: string;
       env?: Record<string, string>;
     }) =>
@@ -590,7 +319,6 @@ function AgentTemplateCard({
         spawn: { command: body.command, args: body.args },
         runtime: {
           ...template.runtime,
-          provider: body.provider,
           setup: body.setup,
         },
         env: body.env,
@@ -609,13 +337,10 @@ function AgentTemplateCard({
     const command = editCommand.trim();
     if (!name || !command) return;
     const args = editArgs.trim() ? editArgs.trim().split(/\s+/).filter(Boolean) : [];
-    const provider = editRuntime;
     const setup = editSetup.trim() || undefined;
     const env = parseEnvString(editEnv);
-    updateMutation.mutate({ name, command, args, provider, setup, env });
+    updateMutation.mutate({ name, command, args, setup, env });
   };
-
-  const canStart = needsInstanceSelect ? Boolean(selectedInstance) : true;
 
   const allEnvKeys = [
     ...Object.keys(template.runtime.env ?? {}),
@@ -631,11 +356,6 @@ function AgentTemplateCard({
           </div>
           <CardTitle className="flex-1 text-sm font-semibold">
             {template.name}
-            {template.runtime.provider && template.runtime.provider !== "default" && (
-              <span className="ml-1 text-xs font-normal text-muted-foreground">
-                ({template.runtime.provider})
-              </span>
-            )}
           </CardTitle>
           <Dialog
             open={editOpen}
@@ -645,7 +365,6 @@ function AgentTemplateCard({
                 setEditName(template.name);
                 setEditCommand(template.spawn.command);
                 setEditArgs((template.spawn.args ?? []).join(" "));
-                setEditRuntime(template.runtime.provider);
                 setEditSetup(template.runtime.setup ?? "");
                 setEditEnv(envToString({ ...template.runtime.env, ...template.env }));
               }
@@ -698,23 +417,6 @@ function AgentTemplateCard({
                       onChange={(e) => setEditArgs(e.target.value)}
                     />
                   </div>
-                  {allRuntimes && allRuntimes.length > 0 && (
-                    <div className="flex flex-col gap-2">
-                      <Label>Runtime</Label>
-                      <Select value={editRuntime} onValueChange={setEditRuntime}>
-                        <SelectTrigger className="h-8 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {allRuntimes.map((rt) => (
-                            <SelectItem key={rt.typeName} value={rt.typeName} className="text-xs">
-                              {rt.typeName}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
                   <div className="flex flex-col gap-2">
                     <Label htmlFor={`edit-setup-${template.id}`}>Setup script</Label>
                     <Textarea
@@ -786,35 +488,11 @@ function AgentTemplateCard({
           </div>
         )}
 
-        {needsInstanceSelect && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Runtime instance</label>
-            {runningInstances.length === 0 ? (
-              <p className="text-xs text-muted-foreground/70">
-                No running {runtimeInfo.typeName} instances. Start one from the sidebar.
-              </p>
-            ) : (
-              <Select value={selectedInstance} onValueChange={setSelectedInstance}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="Select instance…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {runningInstances.map((inst) => (
-                    <SelectItem key={inst.name} value={inst.name} className="text-xs">
-                      {inst.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-        )}
-
         <Button
           size="sm"
           className="w-full"
-          onClick={() => onStartSession(needsInstanceSelect ? selectedInstance : undefined)}
-          disabled={isAnyStarting || !canStart}
+          onClick={() => onStartSession()}
+          disabled={isAnyStarting}
         >
           {isStartingSession ? (
             <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
