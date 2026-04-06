@@ -137,7 +137,7 @@ function HomePage() {
                     ? "Create a session first…"
                     : "Send a prompt to the agent..."
             }
-            disabled={!canSend && !prompt.trim()}
+            disabled={!isReady || !hasActiveSession}
             className="flex-1"
           />
           <Button onClick={handleSend} disabled={!canSend}>
