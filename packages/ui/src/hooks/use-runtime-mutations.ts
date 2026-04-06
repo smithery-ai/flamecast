@@ -79,7 +79,10 @@ export function useStartRuntimeWithOptimisticUpdate(
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      client.startRuntime(runtimeInfo.typeName, runtimeInfo.onlyOne ? undefined : options?.instanceName),
+      client.startRuntime(
+        runtimeInfo.typeName,
+        runtimeInfo.onlyOne ? undefined : options?.instanceName,
+      ),
     onSuccess: (startedInstance) => {
       queryClient.setQueryData<RuntimeInfo[] | undefined>(["runtimes"], (current) =>
         current?.map((rt) => {
@@ -99,7 +102,9 @@ export function useStartRuntimeWithOptimisticUpdate(
       });
       options?.onSuccess?.(startedInstance);
     },
-    onError: options?.onError ? (err: Error) => options.onError?.(err, options?.instanceName) : undefined,
+    onError: options?.onError
+      ? (err: Error) => options.onError?.(err, options?.instanceName)
+      : undefined,
     onSettled: options?.onSettled,
   });
 }

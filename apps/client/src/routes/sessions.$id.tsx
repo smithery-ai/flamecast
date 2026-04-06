@@ -1,9 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import {
-  useSession,
-  useFlamecastSession,
-  sessionLogsToSegments,
-} from "@flamecast/ui";
+import { useSession, useFlamecastSession, sessionLogsToSegments } from "@flamecast/ui";
 import { FileSystemPanel } from "@/components/filesystem-panel";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";

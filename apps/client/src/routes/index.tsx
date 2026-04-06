@@ -349,8 +349,7 @@ function RuntimeDetailPanel({
 
   const startMutation = useStartRuntimeWithOptimisticUpdate(runtimeInfo, {
     instanceName: instance.name,
-    onError: (err) =>
-      toast.error("Failed to start runtime", { description: String(err.message) }),
+    onError: (err) => toast.error("Failed to start runtime", { description: String(err.message) }),
   });
 
   if (!isRunning) {
@@ -506,7 +505,8 @@ function AgentTemplateCard({
 
   const updateMutation = useUpdateAgentTemplate(template.id, {
     onSuccess: () => setEditOpen(false),
-    onError: (err) => toast.error("Failed to update template", { description: String(err.message) }),
+    onError: (err) =>
+      toast.error("Failed to update template", { description: String(err.message) }),
   });
 
   const handleUpdate = () => {
@@ -517,7 +517,15 @@ function AgentTemplateCard({
     const provider = editRuntime;
     const setup = editSetup.trim() || undefined;
     const env = parseEnvString(editEnv);
-    updateMutation.mutate({ name, command, args, provider, setup, env, currentRuntime: template.runtime });
+    updateMutation.mutate({
+      name,
+      command,
+      args,
+      provider,
+      setup,
+      env,
+      currentRuntime: template.runtime,
+    });
   };
 
   const canStart = needsInstanceSelect ? Boolean(selectedInstance) : true;
