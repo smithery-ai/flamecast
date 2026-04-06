@@ -119,7 +119,7 @@ export function SessionsSidebar() {
                     <SidebarMenuSkeleton />
                   </>
                 ) : (
-                  runtimes!.map((rt) => (
+                  runtimes?.map((rt) => (
                     <RuntimeTypeItem
                       key={rt.typeName}
                       runtime={rt}
