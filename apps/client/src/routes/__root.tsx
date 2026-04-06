@@ -15,8 +15,20 @@ export const Route = createRootRoute({
 });
 
 function RootLayout() {
-  const sessionId = useRouterState({
-    select: (state) => state.matches.find((m) => m.routeId === "/sessions/$id")?.params.id,
+  const { sessionId, runtimeTypeName, runtimeInstanceName } = useRouterState({
+    select: (state) => ({
+      sessionId: state.matches.find((m) => m.routeId === "/sessions/$id")?.params.id as
+        | string
+        | undefined,
+      runtimeTypeName: state.matches.find(
+        (m) =>
+          m.routeId === "/runtimes/$typeName/$instanceName" ||
+          m.routeId === "/runtimes/$typeName",
+      )?.params.typeName as string | undefined,
+      runtimeInstanceName: state.matches.find(
+        (m) => m.routeId === "/runtimes/$typeName/$instanceName",
+      )?.params.instanceName as string | undefined,
+    }),
   });
 
   return (
@@ -45,6 +57,29 @@ function RootLayout() {
                   >
                     {sessionId}
                   </span>
+                </>
+              ) : runtimeTypeName ? (
+                <>
+                  <ChevronRightIcon
+                    className="h-4 w-4 shrink-0 text-muted-foreground"
+                    aria-hidden
+                  />
+                  <Link
+                    to="/runtimes/$typeName"
+                    params={{ typeName: runtimeTypeName }}
+                    className="shrink-0 text-muted-foreground transition-colors hover:text-foreground [&.active]:text-foreground [&.active]:font-medium"
+                  >
+                    {runtimeTypeName}
+                  </Link>
+                  {runtimeInstanceName && runtimeInstanceName !== runtimeTypeName ? (
+                    <>
+                      <ChevronRightIcon
+                        className="h-4 w-4 shrink-0 text-muted-foreground"
+                        aria-hidden
+                      />
+                      <span className="min-w-0 truncate font-medium">{runtimeInstanceName}</span>
+                    </>
+                  ) : null}
                 </>
               ) : null}
             </nav>

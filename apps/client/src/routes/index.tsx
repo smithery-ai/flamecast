@@ -2,18 +2,12 @@ import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router"
 import {
   useAgentTemplates,
   useRuntimes,
-  useRuntimeFileSystem,
   useCreateSession,
   useRegisterAgentTemplate,
   useUpdateAgentTemplate,
-  useStartRuntimeWithOptimisticUpdate,
-  useTerminal,
-  useFlamecastClient,
-  resolveRuntimeSelection,
 } from "@flamecast/ui";
-import { FileSystemPanel } from "@/components/filesystem-panel";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -33,21 +27,17 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { TerminalPanel } from "@/components/terminal-panel";
 import {
   LoaderCircleIcon,
   PlusIcon,
   PlayIcon,
   TerminalIcon,
-  TerminalSquareIcon,
   SettingsIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import type { AgentTemplate } from "@flamecast/sdk/session";
-import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
+import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 
 export const Route = createFileRoute("/")({
   component: SessionsPage,
@@ -135,19 +125,6 @@ function SessionsPage() {
     const env = parseEnvString(newEnv);
     registerMutation.mutate({ name, command, args, provider, setup, env });
   };
-
-  const selectedRuntimeSelection = resolveRuntimeSelection(runtimeFilter, runtimes);
-
-  if (selectedRuntimeSelection) {
-    return (
-      <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden px-1">
-        <RuntimeDetailPanel
-          runtimeInfo={selectedRuntimeSelection.runtimeInfo}
-          instance={selectedRuntimeSelection.instance}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="mx-auto min-h-0 w-full max-w-3xl flex-1 overflow-y-auto px-1">
@@ -323,147 +300,6 @@ function SessionsPage() {
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function RuntimeDetailPanel({
-  runtimeInfo,
-  instance,
-}: {
-  runtimeInfo: RuntimeInfo;
-  instance: RuntimeInstance;
-}) {
-  const client = useFlamecastClient();
-  const [showAllFiles, setShowAllFiles] = useState(false);
-  const isRunning = instance.status === "running";
-
-  const runtimeFsQuery = useRuntimeFileSystem(instance.name, {
-    enabled: isRunning,
-    showAllFiles,
-  });
-
-  const { terminals, sendInput, resize, onData, createTerminal, killTerminal } = useTerminal(
-    isRunning ? instance.websocketUrl : undefined,
-  );
-
-  const startMutation = useStartRuntimeWithOptimisticUpdate(runtimeInfo, {
-    instanceName: instance.name,
-    onError: (err) => toast.error("Failed to start runtime", { description: String(err.message) }),
-  });
-
-  if (!isRunning) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden">
-        <div className="shrink-0">
-          <h1 className="text-2xl font-bold tracking-tight">{instance.name}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {runtimeInfo.typeName === instance.name
-              ? `${instance.status} runtime`
-              : `${runtimeInfo.typeName} runtime`}
-          </p>
-        </div>
-        <Card className="border-dashed">
-          <CardHeader>
-            <CardTitle className="text-base">
-              {startMutation.isPending ? "Starting runtime..." : "Runtime not running"}
-            </CardTitle>
-            <CardDescription>
-              {startMutation.isPending
-                ? "Waiting for the runtime instance to come up."
-                : `This runtime is currently ${instance.status}. Start it to browse its workspace.`}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button onClick={() => startMutation.mutate()} disabled={startMutation.isPending}>
-              {startMutation.isPending ? (
-                <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
-              ) : (
-                <PlayIcon data-icon="inline-start" />
-              )}
-              {startMutation.isPending ? "Starting..." : "Start runtime"}
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-      <div className="shrink-0">
-        <h1 className="text-2xl font-bold tracking-tight">{instance.name}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {runtimeInfo.typeName === instance.name
-            ? `${instance.status} runtime`
-            : `${runtimeInfo.typeName} runtime`}
-        </p>
-      </div>
-
-      <Tabs defaultValue="terminals" className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-        <TabsList>
-          <TabsTrigger value="terminals">
-            <TerminalSquareIcon className="size-3.5" />
-            Terminals
-            {terminals.length > 0 && (
-              <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[10px]">
-                {terminals.length}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="files">Files</TabsTrigger>
-        </TabsList>
-
-        <TabsContent
-          value="terminals"
-          className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
-        >
-          <TerminalPanel
-            terminals={terminals}
-            sendInput={sendInput}
-            resize={resize}
-            onData={onData}
-            onCreateTerminal={() => createTerminal()}
-            onRemoveTerminal={killTerminal}
-          />
-        </TabsContent>
-
-        <TabsContent value="files" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
-          {runtimeFsQuery.isLoading ? (
-            <Card className="flex min-h-[28rem] items-center justify-center">
-              <CardContent className="flex items-center gap-3 py-10 text-sm text-muted-foreground">
-                <LoaderCircleIcon className="size-4 animate-spin" />
-                Loading runtime filesystem...
-              </CardContent>
-            </Card>
-          ) : runtimeFsQuery.isError || !runtimeFsQuery.data ? (
-            <Card className="border-dashed">
-              <CardHeader>
-                <CardTitle className="text-base">Could not load runtime filesystem</CardTitle>
-                <CardDescription>
-                  {runtimeFsQuery.error instanceof Error
-                    ? runtimeFsQuery.error.message
-                    : "Unknown error"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button variant="outline" onClick={() => void runtimeFsQuery.refetch()}>
-                  Retry
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <FileSystemPanel
-              workspaceRoot={runtimeFsQuery.data.root}
-              entries={runtimeFsQuery.data.entries}
-              showAllFiles={showAllFiles}
-              onShowAllFilesChange={setShowAllFiles}
-              loadPreview={(path) => client.fetchRuntimeFilePreview(instance.name, path)}
-              emptyTreeMessage="No filesystem entries returned for this runtime."
-            />
-          )}
-        </TabsContent>
-      </Tabs>
     </div>
   );
 }

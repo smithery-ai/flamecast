@@ -1,4 +1,4 @@
-import { Link, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   useSessions,
   useRuntimes,
@@ -33,25 +33,24 @@ import { useState } from "react";
 import { toast } from "sonner";
 import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 
-/**
- * Resolve a `?runtime=X` filter value to its parent type name.
- */
-function resolveTypeName(filter: string, runtimes: RuntimeInfo[]): string | undefined {
-  for (const rt of runtimes) {
-    if (rt.typeName === filter) return rt.typeName;
-    if (rt.instances.some((i) => i.name === filter)) return rt.typeName;
-  }
-  return undefined;
-}
-
 export function SessionsSidebar() {
   const navigate = useNavigate();
-  // oxlint-disable-next-line no-type-assertion/no-type-assertion -- TanStack Router search params are untyped with strict:false
-  const search = useSearch({ strict: false }) as Record<string, unknown>;
-  const runtimeFilter = typeof search.runtime === "string" ? search.runtime : undefined;
-  const activeSessionId = useRouterState({
-    select: (s) => s.matches.find((m) => m.routeId === "/sessions/$id")?.params.id,
+  const { activeSessionId, activeRuntimeTypeName, activeRuntimeInstanceName } = useRouterState({
+    select: (s) => ({
+      activeSessionId: s.matches.find((m) => m.routeId === "/sessions/$id")?.params.id as
+        | string
+        | undefined,
+      activeRuntimeTypeName: s.matches.find(
+        (m) =>
+          m.routeId === "/runtimes/$typeName/$instanceName" ||
+          m.routeId === "/runtimes/$typeName",
+      )?.params.typeName as string | undefined,
+      activeRuntimeInstanceName: s.matches.find(
+        (m) => m.routeId === "/runtimes/$typeName/$instanceName",
+      )?.params.instanceName as string | undefined,
+    }),
   });
+  const runtimeFilter = activeRuntimeInstanceName ?? activeRuntimeTypeName;
 
   const { data: sessions, isLoading } = useSessions();
   const { data: runtimes } = useRuntimes();
@@ -66,15 +65,18 @@ export function SessionsSidebar() {
 
   const filteredSessions = (() => {
     if (!runtimeFilter || !sessions) return sessions;
-    const typeName = runtimes ? resolveTypeName(runtimeFilter, runtimes) : undefined;
-    const matchingType = runtimes?.find((rt) => rt.typeName === typeName);
-    const instanceNames = new Set(matchingType?.instances.map((i) => i.name) ?? []);
-    if (typeName) instanceNames.add(typeName);
+    const matchingType = runtimes?.find((rt) => rt.typeName === activeRuntimeTypeName);
+    if (!matchingType) return sessions;
 
-    if (runtimeFilter === typeName) {
-      return sessions.filter((s) => s.runtime && instanceNames.has(s.runtime));
+    // If viewing a specific instance, filter to that instance only
+    if (activeRuntimeInstanceName) {
+      return sessions.filter((s) => s.runtime === activeRuntimeInstanceName);
     }
-    return sessions.filter((s) => s.runtime === runtimeFilter);
+
+    // If viewing a runtime group, show all sessions from any instance of that type
+    const instanceNames = new Set(matchingType.instances.map((i) => i.name));
+    instanceNames.add(matchingType.typeName);
+    return sessions.filter((s) => s.runtime && instanceNames.has(s.runtime));
   })();
 
   return (
@@ -102,13 +104,18 @@ export function SessionsSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 {runtimes.map((rt) => (
-                  <RuntimeTypeItem key={rt.typeName} runtime={rt} activeFilter={runtimeFilter} />
+                  <RuntimeTypeItem
+                    key={rt.typeName}
+                    runtime={rt}
+                    activeTypeName={activeRuntimeTypeName}
+                    activeInstanceName={activeRuntimeInstanceName}
+                  />
                 ))}
                 {runtimeFilter && (
                   <SidebarMenuItem>
                     <SidebarMenuButton
                       className="text-xs text-sidebar-foreground/70"
-                      onClick={() => void navigate({ to: "/", search: {} })}
+                      onClick={() => void navigate({ to: "/" })}
                     >
                       Clear filter
                     </SidebarMenuButton>
@@ -199,10 +206,12 @@ export function SessionsSidebar() {
 
 function RuntimeTypeItem({
   runtime,
-  activeFilter,
+  activeTypeName,
+  activeInstanceName,
 }: {
   runtime: RuntimeInfo;
-  activeFilter?: string;
+  activeTypeName?: string;
+  activeInstanceName?: string;
 }) {
   const navigate = useNavigate();
   const [newInstanceName, setNewInstanceName] = useState("");
@@ -235,19 +244,28 @@ function RuntimeTypeItem({
 
   const isBusy = startMutation.isPending || stopMutation.isPending || pauseMutation.isPending;
 
-  const setFilter = (value: string) => {
-    void navigate({
-      to: "/",
-      search: activeFilter === value ? {} : { runtime: value },
-    });
+  const isActiveType = activeTypeName === runtime.typeName;
+
+  const navigateToRuntime = (typeName: string, instanceName?: string) => {
+    if (instanceName) {
+      void navigate({
+        to: "/runtimes/$typeName/$instanceName",
+        params: { typeName, instanceName },
+      });
+    } else {
+      void navigate({
+        to: "/runtimes/$typeName",
+        params: { typeName },
+      });
+    }
   };
 
   if (runtime.onlyOne) {
     return (
       <SidebarMenuItem>
         <SidebarMenuButton
-          isActive={activeFilter === runtime.typeName}
-          onClick={() => setFilter(runtime.typeName)}
+          isActive={isActiveType}
+          onClick={() => navigateToRuntime(runtime.typeName)}
         >
           <span className="truncate font-medium">{runtime.typeName}</span>
         </SidebarMenuButton>
@@ -260,8 +278,8 @@ function RuntimeTypeItem({
       <SidebarMenuItem>
         <SidebarMenuButton
           className="font-medium"
-          isActive={activeFilter === runtime.typeName}
-          onClick={() => setFilter(runtime.typeName)}
+          isActive={isActiveType && !activeInstanceName}
+          onClick={() => navigateToRuntime(runtime.typeName)}
         >
           {runtime.typeName}
         </SidebarMenuButton>
@@ -328,8 +346,8 @@ function RuntimeTypeItem({
           <SidebarMenuItem key={instance.name}>
             <SidebarMenuButton
               className="pl-6 text-sm"
-              isActive={activeFilter === instance.name}
-              onClick={() => setFilter(instance.name)}
+              isActive={isActiveType && activeInstanceName === instance.name}
+              onClick={() => navigateToRuntime(runtime.typeName, instance.name)}
             >
               <span className="truncate">{instance.name}</span>
               <span
