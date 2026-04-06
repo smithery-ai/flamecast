@@ -14,17 +14,11 @@ const client = createFlamecastClient({
 export const {
   createSession,
   fetchAgentTemplates,
-  fetchRuntimeFilePreview,
-  fetchRuntimeFileSystem,
-  fetchRuntimes,
   fetchSessionFilePreview,
   fetchSessionFileSystem,
   fetchSession,
   fetchSessions,
-  pauseRuntime,
   registerAgentTemplate,
   updateAgentTemplate,
-  startRuntime,
-  stopRuntime,
   terminateSession,
 } = client;
