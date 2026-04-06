@@ -236,10 +236,7 @@ function SessionDetailPage() {
             setShowAllFiles={setShowAllFiles}
             loadPreview={requestFilePreview}
           >
-            <FileSystemPanel
-              workspaceRoot={workspaceRoot}
-              entries={fileEntries}
-            />
+            <FileSystemPanel workspaceRoot={workspaceRoot} entries={fileEntries} />
           </RuntimeFileSystemProvider>
         </TabsContent>
       </Tabs>

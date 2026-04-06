@@ -21,7 +21,11 @@ export function FileSystemPanel({
   entries: FileSystemEntry[];
   emptyTreeMessage?: string;
 }) {
-  const { showAllFiles, setShowAllFiles: onShowAllFilesChange, loadPreview } = useRuntimeFileSystemContext();
+  const {
+    showAllFiles,
+    setShowAllFiles: onShowAllFilesChange,
+    loadPreview,
+  } = useRuntimeFileSystemContext();
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [filePreview, setFilePreview] = useState<{ content: string; truncated: boolean } | null>(

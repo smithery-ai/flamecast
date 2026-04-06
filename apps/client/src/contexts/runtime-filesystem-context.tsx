@@ -24,9 +24,7 @@ export function RuntimeFileSystemProvider({
 export function useRuntimeFileSystemContext() {
   const context = useContext(RuntimeFileSystemContext);
   if (!context) {
-    throw new Error(
-      "useRuntimeFileSystemContext must be used within a RuntimeFileSystemProvider",
-    );
+    throw new Error("useRuntimeFileSystemContext must be used within a RuntimeFileSystemProvider");
   }
   return context;
 }
