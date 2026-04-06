@@ -26,7 +26,8 @@ function RuntimeInstancePage() {
   const { data: runtimes } = useRuntimes();
 
   const runtimeInfo = runtimes?.find((rt) => rt.typeName === typeName);
-  const instance = runtimeInfo?.instances.find((i) => i.name === instanceName) ??
+  const instance =
+    runtimeInfo?.instances.find((i) => i.name === instanceName) ??
     (runtimeInfo?.onlyOne
       ? {
           name: instanceName,

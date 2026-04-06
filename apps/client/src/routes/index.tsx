@@ -27,13 +27,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  LoaderCircleIcon,
-  PlusIcon,
-  PlayIcon,
-  TerminalIcon,
-  SettingsIcon,
-} from "lucide-react";
+import { LoaderCircleIcon, PlusIcon, PlayIcon, TerminalIcon, SettingsIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import type { AgentTemplate } from "@flamecast/sdk/session";

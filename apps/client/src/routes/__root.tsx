@@ -20,8 +20,7 @@ function RootLayout() {
       const sessionMatch = state.matches.find((m) => m.routeId === "/sessions/$id");
       const runtimeMatch = state.matches.find(
         (m) =>
-          m.routeId === "/runtimes/$typeName/$instanceName" ||
-          m.routeId === "/runtimes/$typeName",
+          m.routeId === "/runtimes/$typeName/$instanceName" || m.routeId === "/runtimes/$typeName",
       );
       const instanceMatch = state.matches.find(
         (m) => m.routeId === "/runtimes/$typeName/$instanceName",

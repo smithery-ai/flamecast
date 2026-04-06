@@ -40,8 +40,7 @@ export function SessionsSidebar() {
       const sessionMatch = s.matches.find((m) => m.routeId === "/sessions/$id");
       const runtimeMatch = s.matches.find(
         (m) =>
-          m.routeId === "/runtimes/$typeName/$instanceName" ||
-          m.routeId === "/runtimes/$typeName",
+          m.routeId === "/runtimes/$typeName/$instanceName" || m.routeId === "/runtimes/$typeName",
       );
       const instanceMatch = s.matches.find(
         (m) => m.routeId === "/runtimes/$typeName/$instanceName",

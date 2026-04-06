@@ -15,16 +15,15 @@ function RuntimeGroupPage() {
   const runtimeInfo = runtimes?.find((rt) => rt.typeName === typeName);
 
   const hasChildMatch = useRouterState({
-    select: (s) =>
-      s.matches.some((m) => m.routeId === "/runtimes/$typeName/$instanceName"),
+    select: (s) => s.matches.some((m) => m.routeId === "/runtimes/$typeName/$instanceName"),
   });
 
   // For onlyOne runtimes, redirect to the instance route (instance name = typeName)
   useEffect(() => {
     if (!runtimeInfo) return;
     if (runtimeInfo.onlyOne) {
-      const instance = runtimeInfo.instances.find((i) => i.name === typeName) ??
-        runtimeInfo.instances[0];
+      const instance =
+        runtimeInfo.instances.find((i) => i.name === typeName) ?? runtimeInfo.instances[0];
       const instanceName = instance?.name ?? typeName;
       void navigate({
         to: "/runtimes/$typeName/$instanceName",
