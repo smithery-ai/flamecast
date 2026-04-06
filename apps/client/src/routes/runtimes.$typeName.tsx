@@ -44,11 +44,9 @@ function RuntimeGroupPage() {
     );
   }
 
-  // onlyOne runtimes redirect above — render nothing while redirecting
-  if (runtimeInfo.onlyOne) return null;
-
-  // If a child instance route is matched, render it
-  if (hasChildMatch) return <Outlet />;
+  // onlyOne runtimes redirect to their instance child route above;
+  // still need <Outlet /> so the child can render after redirect.
+  if (runtimeInfo.onlyOne || hasChildMatch) return <Outlet />;
 
   // Otherwise show the instances list for this runtime group
   return (

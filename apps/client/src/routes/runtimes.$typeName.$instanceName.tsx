@@ -143,7 +143,8 @@ function RuntimeDetailPanel({
 
         <TabsContent
           value="terminals"
-          className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+          forceMount
+          className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
         >
           <TerminalPanel
             terminals={terminals}
