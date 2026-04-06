@@ -26,9 +26,10 @@ import {
   FileCode2Icon,
   MessageSquareIcon,
   LayoutGridIcon,
+  GripHorizontalIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { cn } from "@/lib/utils";
 import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
 
@@ -280,54 +281,45 @@ function RuntimeDetailPanel({
 
         {/* ── Right: Filesystem (top) + Terminals (bottom) ── */}
         <ResizablePanel defaultSize={35} minSize={20}>
-          <ResizablePanelGroup direction="vertical" className="border-l">
-            {/* ── Top right: Filesystem ── */}
-            <ResizablePanel defaultSize={55} minSize={15}>
-              <div className="flex min-h-0 h-full flex-col overflow-hidden">
-                {runtimeFsQuery.isLoading ? (
-                  <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
-                    <LoaderCircleIcon className="size-3.5 animate-spin" />
-                    Loading filesystem...
-                  </div>
-                ) : runtimeFsQuery.isError || !runtimeFsQuery.data ? (
-                  <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
-                    <p className="text-xs text-muted-foreground">Could not load filesystem</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void runtimeFsQuery.refetch()}
-                    >
-                      Retry
-                    </Button>
-                  </div>
-                ) : (
-                  <RuntimeFileTree
-                    workspaceRoot={runtimeFsQuery.data.root}
-                    entries={runtimeFsQuery.data.entries}
-                    showAllFiles={showAllFiles}
-                    onShowAllFilesChange={setShowAllFiles}
-                    onFileSelect={openFileTab}
-                  />
-                )}
-              </div>
-            </ResizablePanel>
-
-            <ResizableHandle />
-
-            {/* ── Bottom right: Terminals ── */}
-            <ResizablePanel defaultSize={45} minSize={15}>
-              <div className="flex min-h-0 h-full flex-col overflow-hidden">
-                <TerminalPanel
-                  terminals={terminals}
-                  sendInput={sendInput}
-                  resize={resize}
-                  onData={onData}
-                  onCreateTerminal={() => createTerminal()}
-                  onRemoveTerminal={killTerminal}
+          <VerticalSplitPanel
+            topContent={
+              runtimeFsQuery.isLoading ? (
+                <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <LoaderCircleIcon className="size-3.5 animate-spin" />
+                  Loading filesystem...
+                </div>
+              ) : runtimeFsQuery.isError || !runtimeFsQuery.data ? (
+                <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
+                  <p className="text-xs text-muted-foreground">Could not load filesystem</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void runtimeFsQuery.refetch()}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : (
+                <RuntimeFileTree
+                  workspaceRoot={runtimeFsQuery.data.root}
+                  entries={runtimeFsQuery.data.entries}
+                  showAllFiles={showAllFiles}
+                  onShowAllFilesChange={setShowAllFiles}
+                  onFileSelect={openFileTab}
                 />
-              </div>
-            </ResizablePanel>
-          </ResizablePanelGroup>
+              )
+            }
+            bottomContent={
+              <TerminalPanel
+                terminals={terminals}
+                sendInput={sendInput}
+                resize={resize}
+                onData={onData}
+                onCreateTerminal={() => createTerminal()}
+                onRemoveTerminal={killTerminal}
+              />
+            }
+          />
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
@@ -388,6 +380,73 @@ function TabTrigger({
       >
         <XIcon className="size-3" />
       </button>
+    </div>
+  );
+}
+
+// ─── Vertical Split Panel ────────────────────────────────────────────────────
+
+function VerticalSplitPanel({
+  topContent,
+  bottomContent,
+  defaultTopPercent = 55,
+}: {
+  topContent: React.ReactNode;
+  bottomContent: React.ReactNode;
+  defaultTopPercent?: number;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [topPercent, setTopPercent] = useState(defaultTopPercent);
+  const draggingRef = useRef(false);
+
+  const handleMouseDown = useCallback((e: ReactMouseEvent) => {
+    e.preventDefault();
+    draggingRef.current = true;
+
+    const onMouseMove = (ev: globalThis.MouseEvent) => {
+      if (!draggingRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const y = ev.clientY - rect.top;
+      const pct = Math.min(Math.max((y / rect.height) * 100, 15), 85);
+      setTopPercent(pct);
+    };
+
+    const onMouseUp = () => {
+      draggingRef.current = false;
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }, []);
+
+  return (
+    <div ref={containerRef} className="flex h-full flex-col border-l overflow-hidden">
+      {/* Top section */}
+      <div
+        className="flex min-h-0 flex-col overflow-hidden"
+        style={{ height: `${topPercent}%` }}
+      >
+        {topContent}
+      </div>
+
+      {/* Drag handle */}
+      <div
+        className="flex h-2 shrink-0 cursor-row-resize items-center justify-center border-y bg-muted/30 hover:bg-muted/60 transition-colors"
+        onMouseDown={handleMouseDown}
+      >
+        <GripHorizontalIcon className="size-3 text-muted-foreground" />
+      </div>
+
+      {/* Bottom section */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {bottomContent}
+      </div>
     </div>
   );
 }
