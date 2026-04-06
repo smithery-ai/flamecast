@@ -8,7 +8,7 @@ import {
   loadDismissedRuntimeTerminals,
   reduceRuntimeTerminalSessions,
   type RuntimeTerminalSession,
-} from "@/lib/runtime-terminal-state";
+} from "../lib/runtime-terminal-state.js";
 
 export type TerminalSession = RuntimeTerminalSession;
 

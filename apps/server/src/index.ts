@@ -35,7 +35,7 @@ const flamecast = new Flamecast({
   }),
 });
 
-listen(flamecast, { port: 3001 }, (info) => {
+listen(flamecast, { port: 3001, cors: true }, (info) => {
   console.log(`Flamecast running on http://localhost:${info.port}`);
 });
 

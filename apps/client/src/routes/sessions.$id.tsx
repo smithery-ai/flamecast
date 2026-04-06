@@ -1,8 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { fetchSession } from "@/lib/api";
+import { useSession, useFlamecastSession, sessionLogsToSegments } from "@flamecast/ui";
 import { FileSystemPanel } from "@/components/filesystem-panel";
-import { sessionLogsToSegments } from "@/lib/logs-markdown";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +15,6 @@ import { ArrowLeftIcon, ChevronDownIcon, SendIcon } from "lucide-react";
 import type { FileSystemEntry, SessionLog } from "@flamecast/sdk/session";
 import { PendingPermissionSchema } from "@flamecast/sdk/session";
 import type { PermissionRequestEvent } from "@flamecast/protocol/session-host";
-import { useFlamecastSession } from "@/hooks/use-flamecast-session";
 
 export const Route = createFileRoute("/sessions/$id")({
   component: SessionDetailPage,
@@ -29,14 +26,8 @@ function SessionDetailPage() {
   const [showAllFiles, setShowAllFiles] = useState(false);
   const [isSending, setIsSending] = useState(false);
 
-  // REST for initial session metadata and server-owned filesystem snapshot
-  const { data: session, isLoading } = useQuery({
-    queryKey: ["session", id, showAllFiles],
-    queryFn: () => fetchSession(id, { includeFileSystem: true, showAllFiles }),
-    staleTime: Infinity, // runtime WS handles live updates
-  });
+  const { data: session, isLoading } = useSession(id, { showAllFiles });
 
-  // Direct runtime WS for session events/control, server API for filesystem reads
   const {
     events: wsEvents,
     isConnected,
@@ -81,7 +72,6 @@ function SessionDetailPage() {
     return pending;
   }, [wsEvents, session?.pendingPermission]);
 
-  // Fetch filesystem snapshot via HTTP, refetch when files change
   const [fileEntries, setFileEntries] = useState<FileSystemEntry[]>([]);
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
 
@@ -91,7 +81,6 @@ function SessionDetailPage() {
     setWorkspaceRoot(session.fileSystem.root);
   }, [session?.fileSystem]);
 
-  // Fetch snapshot on connect and when filesystem.changed events arrive
   const fsChangeCount = useMemo(
     () => wsEvents.filter((e) => e.type === "filesystem.changed").length,
     [wsEvents],
@@ -106,6 +95,7 @@ function SessionDetailPage() {
       })
       .catch(() => {});
   }, [fsChangeCount, requestFsSnapshot, session, showAllFiles]);
+
   const markdownSegments = useMemo(() => sessionLogsToSegments(logs), [logs]);
 
   const handlePermission = (
@@ -120,7 +110,6 @@ function SessionDetailPage() {
     setIsSending(true);
     wsPrompt(prompt);
     setPrompt("");
-    // Reset sending state after a short delay (the WS is fire-and-forget)
     setTimeout(() => setIsSending(false), 500);
   };
 
@@ -258,9 +247,7 @@ function SessionDetailPage() {
                           variant={opt.kind === "allow_once" ? "default" : "secondary"}
                           size="sm"
                           onClick={() =>
-                            handlePermission(pending.requestId, {
-                              optionId: opt.optionId,
-                            })
+                            handlePermission(pending.requestId, { optionId: opt.optionId })
                           }
                         >
                           {opt.name}
@@ -270,9 +257,7 @@ function SessionDetailPage() {
                         variant="outline"
                         size="sm"
                         onClick={() =>
-                          handlePermission(pending.requestId, {
-                            outcome: "cancelled",
-                          })
+                          handlePermission(pending.requestId, { outcome: "cancelled" })
                         }
                       >
                         Cancel

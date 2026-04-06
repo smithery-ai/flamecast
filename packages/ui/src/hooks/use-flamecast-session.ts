@@ -4,10 +4,10 @@ import type {
   WsChannelServerMessage,
 } from "@flamecast/protocol/ws/channels";
 import type { SessionLog, PermissionResponseBody } from "@flamecast/sdk/session";
-import { fetchSessionFilePreview, fetchSessionFileSystem } from "../lib/api.js";
+import { useFlamecastClient } from "../provider.js";
 import { createWsMessageDedupeState, rememberWsMessage } from "../lib/ws-message-dedupe.js";
 
-type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
+export type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
 
 function toSessionLog(message: WsChannelServerMessage): SessionLog | null {
   if (message.type === "error") {
@@ -28,6 +28,7 @@ function toSessionLog(message: WsChannelServerMessage): SessionLog | null {
 }
 
 export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
+  const client = useFlamecastClient();
   const [events, setEvents] = useState<SessionLog[]>([]);
   const [connectionState, setConnectionState] = useState<ConnectionState>(
     websocketUrl ? "connecting" : "disconnected",
@@ -188,16 +189,16 @@ export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
 
   const requestFilePreview = useCallback(
     (path: string) => {
-      return fetchSessionFilePreview(sessionId, path);
+      return client.fetchSessionFilePreview(sessionId, path);
     },
-    [sessionId],
+    [client, sessionId],
   );
 
   const requestFsSnapshot = useCallback(
     (opts?: { showAllFiles?: boolean }) => {
-      return fetchSessionFileSystem(sessionId, opts);
+      return client.fetchSessionFileSystem(sessionId, opts);
     },
-    [sessionId],
+    [client, sessionId],
   );
 
   return {

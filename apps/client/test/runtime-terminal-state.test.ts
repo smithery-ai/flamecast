@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reduceRuntimeTerminalSessions } from "../src/lib/runtime-terminal-state.js";
+import { reduceRuntimeTerminalSessions } from "@flamecast/ui";
 
 describe("reduceRuntimeTerminalSessions", () => {
   it("removes terminals when a release event is replayed", () => {
