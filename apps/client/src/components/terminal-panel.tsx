@@ -4,23 +4,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlusIcon, XIcon, TerminalSquareIcon } from "lucide-react";
-import type { TerminalSession } from "@flamecast/ui";
+import { useTerminalContext } from "@/contexts/terminal-context";
 
-export function TerminalPanel({
-  terminals,
-  sendInput,
-  resize,
-  onData,
-  onCreateTerminal,
-  onRemoveTerminal,
-}: {
-  terminals: TerminalSession[];
-  sendInput: (terminalId: string, data: string) => void;
-  resize: (terminalId: string, cols: number, rows: number) => void;
-  onData: (terminalId: string, listener: (data: string) => void) => () => void;
-  onCreateTerminal: () => void;
-  onRemoveTerminal: (terminalId: string) => void;
-}) {
+export function TerminalPanel() {
+  const { terminals, createTerminal, killTerminal } = useTerminalContext();
   const [activeTab, setActiveTab] = useState<string | undefined>();
 
   // Auto-select new terminals
@@ -51,7 +38,7 @@ export function TerminalPanel({
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-border/70 bg-card">
         <TerminalSquareIcon className="size-8 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">No terminals open.</p>
-        <Button variant="outline" size="sm" onClick={onCreateTerminal}>
+        <Button variant="outline" size="sm" onClick={() => createTerminal()}>
           <PlusIcon className="mr-1 size-3.5" />
           New Terminal
         </Button>
@@ -85,7 +72,7 @@ export function TerminalPanel({
                 className="ml-0.5 rounded p-0.5 opacity-0 transition-opacity hover:bg-muted group-hover/tab:opacity-100"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onRemoveTerminal(term.terminalId);
+                  killTerminal(term.terminalId);
                 }}
               >
                 <XIcon className="size-3" />
@@ -93,7 +80,7 @@ export function TerminalPanel({
             </TabsTrigger>
           ))}
         </TabsList>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onCreateTerminal}>
+        <Button variant="ghost" size="icon" className="size-7" onClick={() => createTerminal()}>
           <PlusIcon className="size-3.5" />
         </Button>
       </div>
@@ -109,9 +96,6 @@ export function TerminalPanel({
           <XTermView
             terminalId={term.terminalId}
             initialOutput={term.output}
-            sendInput={sendInput}
-            resize={resize}
-            onData={onData}
             visible={activeTab === term.terminalId}
           />
         </TabsContent>
@@ -123,18 +107,13 @@ export function TerminalPanel({
 function XTermView({
   terminalId,
   initialOutput,
-  sendInput,
-  resize,
-  onData,
   visible,
 }: {
   terminalId: string;
   initialOutput: string;
-  sendInput: (terminalId: string, data: string) => void;
-  resize: (terminalId: string, cols: number, rows: number) => void;
-  onData: (terminalId: string, listener: (data: string) => void) => () => void;
   visible: boolean;
 }) {
+  const { sendInput, resize, onData } = useTerminalContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);

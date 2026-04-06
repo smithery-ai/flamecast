@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { FileTree, FileTreeFile, FileTreeFolder } from "@/components/ai-elements/file-tree";
 import { Switch } from "@/components/ui/switch";
 import { FileCode2Icon, FolderTreeIcon } from "lucide-react";
+import { useRuntimeFileSystemContext } from "@/contexts/runtime-filesystem-context";
 import type { FileSystemEntry } from "@flamecast/sdk/session";
 
 type TreeNode = {
@@ -14,18 +15,13 @@ type TreeNode = {
 export function FileSystemPanel({
   workspaceRoot,
   entries,
-  showAllFiles,
-  onShowAllFilesChange,
-  loadPreview,
   emptyTreeMessage = "No filesystem entries returned.",
 }: {
   workspaceRoot: string | null;
   entries: FileSystemEntry[];
-  showAllFiles: boolean;
-  onShowAllFilesChange: (showAllFiles: boolean) => void;
-  loadPreview: (path: string) => Promise<{ content: string; truncated: boolean }>;
   emptyTreeMessage?: string;
 }) {
+  const { showAllFiles, setShowAllFiles: onShowAllFilesChange, loadPreview } = useRuntimeFileSystemContext();
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [filePreview, setFilePreview] = useState<{ content: string; truncated: boolean } | null>(
