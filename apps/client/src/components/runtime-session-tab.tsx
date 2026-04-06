@@ -77,9 +77,7 @@ export function RuntimeSessionTab({
             ) : (
               markdownSegments.map((seg, index) => {
                 const isLiveAssistant =
-                  seg.kind === "assistant" &&
-                  isProcessing &&
-                  index === markdownSegments.length - 1;
+                  seg.kind === "assistant" && isProcessing && index === markdownSegments.length - 1;
                 if (seg.kind === "user") {
                   return (
                     <div
@@ -107,9 +105,7 @@ export function RuntimeSessionTab({
                   return (
                     <Fragment key={index}>
                       {index > 0 ? <Separator /> : null}
-                      <Streamdown className="max-w-none text-muted-foreground">
-                        {toolMd}
-                      </Streamdown>
+                      <Streamdown className="max-w-none text-muted-foreground">{toolMd}</Streamdown>
                     </Fragment>
                   );
                 }
@@ -145,9 +141,7 @@ export function RuntimeSessionTab({
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() =>
-                      respondToPermission(pending.requestId, { outcome: "cancelled" })
-                    }
+                    onClick={() => respondToPermission(pending.requestId, { outcome: "cancelled" })}
                   >
                     Cancel
                   </Button>

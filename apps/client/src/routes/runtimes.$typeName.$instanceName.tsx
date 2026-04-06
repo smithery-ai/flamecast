@@ -13,11 +13,7 @@ import { RuntimeFileTab } from "@/components/runtime-file-tab";
 import { TerminalPanel } from "@/components/terminal-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from "@/components/ui/resizable";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import {
   LoaderCircleIcon,
   PlayIcon,
@@ -128,43 +124,49 @@ function RuntimeDetailPanel({
     setActiveTabId(tab.id);
   }, []);
 
-  const openSessionTab = useCallback((sessionId: string, agentName: string) => {
-    const existing = tabs.find((t) => t.type === "session" && t.sessionId === sessionId);
-    if (existing) {
-      setActiveTabId(existing.id);
-      return;
-    }
-    const tab: Tab = {
-      id: makeTabId(),
-      type: "session",
-      sessionId,
-      label: agentName,
-    };
-    // Replace the current active new-tab, otherwise append
-    const activeTab = tabs.find((t) => t.id === activeTabId);
-    if (activeTab?.type === "new-tab") {
-      setTabs((prev) => prev.map((t) => (t.id === activeTab.id ? tab : t)));
-    } else {
-      setTabs((prev) => [...prev, tab]);
-    }
-    setActiveTabId(tab.id);
-  }, [tabs, activeTabId]);
+  const openSessionTab = useCallback(
+    (sessionId: string, agentName: string) => {
+      const existing = tabs.find((t) => t.type === "session" && t.sessionId === sessionId);
+      if (existing) {
+        setActiveTabId(existing.id);
+        return;
+      }
+      const tab: Tab = {
+        id: makeTabId(),
+        type: "session",
+        sessionId,
+        label: agentName,
+      };
+      // Replace the current active new-tab, otherwise append
+      const activeTab = tabs.find((t) => t.id === activeTabId);
+      if (activeTab?.type === "new-tab") {
+        setTabs((prev) => prev.map((t) => (t.id === activeTab.id ? tab : t)));
+      } else {
+        setTabs((prev) => [...prev, tab]);
+      }
+      setActiveTabId(tab.id);
+    },
+    [tabs, activeTabId],
+  );
 
-  const openFileTab = useCallback((filePath: string) => {
-    const existing = tabs.find((t) => t.type === "file" && t.filePath === filePath);
-    if (existing) {
-      setActiveTabId(existing.id);
-      return;
-    }
-    const tab: Tab = {
-      id: makeTabId(),
-      type: "file",
-      filePath,
-      label: fileNameFromPath(filePath),
-    };
-    setTabs((prev) => [...prev, tab]);
-    setActiveTabId(tab.id);
-  }, [tabs]);
+  const openFileTab = useCallback(
+    (filePath: string) => {
+      const existing = tabs.find((t) => t.type === "file" && t.filePath === filePath);
+      if (existing) {
+        setActiveTabId(existing.id);
+        return;
+      }
+      const tab: Tab = {
+        id: makeTabId(),
+        type: "file",
+        filePath,
+        label: fileNameFromPath(filePath),
+      };
+      setTabs((prev) => [...prev, tab]);
+      setActiveTabId(tab.id);
+    },
+    [tabs],
+  );
 
   const closeTab = useCallback(
     (tabId: string) => {
@@ -247,16 +249,15 @@ function RuntimeDetailPanel({
                     onClose={() => closeTab(tab.id)}
                   />
                 ))}
-<button
-                type="button"
-                className="flex shrink-0 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ml-2"
-                onClick={addNewTab}
-                title="New tab"
-              >
-                <PlusIcon className="size-3.5" />
-              </button>
+                <button
+                  type="button"
+                  className="flex shrink-0 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ml-2"
+                  onClick={addNewTab}
+                  title="New tab"
+                >
+                  <PlusIcon className="size-3.5" />
+                </button>
               </div>
-              
             </div>
 
             {/* Tab content */}
@@ -292,11 +293,7 @@ function RuntimeDetailPanel({
               ) : runtimeFsQuery.isError || !runtimeFsQuery.data ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
                   <p className="text-xs text-muted-foreground">Could not load filesystem</p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void runtimeFsQuery.refetch()}
-                  >
+                  <Button variant="outline" size="sm" onClick={() => void runtimeFsQuery.refetch()}>
                     Retry
                   </Button>
                 </div>
@@ -349,12 +346,7 @@ function TabTrigger({
       <FileCode2Icon className="size-3 shrink-0" />
     );
 
-  const label =
-    tab.type === "new-tab"
-      ? "New Tab"
-      : tab.type === "session"
-        ? tab.label
-        : tab.label;
+  const label = tab.type === "new-tab" ? "New Tab" : tab.type === "session" ? tab.label : tab.label;
 
   return (
     <div
@@ -369,8 +361,8 @@ function TabTrigger({
       aria-selected={isActive}
     >
       <div className="flex items-center gap-1.5">
-      {icon}
-      <span className="max-w-32 truncate">{label}</span>
+        {icon}
+        <span className="max-w-32 truncate">{label}</span>
       </div>
       <button
         type="button"
@@ -433,10 +425,7 @@ function VerticalSplitPanel({
   return (
     <div ref={containerRef} className="flex h-full flex-col border-l overflow-hidden">
       {/* Top section */}
-      <div
-        className="flex min-h-0 flex-col overflow-hidden"
-        style={{ height: `${topPercent}%` }}
-      >
+      <div className="flex min-h-0 flex-col overflow-hidden" style={{ height: `${topPercent}%` }}>
         {topContent}
       </div>
 
@@ -449,9 +438,7 @@ function VerticalSplitPanel({
       </div>
 
       {/* Bottom section */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {bottomContent}
-      </div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{bottomContent}</div>
     </div>
   );
 }

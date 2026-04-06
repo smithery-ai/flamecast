@@ -78,9 +78,7 @@ export function TerminalPanel({
               aria-selected={activeTab === term.terminalId}
             >
               <TerminalSquareIcon className="size-3 shrink-0" />
-              <span className="max-w-24 truncate">
-                {`Terminal ${i + 1}`}
-              </span>
+              <span className="max-w-24 truncate">{`Terminal ${i + 1}`}</span>
               {term.exitCode !== null && (
                 <span className="text-[10px] text-muted-foreground">({term.exitCode})</span>
               )}
