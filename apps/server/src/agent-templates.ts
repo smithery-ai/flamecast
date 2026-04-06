@@ -2,6 +2,7 @@ import type { AgentTemplate } from "@flamecast/sdk";
 
 type CreateAgentTemplatesOptions = {
   agentJsEnabled: boolean;
+  dockerEnabled: boolean;
   e2bEnabled: boolean;
   hostAgentPath: string;
   agentSource: string;
@@ -9,6 +10,7 @@ type CreateAgentTemplatesOptions = {
 
 export function createAgentTemplates({
   agentJsEnabled,
+  dockerEnabled,
   e2bEnabled,
   hostAgentPath,
   agentSource,
@@ -25,15 +27,19 @@ export function createAgentTemplates({
       spawn: { command: "npx", args: ["tsx", hostAgentPath] },
       runtime: { provider: "default" },
     },
-    {
-      id: "docker-echo-agent",
-      name: "Echo Agent",
-      spawn: { command: "npx", args: ["tsx", "agent.ts"] },
-      runtime: {
-        provider: "docker",
-        setup: sandboxSetup,
-      },
-    },
+    ...(dockerEnabled
+      ? [
+          {
+            id: "docker-echo-agent",
+            name: "Echo Agent (Docker)",
+            spawn: { command: "npx", args: ["tsx", "agent.ts"] },
+            runtime: {
+              provider: "docker",
+              setup: sandboxSetup,
+            },
+          } satisfies AgentTemplate,
+        ]
+      : []),
     ...(e2bEnabled
       ? [
           {

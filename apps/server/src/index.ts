@@ -2,8 +2,6 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
-import { DockerRuntime } from "@flamecast/runtime-docker";
-import { E2BRuntime } from "@flamecast/runtime-e2b";
 import { createPsqlStorage } from "@flamecast/storage-psql";
 import dotenv from "dotenv";
 import { createAgentTemplates } from "./agent-templates.js";
@@ -17,19 +15,40 @@ const e2bApiKey = process.env.E2B_API_KEY;
 const agentJsBaseUrl = process.env.FLAMECAST_AGENT_JS_BASE_URL;
 const agentJsRuntime = agentJsBaseUrl ? new NodeRuntime(agentJsBaseUrl) : null;
 
+// Optional runtimes — only loaded when their packages and dependencies are present.
+const DockerRuntime = await import("@flamecast/runtime-docker")
+  .then((m) => m.DockerRuntime)
+  .catch(() => null);
+
+const E2BRuntime =
+  e2bApiKey
+    ? await import("@flamecast/runtime-e2b")
+        .then((m) => m.E2BRuntime)
+        .catch(() => null)
+    : null;
+
+const dockerRuntime = DockerRuntime ? new DockerRuntime() : null;
+const e2bRuntime =
+  E2BRuntime && e2bApiKey
+    ? new E2BRuntime({ apiKey: e2bApiKey, template: "flamecast-node22" })
+    : null;
+
+if (!DockerRuntime) {
+  console.warn("[Flamecast] Docker runtime unavailable (missing dependencies) — skipping.");
+}
+
 const flamecast = new Flamecast({
   storage: await createPsqlStorage(url ? { url } : undefined),
   runtimes: {
     default: new NodeRuntime(),
     ...(agentJsRuntime ? { agentjs: agentJsRuntime } : {}),
-    docker: new DockerRuntime(),
-    ...(e2bApiKey
-      ? { e2b: new E2BRuntime({ apiKey: e2bApiKey, template: "flamecast-node22" }) }
-      : {}),
+    ...(dockerRuntime ? { docker: dockerRuntime } : {}),
+    ...(e2bRuntime ? { e2b: e2bRuntime } : {}),
   },
   agentTemplates: createAgentTemplates({
     agentJsEnabled: agentJsRuntime !== null,
-    e2bEnabled: Boolean(e2bApiKey),
+    dockerEnabled: dockerRuntime !== null,
+    e2bEnabled: e2bRuntime !== null,
     hostAgentPath: resolve(__dirname, "../agent.ts"),
     agentSource,
   }),

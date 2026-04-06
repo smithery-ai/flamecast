@@ -5,6 +5,7 @@ describe("createAgentTemplates", () => {
   it("uses a setup-driven docker template with a container-local workspace", () => {
     const templates = createAgentTemplates({
       agentJsEnabled: false,
+      dockerEnabled: true,
       e2bEnabled: false,
       hostAgentPath: "/host/agent.ts",
       agentSource: "console.log('unused')",
@@ -22,6 +23,7 @@ describe("createAgentTemplates", () => {
   it("keeps the e2b setup flow because the sandbox does not mount the repo", () => {
     const templates = createAgentTemplates({
       agentJsEnabled: false,
+      dockerEnabled: false,
       e2bEnabled: true,
       hostAgentPath: "/host/agent.ts",
       agentSource: "console.log('echo')",
