@@ -76,8 +76,19 @@ export function useDeleteRuntime(options?: {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (name: string) => client.deleteRuntime(name),
-    onMutate: options?.onMutate,
-    onSuccess: () => {
+    onMutate: (name) => {
+      options?.onMutate?.(name);
+    },
+    onSuccess: (_data, name) => {
+      // Optimistically remove the instance from the cache before refetch
+      queryClient.setQueryData<RuntimeInfo[] | undefined>(["runtimes"], (current) =>
+        current
+          ?.map((rt) => ({
+            ...rt,
+            instances: rt.instances.filter((i) => i.name !== name),
+          }))
+          .filter((rt) => rt.instances.length > 0 || rt.onlyOne),
+      );
       void queryClient.invalidateQueries({ queryKey: ["runtimes"] });
       void queryClient.invalidateQueries({ queryKey: ["sessions"] });
       options?.onSuccess?.();

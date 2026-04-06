@@ -56,7 +56,7 @@ export function SessionsSidebar() {
     },
   });
   const { data: sessions, isLoading } = useSessions();
-  const { data: runtimes } = useRuntimes();
+  const { data: runtimes, isLoading: isRuntimesLoading } = useRuntimes();
 
   const terminateMutation = useTerminateSession({
     onSuccess: (id) => {
@@ -108,19 +108,26 @@ export function SessionsSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {runtimes && runtimes.length > 0 && (
+        {(isRuntimesLoading || (runtimes && runtimes.length > 0)) && (
           <SidebarGroup>
             <SidebarGroupLabel>Runtimes</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {runtimes.map((rt) => (
-                  <RuntimeTypeItem
-                    key={rt.typeName}
-                    runtime={rt}
-                    activeTypeName={activeRuntimeTypeName}
-                    activeInstanceName={activeRuntimeInstanceName}
-                  />
-                ))}
+                {isRuntimesLoading ? (
+                  <>
+                    <SidebarMenuSkeleton />
+                    <SidebarMenuSkeleton />
+                  </>
+                ) : (
+                  runtimes!.map((rt) => (
+                    <RuntimeTypeItem
+                      key={rt.typeName}
+                      runtime={rt}
+                      activeTypeName={activeRuntimeTypeName}
+                      activeInstanceName={activeRuntimeInstanceName}
+                    />
+                  ))
+                )}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -352,28 +359,37 @@ function RuntimeTypeItem({
 
       {runtime.instances.map((instance) => {
         const isThisPending = pendingInstance === instance.name && isBusy;
+        const isDeleting = isThisPending && deleteMutation.isPending;
         return (
           <SidebarMenuItem key={instance.name}>
             <SidebarMenuButton
               className="pl-6 text-sm"
               isActive={isActiveType && activeInstanceName === instance.name}
               onClick={() => navigateToRuntime(runtime.typeName, instance.name)}
+              disabled={isDeleting}
             >
-              <span className="truncate">{instance.name}</span>
-              <span
-                className={cn(
-                  "ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none",
-                  instance.status === "running"
-                    ? "bg-green-500/15 text-green-700 dark:text-green-400"
-                    : instance.status === "paused"
-                      ? "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400"
-                      : "bg-muted text-muted-foreground",
-                )}
-              >
-                {instance.status}
-              </span>
+              <span className={cn("truncate", isDeleting && "opacity-50")}>{instance.name}</span>
+              {isDeleting ? (
+                <span className="ml-auto shrink-0 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none bg-red-500/15 text-red-700 dark:text-red-400">
+                  <LoaderCircleIcon className="size-3 animate-spin" />
+                  deleting
+                </span>
+              ) : (
+                <span
+                  className={cn(
+                    "ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none",
+                    instance.status === "running"
+                      ? "bg-green-500/15 text-green-700 dark:text-green-400"
+                      : instance.status === "paused"
+                        ? "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400"
+                        : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {instance.status}
+                </span>
+              )}
             </SidebarMenuButton>
-            {instance.status === "running" ? (
+            {isDeleting ? null : instance.status === "running" ? (
               <span className="absolute right-0.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100">
                 <button
                   type="button"

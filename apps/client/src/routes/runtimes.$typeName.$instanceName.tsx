@@ -102,12 +102,18 @@ function RuntimeDetailPanel({
         <Card className="border-dashed">
           <CardHeader>
             <CardTitle className="text-base">
-              {startMutation.isPending ? "Starting runtime..." : "Runtime not running"}
+              {deleteMutation.isPending
+                ? "Deleting runtime..."
+                : startMutation.isPending
+                  ? "Starting runtime..."
+                  : "Runtime not running"}
             </CardTitle>
             <CardDescription>
-              {startMutation.isPending
-                ? "Waiting for the runtime instance to come up."
-                : `This runtime is currently ${instance.status}. Start it to browse its workspace.`}
+              {deleteMutation.isPending
+                ? "Removing the runtime instance and its resources."
+                : startMutation.isPending
+                  ? "Waiting for the runtime instance to come up."
+                  : `This runtime is currently ${instance.status}. Start it to browse its workspace.`}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex gap-2">
