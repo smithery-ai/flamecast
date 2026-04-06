@@ -81,29 +81,6 @@ function SessionDetailPage() {
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center gap-3 pb-4">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
-          <Badge variant="secondary" className="shrink-0">
-            {session.agentName}
-          </Badge>
-          <code
-            className="max-w-full truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
-            title={session.id}
-          >
-            {session.id}
-          </code>
-          {isConnected ? (
-            <Badge variant="outline" className="text-green-600">
-              WS
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="text-muted-foreground">
-              SSE
-            </Badge>
-          )}
-        </div>
-      </div>
-
       <Tabs defaultValue="markdown" className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
         <div className="flex shrink-0 items-center gap-3">
           <TabsList>
