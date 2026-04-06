@@ -51,11 +51,8 @@ function SessionsIndexPage() {
               <p className="text-sm font-medium">No active sessions</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Create a session from the{" "}
-                <Link
-                  to="/templates"
-                  className="underline underline-offset-2 hover:text-foreground"
-                >
-                  templates
+                <Link to="/agents" className="underline underline-offset-2 hover:text-foreground">
+                  agents
                 </Link>{" "}
                 page.
               </p>

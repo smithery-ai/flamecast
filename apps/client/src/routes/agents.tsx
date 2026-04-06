@@ -33,8 +33,8 @@ import { useState } from "react";
 import type { AgentTemplate } from "@flamecast/sdk/session";
 import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 
-export const Route = createFileRoute("/templates")({
-  component: TemplatesPage,
+export const Route = createFileRoute("/agents")({
+  component: AgentsPage,
 });
 
 /** Parse "KEY=VALUE" lines into a record, ignoring blank/comment lines. */
@@ -61,7 +61,7 @@ function envToString(env: Record<string, string> | undefined): string {
     .join("\n");
 }
 
-function TemplatesPage() {
+function AgentsPage() {
   const navigate = useNavigate();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newName, setNewName] = useState("");

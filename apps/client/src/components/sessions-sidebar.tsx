@@ -89,9 +89,9 @@ export function SessionsSidebar() {
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
-                  <Link to="/templates">
+                  <Link to="/agents">
                     <TerminalIcon className="size-4" />
-                    Templates
+                    Agents
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

@@ -1,7 +1,7 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useSession, useFlamecastSession, sessionLogsToSegments } from "@flamecast/ui";
+import { createFileRoute, Link, useSearch } from "@tanstack/react-router";
+import { useSessionState } from "@flamecast/ui";
 import { FileSystemPanel } from "@/components/filesystem-panel";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,9 +12,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Streamdown } from "streamdown";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import { ArrowLeftIcon, ChevronDownIcon, SendIcon } from "lucide-react";
-import type { FileSystemEntry, SessionLog } from "@flamecast/sdk/session";
-import { PendingPermissionSchema } from "@flamecast/sdk/session";
-import type { PermissionRequestEvent } from "@flamecast/protocol/session-host";
 
 export const Route = createFileRoute("/sessions/$id")({
   component: SessionDetailPage,
@@ -22,94 +19,42 @@ export const Route = createFileRoute("/sessions/$id")({
 
 function SessionDetailPage() {
   const { id } = Route.useParams();
-  const [prompt, setPrompt] = useState("");
-  const [showAllFiles, setShowAllFiles] = useState(false);
+  // oxlint-disable-next-line no-type-assertion/no-type-assertion -- TanStack Router search params are untyped with strict:false
+  const search = useSearch({ strict: false }) as Record<string, unknown>;
+  const initialPrompt = typeof search.prompt === "string" ? search.prompt : undefined;
+  const [promptText, setPromptText] = useState("");
   const [isSending, setIsSending] = useState(false);
 
-  const { data: session, isLoading } = useSession(id, { showAllFiles });
-
   const {
-    events: wsEvents,
+    session,
+    isLoading,
     isConnected,
-    prompt: wsPrompt,
-    respondToPermission: wsRespondToPermission,
+    logs,
+    markdownSegments,
+    pendingPermissions,
+    respondToPermission,
+    fileEntries,
+    workspaceRoot,
+    showAllFiles,
+    setShowAllFiles,
+    prompt,
     requestFilePreview,
-    requestFsSnapshot,
-  } = useFlamecastSession(id, session?.websocketUrl);
+  } = useSessionState(id);
 
-  // Merge: use WS events if available, fall back to REST logs
-  const logs: SessionLog[] = useMemo(() => {
-    if (wsEvents.length > 0) return [...wsEvents];
-    return session?.logs ?? [];
-  }, [wsEvents, session?.logs]);
-
-  // Derive all pending permissions from WS events
-  const pendingPermissions = useMemo(() => {
-    const resolvedIds = new Set<string>();
-    for (const event of wsEvents) {
-      if (
-        event.type === "permission_approved" ||
-        event.type === "permission_rejected" ||
-        event.type === "permission_cancelled" ||
-        event.type === "permission_responded"
-      ) {
-        const rid = event.data.requestId;
-        if (typeof rid === "string") resolvedIds.add(rid);
-      }
-    }
-    const pending: PermissionRequestEvent[] = [];
-    for (const event of wsEvents) {
-      if (event.type === "permission_request") {
-        const parsed = PendingPermissionSchema.safeParse(event.data);
-        if (parsed.success && !resolvedIds.has(parsed.data.requestId)) {
-          pending.push(parsed.data);
-        }
-      }
-    }
-    if (pending.length === 0 && session?.pendingPermission) {
-      return [session.pendingPermission];
-    }
-    return pending;
-  }, [wsEvents, session?.pendingPermission]);
-
-  const [fileEntries, setFileEntries] = useState<FileSystemEntry[]>([]);
-  const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
-
+  // Auto-send initial prompt when navigating from the home page
+  const sentInitialPrompt = useRef(false);
   useEffect(() => {
-    if (!session?.fileSystem) return;
-    setFileEntries(session.fileSystem.entries);
-    setWorkspaceRoot(session.fileSystem.root);
-  }, [session?.fileSystem]);
-
-  const fsChangeCount = useMemo(
-    () => wsEvents.filter((e) => e.type === "filesystem.changed").length,
-    [wsEvents],
-  );
-
-  useEffect(() => {
-    if (!session) return;
-    requestFsSnapshot({ showAllFiles })
-      .then((snapshot) => {
-        setFileEntries(snapshot.entries);
-        setWorkspaceRoot(snapshot.root);
-      })
-      .catch(() => {});
-  }, [fsChangeCount, requestFsSnapshot, session, showAllFiles]);
-
-  const markdownSegments = useMemo(() => sessionLogsToSegments(logs), [logs]);
-
-  const handlePermission = (
-    requestId: string,
-    body: { optionId: string } | { outcome: "cancelled" },
-  ) => {
-    wsRespondToPermission(requestId, body);
-  };
+    if (initialPrompt && isConnected && !sentInitialPrompt.current) {
+      sentInitialPrompt.current = true;
+      prompt(initialPrompt);
+    }
+  }, [initialPrompt, isConnected, prompt]);
 
   const handleSend = () => {
-    if (!prompt.trim()) return;
+    if (!promptText.trim()) return;
     setIsSending(true);
-    wsPrompt(prompt);
-    setPrompt("");
+    prompt(promptText);
+    setPromptText("");
     setTimeout(() => setIsSending(false), 500);
   };
 
@@ -129,7 +74,7 @@ function SessionDetailPage() {
         <Button variant="outline" asChild>
           <Link to="/">
             <ArrowLeftIcon data-icon="inline-start" />
-            Back to sessions
+            Back
           </Link>
         </Button>
       </div>
@@ -247,7 +192,7 @@ function SessionDetailPage() {
                           variant={opt.kind === "allow_once" ? "default" : "secondary"}
                           size="sm"
                           onClick={() =>
-                            handlePermission(pending.requestId, { optionId: opt.optionId })
+                            respondToPermission(pending.requestId, { optionId: opt.optionId })
                           }
                         >
                           {opt.name}
@@ -257,7 +202,7 @@ function SessionDetailPage() {
                         variant="outline"
                         size="sm"
                         onClick={() =>
-                          handlePermission(pending.requestId, { outcome: "cancelled" })
+                          respondToPermission(pending.requestId, { outcome: "cancelled" })
                         }
                       >
                         Cancel
@@ -323,15 +268,15 @@ function SessionDetailPage() {
       <div className="flex shrink-0 flex-col gap-2 pt-4">
         <div className="flex gap-2 p-1">
           <Input
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
+            value={promptText}
+            onChange={(event) => setPromptText(event.target.value)}
             onKeyDown={(event) => event.key === "Enter" && handleSend()}
             placeholder="Send a prompt to the agent..."
             disabled={isSending || pendingPermissions.length > 0}
           />
           <Button
             onClick={handleSend}
-            disabled={isSending || pendingPermissions.length > 0 || !prompt.trim()}
+            disabled={isSending || pendingPermissions.length > 0 || !promptText.trim()}
           >
             <SendIcon data-icon="inline-start" />
             {pendingPermissions.length > 0
