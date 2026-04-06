@@ -23,10 +23,12 @@ import {
 } from "@/components/ui/sidebar";
 import {
   LoaderCircleIcon,
+  MessageSquareIcon,
   PauseIcon,
   PlayIcon,
   PlusIcon,
   SquareIcon,
+  TerminalIcon,
   Trash2Icon,
 } from "lucide-react";
 import { useState } from "react";
@@ -52,8 +54,6 @@ export function SessionsSidebar() {
       };
     },
   });
-  const runtimeFilter = activeRuntimeInstanceName ?? activeRuntimeTypeName;
-
   const { data: sessions, isLoading } = useSessions();
   const { data: runtimes } = useRuntimes();
 
@@ -64,22 +64,6 @@ export function SessionsSidebar() {
       }
     },
   });
-
-  const filteredSessions = (() => {
-    if (!runtimeFilter || !sessions) return sessions;
-    const matchingType = runtimes?.find((rt) => rt.typeName === activeRuntimeTypeName);
-    if (!matchingType) return sessions;
-
-    // If viewing a specific instance, filter to that instance only
-    if (activeRuntimeInstanceName) {
-      return sessions.filter((s) => s.runtime === activeRuntimeInstanceName);
-    }
-
-    // If viewing a runtime group, show all sessions from any instance of that type
-    const instanceNames = new Set(matchingType.instances.map((i) => i.name));
-    instanceNames.add(matchingType.typeName);
-    return sessions.filter((s) => s.runtime && instanceNames.has(s.runtime));
-  })();
 
   return (
     <Sidebar>
@@ -100,6 +84,29 @@ export function SessionsSidebar() {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
+                  <Link to="/templates">
+                    <TerminalIcon className="size-4" />
+                    Templates
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
+                  <Link to="/sessions">
+                    <MessageSquareIcon className="size-4" />
+                    Sessions
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
         {runtimes && runtimes.length > 0 && (
           <SidebarGroup>
             <SidebarGroupLabel>Runtimes</SidebarGroupLabel>
@@ -113,25 +120,13 @@ export function SessionsSidebar() {
                     activeInstanceName={activeRuntimeInstanceName}
                   />
                 ))}
-                {runtimeFilter && (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      className="text-xs text-sidebar-foreground/70"
-                      onClick={() => void navigate({ to: "/" })}
-                    >
-                      Clear filter
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
         )}
 
         <SidebarGroup>
-          <SidebarGroupLabel>
-            Sessions{runtimeFilter ? ` (${runtimeFilter})` : ""}
-          </SidebarGroupLabel>
+          <SidebarGroupLabel>Sessions</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {isLoading ? (
@@ -140,12 +135,10 @@ export function SessionsSidebar() {
                   <SidebarMenuSkeleton showIcon />
                   <SidebarMenuSkeleton showIcon />
                 </>
-              ) : !filteredSessions?.length ? (
-                <p className="px-2 text-xs text-sidebar-foreground/70">
-                  No active sessions. Open the home page to create one.
-                </p>
+              ) : !sessions?.length ? (
+                <p className="px-2 text-xs text-sidebar-foreground/70">No active sessions.</p>
               ) : (
-                filteredSessions.map((session) => (
+                sessions.map((session) => (
                   <SidebarMenuItem key={session.id}>
                     <SidebarMenuButton
                       asChild

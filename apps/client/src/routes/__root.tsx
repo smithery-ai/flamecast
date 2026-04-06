@@ -1,21 +1,15 @@
 import { createRootRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { z } from "zod";
 import { ChevronRightIcon } from "lucide-react";
 import { SessionsSidebar } from "@/components/sessions-sidebar";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 
-const rootSearchSchema = z.object({
-  runtime: z.string().optional(),
-});
-
 export const Route = createRootRoute({
-  validateSearch: rootSearchSchema,
   component: RootLayout,
 });
 
 function RootLayout() {
-  const { sessionId, runtimeTypeName, runtimeInstanceName } = useRouterState({
+  const breadcrumbs = useRouterState({
     select: (state) => {
       const sessionMatch = state.matches.find((m) => m.routeId === "/sessions/$id");
       const runtimeMatch = state.matches.find(
@@ -25,10 +19,14 @@ function RootLayout() {
       const instanceMatch = state.matches.find(
         (m) => m.routeId === "/runtimes/$typeName/$instanceName",
       );
+      const isTemplates = state.matches.some((m) => m.routeId === "/templates");
+      const isSessionsIndex = state.matches.some((m) => m.routeId === "/sessions/");
       return {
         sessionId: sessionMatch?.params.id,
         runtimeTypeName: runtimeMatch?.params.typeName,
         runtimeInstanceName: instanceMatch?.params.instanceName,
+        isTemplates,
+        isSessionsIndex,
       };
     },
   });
@@ -45,45 +43,9 @@ function RootLayout() {
                 to="/"
                 className="shrink-0 text-muted-foreground transition-colors hover:text-foreground [&.active]:text-foreground [&.active]:font-medium"
               >
-                Sessions
+                Home
               </Link>
-              {sessionId ? (
-                <>
-                  <ChevronRightIcon
-                    className="h-4 w-4 shrink-0 text-muted-foreground"
-                    aria-hidden
-                  />
-                  <span
-                    className="min-w-0 truncate font-mono text-xs text-muted-foreground"
-                    title={sessionId}
-                  >
-                    {sessionId}
-                  </span>
-                </>
-              ) : runtimeTypeName ? (
-                <>
-                  <ChevronRightIcon
-                    className="h-4 w-4 shrink-0 text-muted-foreground"
-                    aria-hidden
-                  />
-                  <Link
-                    to="/runtimes/$typeName"
-                    params={{ typeName: runtimeTypeName }}
-                    className="shrink-0 text-muted-foreground transition-colors hover:text-foreground [&.active]:text-foreground [&.active]:font-medium"
-                  >
-                    {runtimeTypeName}
-                  </Link>
-                  {runtimeInstanceName && runtimeInstanceName !== runtimeTypeName ? (
-                    <>
-                      <ChevronRightIcon
-                        className="h-4 w-4 shrink-0 text-muted-foreground"
-                        aria-hidden
-                      />
-                      <span className="min-w-0 truncate font-medium">{runtimeInstanceName}</span>
-                    </>
-                  ) : null}
-                </>
-              ) : null}
+              <Breadcrumbs {...breadcrumbs} />
             </nav>
           </header>
           <main className="flex min-h-0 flex-1 flex-col p-6">
@@ -94,4 +56,84 @@ function RootLayout() {
       <Toaster />
     </>
   );
+}
+
+function BreadcrumbSeparator() {
+  return <ChevronRightIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />;
+}
+
+function Breadcrumbs({
+  sessionId,
+  runtimeTypeName,
+  runtimeInstanceName,
+  isTemplates,
+  isSessionsIndex,
+}: {
+  sessionId?: string;
+  runtimeTypeName?: string;
+  runtimeInstanceName?: string;
+  isTemplates: boolean;
+  isSessionsIndex: boolean;
+}) {
+  if (isTemplates) {
+    return (
+      <>
+        <BreadcrumbSeparator />
+        <span className="font-medium">Templates</span>
+      </>
+    );
+  }
+
+  if (sessionId) {
+    return (
+      <>
+        <BreadcrumbSeparator />
+        <Link
+          to="/sessions"
+          className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Sessions
+        </Link>
+        <BreadcrumbSeparator />
+        <span
+          className="min-w-0 truncate font-mono text-xs text-muted-foreground"
+          title={sessionId}
+        >
+          {sessionId}
+        </span>
+      </>
+    );
+  }
+
+  if (isSessionsIndex) {
+    return (
+      <>
+        <BreadcrumbSeparator />
+        <span className="font-medium">Sessions</span>
+      </>
+    );
+  }
+
+  if (runtimeTypeName) {
+    return (
+      <>
+        <BreadcrumbSeparator />
+        <Link
+          to="/runtimes/$typeName"
+          params={{ typeName: runtimeTypeName }}
+          className="shrink-0 text-muted-foreground transition-colors hover:text-foreground [&.active]:font-medium [&.active]:text-foreground"
+        >
+          {runtimeTypeName}
+        </Link>
+        {runtimeInstanceName && runtimeInstanceName !== runtimeTypeName ? (
+          <>
+            <BreadcrumbSeparator />
+            <span className="min-w-0 truncate font-medium">{runtimeInstanceName}</span>
+          </>
+        ) : null}
+      </>
+    );
+  }
+
+  return null;
 }
