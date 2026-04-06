@@ -93,17 +93,23 @@ function HomePage() {
     startRuntimeMutation.mutate({ typeName: activeRuntime, name: instanceName });
   };
 
-  // Auto-create a session when a running instance is available but no matching session exists
-  const autoCreateAttempted = useRef<string | null>(null);
+  // Reset create mutation when selections change so auto-create can fire for the new combo
+  const createComboKey = `${activeTemplate?.id}:${activeRuntime}:${activeInstance?.name ?? ""}`;
+  const prevComboKey = useRef(createComboKey);
   useEffect(() => {
-    if (!isReady || !activeTemplate || createMutation.isPending) return;
+    if (prevComboKey.current !== createComboKey) {
+      prevComboKey.current = createComboKey;
+      createMutation.reset();
+    }
+  }, [createComboKey, createMutation]);
+
+  // Auto-create a session when a running instance is available but no matching session exists
+  useEffect(() => {
+    if (!isReady || !activeTemplate) return;
     if (needsRunningInstance) return;
     if (matchingSessions.length > 0) return;
-
-    const instanceKey = activeInstance?.name ?? "";
-    const key = `${activeTemplate.id}:${activeRuntime}:${instanceKey}`;
-    if (autoCreateAttempted.current === key) return;
-    autoCreateAttempted.current = key;
+    // Only auto-create once per combo — skip if already pending, succeeded, or errored
+    if (createMutation.status !== "idle") return;
 
     createMutation.mutate({
       agentTemplateId: activeTemplate.id,
@@ -112,7 +118,6 @@ function HomePage() {
   }, [
     isReady,
     activeTemplate,
-    activeRuntime,
     needsRunningInstance,
     matchingSessions.length,
     activeInstance,
