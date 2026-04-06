@@ -412,6 +412,7 @@ function VerticalSplitPanel({
       const y = ev.clientY - rect.top;
       const pct = Math.min(Math.max((y / rect.height) * 100, 15), 85);
       setTopPercent(pct);
+      window.dispatchEvent(new Event("resize"));
     };
 
     const onMouseUp = () => {
@@ -420,6 +421,7 @@ function VerticalSplitPanel({
       document.removeEventListener("mouseup", onMouseUp);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      window.dispatchEvent(new Event("resize"));
     };
 
     document.body.style.cursor = "row-resize";
