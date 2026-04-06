@@ -66,6 +66,27 @@ export function usePauseRuntime(options?: {
   });
 }
 
+export function useDeleteRuntime(options?: {
+  onSuccess?: () => void;
+  onError?: (err: Error) => void;
+  onMutate?: (name: string) => void;
+  onSettled?: () => void;
+}) {
+  const client = useFlamecastClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => client.deleteRuntime(name),
+    onMutate: options?.onMutate,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["runtimes"] });
+      void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      options?.onSuccess?.();
+    },
+    onError: options?.onError,
+    onSettled: options?.onSettled,
+  });
+}
+
 export function useStartRuntimeWithOptimisticUpdate(
   runtimeInfo: RuntimeInfo,
   options?: {

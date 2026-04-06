@@ -33,6 +33,7 @@ export type FlamecastApi = Pick<
   | "updateAgentTemplate"
   | "startRuntime"
   | "stopRuntime"
+  | "deleteRuntime"
   | "terminateSession"
   | "runtimeNames"
 >;
@@ -205,6 +206,17 @@ export function createApi(flamecast: FlamecastApi) {
         try {
           const instanceName = c.req.param("instanceName");
           await flamecast.stopRuntime(instanceName);
+          return c.json({ ok: true });
+        } catch (error) {
+          const msg = toErrorMessage(error);
+          const status = msg.includes("not found") ? 404 : 500;
+          return c.json({ error: msg }, status);
+        }
+      })
+      .delete("/runtimes/:instanceName", async (c) => {
+        try {
+          const instanceName = c.req.param("instanceName");
+          await flamecast.deleteRuntime(instanceName);
           return c.json({ ok: true });
         } catch (error) {
           const msg = toErrorMessage(error);

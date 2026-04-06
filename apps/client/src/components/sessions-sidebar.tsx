@@ -5,6 +5,7 @@ import {
   useStartRuntime,
   useStopRuntime,
   usePauseRuntime,
+  useDeleteRuntime,
   useTerminateSession,
 } from "@flamecast/ui";
 import { cn } from "@/lib/utils";
@@ -237,7 +238,21 @@ function RuntimeTypeItem({
     onSettled: () => setPendingInstance(null),
   });
 
-  const isBusy = startMutation.isPending || stopMutation.isPending || pauseMutation.isPending;
+  const deleteMutation = useDeleteRuntime({
+    onMutate: (name) => setPendingInstance(name),
+    onSuccess: () => {
+      void navigate({ to: "/" });
+    },
+    onError: (err) =>
+      toast.error("Failed to delete runtime", { description: String(err.message) }),
+    onSettled: () => setPendingInstance(null),
+  });
+
+  const isBusy =
+    startMutation.isPending ||
+    stopMutation.isPending ||
+    pauseMutation.isPending ||
+    deleteMutation.isPending;
 
   const isActiveType = activeTypeName === runtime.typeName;
 
@@ -396,23 +411,42 @@ function RuntimeTypeItem({
                 </button>
               </span>
             ) : (
-              <SidebarMenuAction
-                showOnHover
-                title="Resume instance"
-                disabled={isBusy}
-                className="z-10 !top-1/2 right-1 !-translate-y-1/2 size-7 cursor-pointer rounded-md hover:bg-muted"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  startMutation.mutate({ typeName: runtime.typeName, name: instance.name });
-                }}
-              >
-                {isThisPending && startMutation.isPending ? (
-                  <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
-                ) : (
-                  <PlayIcon className="size-3.5 shrink-0" />
-                )}
-              </SidebarMenuAction>
+              <span className="absolute right-0.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100">
+                <button
+                  type="button"
+                  title="Resume instance"
+                  disabled={isBusy}
+                  className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    startMutation.mutate({ typeName: runtime.typeName, name: instance.name });
+                  }}
+                >
+                  {isThisPending && startMutation.isPending ? (
+                    <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
+                  ) : (
+                    <PlayIcon className="size-3.5 shrink-0" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  title="Delete instance"
+                  disabled={isBusy}
+                  className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    deleteMutation.mutate(instance.name);
+                  }}
+                >
+                  {isThisPending && deleteMutation.isPending ? (
+                    <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
+                  ) : (
+                    <Trash2Icon className="size-3.5 shrink-0" />
+                  )}
+                </button>
+              </span>
             )}
           </SidebarMenuItem>
         );
