@@ -18,7 +18,7 @@ import {
   SendIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -61,29 +61,22 @@ function HomePage() {
   const [prompt, setPrompt] = useState("");
 
   const createMutation = useCreateSession({
-    onSuccess: (session) =>
-      navigate({
-        to: "/sessions/$id",
-        params: { id: session.id },
-        search: { prompt: prompt.trim() },
-      }),
     onError: (err) => toast.error("Failed to create session", { description: String(err.message) }),
   });
 
-  const handleSend = () => {
-    if (!prompt.trim() || !activeTemplate) return;
+  const isReady = !runtimesLoading && !templatesLoading && runtimes && runtimes.length > 0;
 
-    // Reuse an existing active session if one exists for this combo
-    if (matchingSessions.length > 0) {
-      void navigate({
-        to: "/sessions/$id",
-        params: { id: matchingSessions[0].id },
-        search: { prompt: prompt.trim() },
-      });
-      return;
-    }
+  // Auto-create a session when no matching session exists for the selected combo
+  const autoCreateAttempted = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isReady || !activeTemplate || createMutation.isPending) return;
+    if (matchingSessions.length > 0) return;
 
-    // Otherwise create a new session
+    // Only attempt once per agent+runtime combo
+    const key = `${activeTemplate.id}:${activeRuntime}`;
+    if (autoCreateAttempted.current === key) return;
+    autoCreateAttempted.current = key;
+
     const runtimeInfo = runtimes?.find((rt) => rt.typeName === activeRuntime);
     const runtimeInstance =
       runtimeInfo && !runtimeInfo.onlyOne
@@ -94,10 +87,22 @@ function HomePage() {
       agentTemplateId: activeTemplate.id,
       runtimeInstance,
     });
+  }, [isReady, activeTemplate, activeRuntime, matchingSessions.length, runtimes, createMutation]);
+
+  const handleSend = () => {
+    if (!prompt.trim() || !activeTemplate) return;
+
+    const targetSession = matchingSessions[0];
+    if (targetSession) {
+      void navigate({
+        to: "/sessions/$id",
+        params: { id: targetSession.id },
+        search: { prompt: prompt.trim() },
+      });
+    }
   };
 
-  const isReady = !runtimesLoading && !templatesLoading && runtimes && runtimes.length > 0;
-  const canSend = prompt.trim() && activeTemplate && !createMutation.isPending && isReady;
+  const canSend = prompt.trim() && activeTemplate && matchingSessions.length > 0 && isReady;
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col items-center justify-center gap-8 px-1">
@@ -122,7 +127,7 @@ function HomePage() {
             ) : (
               <SendIcon data-icon="inline-start" />
             )}
-            {createMutation.isPending ? "Starting…" : "Send"}
+            {createMutation.isPending ? "Initializing…" : "Send"}
           </Button>
         </div>
 

@@ -87,6 +87,25 @@ export function useSessionState(sessionId: string, opts?: { showAllFiles?: boole
   // Markdown segments
   const markdownSegments = useMemo(() => sessionLogsToSegments(logs), [logs]);
 
+  // Derive isProcessing from event stream
+  const isProcessing = useMemo(() => {
+    for (let i = logs.length - 1; i >= 0; i--) {
+      const log = logs[i];
+      if (log.type === "end_turn") return false;
+      if (log.type === "prompt_sent") return true;
+      if (log.type === "rpc") {
+        const d = log.data;
+        if (
+          d.method === "session/prompt" &&
+          d.direction === "client_to_agent" &&
+          d.phase === "request"
+        )
+          return true;
+      }
+    }
+    return false;
+  }, [logs]);
+
   // Permission handler
   const respondToPermission = useCallback(
     (requestId: string, body: { optionId: string } | { outcome: "cancelled" }) => {
@@ -107,6 +126,7 @@ export function useSessionState(sessionId: string, opts?: { showAllFiles?: boole
     // Logs & segments
     logs,
     markdownSegments,
+    isProcessing,
 
     // Permissions
     pendingPermissions,

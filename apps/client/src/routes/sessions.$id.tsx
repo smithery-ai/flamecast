@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useSearch } from "@tanstack/react-router";
 import { useSessionState } from "@flamecast/ui";
 import { FileSystemPanel } from "@/components/filesystem-panel";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +23,6 @@ function SessionDetailPage() {
   const search = useSearch({ strict: false }) as Record<string, unknown>;
   const initialPrompt = typeof search.prompt === "string" ? search.prompt : undefined;
   const [promptText, setPromptText] = useState("");
-  const [isSending, setIsSending] = useState(false);
 
   const {
     session,
@@ -31,6 +30,7 @@ function SessionDetailPage() {
     isConnected,
     logs,
     markdownSegments,
+    isProcessing,
     pendingPermissions,
     respondToPermission,
     fileEntries,
@@ -50,13 +50,11 @@ function SessionDetailPage() {
     }
   }, [initialPrompt, isConnected, prompt]);
 
-  const handleSend = () => {
+  const handleSend = useCallback(() => {
     if (!promptText.trim()) return;
-    setIsSending(true);
     prompt(promptText);
     setPromptText("");
-    setTimeout(() => setIsSending(false), 500);
-  };
+  }, [promptText, prompt]);
 
   if (isLoading) {
     return (
@@ -131,7 +129,7 @@ function SessionDetailPage() {
                   markdownSegments.map((seg, index) => {
                     const isLiveAssistant =
                       seg.kind === "assistant" &&
-                      isSending &&
+                      isProcessing &&
                       index === markdownSegments.length - 1;
                     if (seg.kind === "user") {
                       return (
@@ -272,17 +270,17 @@ function SessionDetailPage() {
             onChange={(event) => setPromptText(event.target.value)}
             onKeyDown={(event) => event.key === "Enter" && handleSend()}
             placeholder="Send a prompt to the agent..."
-            disabled={isSending || pendingPermissions.length > 0}
+            disabled={isProcessing || pendingPermissions.length > 0}
           />
           <Button
             onClick={handleSend}
-            disabled={isSending || pendingPermissions.length > 0 || !promptText.trim()}
+            disabled={isProcessing || pendingPermissions.length > 0 || !promptText.trim()}
           >
             <SendIcon data-icon="inline-start" />
             {pendingPermissions.length > 0
               ? "Permission required"
-              : isSending
-                ? "Sending…"
+              : isProcessing
+                ? "Processing…"
                 : "Send"}
           </Button>
         </div>
