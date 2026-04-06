@@ -3,18 +3,19 @@ import {
   useRuntimes,
   useRuntimeFileSystem,
   useStartRuntimeWithOptimisticUpdate,
-  useTerminal,
   useFlamecastClient,
 } from "@flamecast/ui";
 import { FileSystemPanel } from "@/components/filesystem-panel";
 import { TerminalPanel } from "@/components/terminal-panel";
+import { TerminalProvider, useTerminalContext } from "@/contexts/terminal-context";
+import { RuntimeFileSystemProvider } from "@/contexts/runtime-filesystem-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { LoaderCircleIcon, PlayIcon, TerminalSquareIcon } from "lucide-react";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
 
 export const Route = createFileRoute("/runtimes/$typeName/$instanceName")({
@@ -61,18 +62,7 @@ function RuntimeDetailPanel({
   runtimeInfo: RuntimeInfo;
   instance: RuntimeInstance;
 }) {
-  const client = useFlamecastClient();
-  const [showAllFiles, setShowAllFiles] = useState(false);
   const isRunning = instance.status === "running";
-
-  const runtimeFsQuery = useRuntimeFileSystem(instance.name, {
-    enabled: isRunning,
-    showAllFiles,
-  });
-
-  const { terminals, sendInput, resize, onData, createTerminal, killTerminal } = useTerminal(
-    isRunning ? instance.websocketUrl : undefined,
-  );
 
   const startMutation = useStartRuntimeWithOptimisticUpdate(runtimeInfo, {
     instanceName: instance.name,
@@ -117,6 +107,34 @@ function RuntimeDetailPanel({
   }
 
   return (
+    <TerminalProvider websocketUrl={instance.websocketUrl}>
+      <RuntimeDetailRunning runtimeInfo={runtimeInfo} instance={instance} />
+    </TerminalProvider>
+  );
+}
+
+function RuntimeDetailRunning({
+  runtimeInfo,
+  instance,
+}: {
+  runtimeInfo: RuntimeInfo;
+  instance: RuntimeInstance;
+}) {
+  const client = useFlamecastClient();
+  const [showAllFiles, setShowAllFiles] = useState(false);
+  const { terminals } = useTerminalContext();
+
+  const runtimeFsQuery = useRuntimeFileSystem(instance.name, {
+    enabled: true,
+    showAllFiles,
+  });
+
+  const loadPreview = useCallback(
+    (path: string) => client.fetchRuntimeFilePreview(instance.name, path),
+    [client, instance.name],
+  );
+
+  return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
       <div className="shrink-0">
         <h1 className="text-2xl font-bold tracking-tight">{instance.name}</h1>
@@ -146,14 +164,7 @@ function RuntimeDetailPanel({
           forceMount
           className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
         >
-          <TerminalPanel
-            terminals={terminals}
-            sendInput={sendInput}
-            resize={resize}
-            onData={onData}
-            onCreateTerminal={() => createTerminal()}
-            onRemoveTerminal={killTerminal}
-          />
+          <TerminalPanel />
         </TabsContent>
 
         <TabsContent value="files" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -181,14 +192,17 @@ function RuntimeDetailPanel({
               </CardContent>
             </Card>
           ) : (
-            <FileSystemPanel
-              workspaceRoot={runtimeFsQuery.data.root}
-              entries={runtimeFsQuery.data.entries}
+            <RuntimeFileSystemProvider
               showAllFiles={showAllFiles}
-              onShowAllFilesChange={setShowAllFiles}
-              loadPreview={(path) => client.fetchRuntimeFilePreview(instance.name, path)}
-              emptyTreeMessage="No filesystem entries returned for this runtime."
-            />
+              setShowAllFiles={setShowAllFiles}
+              loadPreview={loadPreview}
+            >
+              <FileSystemPanel
+                workspaceRoot={runtimeFsQuery.data.root}
+                entries={runtimeFsQuery.data.entries}
+                emptyTreeMessage="No filesystem entries returned for this runtime."
+              />
+            </RuntimeFileSystemProvider>
           )}
         </TabsContent>
       </Tabs>

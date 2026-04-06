@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useSearch } from "@tanstack/react-router";
 import { useSessionState } from "@flamecast/ui";
 import { FileSystemPanel } from "@/components/filesystem-panel";
+import { RuntimeFileSystemProvider } from "@/contexts/runtime-filesystem-context";
 import { Fragment, useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -230,13 +231,13 @@ function SessionDetailPage() {
         </TabsContent>
 
         <TabsContent value="files" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
-          <FileSystemPanel
-            workspaceRoot={workspaceRoot}
-            entries={fileEntries}
+          <RuntimeFileSystemProvider
             showAllFiles={showAllFiles}
-            onShowAllFilesChange={setShowAllFiles}
+            setShowAllFiles={setShowAllFiles}
             loadPreview={requestFilePreview}
-          />
+          >
+            <FileSystemPanel workspaceRoot={workspaceRoot} entries={fileEntries} />
+          </RuntimeFileSystemProvider>
         </TabsContent>
       </Tabs>
 
