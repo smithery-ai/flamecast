@@ -10,6 +10,7 @@
     }
   },
   "peerDependencies": {
+    "@agentclientprotocol/sdk": "^0.16.1",
     "@flamecast/protocol": "workspace:*",
     "@flamecast/sdk": "workspace:*",
     "@tanstack/react-query": "^5.91.0",
