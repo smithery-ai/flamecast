@@ -131,7 +131,7 @@ export function RuntimeSessionTab({
       <ResizablePanel defaultSize={35} minSize={20}>
         <VerticalSplitPanel
           topContent={
-            sessionFsQuery.isLoading ? (
+            !session || sessionFsQuery.isLoading ? (
               <FilesystemSkeleton />
             ) : sessionFsQuery.isError || !sessionFsQuery.data ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
