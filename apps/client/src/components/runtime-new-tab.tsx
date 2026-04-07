@@ -14,7 +14,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DirectoryPicker } from "@/components/directory-picker";
-import { PlayIcon, TerminalIcon, FolderOpenIcon } from "lucide-react";
+import { GitWorktreePicker } from "@/components/git-worktree-picker";
+import { LoaderCircleIcon, PlayIcon, TerminalIcon, FolderOpenIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useCallback } from "react";
 import type { AgentTemplate } from "@flamecast/sdk/session";
@@ -37,9 +38,15 @@ export function RuntimeNewTab({
   const [cwd, setCwd] = useState<string | undefined>(undefined);
   const [dirPickerOpen, setDirPickerOpen] = useState(false);
 
-  // Fetch the workspace root so we can show the actual default path
-  const { data: fsData } = useRuntimeFileSystem(instanceName, { enabled: !cwd });
-  const defaultCwd = fsData?.root;
+  // Fetch workspace root (when no cwd selected) and current dir info (for git detection)
+  const { data: rootFsData } = useRuntimeFileSystem(instanceName, { enabled: !cwd });
+  const { data: cwdFsData } = useRuntimeFileSystem(instanceName, {
+    enabled: !!cwd,
+    path: cwd,
+  });
+  const fsData = cwd ? cwdFsData : rootFsData;
+  const defaultCwd = rootFsData?.root;
+  const gitPath = fsData?.gitPath;
 
   const createMutation = useCreateSession({
     onError: (err) => toast.error("Failed to create session", { description: String(err.message) }),
@@ -92,6 +99,17 @@ export function RuntimeNewTab({
           onSelect={(path) => setCwd(path)}
           initialPath={cwd}
         />
+
+        {gitPath && (
+          <div className="mb-4">
+            <GitWorktreePicker
+              instanceName={instanceName}
+              gitPath={gitPath}
+              currentPath={cwd ?? defaultCwd ?? gitPath}
+              onSelect={(path) => setCwd(path)}
+            />
+          </div>
+        )}
 
         {templatesLoading ? (
           <div className="grid gap-3 sm:grid-cols-2">

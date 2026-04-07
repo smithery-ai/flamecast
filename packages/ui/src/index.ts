@@ -8,6 +8,11 @@ export { useSessions } from "./hooks/use-sessions.js";
 export { useSession } from "./hooks/use-session.js";
 export { useRuntimeFileSystem } from "./hooks/use-runtime-filesystem.js";
 export { useSessionFileSystem } from "./hooks/use-session-filesystem.js";
+export {
+  useRuntimeGitBranches,
+  useRuntimeGitWorktrees,
+  useCreateRuntimeGitWorktree,
+} from "./hooks/use-runtime-git.js";
 
 // Mutation hooks
 export { useCreateSession } from "./hooks/use-create-session.js";

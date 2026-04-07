@@ -39,6 +39,33 @@ export type FlamecastRpcClient = ReturnType<typeof createFlamecastRpcClient>;
 /** Prompt result — either immediate execution or queued. */
 export type PromptResult = Record<string, unknown> | QueuedPromptResponse;
 
+export type GitBranch = {
+  name: string;
+  sha: string;
+  current: boolean;
+};
+
+export type GitBranchesResponse = {
+  branches: GitBranch[];
+};
+
+export type GitWorktree = {
+  path: string;
+  sha?: string;
+  branch?: string;
+  bare?: boolean;
+  detached?: boolean;
+};
+
+export type GitWorktreesResponse = {
+  worktrees: GitWorktree[];
+};
+
+export type GitWorktreeCreateResponse = {
+  path: string;
+  message: string;
+};
+
 export type UpdateAgentTemplateBody = {
   name?: string;
   spawn?: AgentTemplate["spawn"];
@@ -96,6 +123,20 @@ export type FlamecastClient = {
   startRuntime(typeName: string, name?: string): Promise<RuntimeInstance>;
   stopRuntime(instanceName: string): Promise<void>;
   pauseRuntime(instanceName: string): Promise<void>;
+
+  // Git operations
+  fetchRuntimeGitBranches(
+    instanceName: string,
+    opts?: { path?: string },
+  ): Promise<GitBranchesResponse>;
+  fetchRuntimeGitWorktrees(
+    instanceName: string,
+    opts?: { path?: string },
+  ): Promise<GitWorktreesResponse>;
+  createRuntimeGitWorktree(
+    instanceName: string,
+    body: { name: string; path?: string; branch?: string },
+  ): Promise<GitWorktreeCreateResponse>;
 };
 
 async function assertOk(response: Response, message: string): Promise<void> {
@@ -296,6 +337,33 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
         param: { instanceName },
       });
       await assertOk(response, "Failed to pause runtime");
+    },
+
+    // -- Git operations --
+
+    async fetchRuntimeGitBranches(instanceName, opts = {}) {
+      const response = await rpc.runtimes[":instanceName"].fs.git.branches.$get({
+        param: { instanceName },
+        query: { path: opts.path ?? undefined },
+      });
+      await assertOk(response, "Failed to fetch git branches");
+      return response.json() as Promise<GitBranchesResponse>;
+    },
+    async fetchRuntimeGitWorktrees(instanceName, opts = {}) {
+      const response = await rpc.runtimes[":instanceName"].fs.git.worktrees.$get({
+        param: { instanceName },
+        query: { path: opts.path ?? undefined },
+      });
+      await assertOk(response, "Failed to fetch git worktrees");
+      return response.json() as Promise<GitWorktreesResponse>;
+    },
+    async createRuntimeGitWorktree(instanceName, body) {
+      const response = await rpc.runtimes[":instanceName"].fs.git.worktrees.$post({
+        param: { instanceName },
+        json: body,
+      });
+      await assertOk(response, "Failed to create git worktree");
+      return response.json() as Promise<GitWorktreeCreateResponse>;
     },
   };
 }
