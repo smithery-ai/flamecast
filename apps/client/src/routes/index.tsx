@@ -17,7 +17,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DirectoryPicker } from "@/components/directory-picker";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronDownIcon, FolderOpenIcon, LoaderCircleIcon, PlusIcon, SendIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  FolderOpenIcon,
+  LoaderCircleIcon,
+  PlusIcon,
+  SendIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
 
@@ -80,7 +86,10 @@ function HomePage() {
   const [dirPickerOpen, setDirPickerOpen] = useState(false);
 
   // Resolve an instance name for the directory picker
-  const pickerInstanceName = activeInstance?.name ?? runtimeInfo?.instances.find((i) => i.status === "running")?.name ?? activeRuntime;
+  const pickerInstanceName =
+    activeInstance?.name ??
+    runtimeInfo?.instances.find((i) => i.status === "running")?.name ??
+    activeRuntime;
 
   // --- Mutations ---
   const [prompt, setPrompt] = useState("");
