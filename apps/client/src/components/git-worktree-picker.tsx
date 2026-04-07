@@ -21,6 +21,7 @@ import {
   FolderGit2Icon,
   PlusIcon,
   LoaderCircleIcon,
+  SettingsIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -43,13 +44,17 @@ export function GitWorktreePicker({
   /** Called when the user picks a directory — may be the same as currentPath. */
   onSelect: (absolutePath: string) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const [selection, setSelection] = useState<WorktreeSelection>({ kind: "current" });
   const [newWorktreeName, setNewWorktreeName] = useState("");
   const [baseBranch, setBaseBranch] = useState<string>("main");
 
-  // Always fetch worktrees and branches immediately
+  // Always fetch worktrees (for collapsed summary) and branches (for form)
   const worktreesQuery = useRuntimeGitWorktrees(instanceName, { path: gitPath });
-  const branchesQuery = useRuntimeGitBranches(instanceName, { path: gitPath });
+  const branchesQuery = useRuntimeGitBranches(instanceName, {
+    enabled: expanded,
+    path: gitPath,
+  });
 
   const createWorktree = useCreateRuntimeGitWorktree(instanceName, {
     onSuccess: () => {
@@ -60,6 +65,18 @@ export function GitWorktreePicker({
   const worktrees = worktreesQuery.data?.worktrees ?? [];
   const otherWorktrees = worktrees.filter((wt) => wt.path !== gitPath);
   const allBranches = branchesQuery.data?.branches ?? [];
+
+  // Find the branch for the currently active path
+  const currentWorktree = worktrees.find((wt) => wt.path === currentPath);
+  const mainWorktree = worktrees.find((wt) => wt.path === gitPath);
+  const activeBranch = currentWorktree?.branch ?? mainWorktree?.branch;
+
+  // Derive a display label for the selected path
+  const selectedLabel = selection.kind === "current"
+    ? activeBranch
+    : selection.kind === "worktree"
+      ? worktrees.find((wt) => wt.path === selection.path)?.branch ?? selection.path
+      : null;
 
   // Default to main/master once branches load
   useEffect(() => {
@@ -74,16 +91,16 @@ export function GitWorktreePicker({
   const handleApply = () => {
     if (selection.kind === "current") {
       onSelect(currentPath);
+      setExpanded(false);
     } else if (selection.kind === "worktree") {
       onSelect(selection.path);
+      setExpanded(false);
     } else if (selection.kind === "new") {
       const name = newWorktreeName.trim();
       if (!name) {
         toast.error("Worktree name is required");
         return;
       }
-      // git worktree add ../name -b name baseBranch
-      // Creates a new branch `name` starting from `baseBranch`
       createWorktree.mutate(
         {
           path: gitPath,
@@ -103,11 +120,46 @@ export function GitWorktreePicker({
     }
   };
 
+  // Collapsed: show current branch/path with a configure button
+  if (!expanded) {
+    return (
+      <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-xs">
+        <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        {activeBranch ? (
+          <span className="font-medium">{selectedLabel ?? activeBranch}</span>
+        ) : (
+          <span className="text-muted-foreground">Git repository</span>
+        )}
+        <span className="min-w-0 truncate text-muted-foreground" dir="rtl">
+          {selection.kind === "worktree" ? selection.path : currentPath}
+        </span>
+        <button
+          type="button"
+          className="ml-auto flex shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+          onClick={() => setExpanded(true)}
+        >
+          <SettingsIcon className="size-3" />
+          Configure
+        </button>
+      </div>
+    );
+  }
+
+  // Expanded: full worktree picker
   return (
     <div className="rounded-md border p-3">
-      <div className="mb-3 flex items-center gap-1.5 text-xs font-medium">
-        <GitBranchIcon className="size-3.5" />
-        Git worktree
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-xs font-medium">
+          <GitBranchIcon className="size-3.5" />
+          Git worktree
+        </div>
+        <button
+          type="button"
+          className="flex cursor-pointer items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+          onClick={() => setExpanded(false)}
+        >
+          Done
+        </button>
       </div>
 
       {worktreesQuery.isLoading ? (
