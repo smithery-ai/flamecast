@@ -71,11 +71,7 @@ export function FileSystemPanel({
       return;
     }
 
-    // Compute workspace-relative path for preview API
-    const wsPrefix = workspaceRoot.endsWith("/") ? workspaceRoot : workspaceRoot + "/";
-    const relativePath = selectedPath.startsWith(wsPrefix)
-      ? selectedPath.slice(wsPrefix.length)
-      : selectedPath;
+    const relativePath = toRelativePath(workspaceRoot, selectedPath);
 
     let cancelled = false;
     setFilePreviewLoading(true);
@@ -234,4 +230,18 @@ function toAbsolute(currentPath: string, name: string): string {
 
 function isDirType(type: FileSystemEntry["type"]): boolean {
   return type === "directory" || type === "symlink";
+}
+
+function toRelativePath(from: string, to: string): string {
+  const fromParts = from.split("/").filter(Boolean);
+  const toParts = to.split("/").filter(Boolean);
+
+  let common = 0;
+  while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) {
+    common++;
+  }
+
+  const ups = fromParts.length - common;
+  const remaining = toParts.slice(common);
+  return [...Array(ups).fill(".."), ...remaining].join("/");
 }

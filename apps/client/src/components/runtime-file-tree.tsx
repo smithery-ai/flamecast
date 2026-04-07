@@ -53,12 +53,7 @@ export function RuntimeFileTree({
       onNavigate(absolutePath);
     } else {
       setSelectedPath(absolutePath);
-      // Compute workspace-relative path for the file preview API
-      const wsPrefix = workspaceRoot.endsWith("/") ? workspaceRoot : workspaceRoot + "/";
-      const relativePath = absolutePath.startsWith(wsPrefix)
-        ? absolutePath.slice(wsPrefix.length)
-        : entry.path;
-      onFileSelect(relativePath);
+      onFileSelect(toRelativePath(workspaceRoot, absolutePath));
     }
   };
 
@@ -143,4 +138,20 @@ export function RuntimeFileTree({
 
 function isDirType(type: FileSystemEntry["type"]): boolean {
   return type === "directory" || type === "symlink";
+}
+
+/** Compute a POSIX relative path from `from` directory to `to` file. */
+function toRelativePath(from: string, to: string): string {
+  const fromParts = from.split("/").filter(Boolean);
+  const toParts = to.split("/").filter(Boolean);
+
+  // Find common prefix length
+  let common = 0;
+  while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) {
+    common++;
+  }
+
+  const ups = fromParts.length - common;
+  const remaining = toParts.slice(common);
+  return [...Array(ups).fill(".."), ...remaining].join("/");
 }
