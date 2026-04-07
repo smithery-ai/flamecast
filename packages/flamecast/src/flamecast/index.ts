@@ -476,7 +476,6 @@ export class Flamecast<
   ): Promise<Session> {
     await this.ensureReady();
 
-    const cwd = opts.cwd ?? process.cwd();
     const { agentName, spawn, runtime } = await this.resolveSessionDefinition(opts);
     const startedAt = new Date().toISOString();
     const callbackUrl = internal?.callbackUrl ?? this.callbackUrl;
@@ -489,11 +488,13 @@ export class Flamecast<
     // Resolve the runtime instance name. For onlyOne runtimes, instance = type name.
     // For multi-instance runtimes, use the explicitly provided instance or fall back to type name.
     const runtimeObj = this.runtimesMap[runtime.provider];
+    const cwd = opts.cwd ?? runtimeObj?.getDefaultCwd?.() ?? process.cwd();
     const runtimeInstance = runtimeObj?.onlyOne
       ? runtime.provider
       : (opts.runtimeInstance ?? runtime.provider);
 
     const { sessionId } = await this.sessionService.startSession(this.requireStorage(), {
+      sessionId: opts.sessionId,
       agentName,
       spawn,
       cwd,

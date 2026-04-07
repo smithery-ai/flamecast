@@ -10,14 +10,16 @@ export function useCreateSession(options?: {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
+      sessionId,
       agentTemplateId,
       runtimeInstance,
       cwd,
     }: {
+      sessionId?: string;
       agentTemplateId: string;
       runtimeInstance?: string;
       cwd?: string;
-    }) => client.createSession({ agentTemplateId, cwd, runtimeInstance }),
+    }) => client.createSession({ sessionId, agentTemplateId, cwd, runtimeInstance }),
     onSuccess: (session) => {
       void queryClient.invalidateQueries({ queryKey: ["sessions"] });
       options?.onSuccess?.(session);

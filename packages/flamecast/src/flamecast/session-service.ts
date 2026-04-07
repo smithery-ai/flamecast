@@ -12,6 +12,7 @@ interface ManagedSession {
   websocketUrl: string;
   runtimeName: string;
   webhooks: WebhookConfig[];
+  cwd?: string;
 }
 
 export class SessionService {
@@ -25,6 +26,7 @@ export class SessionService {
   async startSession(
     storage: FlamecastStorage,
     opts: {
+      sessionId?: string;
       agentName: string;
       spawn: AgentSpawn;
       cwd: string;
@@ -43,7 +45,7 @@ export class SessionService {
       );
     }
 
-    const sessionId = crypto.randomUUID();
+    const sessionId = opts.sessionId ?? crypto.randomUUID();
     const body = {
       sessionId,
       command: opts.spawn.command,
@@ -122,6 +124,7 @@ export class SessionService {
       websocketUrl: result.websocketUrl,
       runtimeName: providerName,
       webhooks: opts.webhooks ?? [],
+      cwd: opts.cwd,
     });
 
     return { sessionId };
@@ -231,7 +234,11 @@ export class SessionService {
       sessionId,
       new Request(`http://host${path}`, {
         ...init,
-        headers: { "Content-Type": "application/json", ...init.headers },
+        headers: {
+          "Content-Type": "application/json",
+          ...init.headers,
+          ...(session.cwd ? { "x-session-cwd": session.cwd } : {}),
+        },
       }),
     );
   }

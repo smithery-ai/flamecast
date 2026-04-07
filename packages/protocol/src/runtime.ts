@@ -29,6 +29,8 @@ export interface Runtime<TConfig extends Record<string, unknown> = {}> {
   getInstanceStatus?(instanceId: string): Promise<"running" | "stopped" | "paused" | undefined>;
   /** Return the WebSocket URL for a running instance's runtime-host. */
   getWebsocketUrl?(instanceId: string): string | undefined;
+  /** Return the default working directory for new sessions on this runtime. */
+  getDefaultCwd?(): string | undefined;
   dispose?(): Promise<void>;
   /**
    * Return runtime-specific metadata for a session that should be persisted

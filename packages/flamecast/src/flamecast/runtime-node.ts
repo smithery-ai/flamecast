@@ -141,8 +141,12 @@ export class NodeRuntime implements Runtime {
   }
 
   /** The workspace root for local file operations. */
-  private getWorkspaceRoot(): string {
+  getDefaultCwd(): string {
     return this.cwd ?? process.cwd();
+  }
+
+  private getWorkspaceRoot(): string {
+    return this.getDefaultCwd();
   }
 
   async start(_instanceId: string): Promise<void> {
@@ -251,8 +255,20 @@ export class NodeRuntime implements Runtime {
   }
 
   async fetchSession(sessionId: string, request: Request): Promise<Response> {
-    const baseUrl = await this.ensureRunning();
     const originalUrl = new URL(request.url);
+    const sessionCwd = request.headers.get("x-session-cwd") ?? undefined;
+
+    // Handle filesystem snapshot locally (shallow, single-level listing)
+    // instead of proxying to the Go sidecar which may not support the path param.
+    if (!this.explicitUrl && originalUrl.pathname === "/fs/snapshot" && request.method === "GET") {
+      return this.handleRuntimeFsSnapshot(originalUrl, sessionCwd);
+    }
+
+    if (!this.explicitUrl && originalUrl.pathname === "/files" && request.method === "GET") {
+      return this.handleRuntimeFilePreview(originalUrl);
+    }
+
+    const baseUrl = await this.ensureRunning();
     const targetUrl = new URL(baseUrl);
     targetUrl.pathname = `/sessions/${sessionId}${originalUrl.pathname}`;
     targetUrl.search = originalUrl.search;
@@ -360,11 +376,14 @@ export class NodeRuntime implements Runtime {
     });
   }
 
-  private async handleRuntimeFsSnapshot(url: URL): Promise<Response> {
+  private async handleRuntimeFsSnapshot(
+    url: URL,
+    workspaceRootOverride?: string,
+  ): Promise<Response> {
     const { readFile, readdir, stat, access } = await import("node:fs/promises");
     const path = await import("node:path");
 
-    const workspaceRoot = this.getWorkspaceRoot();
+    const workspaceRoot = workspaceRootOverride ?? this.getWorkspaceRoot();
     const requestedPath = url.searchParams.get("path");
     const targetDir = requestedPath ? path.resolve(requestedPath) : workspaceRoot;
     const showAllFiles = url.searchParams.get("showAllFiles") === "true";

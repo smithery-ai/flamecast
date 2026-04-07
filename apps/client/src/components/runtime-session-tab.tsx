@@ -1,5 +1,11 @@
-import { useSessionState } from "@flamecast/ui";
-import { Fragment, useEffect, useRef, useState, useCallback } from "react";
+import {
+  useSessionState,
+  useRuntimeFileSystem,
+  useTerminal,
+  useFlamecastClient,
+} from "@flamecast/ui";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,17 +13,31 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import { RuntimeFileTree } from "@/components/runtime-file-tree";
+import { RuntimeFileTab } from "@/components/runtime-file-tab";
+import { TerminalPanel } from "@/components/terminal-panel";
 import { Streamdown } from "streamdown";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
-import { ChevronDownIcon, SendIcon } from "lucide-react";
+import { ChevronDownIcon, SendIcon, LoaderCircleIcon, GripHorizontalIcon } from "lucide-react";
 
 export function RuntimeSessionTab({
   sessionId,
+  instanceName,
+  runtimeWebsocketUrl,
+  cwd,
   initialPrompt,
+  onOpenFileTab,
 }: {
   sessionId: string;
+  instanceName: string;
+  runtimeWebsocketUrl?: string;
+  /** Initial working directory — used to load the file tree immediately. */
+  cwd?: string;
   initialPrompt?: string;
+  onOpenFileTab?: (filePath: string) => void;
 }) {
+  const client = useFlamecastClient();
   const [promptText, setPromptText] = useState("");
 
   const {
@@ -31,6 +51,39 @@ export function RuntimeSessionTab({
     respondToPermission,
     prompt,
   } = useSessionState(sessionId);
+
+  // Filesystem state — uses the runtime filesystem API so it loads immediately,
+  // without waiting for the session to be created on the server.
+  const [showAllFiles, setShowAllFiles] = useState(false);
+  const [fsPath, setFsPath] = useState<string | undefined>(cwd);
+
+  const fsQuery = useRuntimeFileSystem(instanceName, {
+    showAllFiles,
+    path: fsPath,
+  });
+
+  // Session-scoped terminal (connects to the runtime instance — works immediately)
+  const { terminals, sendInput, resize, onData, createTerminal, killTerminal } =
+    useTerminal(runtimeWebsocketUrl);
+
+  // Inline file preview for files opened from session file tree
+  const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);
+
+  const loadPreview = useCallback(
+    (path: string) => client.fetchSessionFilePreview(sessionId, path),
+    [client, sessionId],
+  );
+
+  const handleFileSelect = useCallback(
+    (filePath: string) => {
+      if (onOpenFileTab) {
+        onOpenFileTab(filePath);
+      } else {
+        setPreviewFilePath(filePath);
+      }
+    },
+    [onOpenFileTab],
+  );
 
   const sentInitialPrompt = useRef(false);
   useEffect(() => {
@@ -46,19 +99,159 @@ export function RuntimeSessionTab({
     setPromptText("");
   }, [promptText, prompt]);
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
-        <Skeleton className="h-6 w-48" />
-        <Skeleton className="h-64 w-full rounded-xl" />
-      </div>
-    );
-  }
+  // Always render the full layout — each panel handles its own loading state.
+  // Chat shows a skeleton while the session initializes, filesystem has its own
+  // loading spinner, and the terminal connects to the runtime immediately.
 
-  if (!session) {
+  return (
+    <ResizablePanelGroup className="min-h-0 flex-1">
+      {/* Left: Conversation */}
+      <ResizablePanel defaultSize={65} minSize={30}>
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">
+          {isLoading ? (
+            <ChatSkeleton />
+          ) : !session ? (
+            <ChatConnecting />
+          ) : (
+            <SessionConversation
+              promptText={promptText}
+              setPromptText={setPromptText}
+              handleSend={handleSend}
+              logs={logs}
+              markdownSegments={markdownSegments}
+              isProcessing={isProcessing}
+              pendingPermissions={pendingPermissions}
+              respondToPermission={respondToPermission}
+              previewFilePath={previewFilePath}
+              onClosePreview={() => setPreviewFilePath(null)}
+              loadPreview={loadPreview}
+            />
+          )}
+        </div>
+      </ResizablePanel>
+
+      <ResizableHandle />
+
+      {/* Right: Filesystem + Terminal (session-scoped) */}
+      <ResizablePanel defaultSize={35} minSize={20}>
+        <VerticalSplitPanel
+          topContent={
+            fsQuery.isLoading ? (
+              <FilesystemSkeleton />
+            ) : fsQuery.isError || !fsQuery.data ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
+                <p className="text-xs text-muted-foreground">Could not load filesystem</p>
+                <Button variant="outline" size="sm" onClick={() => void fsQuery.refetch()}>
+                  Retry
+                </Button>
+              </div>
+            ) : (
+              <RuntimeFileTree
+                workspaceRoot={fsQuery.data.root}
+                currentPath={fsQuery.data.path ?? fsQuery.data.root}
+                entries={fsQuery.data.entries}
+                showAllFiles={showAllFiles}
+                onShowAllFilesChange={setShowAllFiles}
+                onFileSelect={handleFileSelect}
+                onNavigate={setFsPath}
+              />
+            )
+          }
+          bottomContent={
+            <TerminalPanel
+              terminals={terminals}
+              sendInput={sendInput}
+              resize={resize}
+              onData={onData}
+              onCreateTerminal={() => createTerminal()}
+              onRemoveTerminal={killTerminal}
+            />
+          }
+        />
+      </ResizablePanel>
+    </ResizablePanelGroup>
+  );
+}
+
+// ─── Loading States ──────────────────────────────────────────────────────────
+
+function ChatSkeleton() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
+      <Skeleton className="h-5 w-40" />
+      <Skeleton className="h-24 w-full rounded-lg" />
+      <Skeleton className="h-5 w-56" />
+      <Skeleton className="h-32 w-full rounded-lg" />
+      <div className="mt-auto" />
+      <Skeleton className="h-8 w-full rounded-md" />
+    </div>
+  );
+}
+
+function ChatConnecting() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3">
+      <LoaderCircleIcon className="size-5 animate-spin text-muted-foreground" />
+      <p className="text-sm text-muted-foreground">Starting session...</p>
+    </div>
+  );
+}
+
+function FilesystemSkeleton() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-1.5 p-3">
+      <Skeleton className="h-4 w-32" />
+      <div className="flex flex-col gap-1 pt-2">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <div key={i} className="flex items-center gap-2">
+            <Skeleton className="size-4 shrink-0 rounded" />
+            <Skeleton className="h-3.5" style={{ width: `${40 + Math.random() * 60}%` }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Conversation Panel ───────────────────────────────────────────────────────
+
+function SessionConversation({
+  promptText,
+  setPromptText,
+  handleSend,
+  logs,
+  markdownSegments,
+  isProcessing,
+  pendingPermissions,
+  respondToPermission,
+  previewFilePath,
+  onClosePreview,
+  loadPreview,
+}: {
+  promptText: string;
+  setPromptText: (v: string) => void;
+  handleSend: () => void;
+  logs: ReturnType<typeof useSessionState>["logs"];
+  markdownSegments: ReturnType<typeof useSessionState>["markdownSegments"];
+  isProcessing: boolean;
+  pendingPermissions: ReturnType<typeof useSessionState>["pendingPermissions"];
+  respondToPermission: ReturnType<typeof useSessionState>["respondToPermission"];
+  previewFilePath: string | null;
+  onClosePreview: () => void;
+  loadPreview: (path: string) => Promise<{ content: string; truncated: boolean }>;
+}) {
+  if (previewFilePath) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
-        <p className="text-sm text-muted-foreground">Session not found.</p>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="flex shrink-0 items-center border-b px-3 py-1">
+          <Button variant="ghost" size="sm" onClick={onClosePreview} className="text-xs">
+            Back to conversation
+          </Button>
+          <span className="ml-2 truncate text-xs text-muted-foreground">{previewFilePath}</span>
+        </div>
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <RuntimeFileTab filePath={previewFilePath} loadPreview={loadPreview} />
+        </div>
       </div>
     );
   }
@@ -238,6 +431,8 @@ export function RuntimeSessionTab({
   );
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function getLogVariant(type: string): "default" | "secondary" | "destructive" | "outline" {
   switch (type) {
     case "rpc":
@@ -276,5 +471,69 @@ function ScrollToBottomFab() {
     >
       <ChevronDownIcon />
     </Button>
+  );
+}
+
+// ─── Vertical Split Panel ────────────────────────────────────────────────────
+
+function VerticalSplitPanel({
+  topContent,
+  bottomContent,
+  defaultTopPercent = 55,
+}: {
+  topContent: ReactNode;
+  bottomContent: ReactNode;
+  defaultTopPercent?: number;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [topPercent, setTopPercent] = useState(defaultTopPercent);
+  const draggingRef = useRef(false);
+
+  const handleMouseDown = useCallback((e: ReactMouseEvent) => {
+    e.preventDefault();
+    draggingRef.current = true;
+
+    const onMouseMove = (ev: globalThis.MouseEvent) => {
+      if (!draggingRef.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const y = ev.clientY - rect.top;
+      const pct = Math.min(Math.max((y / rect.height) * 100, 15), 85);
+      setTopPercent(pct);
+      window.dispatchEvent(new Event("resize"));
+    };
+
+    const onMouseUp = () => {
+      draggingRef.current = false;
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.dispatchEvent(new Event("resize"));
+    };
+
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }, []);
+
+  return (
+    <div ref={containerRef} className="flex h-full flex-col border-l overflow-hidden">
+      {/* Top section */}
+      <div className="flex min-h-0 flex-col overflow-hidden" style={{ height: `${topPercent}%` }}>
+        {topContent}
+      </div>
+
+      {/* Drag handle */}
+      <div
+        className="flex h-2 shrink-0 cursor-row-resize items-center justify-center border-y bg-muted/30 hover:bg-muted/60 transition-colors"
+        onMouseDown={handleMouseDown}
+      >
+        <GripHorizontalIcon className="size-3 text-muted-foreground" />
+      </div>
+
+      {/* Bottom section */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{bottomContent}</div>
+    </div>
   );
 }

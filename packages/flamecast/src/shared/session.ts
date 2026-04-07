@@ -186,6 +186,7 @@ export type { CreateSessionBody } from "@flamecast/protocol/session";
 
 export const CreateSessionBodySchema = z
   .object({
+    sessionId: z.string().uuid().optional(),
     cwd: z.string().optional(),
     agentTemplateId: z.string().optional(),
     spawn: AgentSpawnSchema.optional(),

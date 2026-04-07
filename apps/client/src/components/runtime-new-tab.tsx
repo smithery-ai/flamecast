@@ -14,9 +14,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DirectoryPicker } from "@/components/directory-picker";
-import { LoaderCircleIcon, PlayIcon, TerminalIcon, FolderOpenIcon } from "lucide-react";
+import { PlayIcon, TerminalIcon, FolderOpenIcon } from "lucide-react";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import type { AgentTemplate } from "@flamecast/sdk/session";
 import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 
@@ -27,7 +27,7 @@ export function RuntimeNewTab({
 }: {
   runtimeTypeName: string;
   instanceName: string;
-  onSessionCreated: (sessionId: string, agentName: string) => void;
+  onSessionCreated: (sessionId: string, agentName: string, cwd?: string) => void;
 }) {
   const { data: allTemplates = [], isLoading: templatesLoading } = useAgentTemplates();
   const { data: runtimes } = useRuntimes();
@@ -42,11 +42,24 @@ export function RuntimeNewTab({
   const defaultCwd = fsData?.root;
 
   const createMutation = useCreateSession({
-    onSuccess: (session) => {
-      onSessionCreated(session.id, session.agentName);
-    },
     onError: (err) => toast.error("Failed to create session", { description: String(err.message) }),
   });
+
+  const handleStartSession = useCallback(
+    (template: AgentTemplate, runtimeInstance?: string) => {
+      const sessionId = crypto.randomUUID();
+      // Switch to the session tab immediately — the session tab will show a
+      // loading skeleton until the server finishes creating the session.
+      onSessionCreated(sessionId, template.name, cwd);
+      createMutation.mutate({
+        sessionId,
+        agentTemplateId: template.id,
+        runtimeInstance,
+        cwd,
+      });
+    },
+    [createMutation, cwd, onSessionCreated],
+  );
 
   const matchingTemplates = allTemplates.filter((t) => t.runtime.provider === runtimeTypeName);
   const displayTemplates = matchingTemplates.length > 0 ? matchingTemplates : allTemplates;
@@ -109,14 +122,7 @@ export function RuntimeNewTab({
                 template={template}
                 runtimeInfo={runtimeInfo}
                 instanceName={instanceName}
-                onStartSession={(runtimeInstance) =>
-                  createMutation.mutate({ agentTemplateId: template.id, runtimeInstance, cwd })
-                }
-                isStartingSession={
-                  createMutation.isPending &&
-                  createMutation.variables?.agentTemplateId === template.id
-                }
-                isAnyStarting={createMutation.isPending}
+                onStartSession={(runtimeInstance) => handleStartSession(template, runtimeInstance)}
               />
             ))}
           </div>
@@ -131,15 +137,11 @@ function NewTabTemplateCard({
   runtimeInfo,
   instanceName,
   onStartSession,
-  isStartingSession,
-  isAnyStarting,
 }: {
   template: AgentTemplate;
   runtimeInfo?: RuntimeInfo;
   instanceName: string;
   onStartSession: (runtimeInstance?: string) => void;
-  isStartingSession: boolean;
-  isAnyStarting: boolean;
 }) {
   const needsInstanceSelect = runtimeInfo && !runtimeInfo.onlyOne;
   const runningInstances = runtimeInfo?.instances.filter((i) => i.status === "running") ?? [];
@@ -195,14 +197,9 @@ function NewTabTemplateCard({
           size="sm"
           className="w-full"
           onClick={() => onStartSession(needsInstanceSelect ? selectedInstance : instanceName)}
-          disabled={isAnyStarting}
         >
-          {isStartingSession ? (
-            <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
-          ) : (
-            <PlayIcon data-icon="inline-start" />
-          )}
-          {isStartingSession ? "Starting..." : "Start session"}
+          <PlayIcon data-icon="inline-start" />
+          Start session
         </Button>
       </CardContent>
     </Card>

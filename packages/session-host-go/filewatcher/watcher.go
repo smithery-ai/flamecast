@@ -326,6 +326,51 @@ func FindGitRoot(dir string) string {
 	}
 }
 
+// ListDirectory returns the immediate children of dir, respecting .gitignore
+// rules loaded from root. Entries use paths relative to dir (just the name).
+// When showAllFiles is false, dot-prefixed entries and gitignored files are hidden.
+func ListDirectory(root, dir string, showAllFiles bool) ([]WalkEntry, error) {
+	var rules []*gitIgnoreRule
+	if !showAllFiles {
+		rules = loadGitIgnoreRules(root)
+	}
+
+	dirents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var entries []WalkEntry
+	for _, d := range dirents {
+		if !showAllFiles && strings.HasPrefix(d.Name(), ".") {
+			continue
+		}
+
+		fullPath := filepath.Join(dir, d.Name())
+		relPath, _ := filepath.Rel(root, fullPath)
+
+		if !showAllFiles && isGitIgnored(relPath, rules) {
+			continue
+		}
+
+		entryName := d.Name()
+		if d.IsDir() {
+			entry := WalkEntry{Path: entryName, Type: "directory"}
+			if gi := ReadGitInfo(fullPath); gi != nil {
+				entry.Git = gi
+			}
+			entries = append(entries, entry)
+		} else if d.Type()&os.ModeSymlink != 0 {
+			entries = append(entries, WalkEntry{Path: entryName, Type: "symlink"})
+		} else if d.Type().IsRegular() {
+			entries = append(entries, WalkEntry{Path: entryName, Type: "file"})
+		} else {
+			entries = append(entries, WalkEntry{Path: entryName, Type: "other"})
+		}
+	}
+	return entries, nil
+}
+
 // WalkDirectory recursively walks a directory, respecting .gitignore rules.
 // When showAllFiles is false, dot-prefixed entries and gitignored files are hidden.
 func WalkDirectory(root string, showAllFiles ...bool) ([]WalkEntry, error) {

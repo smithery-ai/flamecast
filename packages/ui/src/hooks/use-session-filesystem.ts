@@ -1,15 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { useFlamecastClient } from "../provider.js";
 
-export function useRuntimeFileSystem(
-  instanceName: string,
+export function useSessionFileSystem(
+  sessionId: string,
   opts?: { enabled?: boolean; showAllFiles?: boolean; path?: string },
 ) {
   const client = useFlamecastClient();
   return useQuery({
-    queryKey: ["runtime-filesystem", instanceName, opts?.showAllFiles, opts?.path],
+    queryKey: ["session-filesystem", sessionId, opts?.showAllFiles, opts?.path],
     queryFn: () =>
-      client.fetchRuntimeFileSystem(instanceName, {
+      client.fetchSessionFileSystem(sessionId, {
         showAllFiles: opts?.showAllFiles,
         path: opts?.path,
       }),
