@@ -138,13 +138,6 @@ function resolveWorkspacePath(workspace: string, filePath: string): string | nul
   return posix.join(workspace, normalized);
 }
 
-function toWorkspaceRelativePath(path: string): string | null {
-  const normalized = posix.normalize(path);
-  if (normalized === SANDBOX_WORKSPACE) return null;
-  if (!normalized.startsWith(`${SANDBOX_WORKSPACE}/`)) return null;
-  return normalized.slice(SANDBOX_WORKSPACE.length + 1);
-}
-
 // ---------------------------------------------------------------------------
 // Internal types
 // ---------------------------------------------------------------------------

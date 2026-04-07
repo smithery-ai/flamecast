@@ -114,9 +114,7 @@ export function FileSystemPanel({
           <FolderTreeIcon className="size-4 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">Files</p>
-            <p className="truncate text-xs text-muted-foreground">
-              {currentPath}
-            </p>
+            <p className="truncate text-xs text-muted-foreground">{currentPath}</p>
           </div>
           <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
             <span>Show all</span>
@@ -193,9 +191,7 @@ export function FileSystemPanel({
               {selectedPath ?? "Select a file to preview"}
             </p>
             <p className="text-xs text-muted-foreground">
-              {selectedPath
-                ? "Previewing current workspace file"
-                : "Select a file from the list"}
+              {selectedPath ? "Previewing current workspace file" : "Select a file from the list"}
             </p>
           </div>
         </div>

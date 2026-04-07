@@ -1,13 +1,7 @@
 import { useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import {
-  ArrowUpIcon,
-  FileIcon,
-  FolderIcon,
-  FolderTreeIcon,
-  HomeIcon,
-} from "lucide-react";
+import { ArrowUpIcon, FileIcon, FolderIcon, FolderTreeIcon, HomeIcon } from "lucide-react";
 import type { FileSystemEntry } from "@flamecast/sdk/session";
 
 export function RuntimeFileTree({
@@ -68,9 +62,7 @@ export function RuntimeFileTree({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
         <FolderTreeIcon className="size-3.5 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium">
-          {currentPath}
-        </span>
+        <span className="min-w-0 flex-1 truncate text-xs font-medium">{currentPath}</span>
         <label className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
           <span>All</span>
           <Switch
@@ -112,9 +104,7 @@ export function RuntimeFileTree({
           <div className="font-mono text-xs" role="list">
             {sorted.map((entry) => {
               const absolutePath =
-                currentPath === "/"
-                  ? `/${entry.path}`
-                  : `${currentPath}/${entry.path}`;
+                currentPath === "/" ? `/${entry.path}` : `${currentPath}/${entry.path}`;
               return (
                 <button
                   key={entry.path}

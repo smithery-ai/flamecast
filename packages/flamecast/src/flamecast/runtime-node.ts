@@ -365,10 +365,9 @@ export class NodeRuntime implements Runtime {
     const rules: GitIgnoreRule[] = [];
     if (!showAllFiles) {
       // Read .gitignore from the directory being listed
-      const gitIgnoreContents = await readFile(
-        path.join(targetDir, ".gitignore"),
-        "utf8",
-      ).catch(() => "");
+      const gitIgnoreContents = await readFile(path.join(targetDir, ".gitignore"), "utf8").catch(
+        () => "",
+      );
       rules.push(...parseGitIgnoreRules(gitIgnoreContents));
     }
     const entries: RuntimeEntry[] = [];
@@ -378,8 +377,7 @@ export class NodeRuntime implements Runtime {
       dirents.sort((left, right) => left.name.localeCompare(right.name));
       for (const dirent of dirents) {
         const name = dirent.name;
-        if (!showAllFiles && rules.length > 0 && isGitIgnored(name, rules))
-          continue;
+        if (!showAllFiles && rules.length > 0 && isGitIgnored(name, rules)) continue;
         let type: RuntimeEntry["type"];
         if (dirent.isDirectory()) {
           type = "directory";
