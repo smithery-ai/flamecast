@@ -6,7 +6,6 @@ import {
   FileIcon,
   FolderIcon,
   FolderTreeIcon,
-  HomeIcon,
 } from "lucide-react";
 import type { FileSystemEntry } from "@flamecast/sdk/session";
 
@@ -37,6 +36,8 @@ export function RuntimeFileTree({
 
   const isAtRoot = currentPath === workspaceRoot;
   const parentPath = currentPath.replace(/\/[^/]+$/, "") || "/";
+  // Clamp "Up" to the workspace root — don't navigate above it
+  const canGoUp = !isAtRoot;
 
   // Sort: directories first, then alphabetically
   const sorted = [...entries].sort((a, b) => {
@@ -53,7 +54,12 @@ export function RuntimeFileTree({
       onNavigate(absolutePath);
     } else {
       setSelectedPath(absolutePath);
-      onFileSelect(toRelativePath(workspaceRoot, absolutePath));
+      // Strip workspace root prefix to get a workspace-relative path
+      const wsPrefix = workspaceRoot.endsWith("/") ? workspaceRoot : workspaceRoot + "/";
+      const relativePath = absolutePath.startsWith(wsPrefix)
+        ? absolutePath.slice(wsPrefix.length)
+        : entry.path;
+      onFileSelect(relativePath);
     }
   };
 
@@ -74,28 +80,19 @@ export function RuntimeFileTree({
           />
         </label>
       </div>
-      <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1">
-        <button
-          className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-          onClick={() => onNavigate(parentPath)}
-          title="Go to parent directory"
-          type="button"
-        >
-          <ArrowUpIcon className="size-3" />
-          <span>Up</span>
-        </button>
-        {!isAtRoot && (
+      {canGoUp && (
+        <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1">
           <button
             className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-            onClick={() => onNavigate(workspaceRoot)}
-            title="Go to workspace root"
+            onClick={() => onNavigate(parentPath)}
+            title="Go to parent directory"
             type="button"
           >
-            <HomeIcon className="size-3" />
-            <span>Root</span>
+            <ArrowUpIcon className="size-3" />
+            <span>Up</span>
           </button>
-        )}
-      </div>
+        </div>
+      )}
       <div className="h-0 min-h-0 flex-1 overflow-auto p-1.5">
         {sorted.length === 0 ? (
           <p className="py-4 text-center text-xs text-muted-foreground">
@@ -138,20 +135,4 @@ export function RuntimeFileTree({
 
 function isDirType(type: FileSystemEntry["type"]): boolean {
   return type === "directory" || type === "symlink";
-}
-
-/** Compute a POSIX relative path from `from` directory to `to` file. */
-function toRelativePath(from: string, to: string): string {
-  const fromParts = from.split("/").filter(Boolean);
-  const toParts = to.split("/").filter(Boolean);
-
-  // Find common prefix length
-  let common = 0;
-  while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) {
-    common++;
-  }
-
-  const ups = fromParts.length - common;
-  const remaining = toParts.slice(common);
-  return [...Array(ups).fill(".."), ...remaining].join("/");
 }

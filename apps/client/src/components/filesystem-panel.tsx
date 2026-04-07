@@ -7,7 +7,6 @@ import {
   FileIcon,
   FolderIcon,
   FolderTreeIcon,
-  HomeIcon,
 } from "lucide-react";
 import type { FileSystemEntry } from "@flamecast/sdk/session";
 
@@ -42,6 +41,7 @@ export function FileSystemPanel({
 
   const isAtRoot = currentPath === workspaceRoot;
   const parentPath = currentPath.replace(/\/[^/]+$/, "") || "/";
+  const canGoUp = !isAtRoot;
 
   // Sort: directories first, then alphabetically
   const sorted = [...entries].sort((a, b) => {
@@ -71,7 +71,10 @@ export function FileSystemPanel({
       return;
     }
 
-    const relativePath = toRelativePath(workspaceRoot, selectedPath);
+    const wsPrefix = workspaceRoot.endsWith("/") ? workspaceRoot : workspaceRoot + "/";
+    const relativePath = selectedPath.startsWith(wsPrefix)
+      ? selectedPath.slice(wsPrefix.length)
+      : selectedPath;
 
     let cancelled = false;
     setFilePreviewLoading(true);
@@ -124,28 +127,19 @@ export function FileSystemPanel({
             />
           </label>
         </div>
-        <div className="flex shrink-0 items-center gap-1 border-b px-3 py-1.5">
-          <button
-            className="flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-            onClick={() => onNavigate(parentPath)}
-            title="Go to parent directory"
-            type="button"
-          >
-            <ArrowUpIcon className="size-3" />
-            <span>Up</span>
-          </button>
-          {!isAtRoot && (
+        {canGoUp && (
+          <div className="flex shrink-0 items-center gap-1 border-b px-3 py-1.5">
             <button
               className="flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-              onClick={() => onNavigate(workspaceRoot)}
-              title="Go to workspace root"
+              onClick={() => onNavigate(parentPath)}
+              title="Go to parent directory"
               type="button"
             >
-              <HomeIcon className="size-3" />
-              <span>Root</span>
+              <ArrowUpIcon className="size-3" />
+              <span>Up</span>
             </button>
-          )}
-        </div>
+          </div>
+        )}
         <div className="h-0 min-h-0 flex-1 overflow-auto p-3">
           {sorted.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
@@ -230,18 +224,4 @@ function toAbsolute(currentPath: string, name: string): string {
 
 function isDirType(type: FileSystemEntry["type"]): boolean {
   return type === "directory" || type === "symlink";
-}
-
-function toRelativePath(from: string, to: string): string {
-  const fromParts = from.split("/").filter(Boolean);
-  const toParts = to.split("/").filter(Boolean);
-
-  let common = 0;
-  while (common < fromParts.length && common < toParts.length && fromParts[common] === toParts[common]) {
-    common++;
-  }
-
-  const ups = fromParts.length - common;
-  const remaining = toParts.slice(common);
-  return [...Array(ups).fill(".."), ...remaining].join("/");
 }
