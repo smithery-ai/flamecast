@@ -733,7 +733,9 @@ async function handleGitWorktreeCreate(
   const requestedPath = body.path;
   const targetDir = requestedPath ? pathMod.resolve(requestedPath) : workspaceRoot;
 
-  const worktreePath = pathMod.resolve(targetDir, "..", body.name);
+  // Place worktrees under {serverCwd}/worktrees/{repoDirectoryName}/{worktreeName}
+  const repoDirName = pathMod.basename(targetDir);
+  const worktreePath = pathMod.resolve(workspaceRoot, "worktrees", repoDirName, body.name);
   // git worktree add <path> -b <new-branch> <start-point>
   // git worktree add <path> <existing-branch>
   const args = ["worktree", "add", worktreePath];
