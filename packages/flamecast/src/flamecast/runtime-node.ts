@@ -683,7 +683,7 @@ async function handleGitWorktreeCreate(
 ): Promise<Response> {
   const pathMod = await import("node:path");
 
-  let body: { path?: string; name: string; branch?: string };
+  let body: { path?: string; name: string; branch?: string; newBranch?: boolean };
   try {
     body = await request.json();
   } catch {
@@ -699,7 +699,11 @@ async function handleGitWorktreeCreate(
   const worktreePath = pathMod.resolve(targetDir, "..", body.name);
   const args = ["worktree", "add", worktreePath];
   if (body.branch) {
-    args.push("-b", body.branch);
+    if (body.newBranch) {
+      args.push("-b", body.branch);
+    } else {
+      args.push(body.branch);
+    }
   }
 
   const { stdout, stderr, exitCode } = await execGit(args, targetDir);

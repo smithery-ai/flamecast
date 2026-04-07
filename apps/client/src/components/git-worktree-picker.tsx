@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   useRuntimeGitBranches,
   useRuntimeGitWorktrees,
@@ -9,12 +9,18 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import {
+  Combobox,
+  ComboboxInput,
+  ComboboxContent,
+  ComboboxList,
+  ComboboxItem,
+  ComboboxEmpty,
+} from "@/components/ui/combobox";
+import {
   GitBranchIcon,
   FolderGit2Icon,
   PlusIcon,
   LoaderCircleIcon,
-  ChevronDownIcon,
-  ChevronUpIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -37,19 +43,14 @@ export function GitWorktreePicker({
   /** Called when the user picks a directory — may be the same as currentPath. */
   onSelect: (absolutePath: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const [selection, setSelection] = useState<WorktreeSelection>({ kind: "current" });
-  const [newBranchName, setNewBranchName] = useState("");
   const [newWorktreeName, setNewWorktreeName] = useState("");
+  const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
+  const [newBranch, setNewBranch] = useState(false);
 
-  const worktreesQuery = useRuntimeGitWorktrees(instanceName, {
-    enabled: expanded,
-    path: gitPath,
-  });
-  const branchesQuery = useRuntimeGitBranches(instanceName, {
-    enabled: expanded && selection.kind === "new",
-    path: gitPath,
-  });
+  // Always fetch worktrees and branches immediately
+  const worktreesQuery = useRuntimeGitWorktrees(instanceName, { path: gitPath });
+  const branchesQuery = useRuntimeGitBranches(instanceName, { path: gitPath });
 
   const createWorktree = useCreateRuntimeGitWorktree(instanceName, {
     onSuccess: () => {
@@ -58,8 +59,14 @@ export function GitWorktreePicker({
   });
 
   const worktrees = worktreesQuery.data?.worktrees ?? [];
-  // Exclude the main worktree (same as gitPath) from the list
   const otherWorktrees = worktrees.filter((wt) => wt.path !== gitPath);
+
+  // Filter out branches that already have a worktree
+  const worktreeBranches = new Set(worktrees.map((wt) => wt.branch).filter(Boolean));
+  const availableBranches = useMemo(
+    () => (branchesQuery.data?.branches ?? []).filter((b) => !worktreeBranches.has(b.name)),
+    [branchesQuery.data, worktreeBranches],
+  );
 
   const handleApply = () => {
     if (selection.kind === "current") {
@@ -75,12 +82,12 @@ export function GitWorktreePicker({
         {
           path: gitPath,
           name: newWorktreeName.trim(),
-          branch: newBranchName.trim() || undefined,
+          branch: selectedBranch || newWorktreeName.trim(),
+          newBranch,
         },
         {
           onSuccess: (result) => {
             onSelect(result.path);
-            setExpanded(false);
           },
           onError: (err) => toast.error("Failed to create worktree", { description: err.message }),
         },
@@ -88,38 +95,11 @@ export function GitWorktreePicker({
     }
   };
 
-  if (!expanded) {
-    return (
-      <button
-        type="button"
-        className="flex w-full cursor-pointer items-center gap-1.5 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
-        onClick={() => setExpanded(true)}
-      >
-        <GitBranchIcon className="size-3.5" />
-        <span>Git repository detected</span>
-        <span className="ml-auto flex items-center gap-0.5 text-[10px]">
-          Branch / worktree options
-          <ChevronDownIcon className="size-3" />
-        </span>
-      </button>
-    );
-  }
-
   return (
     <div className="rounded-md border p-3">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-xs font-medium">
-          <GitBranchIcon className="size-3.5" />
-          Git worktree
-        </div>
-        <button
-          type="button"
-          className="flex cursor-pointer items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground"
-          onClick={() => setExpanded(false)}
-        >
-          Collapse
-          <ChevronUpIcon className="size-3" />
-        </button>
+      <div className="mb-3 flex items-center gap-1.5 text-xs font-medium">
+        <GitBranchIcon className="size-3.5" />
+        Git worktree
       </div>
 
       {worktreesQuery.isLoading ? (
@@ -128,58 +108,60 @@ export function GitWorktreePicker({
           Loading worktrees...
         </div>
       ) : (
-        <RadioGroup
-          value={
-            selection.kind === "current"
-              ? "current"
-              : selection.kind === "worktree"
-                ? `wt:${selection.path}`
-                : "new"
-          }
-          onValueChange={(value) => {
-            if (value === "current") {
-              setSelection({ kind: "current" });
-            } else if (value === "new") {
-              setSelection({ kind: "new" });
-            } else if (value.startsWith("wt:")) {
-              setSelection({ kind: "worktree", path: value.slice(3) });
+        <div className="max-h-[240px] overflow-y-auto">
+          <RadioGroup
+            value={
+              selection.kind === "current"
+                ? "current"
+                : selection.kind === "worktree"
+                  ? `wt:${selection.path}`
+                  : "new"
             }
-          }}
-        >
-          {/* Current directory option */}
-          <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/50">
-            <RadioGroupItem value="current" />
-            <FolderGit2Icon className="size-3.5 text-muted-foreground" />
-            <span>
-              Current directory
-              <span className="ml-1 text-muted-foreground">({currentPath})</span>
-            </span>
-          </label>
-
-          {/* Existing worktrees */}
-          {otherWorktrees.map((wt) => (
-            <label
-              key={wt.path}
-              className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/50"
-            >
-              <RadioGroupItem value={`wt:${wt.path}`} />
-              <GitBranchIcon className="size-3.5 text-muted-foreground" />
-              <span className="min-w-0 truncate">{wt.path}</span>
-              {wt.branch && (
-                <span className="ml-auto shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  {wt.branch}
-                </span>
-              )}
+            onValueChange={(value) => {
+              if (value === "current") {
+                setSelection({ kind: "current" });
+              } else if (value === "new") {
+                setSelection({ kind: "new" });
+              } else if (value.startsWith("wt:")) {
+                setSelection({ kind: "worktree", path: value.slice(3) });
+              }
+            }}
+          >
+            {/* Current directory option */}
+            <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/50">
+              <RadioGroupItem value="current" />
+              <FolderGit2Icon className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate">
+                Current directory
+                <span className="ml-1 text-muted-foreground">({currentPath})</span>
+              </span>
             </label>
-          ))}
 
-          {/* Create new worktree option */}
-          <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/50">
-            <RadioGroupItem value="new" />
-            <PlusIcon className="size-3.5 text-muted-foreground" />
-            <span>Create new worktree</span>
-          </label>
-        </RadioGroup>
+            {/* Existing worktrees */}
+            {otherWorktrees.map((wt) => (
+              <label
+                key={wt.path}
+                className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/50"
+              >
+                <RadioGroupItem value={`wt:${wt.path}`} />
+                <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate">{wt.path}</span>
+                {wt.branch && (
+                  <span className="ml-auto shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    {wt.branch}
+                  </span>
+                )}
+              </label>
+            ))}
+
+            {/* Create new worktree option */}
+            <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/50">
+              <RadioGroupItem value="new" />
+              <PlusIcon className="size-3.5 shrink-0 text-muted-foreground" />
+              <span>Create new worktree</span>
+            </label>
+          </RadioGroup>
+        </div>
       )}
 
       {/* New worktree form */}
@@ -195,33 +177,25 @@ export function GitWorktreePicker({
             />
           </div>
           <div className="flex flex-col gap-1">
-            <Label className="text-[10px] font-medium text-muted-foreground">
-              Branch name <span className="text-muted-foreground/60">(optional — defaults to worktree name)</span>
-            </Label>
-            <Input
-              placeholder="e.g. feature/my-feature"
-              value={newBranchName}
-              onChange={(e) => setNewBranchName(e.target.value)}
-              className="h-7 text-xs"
-              list="git-branches"
+            <Label className="text-[10px] font-medium text-muted-foreground">Branch</Label>
+            <BranchCombobox
+              branches={availableBranches}
+              isLoading={branchesQuery.isLoading}
+              value={selectedBranch}
+              onChange={(value, isNew) => {
+                setSelectedBranch(value);
+                setNewBranch(isNew);
+              }}
             />
-            {branchesQuery.data && (
-              <datalist id="git-branches">
-                {branchesQuery.data.branches.map((b) => (
-                  <option key={b.name} value={b.name} />
-                ))}
-              </datalist>
-            )}
           </div>
         </div>
       )}
 
       {/* Apply button */}
-      {(selection.kind !== "current" || expanded) && (
+      {selection.kind !== "current" && (
         <div className="mt-3 flex justify-end">
           <Button
             size="sm"
-            variant={selection.kind === "current" ? "outline" : "default"}
             onClick={handleApply}
             disabled={createWorktree.isPending}
             className="h-7 text-xs"
@@ -229,14 +203,80 @@ export function GitWorktreePicker({
             {createWorktree.isPending && (
               <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
             )}
-            {selection.kind === "new"
-              ? "Create & select"
-              : selection.kind === "worktree"
-                ? "Use this worktree"
-                : "Use current directory"}
+            {selection.kind === "new" ? "Create & select" : "Use this worktree"}
           </Button>
         </div>
       )}
     </div>
+  );
+}
+
+function BranchCombobox({
+  branches,
+  isLoading,
+  value,
+  onChange,
+}: {
+  branches: Array<{ name: string; sha: string; current: boolean }>;
+  isLoading: boolean;
+  value: string | null;
+  onChange: (value: string | null, isNew: boolean) => void;
+}) {
+  const [inputValue, setInputValue] = useState("");
+
+  const filtered = useMemo(() => {
+    if (!inputValue) return branches;
+    const lower = inputValue.toLowerCase();
+    return branches.filter((b) => b.name.toLowerCase().includes(lower));
+  }, [branches, inputValue]);
+
+  const exactMatch = branches.some((b) => b.name === inputValue);
+
+  return (
+    <Combobox
+      value={value}
+      onValueChange={(val) => {
+        const branch = typeof val === "string" ? val : null;
+        onChange(branch, false);
+      }}
+    >
+      <ComboboxInput
+        placeholder={isLoading ? "Loading branches..." : "Search or type a new branch name..."}
+        disabled={isLoading}
+        className="h-7 text-xs"
+        value={inputValue}
+        onChange={(e) => {
+          setInputValue(e.target.value);
+        }}
+      />
+      <ComboboxContent>
+        <ComboboxList>
+          {/* Existing branches */}
+          {filtered.map((b) => (
+            <ComboboxItem key={b.name} value={b.name} className="text-xs">
+              <GitBranchIcon className="size-3 text-muted-foreground" />
+              {b.name}
+              {b.current && (
+                <span className="ml-auto text-[10px] text-muted-foreground">current</span>
+              )}
+            </ComboboxItem>
+          ))}
+          {/* Create new branch option when input doesn't match */}
+          {inputValue && !exactMatch && (
+            <ComboboxItem
+              value={inputValue}
+              className="text-xs"
+              onSelect={() => {
+                onChange(inputValue, true);
+              }}
+            >
+              <PlusIcon className="size-3 text-muted-foreground" />
+              Create branch &ldquo;{inputValue}&rdquo;
+            </ComboboxItem>
+          )}
+          <ComboboxEmpty>No branches found</ComboboxEmpty>
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   );
 }
