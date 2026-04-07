@@ -23,12 +23,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
-import {
-  useState,
-  useCallback,
-  useEffect,
-  useRef,
-} from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
 

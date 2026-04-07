@@ -1,4 +1,9 @@
-import { useSessionState, useSessionFileSystem, useTerminal, useFlamecastClient } from "@flamecast/ui";
+import {
+  useSessionState,
+  useSessionFileSystem,
+  useTerminal,
+  useFlamecastClient,
+} from "@flamecast/ui";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { Button } from "@/components/ui/button";
@@ -14,12 +19,7 @@ import { RuntimeFileTab } from "@/components/runtime-file-tab";
 import { TerminalPanel } from "@/components/terminal-panel";
 import { Streamdown } from "streamdown";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
-import {
-  ChevronDownIcon,
-  SendIcon,
-  LoaderCircleIcon,
-  GripHorizontalIcon,
-} from "lucide-react";
+import { ChevronDownIcon, SendIcon, LoaderCircleIcon, GripHorizontalIcon } from "lucide-react";
 
 export function RuntimeSessionTab({
   sessionId,
@@ -58,9 +58,8 @@ export function RuntimeSessionTab({
   });
 
   // Session-scoped terminal (connects to the runtime instance)
-  const { terminals, sendInput, resize, onData, createTerminal, killTerminal } = useTerminal(
-    runtimeWebsocketUrl,
-  );
+  const { terminals, sendInput, resize, onData, createTerminal, killTerminal } =
+    useTerminal(runtimeWebsocketUrl);
 
   // Inline file preview for files opened from session file tree
   const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);
