@@ -575,6 +575,31 @@ export class Flamecast<
     return snapshot;
   }
 
+  /**
+   * Proxy a git operation to the runtime instance.
+   * Returns the parsed JSON from the runtime's response.
+   */
+  /**
+   * Proxy a git operation to the runtime instance.
+   * `subpath` is appended to `/fs/git/` (may include query string).
+   */
+  async fetchRuntimeGit(
+    instanceName: string,
+    subpath: string,
+    opts: { method?: string; body?: string } = {},
+  ): Promise<Record<string, unknown>> {
+    await this.ensureReady();
+    const response = await this.proxyRuntimeInstanceRequest(instanceName, `/fs/git/${subpath}`, {
+      method: opts.method ?? "GET",
+      ...(opts.body ? { body: opts.body } : {}),
+    });
+    if (!response.ok) {
+      const detail = await readProxyErrorDetail(response);
+      throw new ProxyRequestError(response.status, detail);
+    }
+    return response.json();
+  }
+
   async fetchSessionFilePreview(id: string, path: string): Promise<FilePreview> {
     await this.ensureReady();
     await this.ensureSessionRegistered(id);

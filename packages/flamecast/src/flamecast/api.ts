@@ -18,6 +18,7 @@ export type FlamecastApi = Pick<
   | "eventBus"
   | "fetchRuntimeFilePreview"
   | "fetchRuntimeFileSystem"
+  | "fetchRuntimeGit"
   | "fetchSessionFilePreview"
   | "fetchSessionFileSystem"
   | "getSession"
@@ -260,6 +261,70 @@ export function createApi(flamecast: FlamecastApi) {
         } catch (error) {
           const msg = toErrorMessage(error);
           const status = toErrorStatus(error) ?? (msg.includes("not found") ? 404 : 500);
+          return c.json({ error: msg }, status);
+        }
+      })
+      // ---- Git operations ----
+      .get("/runtimes/:instanceName/fs/git/branches", async (c) => {
+        try {
+          const instanceName = c.req.param("instanceName");
+          const params = new URLSearchParams();
+          const path = c.req.query("path");
+          if (path) params.set("path", path);
+          const query = params.size > 0 ? `?${params.toString()}` : "";
+          return c.json(await flamecast.fetchRuntimeGit(instanceName, `branches${query}`));
+        } catch (error) {
+          const msg = toErrorMessage(error);
+          const status = toErrorStatus(error) ?? (msg.includes("not found") ? 404 : 500);
+          return c.json({ error: msg }, status);
+        }
+      })
+      .get("/runtimes/:instanceName/fs/git/commits", async (c) => {
+        try {
+          const instanceName = c.req.param("instanceName");
+          const params = new URLSearchParams();
+          const path = c.req.query("path");
+          if (path) params.set("path", path);
+          const branch = c.req.query("branch");
+          if (branch) params.set("branch", branch);
+          const limit = c.req.query("limit");
+          if (limit) params.set("limit", limit);
+          const query = params.size > 0 ? `?${params.toString()}` : "";
+          return c.json(await flamecast.fetchRuntimeGit(instanceName, `commits${query}`));
+        } catch (error) {
+          const msg = toErrorMessage(error);
+          const status = toErrorStatus(error) ?? (msg.includes("not found") ? 404 : 500);
+          return c.json({ error: msg }, status);
+        }
+      })
+      .get("/runtimes/:instanceName/fs/git/worktrees", async (c) => {
+        try {
+          const instanceName = c.req.param("instanceName");
+          const params = new URLSearchParams();
+          const path = c.req.query("path");
+          if (path) params.set("path", path);
+          const query = params.size > 0 ? `?${params.toString()}` : "";
+          return c.json(await flamecast.fetchRuntimeGit(instanceName, `worktrees${query}`));
+        } catch (error) {
+          const msg = toErrorMessage(error);
+          const status = toErrorStatus(error) ?? (msg.includes("not found") ? 404 : 500);
+          return c.json({ error: msg }, status);
+        }
+      })
+      .post("/runtimes/:instanceName/fs/git/worktrees", async (c) => {
+        try {
+          const instanceName = c.req.param("instanceName");
+          const body = await c.req.text();
+          return c.json(
+            await flamecast.fetchRuntimeGit(instanceName, "worktrees", {
+              method: "POST",
+              body,
+            }),
+            201,
+          );
+        } catch (error) {
+          const msg = toErrorMessage(error);
+          const status = toErrorStatus(error) ?? (isClientError(error) ? 400 : 500);
           return c.json({ error: msg }, status);
         }
       })

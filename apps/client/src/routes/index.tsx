@@ -5,6 +5,7 @@ import {
   useCreateSession,
   useSessions,
   useStartRuntime,
+  useRuntimeFileSystem,
 } from "@flamecast/ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DirectoryPicker } from "@/components/directory-picker";
+import { GitWorktreeMenu, useActiveBranch } from "@/components/git-worktree-picker";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ChevronDownIcon,
@@ -90,6 +92,14 @@ function HomePage() {
     activeInstance?.name ??
     runtimeInfo?.instances.find((i) => i.status === "running")?.name ??
     activeRuntime;
+
+  // --- Git detection for selected directory ---
+  const { data: cwdFsData } = useRuntimeFileSystem(pickerInstanceName, {
+    enabled: !!cwd,
+    path: cwd,
+  });
+  const gitPath = cwdFsData?.gitPath;
+  const activeBranch = useActiveBranch(pickerInstanceName, gitPath, cwd ?? "");
 
   // --- Mutations ---
   const [prompt, setPrompt] = useState("");
@@ -366,6 +376,16 @@ function HomePage() {
                 initialPath={cwd}
               />
             </>
+          ) : null}
+
+          {/* Git branch dropdown */}
+          {isReady && gitPath && activeBranch ? (
+            <GitWorktreeMenu
+              instanceName={pickerInstanceName}
+              gitPath={gitPath}
+              activeBranch={activeBranch}
+              onSelect={(path) => setCwd(path)}
+            />
           ) : null}
         </div>
       </div>

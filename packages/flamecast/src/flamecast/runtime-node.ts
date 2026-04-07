@@ -307,6 +307,38 @@ export class NodeRuntime implements Runtime {
       return this.handleRuntimeFsSnapshot(originalUrl);
     }
 
+    if (
+      !this.explicitUrl &&
+      originalUrl.pathname === "/fs/git/branches" &&
+      request.method === "GET"
+    ) {
+      return handleGitBranches(this.getWorkspaceRoot(), originalUrl);
+    }
+
+    if (
+      !this.explicitUrl &&
+      originalUrl.pathname === "/fs/git/commits" &&
+      request.method === "GET"
+    ) {
+      return handleGitCommits(this.getWorkspaceRoot(), originalUrl);
+    }
+
+    if (
+      !this.explicitUrl &&
+      originalUrl.pathname === "/fs/git/worktrees" &&
+      request.method === "GET"
+    ) {
+      return handleGitWorktreesList(this.getWorkspaceRoot(), originalUrl);
+    }
+
+    if (
+      !this.explicitUrl &&
+      originalUrl.pathname === "/fs/git/worktrees" &&
+      request.method === "POST"
+    ) {
+      return handleGitWorktreeCreate(this.getWorkspaceRoot(), request);
+    }
+
     const baseUrl = await this.ensureRunning();
     const targetUrl = new URL(baseUrl);
     targetUrl.pathname = originalUrl.pathname;
@@ -532,6 +564,207 @@ async function findGitRoot(
     if (parent === cur) return null;
     cur = parent;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Git helpers — shell out to `git` for operations that need more than .git/ parsing
+// ---------------------------------------------------------------------------
+
+async function execGit(
+  args: string[],
+  cwd: string,
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const { execFile } = await import("node:child_process");
+  return new Promise((resolve) => {
+    execFile("git", args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      resolve({
+        stdout: typeof stdout === "string" ? stdout : "",
+        stderr: typeof stderr === "string" ? stderr : "",
+        exitCode: error ? 1 : 0,
+      });
+    });
+  });
+}
+
+async function handleGitBranches(workspaceRoot: string, url: URL): Promise<Response> {
+  const path = await import("node:path");
+  const requestedPath = url.searchParams.get("path");
+  const targetDir = requestedPath ? path.resolve(requestedPath) : workspaceRoot;
+
+  const { stdout, stderr, exitCode } = await execGit(
+    ["branch", "-a", "--format=%(refname:short)\t%(objectname:short)\t%(HEAD)"],
+    targetDir,
+  );
+  if (exitCode !== 0) {
+    return jsonResponse({ error: stderr.trim() || "Not a git repository" }, 400);
+  }
+
+  // Deduplicate: prefer origin/ branches, only include local if no remote equivalent.
+  // Strip "origin/" prefix from remote branch names for display.
+  const raw = stdout
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [name, sha, head] = line.split("\t");
+      return { name, sha, current: head === "*" };
+    });
+
+  const remotePrefix = "origin/";
+  const remoteNames = new Set<string>();
+  const localNames = new Set<string>();
+
+  for (const b of raw) {
+    if (b.name.startsWith(remotePrefix)) {
+      remoteNames.add(b.name.slice(remotePrefix.length));
+    } else {
+      localNames.add(b.name);
+    }
+  }
+
+  const branches: Array<{ name: string; sha: string; current: boolean; remote: boolean }> = [];
+
+  // Add remote branches first (stripped of origin/ prefix)
+  for (const b of raw) {
+    if (!b.name.startsWith(remotePrefix)) continue;
+    const shortName = b.name.slice(remotePrefix.length);
+    if (shortName === "HEAD") continue;
+    const localBranch = raw.find((l) => l.name === shortName);
+    branches.push({
+      name: shortName,
+      sha: b.sha,
+      current: localBranch?.current ?? false,
+      remote: true,
+    });
+  }
+
+  // Add local-only branches (no remote equivalent)
+  for (const b of raw) {
+    if (b.name.startsWith(remotePrefix)) continue;
+    if (remoteNames.has(b.name)) continue; // already included via remote
+    branches.push({ name: b.name, sha: b.sha, current: b.current, remote: false });
+  }
+
+  return jsonResponse({ branches });
+}
+
+async function handleGitCommits(workspaceRoot: string, url: URL): Promise<Response> {
+  const path = await import("node:path");
+  const requestedPath = url.searchParams.get("path");
+  const targetDir = requestedPath ? path.resolve(requestedPath) : workspaceRoot;
+
+  const branch = url.searchParams.get("branch") || "HEAD";
+  const limit = Math.min(parseInt(url.searchParams.get("limit") || "20", 10) || 20, 200);
+
+  const { stdout, stderr, exitCode } = await execGit(
+    ["log", branch, `--max-count=${limit}`, "--format=%H\t%h\t%an\t%ae\t%aI\t%s"],
+    targetDir,
+  );
+  if (exitCode !== 0) {
+    return jsonResponse({ error: stderr.trim() || "Failed to list commits" }, 400);
+  }
+
+  const commits = stdout
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [sha, shortSha, authorName, authorEmail, date, ...rest] = line.split("\t");
+      return { sha, shortSha, authorName, authorEmail, date, message: rest.join("\t") };
+    });
+
+  return jsonResponse({ branch, commits });
+}
+
+async function handleGitWorktreesList(workspaceRoot: string, url: URL): Promise<Response> {
+  const path = await import("node:path");
+  const requestedPath = url.searchParams.get("path");
+  const targetDir = requestedPath ? path.resolve(requestedPath) : workspaceRoot;
+
+  const { stdout, stderr, exitCode } = await execGit(
+    ["worktree", "list", "--porcelain"],
+    targetDir,
+  );
+  if (exitCode !== 0) {
+    return jsonResponse({ error: stderr.trim() || "Failed to list worktrees" }, 400);
+  }
+
+  const worktrees: Array<Record<string, string | boolean>> = [];
+  let current: Record<string, string | boolean> = {};
+  for (const line of stdout.split("\n")) {
+    if (line === "") {
+      if (Object.keys(current).length > 0) {
+        worktrees.push(current);
+        current = {};
+      }
+      continue;
+    }
+    if (line.startsWith("worktree ")) {
+      current.path = line.slice("worktree ".length);
+    } else if (line.startsWith("HEAD ")) {
+      current.sha = line.slice("HEAD ".length);
+    } else if (line.startsWith("branch ")) {
+      current.branch = line.slice("branch ".length).replace("refs/heads/", "");
+    } else if (line === "bare") {
+      current.bare = true;
+    } else if (line === "detached") {
+      current.detached = true;
+    }
+  }
+  if (Object.keys(current).length > 0) worktrees.push(current);
+
+  return jsonResponse({ worktrees });
+}
+
+async function handleGitWorktreeCreate(workspaceRoot: string, request: Request): Promise<Response> {
+  const pathMod = await import("node:path");
+
+  let body: {
+    path?: string;
+    name: string;
+    branch?: string;
+    newBranch?: boolean;
+    startPoint?: string;
+  };
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: "Invalid JSON body" }, 400);
+  }
+  if (!body.name) {
+    return jsonResponse({ error: "Missing 'name' field" }, 400);
+  }
+
+  const requestedPath = body.path;
+  const targetDir = requestedPath ? pathMod.resolve(requestedPath) : workspaceRoot;
+
+  // Place worktrees under {serverCwd}/worktrees/{repoDirectoryName}/{worktreeName}
+  const repoDirName = pathMod.basename(targetDir);
+  const worktreePath = pathMod.resolve(
+    workspaceRoot,
+    ".flamecast",
+    "worktrees",
+    repoDirName,
+    body.name,
+  );
+  // git worktree add <path> -b <new-branch> <start-point>
+  // git worktree add <path> <existing-branch>
+  const args = ["worktree", "add", worktreePath];
+  if (body.newBranch && body.branch) {
+    args.push("-b", body.branch);
+    if (body.startPoint) {
+      args.push(body.startPoint);
+    }
+  } else if (body.branch) {
+    args.push(body.branch);
+  }
+
+  const { stdout, stderr, exitCode } = await execGit(args, targetDir);
+  if (exitCode !== 0) {
+    return jsonResponse({ error: stderr.trim() || "Failed to create worktree" }, 400);
+  }
+
+  return jsonResponse({ path: worktreePath, message: stdout.trim() || "Worktree created" }, 201);
 }
 
 function resolveWorkspacePath(
