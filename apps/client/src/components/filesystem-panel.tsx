@@ -7,6 +7,7 @@ import {
   FileIcon,
   FolderIcon,
   FolderTreeIcon,
+  HomeIcon,
 } from "lucide-react";
 import type { FileSystemEntry } from "@flamecast/sdk/session";
 
@@ -137,6 +138,15 @@ export function FileSystemPanel({
             >
               <ArrowUpIcon className="size-3" />
               <span>Up</span>
+            </button>
+            <button
+              className="flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              onClick={() => onNavigate(workspaceRoot)}
+              title="Go to home directory"
+              type="button"
+            >
+              <HomeIcon className="size-3" />
+              <span>Home</span>
             </button>
           </div>
         )}

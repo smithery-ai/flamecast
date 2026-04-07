@@ -6,6 +6,7 @@ import {
   FileIcon,
   FolderIcon,
   FolderTreeIcon,
+  HomeIcon,
 } from "lucide-react";
 import type { FileSystemEntry } from "@flamecast/sdk/session";
 
@@ -90,6 +91,15 @@ export function RuntimeFileTree({
           >
             <ArrowUpIcon className="size-3" />
             <span>Up</span>
+          </button>
+          <button
+            className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            onClick={() => onNavigate(workspaceRoot)}
+            title="Go to home directory"
+            type="button"
+          >
+            <HomeIcon className="size-3" />
+            <span>Home</span>
           </button>
         </div>
       )}
