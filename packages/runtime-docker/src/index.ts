@@ -630,26 +630,17 @@ export class DockerRuntime implements Runtime {
 
     let entries = parseFindOutput(listResult.stdout);
     if (!showAllFiles) {
-      // Hide dotfiles
-      entries = entries.filter((entry) => !entry.path.startsWith("."));
-      // Apply .gitignore rules from workspace root
+      // Apply .gitignore rules from the directory being listed
       const gitIgnoreResult = await this.execInContainer(resolved.container, [
         "sh",
         "-lc",
-        `cat ${shellEscape(posix.join(workspaceRoot, ".gitignore"))}`,
+        `cat ${shellEscape(posix.join(targetDir, ".gitignore"))}`,
       ]);
       const rules = parseGitIgnoreRules(
         gitIgnoreResult.exitCode === 0 ? gitIgnoreResult.stdout : "",
       );
       if (rules.length > 0) {
-        // Compute relative prefix so gitignore patterns match subdirectory entries
-        const relativePrefix =
-          targetDir === workspaceRoot
-            ? ""
-            : posix.relative(workspaceRoot, targetDir) + "/";
-        entries = entries.filter(
-          (entry) => !isGitIgnored(relativePrefix + entry.path, rules),
-        );
+        entries = entries.filter((entry) => !isGitIgnored(entry.path, rules));
       }
     }
 

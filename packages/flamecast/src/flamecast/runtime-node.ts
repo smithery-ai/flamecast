@@ -364,17 +364,13 @@ export class NodeRuntime implements Runtime {
     const showAllFiles = url.searchParams.get("showAllFiles") === "true";
     const rules: GitIgnoreRule[] = [];
     if (!showAllFiles) {
+      // Read .gitignore from the directory being listed
       const gitIgnoreContents = await readFile(
-        path.join(workspaceRoot, ".gitignore"),
+        path.join(targetDir, ".gitignore"),
         "utf8",
       ).catch(() => "");
       rules.push(...parseGitIgnoreRules(gitIgnoreContents));
     }
-    // Relative prefix from workspace root to current dir (e.g. "src/")
-    const relativePrefix =
-      targetDir === workspaceRoot
-        ? ""
-        : path.relative(workspaceRoot, targetDir).split(path.sep).join("/") + "/";
     const entries: RuntimeEntry[] = [];
 
     const dirents = await readdir(targetDir, { withFileTypes: true }).catch(() => null);
@@ -382,8 +378,7 @@ export class NodeRuntime implements Runtime {
       dirents.sort((left, right) => left.name.localeCompare(right.name));
       for (const dirent of dirents) {
         const name = dirent.name;
-        if (!showAllFiles && name.startsWith(".")) continue;
-        if (!showAllFiles && rules.length > 0 && isGitIgnored(relativePrefix + name, rules))
+        if (!showAllFiles && rules.length > 0 && isGitIgnored(name, rules))
           continue;
         let type: RuntimeEntry["type"];
         if (dirent.isDirectory()) {

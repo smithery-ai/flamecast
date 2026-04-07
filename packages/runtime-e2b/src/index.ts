@@ -614,21 +614,13 @@ export class E2BRuntime implements Runtime {
       );
     }
     if (!showAllFiles) {
-      // Hide dotfiles
-      entries = entries.filter((entry) => !entry.path.startsWith("."));
-      // Apply .gitignore rules from workspace root
+      // Apply .gitignore rules from the directory being listed
       const gitIgnoreContents = await sandbox.files
-        .read(posix.join(this.workspace, ".gitignore"), { format: "text" })
+        .read(posix.join(targetDir, ".gitignore"), { format: "text" })
         .catch(() => "");
       const rules = parseGitIgnoreRules(gitIgnoreContents);
       if (rules.length > 0) {
-        const relativePrefix =
-          targetDir === this.workspace
-            ? ""
-            : posix.relative(this.workspace, targetDir) + "/";
-        entries = entries.filter(
-          (entry) => !isGitIgnored(relativePrefix + entry.path, rules),
-        );
+        entries = entries.filter((entry) => !isGitIgnored(entry.path, rules));
       }
     }
 
