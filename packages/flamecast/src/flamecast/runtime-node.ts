@@ -720,7 +720,7 @@ async function handleGitWorktreeCreate(
 ): Promise<Response> {
   const pathMod = await import("node:path");
 
-  let body: { path?: string; name: string; branch?: string; newBranch?: boolean };
+  let body: { path?: string; name: string; branch?: string; newBranch?: boolean; startPoint?: string };
   try {
     body = await request.json();
   } catch {
@@ -734,13 +734,16 @@ async function handleGitWorktreeCreate(
   const targetDir = requestedPath ? pathMod.resolve(requestedPath) : workspaceRoot;
 
   const worktreePath = pathMod.resolve(targetDir, "..", body.name);
+  // git worktree add <path> -b <new-branch> <start-point>
+  // git worktree add <path> <existing-branch>
   const args = ["worktree", "add", worktreePath];
-  if (body.branch) {
-    if (body.newBranch) {
-      args.push("-b", body.branch);
-    } else {
-      args.push(body.branch);
+  if (body.newBranch && body.branch) {
+    args.push("-b", body.branch);
+    if (body.startPoint) {
+      args.push(body.startPoint);
     }
+  } else if (body.branch) {
+    args.push(body.branch);
   }
 
   const { stdout, stderr, exitCode } = await execGit(args, targetDir);

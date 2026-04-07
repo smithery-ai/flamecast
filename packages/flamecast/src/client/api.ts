@@ -136,7 +136,7 @@ export type FlamecastClient = {
   ): Promise<GitWorktreesResponse>;
   createRuntimeGitWorktree(
     instanceName: string,
-    body: { name: string; path?: string; branch?: string; newBranch?: boolean },
+    body: { name: string; path?: string; branch?: string; newBranch?: boolean; startPoint?: string },
   ): Promise<GitWorktreeCreateResponse>;
 };
 

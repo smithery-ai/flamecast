@@ -45,8 +45,7 @@ export function GitWorktreePicker({
 }) {
   const [selection, setSelection] = useState<WorktreeSelection>({ kind: "current" });
   const [newWorktreeName, setNewWorktreeName] = useState("");
-  const [selectedBranch, setSelectedBranch] = useState<string>("main");
-  const [newBranch, setNewBranch] = useState(false);
+  const [baseBranch, setBaseBranch] = useState<string>("main");
 
   // Always fetch worktrees and branches immediately
   const worktreesQuery = useRuntimeGitWorktrees(instanceName, { path: gitPath });
@@ -60,13 +59,7 @@ export function GitWorktreePicker({
 
   const worktrees = worktreesQuery.data?.worktrees ?? [];
   const otherWorktrees = worktrees.filter((wt) => wt.path !== gitPath);
-
-  // Filter out branches that already have a worktree
-  const worktreeBranches = new Set(worktrees.map((wt) => wt.branch).filter(Boolean));
-  const availableBranches = useMemo(
-    () => (branchesQuery.data?.branches ?? []).filter((b) => !worktreeBranches.has(b.name)),
-    [branchesQuery.data, worktreeBranches],
-  );
+  const allBranches = branchesQuery.data?.branches ?? [];
 
   // Default to main/master once branches load
   useEffect(() => {
@@ -74,8 +67,7 @@ export function GitWorktreePicker({
     const branches = branchesQuery.data.branches;
     const main = branches.find((b) => b.name === "main") ?? branches.find((b) => b.name === "master");
     if (main) {
-      setSelectedBranch(main.name);
-      setNewBranch(false);
+      setBaseBranch(main.name);
     }
   }, [branchesQuery.data]);
 
@@ -85,20 +77,26 @@ export function GitWorktreePicker({
     } else if (selection.kind === "worktree") {
       onSelect(selection.path);
     } else if (selection.kind === "new") {
-      if (!newWorktreeName.trim()) {
+      const name = newWorktreeName.trim();
+      if (!name) {
         toast.error("Worktree name is required");
         return;
       }
+      // git worktree add ../name -b name baseBranch
+      // Creates a new branch `name` starting from `baseBranch`
       createWorktree.mutate(
         {
           path: gitPath,
-          name: newWorktreeName.trim(),
-          branch: selectedBranch || newWorktreeName.trim(),
-          newBranch,
+          name,
+          branch: name,
+          newBranch: true,
+          startPoint: baseBranch || undefined,
         },
         {
           onSuccess: (result) => {
+            setSelection({ kind: "worktree", path: result.path });
             onSelect(result.path);
+            setNewWorktreeName("");
           },
           onError: (err) => toast.error("Failed to create worktree", { description: err.message }),
         },
@@ -182,17 +180,17 @@ export function GitWorktreePicker({
               onChange={(e) => setNewWorktreeName(e.target.value)}
               className="h-7 text-xs"
             />
+            <p className="text-[10px] text-muted-foreground/60">
+              Also used as the new branch name
+            </p>
           </div>
           <div className="flex flex-col gap-1">
             <Label className="text-[10px] font-medium text-muted-foreground">Branch off of:</Label>
             <BranchCombobox
-              branches={availableBranches}
+              branches={allBranches}
               isLoading={branchesQuery.isLoading}
-              value={selectedBranch}
-              onChange={(value, isNew) => {
-                setSelectedBranch(value);
-                setNewBranch(isNew);
-              }}
+              value={baseBranch}
+              onChange={setBaseBranch}
             />
           </div>
         </div>
@@ -227,21 +225,19 @@ function BranchCombobox({
   branches: Array<{ name: string; sha: string; current: boolean; remote?: boolean }>;
   isLoading: boolean;
   value: string;
-  onChange: (value: string, isNew: boolean) => void;
+  onChange: (value: string) => void;
 }) {
-  const branchNames = useMemo(() => branches.map((b) => b.name), [branches]);
-
   return (
     <Combobox
       value={value}
       onValueChange={(val) => {
         if (val != null) {
-          onChange(String(val), !branchNames.includes(String(val)));
+          onChange(String(val));
         }
       }}
     >
       <ComboboxInput
-        placeholder={isLoading ? "Loading branches..." : "Search or type a new branch name..."}
+        placeholder={isLoading ? "Loading branches..." : "Search branches..."}
         disabled={isLoading}
         className="h-7 text-xs"
         showClear={false}

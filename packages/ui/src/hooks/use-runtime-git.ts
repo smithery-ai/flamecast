@@ -32,7 +32,7 @@ export function useCreateRuntimeGitWorktree(
   const client = useFlamecastClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; path?: string; branch?: string }) =>
+    mutationFn: (body: { name: string; path?: string; branch?: string; newBranch?: boolean; startPoint?: string }) =>
       client.createRuntimeGitWorktree(instanceName, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({
