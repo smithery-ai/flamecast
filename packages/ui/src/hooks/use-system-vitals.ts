@@ -30,13 +30,23 @@ export function useSystemVitals(websocketUrl?: string): SystemVitals | null {
     const ws = new WebSocket(websocketUrl);
     wsRef.current = ws;
 
+    ws.onopen = () => {
+      // If disposed before the socket opened, close immediately.
+      if (disposed) {
+        ws.close();
+        return;
+      }
+    };
+
     ws.onmessage = (event) => {
       if (disposed) return;
       try {
         const message: WsChannelServerMessage = JSON.parse(String(event.data));
 
         if (message.type === "connected") {
-          ws.send(JSON.stringify({ action: "subscribe", channel: "system:vitals" }));
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ action: "subscribe", channel: "system:vitals" }));
+          }
           return;
         }
 
@@ -63,7 +73,10 @@ export function useSystemVitals(websocketUrl?: string): SystemVitals | null {
     return () => {
       disposed = true;
       wsRef.current = null;
-      ws.close();
+      // Only close if the socket has finished connecting
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
+        ws.close();
+      }
     };
   }, [websocketUrl]);
 
