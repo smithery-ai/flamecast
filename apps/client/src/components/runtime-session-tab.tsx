@@ -115,19 +115,21 @@ export function RuntimeSessionTab({
     <ResizablePanelGroup className="min-h-0 flex-1">
       {/* Left: Conversation */}
       <ResizablePanel defaultSize={65} minSize={30}>
-        <SessionConversation
-          promptText={promptText}
-          setPromptText={setPromptText}
-          handleSend={handleSend}
-          logs={logs}
-          markdownSegments={markdownSegments}
-          isProcessing={isProcessing}
-          pendingPermissions={pendingPermissions}
-          respondToPermission={respondToPermission}
-          previewFilePath={previewFilePath}
-          onClosePreview={() => setPreviewFilePath(null)}
-          loadPreview={loadPreview}
-        />
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">
+          <SessionConversation
+            promptText={promptText}
+            setPromptText={setPromptText}
+            handleSend={handleSend}
+            logs={logs}
+            markdownSegments={markdownSegments}
+            isProcessing={isProcessing}
+            pendingPermissions={pendingPermissions}
+            respondToPermission={respondToPermission}
+            previewFilePath={previewFilePath}
+            onClosePreview={() => setPreviewFilePath(null)}
+            loadPreview={loadPreview}
+          />
+        </div>
       </ResizablePanel>
 
       <ResizableHandle />
