@@ -5,6 +5,8 @@ import {
   useStartRuntimeWithOptimisticUpdate,
   useTerminal,
   useFlamecastClient,
+  useTerminateSession,
+  useSessions,
 } from "@flamecast/ui";
 import { RuntimeFileTree } from "@/components/runtime-file-tree";
 import { RuntimeNewTab } from "@/components/runtime-new-tab";
@@ -25,7 +27,7 @@ import {
   GripHorizontalIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useState, useCallback, useRef, type MouseEvent as ReactMouseEvent } from "react";
+import { useState, useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { cn } from "@/lib/utils";
 import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
 
@@ -97,10 +99,29 @@ function RuntimeDetailPanel({
   const [showAllFiles, setShowAllFiles] = useState(false);
   const isRunning = instance.status === "running";
 
-  // Tab state
+  // Tab state — hydrate from active sessions on mount
+  const { data: sessions } = useSessions();
   const initialTab = useRef<Tab>({ id: makeTabId(), type: "new-tab" });
   const [tabs, setTabs] = useState<Tab[]>([initialTab.current]);
   const [activeTabId, setActiveTabId] = useState(initialTab.current.id);
+  const hydratedRef = useRef(false);
+
+  useEffect(() => {
+    if (hydratedRef.current || !sessions) return;
+    hydratedRef.current = true;
+    const instanceSessions = sessions.filter(
+      (s) => s.status === "active" && s.runtime === instance.name,
+    );
+    if (instanceSessions.length === 0) return;
+    const sessionTabs: Tab[] = instanceSessions.map((s) => ({
+      id: makeTabId(),
+      type: "session" as const,
+      sessionId: s.id,
+      label: s.agentName,
+    }));
+    setTabs(sessionTabs);
+    setActiveTabId(sessionTabs[0].id);
+  }, [sessions, instance.name]);
 
   const runtimeFsQuery = useRuntimeFileSystem(instance.name, {
     enabled: isRunning,
@@ -110,6 +131,8 @@ function RuntimeDetailPanel({
   const { terminals, sendInput, resize, onData, createTerminal, killTerminal } = useTerminal(
     isRunning ? instance.websocketUrl : undefined,
   );
+
+  const terminateMutation = useTerminateSession();
 
   const startMutation = useStartRuntimeWithOptimisticUpdate(runtimeInfo, {
     instanceName: instance.name,
@@ -173,6 +196,11 @@ function RuntimeDetailPanel({
       const idx = tabs.findIndex((t) => t.id === tabId);
       if (idx === -1) return;
 
+      const closedTab = tabs[idx];
+      if (closedTab.type === "session") {
+        terminateMutation.mutate(closedTab.sessionId);
+      }
+
       const next = tabs.filter((t) => t.id !== tabId);
 
       if (next.length === 0) {
@@ -188,7 +216,7 @@ function RuntimeDetailPanel({
         setActiveTabId(next[newIdx].id);
       }
     },
-    [tabs, activeTabId],
+    [tabs, activeTabId, terminateMutation],
   );
 
   const loadPreview = useCallback(
@@ -233,7 +261,7 @@ function RuntimeDetailPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <ResizablePanelGroup direction="horizontal" className="min-h-0 flex-1">
+      <ResizablePanelGroup className="min-h-0 flex-1">
         {/* ── Left: Tabs area ── */}
         <ResizablePanel defaultSize={65} minSize={30}>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden h-full">

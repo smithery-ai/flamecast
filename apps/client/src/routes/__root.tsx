@@ -11,7 +11,6 @@ export const Route = createRootRoute({
 function RootLayout() {
   const breadcrumbs = useRouterState({
     select: (state) => {
-      const sessionMatch = state.matches.find((m) => m.routeId === "/sessions/$id");
       const runtimeMatch = state.matches.find(
         (m) =>
           m.routeId === "/runtimes/$typeName/$instanceName" || m.routeId === "/runtimes/$typeName",
@@ -20,13 +19,10 @@ function RootLayout() {
         (m) => m.routeId === "/runtimes/$typeName/$instanceName",
       );
       const isAgents = state.matches.some((m) => m.routeId === "/agents");
-      const isSessionsIndex = state.matches.some((m) => m.routeId === "/sessions/");
       return {
-        sessionId: sessionMatch?.params.id,
         runtimeTypeName: runtimeMatch?.params.typeName,
         runtimeInstanceName: instanceMatch?.params.instanceName,
         isAgents,
-        isSessionsIndex,
       };
     },
   });
@@ -63,53 +59,19 @@ function BreadcrumbSeparator() {
 }
 
 function Breadcrumbs({
-  sessionId,
   runtimeTypeName,
   runtimeInstanceName,
   isAgents,
-  isSessionsIndex,
 }: {
-  sessionId?: string;
   runtimeTypeName?: string;
   runtimeInstanceName?: string;
   isAgents: boolean;
-  isSessionsIndex: boolean;
 }) {
   if (isAgents) {
     return (
       <>
         <BreadcrumbSeparator />
         <span className="font-medium">Agents</span>
-      </>
-    );
-  }
-
-  if (sessionId) {
-    return (
-      <>
-        <BreadcrumbSeparator />
-        <Link
-          to="/sessions"
-          className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
-        >
-          Sessions
-        </Link>
-        <BreadcrumbSeparator />
-        <span
-          className="min-w-0 truncate font-mono text-xs text-muted-foreground"
-          title={sessionId}
-        >
-          {sessionId}
-        </span>
-      </>
-    );
-  }
-
-  if (isSessionsIndex) {
-    return (
-      <>
-        <BreadcrumbSeparator />
-        <span className="font-medium">Sessions</span>
       </>
     );
   }
