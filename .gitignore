@@ -48,4 +48,5 @@ apps/client/src/routeTree.gen.ts
 apps/client/src/routeTree.gen.ts
 apps/client/.tanstack
 .vercel
+.wrangler/
 worker-configuration.d.ts
