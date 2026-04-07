@@ -251,8 +251,19 @@ export class NodeRuntime implements Runtime {
   }
 
   async fetchSession(sessionId: string, request: Request): Promise<Response> {
-    const baseUrl = await this.ensureRunning();
     const originalUrl = new URL(request.url);
+
+    // Handle filesystem snapshot locally (shallow, single-level listing)
+    // instead of proxying to the Go sidecar which may not support the path param.
+    if (!this.explicitUrl && originalUrl.pathname === "/fs/snapshot" && request.method === "GET") {
+      return this.handleRuntimeFsSnapshot(originalUrl);
+    }
+
+    if (!this.explicitUrl && originalUrl.pathname === "/files" && request.method === "GET") {
+      return this.handleRuntimeFilePreview(originalUrl);
+    }
+
+    const baseUrl = await this.ensureRunning();
     const targetUrl = new URL(baseUrl);
     targetUrl.pathname = `/sessions/${sessionId}${originalUrl.pathname}`;
     targetUrl.search = originalUrl.search;
