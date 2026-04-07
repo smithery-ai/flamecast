@@ -184,7 +184,7 @@ export function GitWorktreePicker({
             />
           </div>
           <div className="flex flex-col gap-1">
-            <Label className="text-[10px] font-medium text-muted-foreground">Branch</Label>
+            <Label className="text-[10px] font-medium text-muted-foreground">Branch off of:</Label>
             <BranchCombobox
               branches={availableBranches}
               isLoading={branchesQuery.isLoading}
