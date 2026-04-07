@@ -43,6 +43,7 @@ export type GitBranch = {
   name: string;
   sha: string;
   current: boolean;
+  remote: boolean;
 };
 
 export type GitBranchesResponse = {

@@ -586,7 +586,9 @@ async function handleGitBranches(
     return jsonResponse({ error: stderr.trim() || "Not a git repository" }, 400);
   }
 
-  const branches = stdout
+  // Deduplicate: prefer origin/ branches, only include local if no remote equivalent.
+  // Strip "origin/" prefix from remote branch names for display.
+  const raw = stdout
     .trim()
     .split("\n")
     .filter(Boolean)
@@ -594,6 +596,41 @@ async function handleGitBranches(
       const [name, sha, head] = line.split("\t");
       return { name, sha, current: head === "*" };
     });
+
+  const remotePrefix = "origin/";
+  const remoteNames = new Set<string>();
+  const localNames = new Set<string>();
+
+  for (const b of raw) {
+    if (b.name.startsWith(remotePrefix)) {
+      remoteNames.add(b.name.slice(remotePrefix.length));
+    } else {
+      localNames.add(b.name);
+    }
+  }
+
+  const branches: Array<{ name: string; sha: string; current: boolean; remote: boolean }> = [];
+
+  // Add remote branches first (stripped of origin/ prefix)
+  for (const b of raw) {
+    if (!b.name.startsWith(remotePrefix)) continue;
+    const shortName = b.name.slice(remotePrefix.length);
+    if (shortName === "HEAD") continue;
+    const localBranch = raw.find((l) => l.name === shortName);
+    branches.push({
+      name: shortName,
+      sha: b.sha,
+      current: localBranch?.current ?? false,
+      remote: true,
+    });
+  }
+
+  // Add local-only branches (no remote equivalent)
+  for (const b of raw) {
+    if (b.name.startsWith(remotePrefix)) continue;
+    if (remoteNames.has(b.name)) continue; // already included via remote
+    branches.push({ name: b.name, sha: b.sha, current: b.current, remote: false });
+  }
 
   return jsonResponse({ branches } as Record<string, unknown>);
 }

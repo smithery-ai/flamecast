@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   useRuntimeGitBranches,
   useRuntimeGitWorktrees,
@@ -45,7 +45,7 @@ export function GitWorktreePicker({
 }) {
   const [selection, setSelection] = useState<WorktreeSelection>({ kind: "current" });
   const [newWorktreeName, setNewWorktreeName] = useState("");
-  const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
+  const [selectedBranch, setSelectedBranch] = useState<string>("main");
   const [newBranch, setNewBranch] = useState(false);
 
   // Always fetch worktrees and branches immediately
@@ -67,6 +67,17 @@ export function GitWorktreePicker({
     () => (branchesQuery.data?.branches ?? []).filter((b) => !worktreeBranches.has(b.name)),
     [branchesQuery.data, worktreeBranches],
   );
+
+  // Default to main/master once branches load
+  useEffect(() => {
+    if (!branchesQuery.data) return;
+    const branches = branchesQuery.data.branches;
+    const main = branches.find((b) => b.name === "main") ?? branches.find((b) => b.name === "master");
+    if (main) {
+      setSelectedBranch(main.name);
+      setNewBranch(false);
+    }
+  }, [branchesQuery.data]);
 
   const handleApply = () => {
     if (selection.kind === "current") {
@@ -143,12 +154,10 @@ export function GitWorktreePicker({
               >
                 <RadioGroupItem value={`wt:${wt.path}`} />
                 <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate" dir="rtl">{wt.path}</span>
                 {wt.branch && (
-                  <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    {wt.branch}
-                  </span>
+                  <span className="shrink-0 font-medium">{wt.branch}</span>
                 )}
+                <span className="min-w-0 truncate text-muted-foreground" dir="rtl">{wt.path}</span>
               </label>
             ))}
 
@@ -215,42 +224,31 @@ function BranchCombobox({
   value,
   onChange,
 }: {
-  branches: Array<{ name: string; sha: string; current: boolean }>;
+  branches: Array<{ name: string; sha: string; current: boolean; remote?: boolean }>;
   isLoading: boolean;
-  value: string | null;
-  onChange: (value: string | null, isNew: boolean) => void;
+  value: string;
+  onChange: (value: string, isNew: boolean) => void;
 }) {
-  const [inputValue, setInputValue] = useState("");
-
-  const filtered = useMemo(() => {
-    if (!inputValue) return branches;
-    const lower = inputValue.toLowerCase();
-    return branches.filter((b) => b.name.toLowerCase().includes(lower));
-  }, [branches, inputValue]);
-
-  const exactMatch = branches.some((b) => b.name === inputValue);
+  const branchNames = useMemo(() => branches.map((b) => b.name), [branches]);
 
   return (
     <Combobox
       value={value}
       onValueChange={(val) => {
-        const branch = typeof val === "string" ? val : null;
-        onChange(branch, false);
+        if (val != null) {
+          onChange(String(val), !branchNames.includes(String(val)));
+        }
       }}
     >
       <ComboboxInput
         placeholder={isLoading ? "Loading branches..." : "Search or type a new branch name..."}
         disabled={isLoading}
         className="h-7 text-xs"
-        value={inputValue}
-        onChange={(e) => {
-          setInputValue(e.target.value);
-        }}
+        showClear={false}
       />
       <ComboboxContent>
         <ComboboxList>
-          {/* Existing branches */}
-          {filtered.map((b) => (
+          {branches.map((b) => (
             <ComboboxItem key={b.name} value={b.name} className="text-xs">
               <GitBranchIcon className="size-3 text-muted-foreground" />
               {b.name}
@@ -259,20 +257,9 @@ function BranchCombobox({
               )}
             </ComboboxItem>
           ))}
-          {/* Create new branch option when input doesn't match */}
-          {inputValue && !exactMatch && (
-            <ComboboxItem
-              value={inputValue}
-              className="text-xs"
-              onSelect={() => {
-                onChange(inputValue, true);
-              }}
-            >
-              <PlusIcon className="size-3 text-muted-foreground" />
-              Create branch &ldquo;{inputValue}&rdquo;
-            </ComboboxItem>
-          )}
-          <ComboboxEmpty>No branches found</ComboboxEmpty>
+          <ComboboxEmpty>
+            No branches found
+          </ComboboxEmpty>
         </ComboboxList>
       </ComboboxContent>
     </Combobox>
