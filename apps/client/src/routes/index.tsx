@@ -95,7 +95,7 @@ function HomePage() {
 
   // --- Git detection for selected directory ---
   const { data: cwdFsData } = useRuntimeFileSystem(pickerInstanceName, {
-    enabled: isReady && !!cwd,
+    enabled: !!cwd,
     path: cwd,
   });
   const gitPath = cwdFsData?.gitPath;
