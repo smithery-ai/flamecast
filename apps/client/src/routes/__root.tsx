@@ -1,8 +1,9 @@
 import { createRootRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { ChevronRightIcon } from "lucide-react";
+import { ChevronRightIcon, CpuIcon, MemoryStickIcon } from "lucide-react";
 import { SessionsSidebar } from "@/components/sessions-sidebar";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
+import { useRuntimes, useSystemVitals } from "@flamecast/ui";
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -27,6 +28,15 @@ function RootLayout() {
     },
   });
 
+  // Resolve the websocket URL for the current runtime instance (if any)
+  const { data: runtimes } = useRuntimes();
+  const websocketUrl = runtimes
+    ?.find((rt) => rt.typeName === breadcrumbs.runtimeTypeName)
+    ?.instances.find((i) => i.name === (breadcrumbs.runtimeInstanceName ?? breadcrumbs.runtimeTypeName))
+    ?.websocketUrl;
+
+  const vitals = useSystemVitals(websocketUrl);
+
   return (
     <>
       <SidebarProvider className="h-svh !min-h-0">
@@ -43,6 +53,7 @@ function RootLayout() {
               </Link>
               <Breadcrumbs {...breadcrumbs} />
             </nav>
+            {vitals && <SystemVitalsIndicator vitals={vitals} />}
           </header>
           <main className="flex min-h-0 flex-1 flex-col">
             <Outlet />
@@ -98,4 +109,32 @@ function Breadcrumbs({
   }
 
   return null;
+}
+
+// ─── System Vitals ────────────────────────────────────────────────────────────
+
+function vitalsColor(percent: number): string {
+  if (percent < 60) return "text-muted-foreground";
+  if (percent < 80) return "text-amber-500";
+  return "text-red-500";
+}
+
+function SystemVitalsIndicator({ vitals }: { vitals: { cpuPercent: number; memPercent: number; memUsedMB: number; memTotalMB: number } }) {
+  return (
+    <div className="flex shrink-0 items-center gap-3 text-xs tabular-nums text-muted-foreground">
+      <span className={`flex items-center gap-1 ${vitalsColor(vitals.cpuPercent)}`}>
+        <CpuIcon className="size-3.5" />
+        {vitals.cpuPercent.toFixed(0)}%
+      </span>
+      <span className={`flex items-center gap-1 ${vitalsColor(vitals.memPercent)}`}>
+        <MemoryStickIcon className="size-3.5" />
+        {formatMB(vitals.memUsedMB)}/{formatMB(vitals.memTotalMB)}
+      </span>
+    </div>
+  );
+}
+
+function formatMB(mb: number): string {
+  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+  return `${mb} MB`;
 }
