@@ -124,11 +124,7 @@ export function GitWorktreePicker({
     return (
       <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-xs">
         <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        {activeBranch ? (
-          <span className="font-medium">{selectedLabel ?? activeBranch}</span>
-        ) : (
-          <span className="text-muted-foreground">Git repository</span>
-        )}
+        <BranchBadge branch={selectedLabel ?? activeBranch ?? "unknown"} />
         <span className="min-w-0 truncate text-muted-foreground" dir="rtl">
           {selection.kind === "worktree" ? selection.path : currentPath}
         </span>
@@ -201,7 +197,7 @@ export function GitWorktreePicker({
               <RadioGroupItem value="current" />
               <FolderGit2Icon className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="shrink-0">Current directory</span>
-              <span className="min-w-0 truncate text-muted-foreground" dir="rtl">({currentPath})</span>
+              {activeBranch && <BranchBadge branch={activeBranch} />}
             </label>
 
             {/* Existing worktrees */}
@@ -212,10 +208,8 @@ export function GitWorktreePicker({
               >
                 <RadioGroupItem value={`wt:${wt.path}`} />
                 <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                {wt.branch && (
-                  <span className="shrink-0 font-medium">{wt.branch}</span>
-                )}
-                <span className="min-w-0 truncate text-muted-foreground" dir="rtl">{wt.path}</span>
+                <span className="min-w-0 truncate">{wt.path}</span>
+                {wt.branch && <BranchBadge branch={wt.branch} />}
               </label>
             ))}
 
@@ -273,6 +267,14 @@ export function GitWorktreePicker({
         </div>
       )}
     </div>
+  );
+}
+
+function BranchBadge({ branch }: { branch: string }) {
+  return (
+    <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+      {branch}
+    </span>
   );
 }
 
