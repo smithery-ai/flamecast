@@ -21,6 +21,7 @@ import (
 	"github.com/smithery-ai/flamecast/packages/session-host-go/acp"
 	"github.com/smithery-ai/flamecast/packages/session-host-go/filewatcher"
 	"github.com/smithery-ai/flamecast/packages/session-host-go/terminal"
+	"github.com/smithery-ai/flamecast/packages/session-host-go/vitals"
 	"github.com/smithery-ai/flamecast/packages/session-host-go/ws"
 )
 
@@ -968,6 +969,13 @@ func main() {
 		}, now)
 	})
 
+	// System vitals publisher (CPU, memory) every 3 seconds
+	vitalsPublisher := vitals.NewPublisher(3*time.Second, func(data map[string]any) {
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		hub.PublishSystemEvent("system.vitals", data, now)
+	})
+	vitalsPublisher.Start()
+
 	// Set up channel-based control handler
 	hub.SetControlHandler(func(clientID string, msg json.RawMessage) {
 		handleChannelControl(clientID, msg, registry, hub, runtimeTerminals)
@@ -1166,6 +1174,7 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
+		vitalsPublisher.Stop()
 		runtimeTerminals.ReleaseAll()
 		registry.terminateAll()
 		_ = ln.Close()

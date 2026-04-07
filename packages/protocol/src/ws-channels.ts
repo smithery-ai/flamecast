@@ -40,6 +40,27 @@ export interface WsChannelEventMessage {
   };
 }
 
+/** System-level event (no sessionId/agentId), e.g. system.vitals. */
+export interface WsSystemEventMessage {
+  type: "event";
+  channel: Channel;
+  seq: number;
+  event: {
+    type: string;
+    data: Record<string, unknown>;
+    timestamp: string;
+  };
+}
+
+/** Typed payload for system.vitals events. */
+export interface SystemVitalsData {
+  cpuPercent: number;
+  memTotalMB: number;
+  memUsedMB: number;
+  memPercent: number;
+  memAvailMB: number;
+}
+
 export interface WsSessionCreatedMessage {
   type: "session.created";
   sessionId: string;
@@ -67,6 +88,7 @@ export type WsChannelServerMessage =
   | WsSubscribedMessage
   | WsUnsubscribedMessage
   | WsChannelEventMessage
+  | WsSystemEventMessage
   | WsSessionCreatedMessage
   | WsSessionTerminatedMessage
   | WsChannelErrorMessage

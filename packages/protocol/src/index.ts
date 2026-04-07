@@ -86,6 +86,8 @@ export type {
   WsSubscribedMessage,
   WsUnsubscribedMessage,
   WsChannelEventMessage,
+  WsSystemEventMessage,
+  SystemVitalsData,
   WsSessionCreatedMessage,
   WsSessionTerminatedMessage,
   WsChannelErrorMessage,

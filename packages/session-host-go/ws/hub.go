@@ -381,6 +381,42 @@ func (h *Hub) PublishTerminalEvent(eventType string, data map[string]any, timest
 	return seq
 }
 
+// PublishSystemEvent broadcasts a system-level event (e.g. system.vitals)
+// to clients subscribed to "system" or "system:vitals".
+func (h *Hub) PublishSystemEvent(eventType string, data map[string]any, timestamp string) int64 {
+	channels := []string{"system:vitals", "system"}
+	primaryChannel := channels[0]
+	seq := h.seq.Add(1)
+
+	msg := map[string]any{
+		"type":    "event",
+		"channel": primaryChannel,
+		"seq":     seq,
+		"event": map[string]any{
+			"type":      eventType,
+			"data":      data,
+			"timestamp": timestamp,
+		},
+	}
+	raw, _ := json.Marshal(msg)
+
+	// Broadcast to matching subscribers (no log storage — vitals are ephemeral)
+	h.mu.RLock()
+	clients := make([]*client, 0, len(h.clients))
+	for _, c := range h.clients {
+		clients = append(clients, c)
+	}
+	h.mu.RUnlock()
+
+	for _, c := range clients {
+		if h.clientMatchesEvent(c, channels) {
+			_, _ = c.conn.Write(raw)
+		}
+	}
+
+	return seq
+}
+
 // ---------- Legacy compat (used during transition) ----------
 
 // Broadcast sends a JSON message to ALL connected clients (no channel filtering).
