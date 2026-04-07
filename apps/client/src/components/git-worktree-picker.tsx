@@ -125,27 +125,23 @@ export function GitWorktreePicker({
       <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-xs">
         <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <BranchBadge branch={selectedLabel ?? activeBranch ?? "unknown"} />
-        <span className="min-w-0 truncate text-muted-foreground" dir="rtl">
-          {selection.kind === "worktree" ? selection.path : currentPath}
-        </span>
-        {otherWorktrees.length > 0 ? (
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <button
             type="button"
-            className="ml-auto flex shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
             onClick={() => setExpanded(true)}
           >
             Select worktree
           </button>
-        ) : (
           <button
             type="button"
-            className="ml-auto flex shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
             onClick={() => { setExpanded(true); setSelection({ kind: "new" }); }}
           >
             <PlusIcon className="size-3" />
-            Create new worktree
+            New worktree
           </button>
-        )}
+        </div>
       </div>
     );
   }
