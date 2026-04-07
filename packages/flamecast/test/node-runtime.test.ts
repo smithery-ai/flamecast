@@ -166,7 +166,8 @@ describe("NodeRuntime", () => {
     expect(visibleSnapshot.root).toBe(process.cwd());
     expect(visibleSnapshot.path).toBe(process.cwd());
     // Single-level listing: only direct children, names only
-    expect(visibleSnapshot.entries.map((entry) => entry.path)).toContain(".gitignore");
+    // Dotfiles and gitignored entries are hidden
+    expect(visibleSnapshot.entries.map((entry) => entry.path)).not.toContain(".gitignore");
     expect(visibleSnapshot.entries.map((entry) => entry.path)).toContain("src");
     expect(visibleSnapshot.entries.map((entry) => entry.path)).not.toContain("src/index.ts");
     expect(visibleSnapshot.entries.map((entry) => entry.path)).not.toContain("ignored");
@@ -179,7 +180,8 @@ describe("NodeRuntime", () => {
 
     expect(allFilesResponse.status).toBe(200);
     const fullSnapshot: { entries: Array<{ path: string }> } = await allFilesResponse.json();
-    // With showAllFiles, ignored entries are visible at root level
+    // With showAllFiles, dotfiles, ignored entries all visible
+    expect(fullSnapshot.entries.map((entry) => entry.path)).toContain(".gitignore");
     expect(fullSnapshot.entries.map((entry) => entry.path)).toContain("ignored");
     expect(fullSnapshot.entries.map((entry) => entry.path)).toContain("secret.txt");
     // But nested paths are NOT returned (single-level listing)

@@ -629,7 +629,10 @@ export class DockerRuntime implements Runtime {
     }
 
     let entries = parseFindOutput(listResult.stdout);
-    if (!showAllFiles && targetDir === workspaceRoot) {
+    if (!showAllFiles) {
+      // Hide dotfiles
+      entries = entries.filter((entry) => !entry.path.startsWith("."));
+      // Apply .gitignore rules from workspace root
       const gitIgnoreResult = await this.execInContainer(resolved.container, [
         "sh",
         "-lc",
@@ -638,7 +641,16 @@ export class DockerRuntime implements Runtime {
       const rules = parseGitIgnoreRules(
         gitIgnoreResult.exitCode === 0 ? gitIgnoreResult.stdout : "",
       );
-      entries = entries.filter((entry) => !isGitIgnored(entry.path, rules));
+      if (rules.length > 0) {
+        // Compute relative prefix so gitignore patterns match subdirectory entries
+        const relativePrefix =
+          targetDir === workspaceRoot
+            ? ""
+            : posix.relative(workspaceRoot, targetDir) + "/";
+        entries = entries.filter(
+          (entry) => !isGitIgnored(relativePrefix + entry.path, rules),
+        );
+      }
     }
 
     const maxEntries = 10_000;
