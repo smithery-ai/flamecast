@@ -9,7 +9,7 @@ import { sessionLogsToSegments } from "../lib/logs-markdown.js";
 export function useSessionState(sessionId: string, opts?: { showAllFiles?: boolean }) {
   const [showAllFiles, setShowAllFiles] = useState(opts?.showAllFiles ?? false);
 
-  const sessionQuery = useSession(sessionId, { showAllFiles });
+  const sessionQuery = useSession(sessionId);
   const session = sessionQuery.data;
 
   const {
