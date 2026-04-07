@@ -18,11 +18,6 @@ func eventToChannels(sessionID, agentID, eventType string, data map[string]any) 
 		channels = append(channels, "session:"+sessionID+":queue")
 	}
 
-	if isFsEvent(eventType, data) {
-		channels = append(channels, "session:"+sessionID+":fs")
-		channels = append(channels, "agent:"+agentID+":fs")
-	}
-
 	channels = append(channels, "session:"+sessionID)
 	channels = append(channels, "agent:"+agentID)
 	channels = append(channels, "agents")
@@ -45,14 +40,6 @@ var queueTypes = map[string]bool{
 	"queue.updated": true,
 	"queue.paused":  true,
 	"queue.resumed": true,
-}
-
-var fsTypes = map[string]bool{
-	"filesystem.changed":  true,
-	"filesystem.snapshot": true,
-	"file.preview":        true,
-	"fs.read_text_file":   true,
-	"fs.write_text_file":  true,
 }
 
 func isTerminalEvent(eventType string, data map[string]any) bool {
@@ -79,17 +66,6 @@ func isQueueEvent(eventType string, data map[string]any) bool {
 	return false
 }
 
-func isFsEvent(eventType string, data map[string]any) bool {
-	if fsTypes[eventType] {
-		return true
-	}
-	if eventType == "rpc" {
-		if method, ok := data["method"].(string); ok && fsTypes[method] {
-			return true
-		}
-	}
-	return false
-}
 
 // channelMatches returns true if a channel matches a subscription.
 // A subscription to "session:abc" matches "session:abc" exactly, as well as

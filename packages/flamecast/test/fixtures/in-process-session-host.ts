@@ -12,7 +12,6 @@ import type {
   SessionHostStartRequest,
   SessionHostStartResponse,
   PermissionRequestEvent,
-  FilesystemSnapshotEvent,
 } from "@flamecast/protocol/session-host";
 
 // ---------------------------------------------------------------------------
@@ -26,10 +25,6 @@ interface FakeAgentConfig {
   responseText?: string;
   /** How to handle permission requests: emit one and auto-resolve, or skip. */
   permissionBehavior?: PermissionBehavior;
-  /** If true, emit a filesystem snapshot after start. */
-  emitFilesystemSnapshot?: boolean;
-  /** Custom filesystem entries for the snapshot. */
-  filesystemEntries?: Array<{ path: string; type: "file" | "directory" | "symlink" | "other" }>;
 }
 
 interface ManagedSession {
@@ -64,8 +59,6 @@ export class InProcessSessionHost implements Runtime {
     this.agentConfig = {
       responseText: config.responseText ?? "I am a fake ACP agent. How can I help?",
       permissionBehavior: config.permissionBehavior ?? "none",
-      emitFilesystemSnapshot: config.emitFilesystemSnapshot ?? false,
-      filesystemEntries: config.filesystemEntries,
     };
   }
 
@@ -272,21 +265,6 @@ export class InProcessSessionHost implements Runtime {
     };
 
     session.events.push({ type: "session_started", data: { sessionId } });
-
-    // Emit filesystem snapshot if configured
-    if (this.agentConfig.emitFilesystemSnapshot) {
-      const snapshot: FilesystemSnapshotEvent = {
-        snapshot: {
-          root: body.workspace ?? "/workspace",
-          entries: this.agentConfig.filesystemEntries ?? [
-            { path: "src/index.ts", type: "file" },
-            { path: "package.json", type: "file" },
-            { path: "node_modules", type: "directory" },
-          ],
-        },
-      };
-      session.events.push({ type: "filesystem_snapshot", data: snapshot });
-    }
 
     // If configured, emit an initial permission request
     if (this.agentConfig.permissionBehavior !== "none") {

@@ -4,7 +4,6 @@ import {
   resolveAgentId,
   isTerminalChannelEvent,
   isQueueChannelEvent,
-  isFsChannelEvent,
   type ChannelEvent,
 } from "../src/flamecast/events/channels.js";
 
@@ -89,25 +88,6 @@ describe("eventToChannels", () => {
     }
   });
 
-  it("routes filesystem events to fs sub-channels", () => {
-    const event = makeEvent({
-      agentId: "agent-A",
-      event: { type: "filesystem.changed", data: {}, timestamp: "" },
-    });
-    const channels = eventToChannels(event);
-    expect(channels).toContain("session:sess-1:fs");
-    expect(channels).toContain("agent:agent-A:fs");
-    expect(channels).toContain("session:sess-1");
-    expect(channels).toContain("agent:agent-A");
-  });
-
-  it("routes file.preview to fs sub-channel", () => {
-    const event = makeEvent({
-      event: { type: "file.preview", data: {}, timestamp: "" },
-    });
-    expect(eventToChannels(event)).toContain("session:sess-1:fs");
-  });
-
   it("routes unknown event types to session + agent only", () => {
     const event = makeEvent({
       event: { type: "some_unknown_event", data: {}, timestamp: "" },
@@ -137,15 +117,6 @@ describe("eventToChannels", () => {
     expect(channels.indexOf("agent:agent-A")).toBeLessThan(channels.indexOf("agents"));
   });
 
-  it("handles event matching multiple sub-channels (fs events go to agent:fs too)", () => {
-    const event = makeEvent({
-      agentId: "agent-A",
-      event: { type: "filesystem.snapshot", data: {}, timestamp: "" },
-    });
-    const channels = eventToChannels(event);
-    expect(channels).toContain("session:sess-1:fs");
-    expect(channels).toContain("agent:agent-A:fs");
-  });
 });
 
 describe("classification helpers", () => {
@@ -178,19 +149,4 @@ describe("classification helpers", () => {
     ).toBe(false);
   });
 
-  it("isFsChannelEvent", () => {
-    expect(
-      isFsChannelEvent(
-        makeEvent({ event: { type: "filesystem.changed", data: {}, timestamp: "" } }),
-      ),
-    ).toBe(true);
-    expect(
-      isFsChannelEvent(makeEvent({ event: { type: "file.preview", data: {}, timestamp: "" } })),
-    ).toBe(true);
-    expect(
-      isFsChannelEvent(
-        makeEvent({ event: { type: "rpc", data: { method: "session.update" }, timestamp: "" } }),
-      ),
-    ).toBe(false);
-  });
 });

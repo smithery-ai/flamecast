@@ -230,12 +230,5 @@ describe("EventBus", () => {
       expect(bus.getHistory("s1")).toHaveLength(2);
     });
 
-    it("enforces snapshot cap for filesystem events", () => {
-      const bus = new EventBus({ historyCaps: { snapshot: 2 } });
-      for (let i = 0; i < 5; i++) {
-        bus.pushEvent(makeRawEvent("s1", "filesystem.changed"));
-      }
-      expect(bus.getHistory("s1")).toHaveLength(2);
-    });
   });
 });

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Shared types for filesystem entries (used by snapshot events)
+// Shared types for filesystem entries (used by REST API snapshots)
 // ---------------------------------------------------------------------------
 
 export interface FileSystemEntry {
@@ -19,18 +19,6 @@ export interface PermissionRequestEvent {
   options: Array<{ optionId: string; name: string; kind: string }>;
 }
 
-export interface FilesystemSnapshotEvent {
-  snapshot: {
-    root: string;
-    entries: FileSystemEntry[];
-  };
-}
-
-export interface FilePreviewEvent {
-  path: string;
-  content: string;
-}
-
 // ---------------------------------------------------------------------------
 // Client → SessionHost actions
 // ---------------------------------------------------------------------------
@@ -39,16 +27,6 @@ export interface PermissionRespondAction {
   action: "permission.respond";
   requestId: string;
   response: { optionId: string };
-}
-
-export interface FsSnapshotAction {
-  action: "fs.snapshot";
-  path?: string;
-}
-
-export interface FilePreviewAction {
-  action: "file.preview";
-  path: string;
 }
 
 // ---------------------------------------------------------------------------

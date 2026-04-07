@@ -34,7 +34,7 @@ interface EventBusHistoryCaps {
   terminal: number;
   /** Cap for RPC / conversation events (streaming tokens). */
   rpc: number;
-  /** Cap for queue + filesystem events (low-frequency snapshots). */
+  /** Cap for queue events (low-frequency snapshots). */
   snapshot: number;
 }
 
@@ -238,15 +238,7 @@ export class EventBus {
       return "terminal";
     }
 
-    if (
-      type.startsWith("queue.") ||
-      type.startsWith("filesystem.") ||
-      type === "file.preview" ||
-      (method &&
-        (method.startsWith("queue.") ||
-          method.startsWith("filesystem.") ||
-          method === "file.preview"))
-    ) {
+    if (type.startsWith("queue.") || (method && method.startsWith("queue."))) {
       return "snapshot";
     }
 
