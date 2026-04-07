@@ -95,7 +95,6 @@ export function GitWorktreePicker({
         {
           onSuccess: (result) => {
             setSelection({ kind: "worktree", path: result.path });
-            onSelect(result.path);
             setNewWorktreeName("");
           },
           onError: (err) => toast.error("Failed to create worktree", { description: err.message }),
