@@ -128,26 +128,24 @@ export function GitWorktreePicker({
             }}
           >
             {/* Current directory option */}
-            <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/50">
+            <label className="flex cursor-pointer items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/50">
               <RadioGroupItem value="current" />
               <FolderGit2Icon className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 truncate">
-                Current directory
-                <span className="ml-1 text-muted-foreground">({currentPath})</span>
-              </span>
+              <span className="shrink-0">Current directory</span>
+              <span className="min-w-0 truncate text-muted-foreground" dir="rtl">({currentPath})</span>
             </label>
 
             {/* Existing worktrees */}
             {otherWorktrees.map((wt) => (
               <label
                 key={wt.path}
-                className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/50"
+                className="flex cursor-pointer items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/50"
               >
                 <RadioGroupItem value={`wt:${wt.path}`} />
                 <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate">{wt.path}</span>
+                <span className="min-w-0 truncate" dir="rtl">{wt.path}</span>
                 {wt.branch && (
-                  <span className="ml-auto shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                     {wt.branch}
                   </span>
                 )}
