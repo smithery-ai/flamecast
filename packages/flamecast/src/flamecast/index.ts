@@ -589,14 +589,10 @@ export class Flamecast<
     opts: { method?: string; body?: string } = {},
   ): Promise<Record<string, unknown>> {
     await this.ensureReady();
-    const response = await this.proxyRuntimeInstanceRequest(
-      instanceName,
-      `/fs/git/${subpath}`,
-      {
-        method: opts.method ?? "GET",
-        ...(opts.body ? { body: opts.body } : {}),
-      },
-    );
+    const response = await this.proxyRuntimeInstanceRequest(instanceName, `/fs/git/${subpath}`, {
+      method: opts.method ?? "GET",
+      ...(opts.body ? { body: opts.body } : {}),
+    });
     if (!response.ok) {
       const detail = await readProxyErrorDetail(response);
       throw new ProxyRequestError(response.status, detail);

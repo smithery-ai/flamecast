@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { DirectoryPicker } from "@/components/directory-picker";
 import { GitWorktreeMenu, useActiveBranch } from "@/components/git-worktree-picker";
-import { LoaderCircleIcon, PlayIcon, TerminalIcon, FolderOpenIcon } from "lucide-react";
+import { PlayIcon, TerminalIcon, FolderOpenIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useCallback } from "react";
 import type { AgentTemplate } from "@flamecast/sdk/session";
@@ -96,7 +96,6 @@ export function RuntimeNewTab({
                 <GitWorktreeMenu
                   instanceName={instanceName}
                   gitPath={gitPath}
-                  currentPath={cwd ?? defaultCwd ?? gitPath}
                   activeBranch={activeBranch}
                   onSelect={(path) => setCwd(path)}
                 />

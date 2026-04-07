@@ -307,19 +307,35 @@ export class NodeRuntime implements Runtime {
       return this.handleRuntimeFsSnapshot(originalUrl);
     }
 
-    if (!this.explicitUrl && originalUrl.pathname === "/fs/git/branches" && request.method === "GET") {
+    if (
+      !this.explicitUrl &&
+      originalUrl.pathname === "/fs/git/branches" &&
+      request.method === "GET"
+    ) {
       return handleGitBranches(this.getWorkspaceRoot(), originalUrl);
     }
 
-    if (!this.explicitUrl && originalUrl.pathname === "/fs/git/commits" && request.method === "GET") {
+    if (
+      !this.explicitUrl &&
+      originalUrl.pathname === "/fs/git/commits" &&
+      request.method === "GET"
+    ) {
       return handleGitCommits(this.getWorkspaceRoot(), originalUrl);
     }
 
-    if (!this.explicitUrl && originalUrl.pathname === "/fs/git/worktrees" && request.method === "GET") {
+    if (
+      !this.explicitUrl &&
+      originalUrl.pathname === "/fs/git/worktrees" &&
+      request.method === "GET"
+    ) {
       return handleGitWorktreesList(this.getWorkspaceRoot(), originalUrl);
     }
 
-    if (!this.explicitUrl && originalUrl.pathname === "/fs/git/worktrees" && request.method === "POST") {
+    if (
+      !this.explicitUrl &&
+      originalUrl.pathname === "/fs/git/worktrees" &&
+      request.method === "POST"
+    ) {
       return handleGitWorktreeCreate(this.getWorkspaceRoot(), request);
     }
 
@@ -570,10 +586,7 @@ async function execGit(
   });
 }
 
-async function handleGitBranches(
-  workspaceRoot: string,
-  url: URL,
-): Promise<Response> {
+async function handleGitBranches(workspaceRoot: string, url: URL): Promise<Response> {
   const path = await import("node:path");
   const requestedPath = url.searchParams.get("path");
   const targetDir = requestedPath ? path.resolve(requestedPath) : workspaceRoot;
@@ -632,13 +645,10 @@ async function handleGitBranches(
     branches.push({ name: b.name, sha: b.sha, current: b.current, remote: false });
   }
 
-  return jsonResponse({ branches } as Record<string, unknown>);
+  return jsonResponse({ branches });
 }
 
-async function handleGitCommits(
-  workspaceRoot: string,
-  url: URL,
-): Promise<Response> {
+async function handleGitCommits(workspaceRoot: string, url: URL): Promise<Response> {
   const path = await import("node:path");
   const requestedPath = url.searchParams.get("path");
   const targetDir = requestedPath ? path.resolve(requestedPath) : workspaceRoot;
@@ -647,12 +657,7 @@ async function handleGitCommits(
   const limit = Math.min(parseInt(url.searchParams.get("limit") || "20", 10) || 20, 200);
 
   const { stdout, stderr, exitCode } = await execGit(
-    [
-      "log",
-      branch,
-      `--max-count=${limit}`,
-      "--format=%H\t%h\t%an\t%ae\t%aI\t%s",
-    ],
+    ["log", branch, `--max-count=${limit}`, "--format=%H\t%h\t%an\t%ae\t%aI\t%s"],
     targetDir,
   );
   if (exitCode !== 0) {
@@ -668,13 +673,10 @@ async function handleGitCommits(
       return { sha, shortSha, authorName, authorEmail, date, message: rest.join("\t") };
     });
 
-  return jsonResponse({ branch, commits } as Record<string, unknown>);
+  return jsonResponse({ branch, commits });
 }
 
-async function handleGitWorktreesList(
-  workspaceRoot: string,
-  url: URL,
-): Promise<Response> {
+async function handleGitWorktreesList(workspaceRoot: string, url: URL): Promise<Response> {
   const path = await import("node:path");
   const requestedPath = url.searchParams.get("path");
   const targetDir = requestedPath ? path.resolve(requestedPath) : workspaceRoot;
@@ -711,16 +713,19 @@ async function handleGitWorktreesList(
   }
   if (Object.keys(current).length > 0) worktrees.push(current);
 
-  return jsonResponse({ worktrees } as Record<string, unknown>);
+  return jsonResponse({ worktrees });
 }
 
-async function handleGitWorktreeCreate(
-  workspaceRoot: string,
-  request: Request,
-): Promise<Response> {
+async function handleGitWorktreeCreate(workspaceRoot: string, request: Request): Promise<Response> {
   const pathMod = await import("node:path");
 
-  let body: { path?: string; name: string; branch?: string; newBranch?: boolean; startPoint?: string };
+  let body: {
+    path?: string;
+    name: string;
+    branch?: string;
+    newBranch?: boolean;
+    startPoint?: string;
+  };
   try {
     body = await request.json();
   } catch {
@@ -735,7 +740,13 @@ async function handleGitWorktreeCreate(
 
   // Place worktrees under {serverCwd}/worktrees/{repoDirectoryName}/{worktreeName}
   const repoDirName = pathMod.basename(targetDir);
-  const worktreePath = pathMod.resolve(workspaceRoot, ".flamecast", "worktrees", repoDirName, body.name);
+  const worktreePath = pathMod.resolve(
+    workspaceRoot,
+    ".flamecast",
+    "worktrees",
+    repoDirName,
+    body.name,
+  );
   // git worktree add <path> -b <new-branch> <start-point>
   // git worktree add <path> <existing-branch>
   const args = ["worktree", "add", worktreePath];
@@ -753,10 +764,7 @@ async function handleGitWorktreeCreate(
     return jsonResponse({ error: stderr.trim() || "Failed to create worktree" }, 400);
   }
 
-  return jsonResponse(
-    { path: worktreePath, message: stdout.trim() || "Worktree created" },
-    201,
-  );
+  return jsonResponse({ path: worktreePath, message: stdout.trim() || "Worktree created" }, 201);
 }
 
 function resolveWorkspacePath(

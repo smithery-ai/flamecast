@@ -383,7 +383,6 @@ function HomePage() {
             <GitWorktreeMenu
               instanceName={pickerInstanceName}
               gitPath={gitPath}
-              currentPath={cwd ?? gitPath}
               activeBranch={activeBranch}
               onSelect={(path) => setCwd(path)}
             />

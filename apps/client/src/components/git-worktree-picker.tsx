@@ -31,13 +31,11 @@ type View = "list" | "create";
 export function GitWorktreeMenu({
   instanceName,
   gitPath,
-  currentPath,
   activeBranch,
   onSelect,
 }: {
   instanceName: string;
   gitPath: string;
-  currentPath: string;
   activeBranch: string;
   onSelect: (absolutePath: string) => void;
 }) {
@@ -60,9 +58,7 @@ export function GitWorktreeMenu({
     if (!search) return worktrees;
     const lower = search.toLowerCase();
     return worktrees.filter(
-      (wt) =>
-        wt.branch?.toLowerCase().includes(lower) ||
-        wt.path?.toLowerCase().includes(lower),
+      (wt) => wt.branch?.toLowerCase().includes(lower) || wt.path?.toLowerCase().includes(lower),
     );
   }, [worktrees, search]);
 
@@ -118,9 +114,7 @@ export function GitWorktreeMenu({
                   Loading...
                 </div>
               ) : filtered.length === 0 ? (
-                <p className="py-4 text-center text-xs text-muted-foreground">
-                  No worktrees found
-                </p>
+                <p className="py-4 text-center text-xs text-muted-foreground">No worktrees found</p>
               ) : (
                 filtered.map((wt) => (
                   <button
@@ -133,10 +127,14 @@ export function GitWorktreeMenu({
                     {wt.branch ? (
                       <>
                         <span className="shrink-0 font-medium">{wt.branch}</span>
-                        <span className="min-w-0 truncate text-muted-foreground" dir="rtl">{wt.path}</span>
+                        <span className="min-w-0 truncate text-muted-foreground" dir="rtl">
+                          {wt.path}
+                        </span>
                       </>
                     ) : (
-                      <span className="min-w-0 truncate" dir="rtl">{wt.path}</span>
+                      <span className="min-w-0 truncate" dir="rtl">
+                        {wt.path}
+                      </span>
                     )}
                   </button>
                 ))
@@ -183,7 +181,8 @@ function CreateWorktreeView({
   useEffect(() => {
     if (!branchesQuery.data) return;
     const branches = branchesQuery.data.branches;
-    const main = branches.find((b) => b.name === "main") ?? branches.find((b) => b.name === "master");
+    const main =
+      branches.find((b) => b.name === "main") ?? branches.find((b) => b.name === "master");
     if (main) setBaseBranch(main.name);
   }, [branchesQuery.data]);
 
@@ -232,9 +231,7 @@ function CreateWorktreeView({
             className="h-7 text-xs"
             autoFocus
           />
-          <p className="text-[10px] text-muted-foreground/60">
-            Also used as the new branch name
-          </p>
+          <p className="text-[10px] text-muted-foreground/60">Also used as the new branch name</p>
         </div>
         <div className="flex flex-col gap-1">
           <Label className="text-[10px] font-medium text-muted-foreground">Branch off of:</Label>
@@ -318,9 +315,7 @@ function BranchCombobox({
               )}
             </ComboboxItem>
           ))}
-          <ComboboxEmpty>
-            No branches found
-          </ComboboxEmpty>
+          <ComboboxEmpty>No branches found</ComboboxEmpty>
         </ComboboxList>
       </ComboboxContent>
     </Combobox>

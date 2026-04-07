@@ -136,7 +136,13 @@ export type FlamecastClient = {
   ): Promise<GitWorktreesResponse>;
   createRuntimeGitWorktree(
     instanceName: string,
-    body: { name: string; path?: string; branch?: string; newBranch?: boolean; startPoint?: string },
+    body: {
+      name: string;
+      path?: string;
+      branch?: string;
+      newBranch?: boolean;
+      startPoint?: string;
+    },
   ): Promise<GitWorktreeCreateResponse>;
 };
 
@@ -348,7 +354,8 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
         query: { path: opts.path ?? undefined },
       });
       await assertOk(response, "Failed to fetch git branches");
-      return response.json() as Promise<GitBranchesResponse>;
+      const data: GitBranchesResponse = await response.json();
+      return data;
     },
     async fetchRuntimeGitWorktrees(instanceName, opts = {}) {
       const response = await rpc.runtimes[":instanceName"].fs.git.worktrees.$get({
@@ -356,7 +363,8 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
         query: { path: opts.path ?? undefined },
       });
       await assertOk(response, "Failed to fetch git worktrees");
-      return response.json() as Promise<GitWorktreesResponse>;
+      const data: GitWorktreesResponse = await response.json();
+      return data;
     },
     async createRuntimeGitWorktree(instanceName, body) {
       const response = await rpc.runtimes[":instanceName"].fs.git.worktrees.$post({
@@ -364,7 +372,8 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
         json: body,
       });
       await assertOk(response, "Failed to create git worktree");
-      return response.json() as Promise<GitWorktreeCreateResponse>;
+      const data: GitWorktreeCreateResponse = await response.json();
+      return data;
     },
   };
 }
