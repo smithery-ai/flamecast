@@ -57,7 +57,7 @@ export function RuntimeSessionTab({
     path: fsPath,
   });
 
-  // Session-scoped terminal (connects to the runtime instance)
+  // Session-scoped terminal (connects to the runtime instance — works immediately)
   const { terminals, sendInput, resize, onData, createTerminal, killTerminal } =
     useTerminal(runtimeWebsocketUrl);
 
@@ -94,41 +94,34 @@ export function RuntimeSessionTab({
     setPromptText("");
   }, [promptText, prompt]);
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
-        <Skeleton className="h-6 w-48" />
-        <Skeleton className="h-64 w-full rounded-xl" />
-      </div>
-    );
-  }
-
-  if (!session) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
-        <p className="text-sm text-muted-foreground">Session not found.</p>
-      </div>
-    );
-  }
+  // Always render the full layout — each panel handles its own loading state.
+  // Chat shows a skeleton while the session initializes, filesystem has its own
+  // loading spinner, and the terminal connects to the runtime immediately.
 
   return (
     <ResizablePanelGroup className="min-h-0 flex-1">
       {/* Left: Conversation */}
       <ResizablePanel defaultSize={65} minSize={30}>
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
-          <SessionConversation
-            promptText={promptText}
-            setPromptText={setPromptText}
-            handleSend={handleSend}
-            logs={logs}
-            markdownSegments={markdownSegments}
-            isProcessing={isProcessing}
-            pendingPermissions={pendingPermissions}
-            respondToPermission={respondToPermission}
-            previewFilePath={previewFilePath}
-            onClosePreview={() => setPreviewFilePath(null)}
-            loadPreview={loadPreview}
-          />
+          {isLoading ? (
+            <ChatSkeleton />
+          ) : !session ? (
+            <ChatConnecting />
+          ) : (
+            <SessionConversation
+              promptText={promptText}
+              setPromptText={setPromptText}
+              handleSend={handleSend}
+              logs={logs}
+              markdownSegments={markdownSegments}
+              isProcessing={isProcessing}
+              pendingPermissions={pendingPermissions}
+              respondToPermission={respondToPermission}
+              previewFilePath={previewFilePath}
+              onClosePreview={() => setPreviewFilePath(null)}
+              loadPreview={loadPreview}
+            />
+          )}
         </div>
       </ResizablePanel>
 
@@ -139,10 +132,7 @@ export function RuntimeSessionTab({
         <VerticalSplitPanel
           topContent={
             sessionFsQuery.isLoading ? (
-              <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
-                <LoaderCircleIcon className="size-3.5 animate-spin" />
-                Loading filesystem...
-              </div>
+              <FilesystemSkeleton />
             ) : sessionFsQuery.isError || !sessionFsQuery.data ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
                 <p className="text-xs text-muted-foreground">Could not load filesystem</p>
@@ -175,6 +165,46 @@ export function RuntimeSessionTab({
         />
       </ResizablePanel>
     </ResizablePanelGroup>
+  );
+}
+
+// ─── Loading States ──────────────────────────────────────────────────────────
+
+function ChatSkeleton() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
+      <Skeleton className="h-5 w-40" />
+      <Skeleton className="h-24 w-full rounded-lg" />
+      <Skeleton className="h-5 w-56" />
+      <Skeleton className="h-32 w-full rounded-lg" />
+      <div className="mt-auto" />
+      <Skeleton className="h-8 w-full rounded-md" />
+    </div>
+  );
+}
+
+function ChatConnecting() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3">
+      <LoaderCircleIcon className="size-5 animate-spin text-muted-foreground" />
+      <p className="text-sm text-muted-foreground">Starting session...</p>
+    </div>
+  );
+}
+
+function FilesystemSkeleton() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-1.5 p-3">
+      <Skeleton className="h-4 w-32" />
+      <div className="flex flex-col gap-1 pt-2">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <div key={i} className="flex items-center gap-2">
+            <Skeleton className="size-4 shrink-0 rounded" />
+            <Skeleton className="h-3.5" style={{ width: `${40 + Math.random() * 60}%` }} />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
