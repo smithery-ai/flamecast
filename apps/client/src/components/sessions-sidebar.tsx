@@ -157,8 +157,7 @@ function RuntimeTypeItem({
     onSuccess: () => {
       void navigate({ to: "/" });
     },
-    onError: (err) =>
-      toast.error("Failed to delete runtime", { description: String(err.message) }),
+    onError: (err) => toast.error("Failed to delete runtime", { description: String(err.message) }),
     onSettled: () => setPendingInstance(null),
   });
 

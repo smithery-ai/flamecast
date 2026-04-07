@@ -150,8 +150,7 @@ function RuntimeDetailPanel({
 
   const deleteMutation = useDeleteRuntime({
     onSuccess: () => void navigate({ to: "/" }),
-    onError: (err) =>
-      toast.error("Failed to delete runtime", { description: String(err.message) }),
+    onError: (err) => toast.error("Failed to delete runtime", { description: String(err.message) }),
   });
 
   // ─── Tab operations ──────────────────────────────────────────────────────
@@ -262,7 +261,10 @@ function RuntimeDetailPanel({
             </CardDescription>
           </CardHeader>
           <CardContent className="flex gap-2">
-            <Button onClick={() => startMutation.mutate()} disabled={startMutation.isPending || deleteMutation.isPending}>
+            <Button
+              onClick={() => startMutation.mutate()}
+              disabled={startMutation.isPending || deleteMutation.isPending}
+            >
               {startMutation.isPending ? (
                 <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
               ) : (
