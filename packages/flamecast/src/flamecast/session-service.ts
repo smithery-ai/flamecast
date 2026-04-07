@@ -12,6 +12,7 @@ interface ManagedSession {
   websocketUrl: string;
   runtimeName: string;
   webhooks: WebhookConfig[];
+  cwd: string;
 }
 
 export class SessionService {
@@ -122,6 +123,7 @@ export class SessionService {
       websocketUrl: result.websocketUrl,
       runtimeName: providerName,
       webhooks: opts.webhooks ?? [],
+      cwd: opts.cwd,
     });
 
     return { sessionId };
@@ -231,7 +233,11 @@ export class SessionService {
       sessionId,
       new Request(`http://host${path}`, {
         ...init,
-        headers: { "Content-Type": "application/json", ...init.headers },
+        headers: {
+          "Content-Type": "application/json",
+          ...init.headers,
+          ...(session.cwd ? { "x-session-cwd": session.cwd } : {}),
+        },
       }),
     );
   }

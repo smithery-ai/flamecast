@@ -252,11 +252,12 @@ export class NodeRuntime implements Runtime {
 
   async fetchSession(sessionId: string, request: Request): Promise<Response> {
     const originalUrl = new URL(request.url);
+    const sessionCwd = request.headers.get("x-session-cwd") ?? undefined;
 
     // Handle filesystem snapshot locally (shallow, single-level listing)
     // instead of proxying to the Go sidecar which may not support the path param.
     if (!this.explicitUrl && originalUrl.pathname === "/fs/snapshot" && request.method === "GET") {
-      return this.handleRuntimeFsSnapshot(originalUrl);
+      return this.handleRuntimeFsSnapshot(originalUrl, sessionCwd);
     }
 
     if (!this.explicitUrl && originalUrl.pathname === "/files" && request.method === "GET") {
@@ -371,11 +372,11 @@ export class NodeRuntime implements Runtime {
     });
   }
 
-  private async handleRuntimeFsSnapshot(url: URL): Promise<Response> {
+  private async handleRuntimeFsSnapshot(url: URL, workspaceRootOverride?: string): Promise<Response> {
     const { readFile, readdir, stat, access } = await import("node:fs/promises");
     const path = await import("node:path");
 
-    const workspaceRoot = this.getWorkspaceRoot();
+    const workspaceRoot = workspaceRootOverride ?? this.getWorkspaceRoot();
     const requestedPath = url.searchParams.get("path");
     const targetDir = requestedPath ? path.resolve(requestedPath) : workspaceRoot;
     const showAllFiles = url.searchParams.get("showAllFiles") === "true";
