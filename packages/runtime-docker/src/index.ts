@@ -611,7 +611,7 @@ export class DockerRuntime implements Runtime {
     const listResult = await this.execInContainer(resolved.container, [
       "sh",
       "-lc",
-      `find ${shellEscape(targetDir)} -mindepth 1 -maxdepth 1 -printf '%y\t%f\n'`,
+      `find -L ${shellEscape(targetDir)} -mindepth 1 -maxdepth 1 -printf '%y\t%f\n'`,
     ]);
     if (listResult.exitCode !== 0) {
       return jsonResponse(

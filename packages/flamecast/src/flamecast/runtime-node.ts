@@ -345,7 +345,7 @@ export class NodeRuntime implements Runtime {
   }
 
   private async handleRuntimeFsSnapshot(url: URL): Promise<Response> {
-    const { readFile, readdir } = await import("node:fs/promises");
+    const { readFile, readdir, stat } = await import("node:fs/promises");
     const path = await import("node:path");
 
     const workspaceRoot = process.cwd();
@@ -365,16 +365,19 @@ export class NodeRuntime implements Runtime {
       for (const dirent of dirents) {
         const name = dirent.name;
         if (!showAllFiles && rules.length > 0 && isGitIgnored(name, rules)) continue;
-        entries.push({
-          path: name,
-          type: dirent.isDirectory()
-            ? "directory"
-            : dirent.isFile()
-              ? "file"
-              : dirent.isSymbolicLink()
-                ? "symlink"
-                : "other",
-        });
+        let type: RuntimeEntry["type"];
+        if (dirent.isDirectory()) {
+          type = "directory";
+        } else if (dirent.isFile()) {
+          type = "file";
+        } else if (dirent.isSymbolicLink()) {
+          // Resolve symlink to determine if it points to a directory
+          const resolved = await stat(path.join(targetDir, name)).catch(() => null);
+          type = resolved?.isDirectory() ? "directory" : "file";
+        } else {
+          type = "other";
+        }
+        entries.push({ path: name, type });
       }
     }
 

@@ -40,14 +40,16 @@ export function RuntimeFileTree({
 
   // Sort: directories first, then alphabetically
   const sorted = [...entries].sort((a, b) => {
-    if (a.type === "directory" && b.type !== "directory") return -1;
-    if (a.type !== "directory" && b.type === "directory") return 1;
+    const aDir = isDirType(a.type);
+    const bDir = isDirType(b.type);
+    if (aDir && !bDir) return -1;
+    if (!aDir && bDir) return 1;
     return a.path.localeCompare(b.path);
   });
 
   const handleSelect = (entry: FileSystemEntry) => {
     const absolutePath = currentPath === "/" ? `/${entry.path}` : `${currentPath}/${entry.path}`;
-    if (entry.type === "directory") {
+    if (isDirType(entry.type)) {
       onNavigate(absolutePath);
     } else {
       setSelectedPath(absolutePath);
@@ -55,7 +57,7 @@ export function RuntimeFileTree({
       const wsPrefix = workspaceRoot.endsWith("/") ? workspaceRoot : workspaceRoot + "/";
       const relativePath = absolutePath.startsWith(wsPrefix)
         ? absolutePath.slice(wsPrefix.length)
-        : absolutePath;
+        : entry.path;
       onFileSelect(relativePath);
     }
   };
@@ -123,7 +125,7 @@ export function RuntimeFileTree({
                   tabIndex={0}
                   type="button"
                 >
-                  {entry.type === "directory" ? (
+                  {isDirType(entry.type) ? (
                     <FolderIcon className="size-4 shrink-0 text-blue-500" />
                   ) : (
                     <FileIcon className="size-4 shrink-0 text-muted-foreground" />
@@ -137,4 +139,8 @@ export function RuntimeFileTree({
       </div>
     </div>
   );
+}
+
+function isDirType(type: FileSystemEntry["type"]): boolean {
+  return type === "directory" || type === "symlink";
 }
