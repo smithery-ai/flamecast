@@ -1,12 +1,10 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
-  useSessions,
   useRuntimes,
   useStartRuntime,
   useStopRuntime,
   usePauseRuntime,
   useDeleteRuntime,
-  useTerminateSession,
 } from "@flamecast/ui";
 import { cn } from "@/lib/utils";
 import {
@@ -24,7 +22,6 @@ import {
 } from "@/components/ui/sidebar";
 import {
   LoaderCircleIcon,
-  MessageSquareIcon,
   PauseIcon,
   PlayIcon,
   PlusIcon,
@@ -37,10 +34,8 @@ import { toast } from "sonner";
 import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 
 export function SessionsSidebar() {
-  const navigate = useNavigate();
-  const { activeSessionId, activeRuntimeTypeName, activeRuntimeInstanceName } = useRouterState({
+  const { activeRuntimeTypeName, activeRuntimeInstanceName } = useRouterState({
     select: (s) => {
-      const sessionMatch = s.matches.find((m) => m.routeId === "/sessions/$id");
       const runtimeMatch = s.matches.find(
         (m) =>
           m.routeId === "/runtimes/$typeName/$instanceName" || m.routeId === "/runtimes/$typeName",
@@ -49,22 +44,12 @@ export function SessionsSidebar() {
         (m) => m.routeId === "/runtimes/$typeName/$instanceName",
       );
       return {
-        activeSessionId: sessionMatch?.params.id,
         activeRuntimeTypeName: runtimeMatch?.params.typeName,
         activeRuntimeInstanceName: instanceMatch?.params.instanceName,
       };
     },
   });
-  const { data: sessions, isLoading } = useSessions();
   const { data: runtimes, isLoading: isRuntimesLoading } = useRuntimes();
-
-  const terminateMutation = useTerminateSession({
-    onSuccess: (id) => {
-      if (id === activeSessionId) {
-        void navigate({ to: "/" });
-      }
-    },
-  });
 
   return (
     <Sidebar>
@@ -96,14 +81,6 @@ export function SessionsSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild>
-                  <Link to="/sessions">
-                    <MessageSquareIcon className="size-4" />
-                    Sessions
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -132,76 +109,6 @@ export function SessionsSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         )}
-
-        <SidebarGroup>
-          <SidebarGroupLabel>Sessions</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {isLoading ? (
-                <>
-                  <SidebarMenuSkeleton showIcon />
-                  <SidebarMenuSkeleton showIcon />
-                  <SidebarMenuSkeleton showIcon />
-                </>
-              ) : !sessions?.length ? (
-                <p className="px-2 text-xs text-sidebar-foreground/70">No active sessions.</p>
-              ) : (
-                sessions.map((session) => (
-                  <SidebarMenuItem key={session.id}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={session.id === activeSessionId}
-                      tooltip={`${session.agentName} · ...${session.id.slice(-5)}`}
-                      className="!h-auto min-h-8 items-start py-2 pr-10"
-                    >
-                      <Link to="/sessions/$id" params={{ id: session.id }}>
-                        <span className="grid min-w-0 flex-1 gap-1 leading-snug">
-                          <span className="truncate font-medium">{session.agentName}</span>
-                          <span className="truncate text-xs text-sidebar-foreground/65">
-                            ...{session.id.slice(-5)}
-                            {session.runtime &&
-                              (() => {
-                                const rt = runtimes?.find(
-                                  (r) =>
-                                    r.typeName === session.runtime ||
-                                    r.instances.some((i) => i.name === session.runtime),
-                                );
-                                const typeName = rt?.typeName;
-                                if (!typeName) return ` · ${session.runtime}`;
-                                if (typeName === session.runtime) return ` · ${typeName}`;
-                                return ` · ${typeName}/${session.runtime}`;
-                              })()}
-                          </span>
-                        </span>
-                      </Link>
-                    </SidebarMenuButton>
-                    <SidebarMenuAction
-                      showOnHover
-                      title="Terminate session"
-                      disabled={terminateMutation.isPending}
-                      className={cn(
-                        "z-10 !top-1/2 right-1 !-translate-y-1/2 size-8 cursor-pointer rounded-md",
-                        "text-destructive/90 transition-[opacity,transform,colors] duration-150",
-                        "hover:bg-destructive/15 hover:text-destructive active:scale-95",
-                        "focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-                        "md:pointer-events-none md:group-hover/menu-item:pointer-events-auto md:group-focus-within/menu-item:pointer-events-auto",
-                        "disabled:pointer-events-none disabled:opacity-40",
-                      )}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        terminateMutation.mutate(session.id);
-                      }}
-                    >
-                      <Trash2Icon className="size-4 shrink-0" />
-                      <span className="sr-only">Terminate session</span>
-                    </SidebarMenuAction>
-                  </SidebarMenuItem>
-                ))
-              )}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
       </SidebarContent>
     </Sidebar>
   );

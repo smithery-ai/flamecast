@@ -104,10 +104,17 @@ function HomePage() {
 
   const handleSend = () => {
     if (!prompt.trim() || !activeSession) return;
+    // Navigate to the runtime instance containing the session
+    const rt = runtimes?.find(
+      (r) =>
+        r.typeName === activeSession.runtime ||
+        r.instances.some((i) => i.name === activeSession.runtime),
+    );
+    const typeName = rt?.typeName ?? activeSession.runtime ?? activeRuntime;
+    const instanceName = activeSession.runtime ?? typeName;
     void navigate({
-      to: "/sessions/$id",
-      params: { id: activeSession.id },
-      search: { prompt: prompt.trim() },
+      to: "/runtimes/$typeName/$instanceName",
+      params: { typeName, instanceName },
     });
   };
 
