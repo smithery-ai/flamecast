@@ -21,7 +21,6 @@ import {
   FolderGit2Icon,
   PlusIcon,
   LoaderCircleIcon,
-  SettingsIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -133,14 +132,24 @@ export function GitWorktreePicker({
         <span className="min-w-0 truncate text-muted-foreground" dir="rtl">
           {selection.kind === "worktree" ? selection.path : currentPath}
         </span>
-        <button
-          type="button"
-          className="ml-auto flex shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-          onClick={() => setExpanded(true)}
-        >
-          <SettingsIcon className="size-3" />
-          Configure
-        </button>
+        {otherWorktrees.length > 0 ? (
+          <button
+            type="button"
+            className="ml-auto flex shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            onClick={() => setExpanded(true)}
+          >
+            Select worktree
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="ml-auto flex shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            onClick={() => { setExpanded(true); setSelection({ kind: "new" }); }}
+          >
+            <PlusIcon className="size-3" />
+            Create new worktree
+          </button>
+        )}
       </div>
     );
   }
