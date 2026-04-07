@@ -421,13 +421,3 @@ function resolveWorkspacePath(
   }
   return resolvedPath;
 }
-
-function toPortableRelativePath(
-  workspaceRoot: string,
-  fullPath: string,
-  path: typeof import("node:path"),
-): string | null {
-  const relativePath = path.relative(workspaceRoot, fullPath);
-  if (!relativePath || relativePath === ".") return null;
-  return relativePath.split(path.sep).join("/");
-}
