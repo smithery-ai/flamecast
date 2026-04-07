@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   useRuntimeGitBranches,
   useRuntimeGitWorktrees,
@@ -7,13 +7,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Combobox,
   ComboboxInput,
@@ -24,19 +18,16 @@ import {
 } from "@/components/ui/combobox";
 import {
   GitBranchIcon,
-  FolderGit2Icon,
   PlusIcon,
   LoaderCircleIcon,
   ChevronDownIcon,
+  ArrowLeftIcon,
+  SearchIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
-/**
- * A dropdown menu on the branch name that lets the user:
- * 1. Create a new worktree (opens a form below)
- * 2. Use the chosen directory as-is
- * 3. Switch to an existing worktree
- */
+type View = "list" | "create";
+
 export function GitWorktreeMenu({
   instanceName,
   gitPath,
@@ -50,89 +41,134 @@ export function GitWorktreeMenu({
   activeBranch: string;
   onSelect: (absolutePath: string) => void;
 }) {
-  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState<View>("list");
+  const [search, setSearch] = useState("");
+
+  // Reset state when popover closes
+  useEffect(() => {
+    if (!open) {
+      setView("list");
+      setSearch("");
+    }
+  }, [open]);
 
   const worktreesQuery = useRuntimeGitWorktrees(instanceName, { path: gitPath });
   const worktrees = worktreesQuery.data?.worktrees ?? [];
-  const otherWorktrees = worktrees.filter((wt) => wt.path !== gitPath);
+
+  const filtered = useMemo(() => {
+    if (!search) return worktrees;
+    const lower = search.toLowerCase();
+    return worktrees.filter(
+      (wt) =>
+        wt.branch?.toLowerCase().includes(lower) ||
+        wt.path?.toLowerCase().includes(lower),
+    );
+  }, [worktrees, search]);
+
+  const handleSelectWorktree = (path: string) => {
+    onSelect(path);
+    setOpen(false);
+  };
 
   return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="inline-flex cursor-pointer items-center gap-1 rounded px-1 font-medium text-foreground underline decoration-dashed underline-offset-2 transition-colors hover:text-primary"
-          >
-            <GitBranchIcon className="inline size-3" />
-            {activeBranch}
-            <ChevronDownIcon className="size-3 text-muted-foreground" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="min-w-48">
-          <DropdownMenuItem
-            onSelect={() => setShowCreateForm(true)}
-          >
-            <PlusIcon className="size-3.5" />
-            Create new worktree
-          </DropdownMenuItem>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex cursor-pointer items-center gap-1 rounded px-1 font-medium text-foreground underline decoration-dashed underline-offset-2 transition-colors hover:text-primary"
+        >
+          <GitBranchIcon className="inline size-3" />
+          {activeBranch}
+          <ChevronDownIcon className="size-3 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 p-0">
+        {view === "list" ? (
+          <div className="flex flex-col">
+            {/* Header with search */}
+            <div className="flex items-center gap-2 border-b px-3 py-2">
+              <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+              <input
+                className="h-5 w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                placeholder="Search worktrees..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                autoFocus
+              />
+            </div>
 
-          <DropdownMenuSeparator />
-
-          <DropdownMenuItem
-            onSelect={() => {
-              onSelect(currentPath);
-              setShowCreateForm(false);
-            }}
-          >
-            <FolderGit2Icon className="size-3.5" />
-            Use chosen directory
-          </DropdownMenuItem>
-
-          {otherWorktrees.length > 0 && <DropdownMenuSeparator />}
-
-          {otherWorktrees.map((wt) => (
-            <DropdownMenuItem
-              key={wt.path}
-              onSelect={() => {
-                onSelect(wt.path);
-                setShowCreateForm(false);
-              }}
+            {/* Create new worktree */}
+            <button
+              type="button"
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={() => setView("create")}
             >
-              <GitBranchIcon className="size-3.5" />
-              <span className="truncate">
-                {wt.branch ?? wt.path}
-              </span>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+              <PlusIcon className="size-3.5 shrink-0" />
+              Create new worktree
+            </button>
 
-      {showCreateForm && (
-        <CreateWorktreeForm
-          instanceName={instanceName}
-          gitPath={gitPath}
-          onCreated={(path) => {
-            onSelect(path);
-            setShowCreateForm(false);
-          }}
-          onCancel={() => setShowCreateForm(false)}
-        />
-      )}
-    </>
+            <div className="h-px bg-border" />
+
+            {/* Worktree list */}
+            <div className="max-h-[240px] overflow-y-auto py-1">
+              {worktreesQuery.isLoading ? (
+                <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
+                  <LoaderCircleIcon className="size-3.5 animate-spin" />
+                  Loading...
+                </div>
+              ) : filtered.length === 0 ? (
+                <p className="py-4 text-center text-xs text-muted-foreground">
+                  No worktrees found
+                </p>
+              ) : (
+                filtered.map((wt) => (
+                  <button
+                    key={wt.path}
+                    type="button"
+                    className="flex w-full cursor-pointer items-center gap-2 overflow-hidden px-3 py-1.5 text-xs transition-colors hover:bg-accent hover:text-accent-foreground"
+                    onClick={() => handleSelectWorktree(wt.path)}
+                  >
+                    <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                    {wt.branch ? (
+                      <>
+                        <span className="shrink-0 font-medium">{wt.branch}</span>
+                        <span className="min-w-0 truncate text-muted-foreground" dir="rtl">{wt.path}</span>
+                      </>
+                    ) : (
+                      <span className="min-w-0 truncate" dir="rtl">{wt.path}</span>
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        ) : (
+          <CreateWorktreeView
+            instanceName={instanceName}
+            gitPath={gitPath}
+            onBack={() => setView("list")}
+            onCreated={(path) => {
+              onSelect(path);
+              setOpen(false);
+            }}
+          />
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
-function CreateWorktreeForm({
+function CreateWorktreeView({
   instanceName,
   gitPath,
+  onBack,
   onCreated,
-  onCancel,
 }: {
   instanceName: string;
   gitPath: string;
+  onBack: () => void;
   onCreated: (path: string) => void;
-  onCancel: () => void;
 }) {
   const [worktreeName, setWorktreeName] = useState("");
   const [baseBranch, setBaseBranch] = useState("main");
@@ -144,7 +180,6 @@ function CreateWorktreeForm({
     onSuccess: () => toast.success("Worktree created"),
   });
 
-  // Default to main/master once branches load
   useEffect(() => {
     if (!branchesQuery.data) return;
     const branches = branchesQuery.data.branches;
@@ -174,22 +209,20 @@ function CreateWorktreeForm({
   };
 
   return (
-    <div className="mt-3 rounded-md border p-3">
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-xs font-medium">
-          <PlusIcon className="size-3.5" />
-          New worktree
-        </div>
+    <div className="flex flex-col">
+      {/* Header with back button */}
+      <div className="flex items-center gap-2 border-b px-3 py-2">
         <button
           type="button"
-          className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground"
-          onClick={onCancel}
+          className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          onClick={onBack}
         >
-          Cancel
+          <ArrowLeftIcon className="size-3" />
         </button>
+        <span className="text-xs font-medium">New worktree</span>
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 p-3">
         <div className="flex flex-col gap-1">
           <Label className="text-[10px] font-medium text-muted-foreground">Worktree name</Label>
           <Input
@@ -197,6 +230,7 @@ function CreateWorktreeForm({
             value={worktreeName}
             onChange={(e) => setWorktreeName(e.target.value)}
             className="h-7 text-xs"
+            autoFocus
           />
           <p className="text-[10px] text-muted-foreground/60">
             Also used as the new branch name
