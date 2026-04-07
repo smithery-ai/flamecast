@@ -116,6 +116,10 @@ function resolveStorageFlags(flags: CliFlags): { url?: string; dataDir?: string 
     throw new Error('Pass either "--url" or "--data-dir", not both.');
   }
 
+  if (!url && !dataDir) {
+    console.warn("No DATABASE_URL, POSTGRES_URL, or --url provided; defaulting to local PGlite.");
+  }
+
   return {
     ...(url ? { url } : {}),
     ...(dataDir ? { dataDir } : {}),
@@ -263,6 +267,13 @@ async function runMigrateCommand(flags: CliFlags): Promise<number> {
   const bundle = await createDatabase(resolveStorageFlags(flags));
 
   try {
+    if (bundle.driver === "postgres") {
+      const host = new URL(bundle.url).hostname;
+      console.log(`Migrating database on ${host}`);
+    } else {
+      console.log(`Migrating local PGlite database at ${bundle.dataDir}`);
+    }
+
     const { applied, status } = await migrateDatabase(bundle);
     if (applied.length === 0) {
       console.log(
