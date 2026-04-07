@@ -1,4 +1,4 @@
-import { useAgentTemplates, useRuntimes, useCreateSession } from "@flamecast/ui";
+import { useAgentTemplates, useRuntimes, useCreateSession, useRuntimeFileSystem } from "@flamecast/ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -32,6 +32,10 @@ export function RuntimeNewTab({
   const [cwd, setCwd] = useState<string | undefined>(undefined);
   const [dirPickerOpen, setDirPickerOpen] = useState(false);
 
+  // Fetch the workspace root so we can show the actual default path
+  const { data: fsData } = useRuntimeFileSystem(instanceName, { enabled: !cwd });
+  const defaultCwd = fsData?.root;
+
   const createMutation = useCreateSession({
     onSuccess: (session) => {
       onSessionCreated(session.id, session.agentName);
@@ -58,7 +62,7 @@ export function RuntimeNewTab({
               title="Click to change working directory"
             >
               <FolderOpenIcon className="inline size-3" />
-              {cwd ?? "default cwd"}
+              {cwd ?? defaultCwd ?? "…"}
             </button>
           </p>
         </div>
