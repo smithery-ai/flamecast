@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { FileSystemEntry, SessionLog } from "@flamecast/sdk/session";
+import type { SessionLog } from "@flamecast/sdk/session";
 import { PendingPermissionSchema } from "@flamecast/sdk/session";
 import type { PermissionRequestEvent } from "@flamecast/protocol/session-host";
 import { useSession } from "./use-session.js";
@@ -59,30 +59,22 @@ export function useSessionState(sessionId: string, opts?: { showAllFiles?: boole
     return pending;
   }, [wsEvents, session?.pendingPermission]);
 
-  // Filesystem state
-  const [fileEntries, setFileEntries] = useState<FileSystemEntry[]>([]);
+  // Filesystem state — only track workspace root, entries come from the runtime API
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
 
   useEffect(() => {
     if (!session?.fileSystem) return;
-    setFileEntries(session.fileSystem.entries);
     setWorkspaceRoot(session.fileSystem.root);
   }, [session?.fileSystem]);
 
-  const fsChangeCount = useMemo(
-    () => wsEvents.filter((e) => e.type === "filesystem.changed").length,
-    [wsEvents],
-  );
-
   useEffect(() => {
-    if (!session) return;
+    if (!session || workspaceRoot) return;
     requestFsSnapshot({ showAllFiles })
       .then((snapshot) => {
-        setFileEntries(snapshot.entries);
         setWorkspaceRoot(snapshot.root);
       })
       .catch(() => {});
-  }, [fsChangeCount, requestFsSnapshot, session, showAllFiles]);
+  }, [requestFsSnapshot, session, showAllFiles, workspaceRoot]);
 
   // Markdown segments
   const markdownSegments = useMemo(() => sessionLogsToSegments(logs), [logs]);
@@ -131,7 +123,6 @@ export function useSessionState(sessionId: string, opts?: { showAllFiles?: boole
     respondToPermission,
 
     // Filesystem
-    fileEntries,
     workspaceRoot,
     showAllFiles,
     setShowAllFiles,

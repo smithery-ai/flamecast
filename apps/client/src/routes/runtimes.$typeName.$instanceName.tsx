@@ -365,7 +365,7 @@ function RuntimeDetailPanel({
               ) : (
                 <RuntimeFileTree
                   workspaceRoot={runtimeFsQuery.data.root}
-                  currentPath={runtimeFsQuery.data.path}
+                  currentPath={runtimeFsQuery.data.path ?? runtimeFsQuery.data.root}
                   entries={runtimeFsQuery.data.entries}
                   showAllFiles={showAllFiles}
                   onShowAllFilesChange={setShowAllFiles}

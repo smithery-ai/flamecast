@@ -51,8 +51,8 @@ export interface PendingPermission {
 
 export interface FileSystemSnapshot {
   root: string;
-  /** The absolute path of the directory being listed. */
-  path: string;
+  /** The absolute path of the directory being listed. Absent for legacy recursive snapshots. */
+  path?: string;
   entries: FileSystemEntry[];
   truncated: boolean;
   maxEntries: number;

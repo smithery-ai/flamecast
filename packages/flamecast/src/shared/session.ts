@@ -133,7 +133,7 @@ export const FileSystemEntrySchema = z.object({
 
 export const FileSystemSnapshotSchema = z.object({
   root: z.string(),
-  path: z.string(),
+  path: z.string().optional(),
   entries: z.array(FileSystemEntrySchema),
   truncated: z.boolean(),
   maxEntries: z.number().int().nonnegative(),
