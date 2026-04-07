@@ -253,7 +253,8 @@ export function createApi(flamecast: FlamecastApi) {
         try {
           const instanceName = c.req.param("instanceName");
           const showAllFiles = c.req.query("showAllFiles") === "true";
-          return c.json(await flamecast.fetchRuntimeFileSystem(instanceName, { showAllFiles }));
+          const path = c.req.query("path") || undefined;
+          return c.json(await flamecast.fetchRuntimeFileSystem(instanceName, { showAllFiles, path }));
         } catch (error) {
           const msg = toErrorMessage(error);
           const status = toErrorStatus(error) ?? (msg.includes("not found") ? 404 : 500);
@@ -379,8 +380,9 @@ export function createApi(flamecast: FlamecastApi) {
       .get("/agents/:agentId/fs/snapshot", async (c) => {
         try {
           const showAllFiles = c.req.query("showAllFiles") === "true";
+          const path = c.req.query("path") || undefined;
           return c.json(
-            await flamecast.fetchSessionFileSystem(c.req.param("agentId"), { showAllFiles }),
+            await flamecast.fetchSessionFileSystem(c.req.param("agentId"), { showAllFiles, path }),
           );
         } catch (error) {
           const msg = toErrorMessage(error);

@@ -602,12 +602,16 @@ export class DockerRuntime implements Runtime {
     const resolved = await this.getRunningContainer(instanceId);
     if (resolved instanceof Response) return resolved;
 
-    const showAllFiles = new URL(request.url).searchParams.get("showAllFiles") === "true";
+    const url = new URL(request.url);
+    const showAllFiles = url.searchParams.get("showAllFiles") === "true";
     const workspaceRoot = resolveContainerWorkspaceRoot(resolved.info);
+    const requestedPath = url.searchParams.get("path");
+    const targetDir = requestedPath ? posix.resolve(requestedPath) : workspaceRoot;
+
     const listResult = await this.execInContainer(resolved.container, [
       "sh",
       "-lc",
-      `find ${shellEscape(workspaceRoot)} -mindepth 1 -printf '%y\t%P\n'`,
+      `find ${shellEscape(targetDir)} -mindepth 1 -maxdepth 1 -printf '%y\t%f\n'`,
     ]);
     if (listResult.exitCode !== 0) {
       return jsonResponse(
@@ -617,7 +621,7 @@ export class DockerRuntime implements Runtime {
     }
 
     let entries = parseFindOutput(listResult.stdout);
-    if (!showAllFiles) {
+    if (!showAllFiles && targetDir === workspaceRoot) {
       const gitIgnoreResult = await this.execInContainer(resolved.container, [
         "sh",
         "-lc",
@@ -633,6 +637,7 @@ export class DockerRuntime implements Runtime {
     const truncated = entries.length > maxEntries;
     return jsonResponse({
       root: workspaceRoot,
+      path: targetDir,
       entries: truncated ? entries.slice(0, maxEntries) : entries,
       truncated,
       maxEntries,

@@ -349,42 +349,39 @@ export class NodeRuntime implements Runtime {
     const path = await import("node:path");
 
     const workspaceRoot = process.cwd();
+    const requestedPath = url.searchParams.get("path");
+    const targetDir = requestedPath ? path.resolve(requestedPath) : workspaceRoot;
     const showAllFiles = url.searchParams.get("showAllFiles") === "true";
-    const gitIgnoreContents = showAllFiles
-      ? ""
-      : await readFile(path.join(workspaceRoot, ".gitignore"), "utf8").catch(() => "");
-    const rules = showAllFiles ? [] : parseGitIgnoreRules(gitIgnoreContents);
+    const gitIgnoreContents =
+      showAllFiles || targetDir !== workspaceRoot
+        ? ""
+        : await readFile(path.join(workspaceRoot, ".gitignore"), "utf8").catch(() => "");
+    const rules = gitIgnoreContents ? parseGitIgnoreRules(gitIgnoreContents) : [];
     const entries: RuntimeEntry[] = [];
 
-    const walk = async (dir: string): Promise<void> => {
-      const dirents = await readdir(dir, { withFileTypes: true }).catch(() => null);
-      if (!dirents) return;
+    const dirents = await readdir(targetDir, { withFileTypes: true }).catch(() => null);
+    if (dirents) {
       dirents.sort((left, right) => left.name.localeCompare(right.name));
-
       for (const dirent of dirents) {
-        const fullPath = path.join(dir, dirent.name);
-        const relativePath = toPortableRelativePath(workspaceRoot, fullPath, path);
-        if (!relativePath) continue;
-        if (!showAllFiles && isGitIgnored(relativePath, rules)) continue;
-
-        if (dirent.isDirectory()) {
-          entries.push({ path: relativePath, type: "directory" });
-          await walk(fullPath);
-          continue;
-        }
-
+        const name = dirent.name;
+        if (!showAllFiles && rules.length > 0 && isGitIgnored(name, rules)) continue;
         entries.push({
-          path: relativePath,
-          type: dirent.isFile() ? "file" : dirent.isSymbolicLink() ? "symlink" : "other",
+          path: name,
+          type: dirent.isDirectory()
+            ? "directory"
+            : dirent.isFile()
+              ? "file"
+              : dirent.isSymbolicLink()
+                ? "symlink"
+                : "other",
         });
       }
-    };
-
-    await walk(workspaceRoot);
+    }
 
     const maxEntries = 10_000;
     return jsonResponse({
       root: workspaceRoot,
+      path: targetDir,
       entries: entries.slice(0, maxEntries),
       truncated: entries.length > maxEntries,
       maxEntries,

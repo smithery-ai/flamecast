@@ -582,17 +582,21 @@ export class E2BRuntime implements Runtime {
     const sandbox = await this.getRunningSandbox(instanceId);
     if (sandbox instanceof Response) return sandbox;
 
-    const showAllFiles = new URL(request.url).searchParams.get("showAllFiles") === "true";
+    const url = new URL(request.url);
+    const showAllFiles = url.searchParams.get("showAllFiles") === "true";
+    const requestedPath = url.searchParams.get("path");
+    const targetDir = requestedPath ? posix.resolve(requestedPath) : SANDBOX_WORKSPACE;
+
     let entries: RuntimeEntry[];
     try {
-      const listedEntries = await sandbox.files.list(SANDBOX_WORKSPACE, { depth: 64 });
+      const listedEntries = await sandbox.files.list(targetDir, { depth: 1 });
       const mappedEntries: RuntimeEntry[] = [];
       for (const entry of listedEntries) {
-        const relativePath = toWorkspaceRelativePath(entry.path);
-        if (!relativePath) continue;
+        const name = posix.basename(entry.path);
+        if (!name) continue;
 
         mappedEntries.push({
-          path: relativePath,
+          path: name,
           type: entry.type === "dir" ? "directory" : entry.type === "file" ? "file" : "other",
         });
       }
@@ -605,7 +609,7 @@ export class E2BRuntime implements Runtime {
         500,
       );
     }
-    if (!showAllFiles) {
+    if (!showAllFiles && targetDir === SANDBOX_WORKSPACE) {
       const gitIgnoreContents = await sandbox.files
         .read(posix.join(SANDBOX_WORKSPACE, ".gitignore"), { format: "text" })
         .catch(() => "");
@@ -617,6 +621,7 @@ export class E2BRuntime implements Runtime {
     const truncated = entries.length > maxEntries;
     return jsonResponse({
       root: SANDBOX_WORKSPACE,
+      path: targetDir,
       entries: truncated ? entries.slice(0, maxEntries) : entries,
       truncated,
       maxEntries,

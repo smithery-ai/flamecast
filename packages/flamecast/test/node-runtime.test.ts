@@ -161,14 +161,15 @@ describe("NodeRuntime", () => {
     );
 
     expect(visibleResponse.status).toBe(200);
-    const visibleSnapshot: { root: string; entries: Array<{ path: string }> } =
+    const visibleSnapshot: { root: string; path: string; entries: Array<{ path: string }> } =
       await visibleResponse.json();
     expect(visibleSnapshot.root).toBe(process.cwd());
+    expect(visibleSnapshot.path).toBe(process.cwd());
+    // Single-level listing: only direct children, names only
     expect(visibleSnapshot.entries.map((entry) => entry.path)).toContain(".gitignore");
     expect(visibleSnapshot.entries.map((entry) => entry.path)).toContain("src");
-    expect(visibleSnapshot.entries.map((entry) => entry.path)).toContain("src/index.ts");
+    expect(visibleSnapshot.entries.map((entry) => entry.path)).not.toContain("src/index.ts");
     expect(visibleSnapshot.entries.map((entry) => entry.path)).not.toContain("ignored");
-    expect(visibleSnapshot.entries.map((entry) => entry.path)).not.toContain("ignored/keep.txt");
     expect(visibleSnapshot.entries.map((entry) => entry.path)).not.toContain("secret.txt");
 
     const allFilesResponse = await runtime.fetchInstance(
@@ -178,9 +179,11 @@ describe("NodeRuntime", () => {
 
     expect(allFilesResponse.status).toBe(200);
     const fullSnapshot: { entries: Array<{ path: string }> } = await allFilesResponse.json();
+    // With showAllFiles, ignored entries are visible at root level
     expect(fullSnapshot.entries.map((entry) => entry.path)).toContain("ignored");
-    expect(fullSnapshot.entries.map((entry) => entry.path)).toContain("ignored/keep.txt");
     expect(fullSnapshot.entries.map((entry) => entry.path)).toContain("secret.txt");
+    // But nested paths are NOT returned (single-level listing)
+    expect(fullSnapshot.entries.map((entry) => entry.path)).not.toContain("ignored/keep.txt");
   });
 
   it("reads runtime file previews from the local workspace", async () => {

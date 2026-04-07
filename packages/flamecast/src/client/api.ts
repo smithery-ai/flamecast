@@ -63,7 +63,7 @@ export type FlamecastClient = {
   fetchSessionFilePreview(id: string, path: string): Promise<FilePreview>;
   fetchSessionFileSystem(
     id: string,
-    opts?: { showAllFiles?: boolean },
+    opts?: { showAllFiles?: boolean; path?: string },
   ): Promise<FileSystemSnapshot>;
   createSession(body: CreateSessionBody): Promise<Session>;
   terminateSession(id: string): Promise<void>;
@@ -91,7 +91,7 @@ export type FlamecastClient = {
   fetchRuntimeFilePreview(instanceName: string, path: string): Promise<FilePreview>;
   fetchRuntimeFileSystem(
     instanceName: string,
-    opts?: { showAllFiles?: boolean },
+    opts?: { showAllFiles?: boolean; path?: string },
   ): Promise<FileSystemSnapshot>;
   startRuntime(typeName: string, name?: string): Promise<RuntimeInstance>;
   stopRuntime(instanceName: string): Promise<void>;
@@ -165,6 +165,7 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
         param: { agentId: id },
         query: {
           showAllFiles: opts.showAllFiles ? "true" : undefined,
+          path: opts.path ?? undefined,
         },
       });
       return parseOkJson(response, FileSystemSnapshotSchema, "Failed to fetch filesystem");
@@ -264,6 +265,7 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
         param: { instanceName },
         query: {
           showAllFiles: opts.showAllFiles ? "true" : undefined,
+          path: opts.path ?? undefined,
         },
       });
       return parseOkJson(response, FileSystemSnapshotSchema, "Failed to fetch runtime filesystem");
