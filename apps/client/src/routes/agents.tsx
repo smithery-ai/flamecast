@@ -75,7 +75,19 @@ function AgentsPage() {
   const { data: runtimes } = useRuntimes();
 
   const createMutation = useCreateSession({
-    onSuccess: (session) => navigate({ to: "/sessions/$id", params: { id: session.id } }),
+    onSuccess: (session) => {
+      // Navigate to the runtime instance where the session was created
+      const rt = runtimes?.find(
+        (r) =>
+          r.typeName === session.runtime || r.instances.some((i) => i.name === session.runtime),
+      );
+      const typeName = rt?.typeName ?? session.runtime ?? "default";
+      const instanceName = session.runtime ?? typeName;
+      void navigate({
+        to: "/runtimes/$typeName/$instanceName",
+        params: { typeName, instanceName },
+      });
+    },
     onError: (err) => toast.error("Failed to create session", { description: String(err.message) }),
   });
 
