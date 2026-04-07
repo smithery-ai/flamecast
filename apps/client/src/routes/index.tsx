@@ -17,12 +17,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DirectoryPicker } from "@/components/directory-picker";
-import { GitWorktreePicker, useActiveBranch } from "@/components/git-worktree-picker";
+import { GitWorktreeMenu, useActiveBranch } from "@/components/git-worktree-picker";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ChevronDownIcon,
   FolderOpenIcon,
-  GitBranchIcon,
   LoaderCircleIcon,
   PlusIcon,
   SendIcon,
@@ -101,9 +100,6 @@ function HomePage() {
   });
   const gitPath = cwdFsData?.gitPath;
   const activeBranch = useActiveBranch(pickerInstanceName, gitPath, cwd ?? "");
-
-  const [worktreePickerOpen, setWorktreePickerOpen] = useState(false);
-  const [worktreePickerDefaultNew, setWorktreePickerDefaultNew] = useState(false);
 
   // --- Mutations ---
   const [prompt, setPrompt] = useState("");
@@ -382,42 +378,17 @@ function HomePage() {
             </>
           ) : null}
 
-          {/* Git branch + worktree actions */}
+          {/* Git branch dropdown */}
           {isReady && gitPath && activeBranch ? (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1 px-2 text-xs"
-                onClick={() => { setWorktreePickerDefaultNew(false); setWorktreePickerOpen(true); }}
-              >
-                <GitBranchIcon className="size-3" />
-                {activeBranch}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1 px-2 text-xs"
-                onClick={() => { setWorktreePickerDefaultNew(true); setWorktreePickerOpen(true); }}
-              >
-                <PlusIcon className="size-3" />
-                <span className="text-muted-foreground">New worktree</span>
-              </Button>
-            </>
+            <GitWorktreeMenu
+              instanceName={pickerInstanceName}
+              gitPath={gitPath}
+              currentPath={cwd ?? gitPath}
+              activeBranch={activeBranch}
+              onSelect={(path) => setCwd(path)}
+            />
           ) : null}
         </div>
-
-        {gitPath && (
-          <GitWorktreePicker
-            instanceName={pickerInstanceName}
-            gitPath={gitPath}
-            currentPath={cwd ?? gitPath}
-            onSelect={(path) => setCwd(path)}
-            open={worktreePickerOpen}
-            onOpenChange={setWorktreePickerOpen}
-            defaultToNew={worktreePickerDefaultNew}
-          />
-        )}
       </div>
     </div>
   );
