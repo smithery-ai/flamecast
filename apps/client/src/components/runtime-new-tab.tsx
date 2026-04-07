@@ -27,7 +27,7 @@ export function RuntimeNewTab({
 }: {
   runtimeTypeName: string;
   instanceName: string;
-  onSessionCreated: (sessionId: string, agentName: string) => void;
+  onSessionCreated: (sessionId: string, agentName: string, cwd?: string) => void;
 }) {
   const { data: allTemplates = [], isLoading: templatesLoading } = useAgentTemplates();
   const { data: runtimes } = useRuntimes();
@@ -50,7 +50,7 @@ export function RuntimeNewTab({
       const sessionId = crypto.randomUUID();
       // Switch to the session tab immediately — the session tab will show a
       // loading skeleton until the server finishes creating the session.
-      onSessionCreated(sessionId, template.name);
+      onSessionCreated(sessionId, template.name, cwd);
       createMutation.mutate({
         sessionId,
         agentTemplateId: template.id,

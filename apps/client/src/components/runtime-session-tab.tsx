@@ -1,6 +1,6 @@
 import {
   useSessionState,
-  useSessionFileSystem,
+  useRuntimeFileSystem,
   useTerminal,
   useFlamecastClient,
 } from "@flamecast/ui";
@@ -23,12 +23,17 @@ import { ChevronDownIcon, SendIcon, LoaderCircleIcon, GripHorizontalIcon } from 
 
 export function RuntimeSessionTab({
   sessionId,
+  instanceName,
   runtimeWebsocketUrl,
+  cwd,
   initialPrompt,
   onOpenFileTab,
 }: {
   sessionId: string;
+  instanceName: string;
   runtimeWebsocketUrl?: string;
+  /** Initial working directory — used to load the file tree immediately. */
+  cwd?: string;
   initialPrompt?: string;
   onOpenFileTab?: (filePath: string) => void;
 }) {
@@ -47,12 +52,12 @@ export function RuntimeSessionTab({
     prompt,
   } = useSessionState(sessionId);
 
-  // Session-scoped filesystem state
+  // Filesystem state — uses the runtime filesystem API so it loads immediately,
+  // without waiting for the session to be created on the server.
   const [showAllFiles, setShowAllFiles] = useState(false);
-  const [fsPath, setFsPath] = useState<string | undefined>(undefined);
+  const [fsPath, setFsPath] = useState<string | undefined>(cwd);
 
-  const sessionFsQuery = useSessionFileSystem(sessionId, {
-    enabled: !!session,
+  const fsQuery = useRuntimeFileSystem(instanceName, {
     showAllFiles,
     path: fsPath,
   });
@@ -131,20 +136,20 @@ export function RuntimeSessionTab({
       <ResizablePanel defaultSize={35} minSize={20}>
         <VerticalSplitPanel
           topContent={
-            !session || sessionFsQuery.isLoading ? (
+            fsQuery.isLoading ? (
               <FilesystemSkeleton />
-            ) : sessionFsQuery.isError || !sessionFsQuery.data ? (
+            ) : fsQuery.isError || !fsQuery.data ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
                 <p className="text-xs text-muted-foreground">Could not load filesystem</p>
-                <Button variant="outline" size="sm" onClick={() => void sessionFsQuery.refetch()}>
+                <Button variant="outline" size="sm" onClick={() => void fsQuery.refetch()}>
                   Retry
                 </Button>
               </div>
             ) : (
               <RuntimeFileTree
-                workspaceRoot={sessionFsQuery.data.root}
-                currentPath={sessionFsQuery.data.path ?? sessionFsQuery.data.root}
-                entries={sessionFsQuery.data.entries}
+                workspaceRoot={fsQuery.data.root}
+                currentPath={fsQuery.data.path ?? fsQuery.data.root}
+                entries={fsQuery.data.entries}
                 showAllFiles={showAllFiles}
                 onShowAllFilesChange={setShowAllFiles}
                 onFileSelect={handleFileSelect}

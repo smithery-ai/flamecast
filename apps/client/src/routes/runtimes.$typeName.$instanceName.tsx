@@ -35,7 +35,7 @@ export const Route = createFileRoute("/runtimes/$typeName/$instanceName")({
 
 type Tab =
   | { id: string; type: "new-tab" }
-  | { id: string; type: "session"; sessionId: string; label: string }
+  | { id: string; type: "session"; sessionId: string; label: string; cwd?: string }
   | { id: string; type: "file"; filePath: string; label: string };
 
 let nextTabId = 1;
@@ -140,7 +140,7 @@ function RuntimeDetailPanel({
   }, []);
 
   const openSessionTab = useCallback(
-    (sessionId: string, agentName: string) => {
+    (sessionId: string, agentName: string, sessionCwd?: string) => {
       const existing = tabs.find((t) => t.type === "session" && t.sessionId === sessionId);
       if (existing) {
         setActiveTabId(existing.id);
@@ -151,6 +151,7 @@ function RuntimeDetailPanel({
         type: "session",
         sessionId,
         label: agentName,
+        cwd: sessionCwd,
       };
       // Replace the current active new-tab, otherwise append
       const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -309,7 +310,9 @@ function RuntimeDetailPanel({
         {activeTab?.type === "session" && (
           <RuntimeSessionTab
             sessionId={activeTab.sessionId}
+            instanceName={instance.name}
             runtimeWebsocketUrl={instance.websocketUrl}
+            cwd={activeTab.cwd}
             onOpenFileTab={openFileTab}
           />
         )}
