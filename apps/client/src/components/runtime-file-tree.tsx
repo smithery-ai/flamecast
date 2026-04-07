@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { ArrowUpIcon, FileIcon, FolderIcon, FolderTreeIcon, HomeIcon } from "lucide-react";
+import { ArrowUpIcon, FileIcon, FolderIcon, FolderTreeIcon, GitBranchIcon, HomeIcon } from "lucide-react";
 import type { FileSystemEntry } from "@flamecast/sdk/session";
 
 export function RuntimeFileTree({
@@ -118,11 +118,20 @@ export function RuntimeFileTree({
                   type="button"
                 >
                   {isDirType(entry.type) ? (
-                    <FolderIcon className="size-4 shrink-0 text-blue-500" />
+                    entry.git ? (
+                      <GitBranchIcon className="size-4 shrink-0 text-orange-500" />
+                    ) : (
+                      <FolderIcon className="size-4 shrink-0 text-blue-500" />
+                    )
                   ) : (
                     <FileIcon className="size-4 shrink-0 text-muted-foreground" />
                   )}
                   <span className="truncate">{entry.path}</span>
+                  {entry.git?.branch && (
+                    <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                      {entry.git.branch}
+                    </span>
+                  )}
                 </button>
               );
             })}

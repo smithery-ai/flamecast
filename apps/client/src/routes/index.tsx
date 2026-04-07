@@ -15,8 +15,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { DirectoryPicker } from "@/components/directory-picker";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronDownIcon, LoaderCircleIcon, PlusIcon, SendIcon } from "lucide-react";
+import { ChevronDownIcon, FolderOpenIcon, LoaderCircleIcon, PlusIcon, SendIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
 
@@ -74,6 +75,13 @@ function HomePage() {
     ? (matchingSessions.find((s) => s.id === selectedSessionId) ?? matchingSessions[0])
     : matchingSessions[0];
 
+  // --- Working directory ---
+  const [cwd, setCwd] = useState<string | undefined>(undefined);
+  const [dirPickerOpen, setDirPickerOpen] = useState(false);
+
+  // Resolve an instance name for the directory picker
+  const pickerInstanceName = activeInstance?.name ?? runtimeInfo?.instances.find((i) => i.status === "running")?.name ?? activeRuntime;
+
   // --- Mutations ---
   const [prompt, setPrompt] = useState("");
 
@@ -99,6 +107,7 @@ function HomePage() {
     createMutation.mutate({
       agentTemplateId: activeTemplate.id,
       runtimeInstance: activeInstance?.name,
+      cwd,
     });
   };
 
@@ -325,6 +334,29 @@ function HomePage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          ) : null}
+
+          {/* Directory picker */}
+          {isReady ? (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs"
+                onClick={() => setDirPickerOpen(true)}
+              >
+                <FolderOpenIcon className="size-3" />
+                <span className="text-muted-foreground">Dir:</span>
+                <span className="max-w-32 truncate">{cwd ?? "default"}</span>
+              </Button>
+              <DirectoryPicker
+                instanceName={pickerInstanceName}
+                open={dirPickerOpen}
+                onOpenChange={setDirPickerOpen}
+                onSelect={(path) => setCwd(path)}
+                initialPath={cwd}
+              />
+            </>
           ) : null}
         </div>
       </div>

@@ -53,6 +53,8 @@ export interface FileSystemSnapshot {
   root: string;
   /** The absolute path of the directory being listed. Absent for legacy recursive snapshots. */
   path?: string;
+  /** If the listed directory is inside a git repo, the absolute path to the repo root. */
+  gitPath?: string;
   entries: FileSystemEntry[];
   truncated: boolean;
   maxEntries: number;

@@ -2,9 +2,16 @@
 // Shared types for filesystem entries (used by snapshot events)
 // ---------------------------------------------------------------------------
 
+export interface FileSystemEntryGitInfo {
+  branch: string;
+  origin?: string;
+}
+
 export interface FileSystemEntry {
   path: string;
   type: "file" | "directory" | "symlink" | "other";
+  /** Present when the entry is a directory that is a git repository. */
+  git?: FileSystemEntryGitInfo;
 }
 
 // ---------------------------------------------------------------------------

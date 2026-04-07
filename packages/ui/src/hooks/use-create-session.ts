@@ -12,10 +12,12 @@ export function useCreateSession(options?: {
     mutationFn: ({
       agentTemplateId,
       runtimeInstance,
+      cwd,
     }: {
       agentTemplateId: string;
       runtimeInstance?: string;
-    }) => client.createSession({ agentTemplateId, cwd: undefined, runtimeInstance }),
+      cwd?: string;
+    }) => client.createSession({ agentTemplateId, cwd, runtimeInstance }),
     onSuccess: (session) => {
       void queryClient.invalidateQueries({ queryKey: ["sessions"] });
       options?.onSuccess?.(session);

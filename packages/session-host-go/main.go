@@ -936,9 +936,13 @@ func handleSessionFsSnapshot(sessionID string, w http.ResponseWriter, registry *
 	if truncated {
 		limited = entries[:maxEntries]
 	}
-	writeJSON(w, 200, map[string]any{
+	result := map[string]any{
 		"root": sess.workspace, "entries": limited, "truncated": truncated, "maxEntries": maxEntries,
-	})
+	}
+	if gitRoot := filewatcher.FindGitRoot(sess.workspace); gitRoot != "" {
+		result["gitPath"] = gitRoot
+	}
+	writeJSON(w, 200, result)
 }
 
 // ---------- HTTP server ----------

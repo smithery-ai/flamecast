@@ -8,7 +8,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { LoaderCircleIcon, PlayIcon, TerminalIcon } from "lucide-react";
+import { DirectoryPicker } from "@/components/directory-picker";
+import { LoaderCircleIcon, PlayIcon, TerminalIcon, FolderOpenIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import type { AgentTemplate } from "@flamecast/sdk/session";
@@ -28,6 +29,9 @@ export function RuntimeNewTab({
 
   const runtimeInfo = runtimes?.find((rt) => rt.typeName === runtimeTypeName);
 
+  const [cwd, setCwd] = useState<string | undefined>(undefined);
+  const [dirPickerOpen, setDirPickerOpen] = useState(false);
+
   const createMutation = useCreateSession({
     onSuccess: (session) => {
       onSessionCreated(session.id, session.agentName);
@@ -46,8 +50,26 @@ export function RuntimeNewTab({
           <p className="mt-1 text-sm text-muted-foreground">
             Choose an agent template to launch on{" "}
             <span className="font-medium text-foreground">{instanceName}</span>
+            {" in "}
+            <button
+              type="button"
+              className="inline-flex cursor-pointer items-center gap-1 rounded px-1 font-medium text-foreground underline decoration-dashed underline-offset-2 transition-colors hover:text-primary"
+              onClick={() => setDirPickerOpen(true)}
+              title="Click to change working directory"
+            >
+              <FolderOpenIcon className="inline size-3" />
+              {cwd ?? "default cwd"}
+            </button>
           </p>
         </div>
+
+        <DirectoryPicker
+          instanceName={instanceName}
+          open={dirPickerOpen}
+          onOpenChange={setDirPickerOpen}
+          onSelect={(path) => setCwd(path)}
+          initialPath={cwd}
+        />
 
         {templatesLoading ? (
           <div className="grid gap-3 sm:grid-cols-2">
@@ -79,7 +101,7 @@ export function RuntimeNewTab({
                 runtimeInfo={runtimeInfo}
                 instanceName={instanceName}
                 onStartSession={(runtimeInstance) =>
-                  createMutation.mutate({ agentTemplateId: template.id, runtimeInstance })
+                  createMutation.mutate({ agentTemplateId: template.id, runtimeInstance, cwd })
                 }
                 isStartingSession={
                   createMutation.isPending &&
