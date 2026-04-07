@@ -1,7 +1,15 @@
 import { useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { ArrowUpIcon, FileIcon, FolderIcon, FolderTreeIcon, HomeIcon } from "lucide-react";
+import {
+  ArrowUpIcon,
+  FileIcon,
+  FolderIcon,
+  FolderTreeIcon,
+  GitBranchIcon,
+  HomeIcon,
+} from "lucide-react";
+import { GitBadges } from "@/components/git-badges";
 import type { FileSystemEntry } from "@flamecast/sdk/session";
 
 export function RuntimeFileTree({
@@ -111,6 +119,7 @@ export function RuntimeFileTree({
                   className={cn(
                     "flex w-full cursor-pointer items-center gap-1.5 rounded border-none bg-transparent px-2 py-1 text-left text-xs transition-colors hover:bg-muted/50",
                     selectedPath === absolutePath && "bg-muted",
+                    entry.path.startsWith(".") && "opacity-50",
                   )}
                   onClick={() => handleSelect(entry)}
                   role="listitem"
@@ -118,11 +127,16 @@ export function RuntimeFileTree({
                   type="button"
                 >
                   {isDirType(entry.type) ? (
-                    <FolderIcon className="size-4 shrink-0 text-blue-500" />
+                    entry.git ? (
+                      <GitBranchIcon className="size-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <FolderIcon className="size-4 shrink-0 text-blue-500" />
+                    )
                   ) : (
                     <FileIcon className="size-4 shrink-0 text-muted-foreground" />
                   )}
-                  <span className="truncate">{entry.path}</span>
+                  <span className={entry.git ? "shrink-0" : "truncate"}>{entry.path}</span>
+                  {entry.git && <GitBadges branch={entry.git.branch} origin={entry.git.origin} />}
                 </button>
               );
             })}

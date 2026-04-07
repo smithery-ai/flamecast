@@ -14,7 +14,7 @@ import type {
   WebhookConfig,
 } from "@flamecast/protocol/session";
 // Some types above are only used by zod `satisfies` constraints, not re-exported
-import type { FileSystemEntry } from "@flamecast/protocol/session-host";
+import type { FileSystemEntry, FileSystemEntryGitInfo } from "@flamecast/protocol/session-host";
 
 // ---------------------------------------------------------------------------
 // Re-export all types from protocol (single source of truth)
@@ -34,7 +34,7 @@ export type {
   WebhookConfig,
   WebhookEventType,
 } from "@flamecast/protocol/session";
-export type { FileSystemEntry } from "@flamecast/protocol/session-host";
+export type { FileSystemEntry, FileSystemEntryGitInfo } from "@flamecast/protocol/session-host";
 // CreateSessionBody re-exported below (after the refined schema definition)
 
 // ---------------------------------------------------------------------------
@@ -126,14 +126,21 @@ export const PendingPermissionSchema = z.object({
   options: z.array(PendingPermissionOptionSchema),
 }) satisfies z.ZodType<PendingPermission>;
 
+const FileSystemEntryGitInfoSchema = z.object({
+  branch: z.string(),
+  origin: z.string().optional(),
+}) satisfies z.ZodType<FileSystemEntryGitInfo>;
+
 export const FileSystemEntrySchema = z.object({
   path: z.string(),
   type: z.enum(["file", "directory", "symlink", "other"]),
+  git: FileSystemEntryGitInfoSchema.optional(),
 }) satisfies z.ZodType<FileSystemEntry>;
 
 export const FileSystemSnapshotSchema = z.object({
   root: z.string(),
   path: z.string().optional(),
+  gitPath: z.string().optional(),
   entries: z.array(FileSystemEntrySchema),
   truncated: z.boolean(),
   maxEntries: z.number().int().nonnegative(),

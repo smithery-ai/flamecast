@@ -12,9 +12,15 @@ interface ManagedProcess {
   on(event: string, listener: (...args: unknown[]) => void): void;
 }
 
+type RuntimeEntryGitInfo = {
+  branch: string;
+  origin?: string;
+};
+
 type RuntimeEntry = {
   path: string;
   type: "file" | "directory" | "symlink" | "other";
+  git?: RuntimeEntryGitInfo;
 };
 
 type GitIgnoreRule = {
@@ -355,7 +361,7 @@ export class NodeRuntime implements Runtime {
   }
 
   private async handleRuntimeFsSnapshot(url: URL): Promise<Response> {
-    const { readFile, readdir, stat } = await import("node:fs/promises");
+    const { readFile, readdir, stat, access } = await import("node:fs/promises");
     const path = await import("node:path");
 
     const workspaceRoot = this.getWorkspaceRoot();
@@ -377,31 +383,46 @@ export class NodeRuntime implements Runtime {
       dirents.sort((left, right) => left.name.localeCompare(right.name));
       for (const dirent of dirents) {
         const name = dirent.name;
+        if (!showAllFiles && name.startsWith(".")) continue;
         if (!showAllFiles && rules.length > 0 && isGitIgnored(name, rules)) continue;
         let type: RuntimeEntry["type"];
+        let isDir = false;
         if (dirent.isDirectory()) {
           type = "directory";
+          isDir = true;
         } else if (dirent.isFile()) {
           type = "file";
         } else if (dirent.isSymbolicLink()) {
           // Resolve symlink to determine if it points to a directory
           const resolved = await stat(path.join(targetDir, name)).catch(() => null);
-          type = resolved?.isDirectory() ? "directory" : "file";
+          isDir = resolved?.isDirectory() ?? false;
+          type = isDir ? "directory" : "file";
         } else {
           type = "other";
         }
-        entries.push({ path: name, type });
+        const entry: RuntimeEntry = { path: name, type };
+        // Check if this directory is a git repo
+        if (isDir) {
+          const gitInfo = await readGitInfo(path.join(targetDir, name), readFile);
+          if (gitInfo) entry.git = gitInfo;
+        }
+        entries.push(entry);
       }
     }
 
+    // Find git root for the target directory itself
+    const gitPath = await findGitRoot(targetDir, access);
+
     const maxEntries = 10_000;
-    return jsonResponse({
+    const result: Record<string, unknown> = {
       root: workspaceRoot,
       path: targetDir,
       entries: entries.slice(0, maxEntries),
       truncated: entries.length > maxEntries,
       maxEntries,
-    });
+    };
+    if (gitPath) result.gitPath = gitPath;
+    return jsonResponse(result);
   }
 }
 
@@ -418,6 +439,80 @@ function findFreePort(): Promise<number> {
         server.on("error", reject);
       }),
   );
+}
+
+async function readGitInfo(
+  dir: string,
+  readFile: typeof import("node:fs/promises").readFile,
+): Promise<RuntimeEntryGitInfo | null> {
+  const path = await import("node:path");
+  const gitDir = path.join(dir, ".git");
+  try {
+    const { stat } = await import("node:fs/promises");
+    const s = await stat(gitDir);
+    if (!s.isDirectory()) return null;
+  } catch {
+    return null;
+  }
+
+  const info: RuntimeEntryGitInfo = { branch: "" };
+
+  // Read current branch from HEAD
+  try {
+    const head = (await readFile(path.join(gitDir, "HEAD"), "utf8")).trim();
+    if (head.startsWith("ref: refs/heads/")) {
+      info.branch = head.slice("ref: refs/heads/".length);
+    } else {
+      info.branch = head.slice(0, 12); // detached HEAD — short hash
+    }
+  } catch {
+    // ignore
+  }
+
+  // Read origin URL from config
+  try {
+    const config = await readFile(path.join(gitDir, "config"), "utf8");
+    const lines = config.split("\n");
+    let inRemoteOrigin = false;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === '[remote "origin"]') {
+        inRemoteOrigin = true;
+        continue;
+      }
+      if (trimmed.startsWith("[")) {
+        inRemoteOrigin = false;
+        continue;
+      }
+      if (inRemoteOrigin && trimmed.startsWith("url = ")) {
+        info.origin = trimmed.slice("url = ".length);
+        break;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return info;
+}
+
+async function findGitRoot(
+  dir: string,
+  access: typeof import("node:fs/promises").access,
+): Promise<string | null> {
+  const path = await import("node:path");
+  let cur = dir;
+  for (;;) {
+    try {
+      await access(path.join(cur, ".git"));
+      return cur;
+    } catch {
+      // not found, go up
+    }
+    const parent = path.dirname(cur);
+    if (parent === cur) return null;
+    cur = parent;
+  }
 }
 
 function resolveWorkspacePath(

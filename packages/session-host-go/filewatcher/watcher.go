@@ -18,10 +18,17 @@ type Change struct {
 	Type string `json:"type"` // "added", "modified", "deleted"
 }
 
+// GitInfo holds basic git repository metadata for a directory entry.
+type GitInfo struct {
+	Branch string `json:"branch"`
+	Origin string `json:"origin,omitempty"`
+}
+
 // WalkEntry represents a file or directory found during walking.
 type WalkEntry struct {
-	Path string `json:"path"`
-	Type string `json:"type"` // "file", "directory", "symlink", "other"
+	Path string   `json:"path"`
+	Type string   `json:"type"` // "file", "directory", "symlink", "other"
+	Git  *GitInfo `json:"git,omitempty"`
 }
 
 // Watcher monitors a directory for changes with debouncing.
@@ -257,9 +264,76 @@ func isGitIgnored(path string, rules []*gitIgnoreRule) bool {
 	return ignored
 }
 
+// ReadGitInfo reads the current branch and origin URL from a .git directory.
+func ReadGitInfo(dir string) *GitInfo {
+	gitDir := filepath.Join(dir, ".git")
+	info, err := os.Stat(gitDir)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+	gi := &GitInfo{}
+
+	// Read current branch from HEAD
+	headBytes, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if err == nil {
+		head := strings.TrimSpace(string(headBytes))
+		if strings.HasPrefix(head, "ref: refs/heads/") {
+			gi.Branch = strings.TrimPrefix(head, "ref: refs/heads/")
+		} else {
+			gi.Branch = head[:min(len(head), 12)] // detached HEAD — short hash
+		}
+	}
+
+	// Read origin URL from config
+	configBytes, err := os.ReadFile(filepath.Join(gitDir, "config"))
+	if err == nil {
+		lines := strings.Split(string(configBytes), "\n")
+		inRemoteOrigin := false
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == `[remote "origin"]` {
+				inRemoteOrigin = true
+				continue
+			}
+			if strings.HasPrefix(trimmed, "[") {
+				inRemoteOrigin = false
+				continue
+			}
+			if inRemoteOrigin && strings.HasPrefix(trimmed, "url = ") {
+				gi.Origin = strings.TrimPrefix(trimmed, "url = ")
+				break
+			}
+		}
+	}
+
+	return gi
+}
+
+// FindGitRoot walks up from dir looking for a .git directory and returns the
+// path to the git repo root, or "" if none is found.
+func FindGitRoot(dir string) string {
+	cur := dir
+	for {
+		gitDir := filepath.Join(cur, ".git")
+		if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
+			return cur
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return ""
+		}
+		cur = parent
+	}
+}
+
 // WalkDirectory recursively walks a directory, respecting .gitignore rules.
-func WalkDirectory(root string) ([]WalkEntry, error) {
-	rules := loadGitIgnoreRules(root)
+// When showAllFiles is false, dot-prefixed entries and gitignored files are hidden.
+func WalkDirectory(root string, showAllFiles ...bool) ([]WalkEntry, error) {
+	showAll := len(showAllFiles) > 0 && showAllFiles[0]
+	var rules []*gitIgnoreRule
+	if !showAll {
+		rules = loadGitIgnoreRules(root)
+	}
 	var entries []WalkEntry
 
 	var walk func(dir string) error
@@ -269,10 +343,15 @@ func WalkDirectory(root string) ([]WalkEntry, error) {
 			return nil // Skip unreadable directories
 		}
 		for _, d := range dirents {
+			// Hide dot-prefixed entries (e.g. .git, .env, .config)
+			if !showAll && strings.HasPrefix(d.Name(), ".") {
+				continue
+			}
+
 			fullPath := filepath.Join(dir, d.Name())
 			relPath, _ := filepath.Rel(root, fullPath)
 
-			if isGitIgnored(relPath, rules) {
+			if !showAll && isGitIgnored(relPath, rules) {
 				continue
 			}
 
