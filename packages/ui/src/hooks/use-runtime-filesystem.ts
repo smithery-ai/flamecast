@@ -14,6 +14,5 @@ export function useRuntimeFileSystem(
         path: opts?.path,
       }),
     enabled: opts?.enabled ?? true,
-    refetchInterval: 30_000,
   });
 }

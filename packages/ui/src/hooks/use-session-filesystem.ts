@@ -14,6 +14,5 @@ export function useSessionFileSystem(
         path: opts?.path,
       }),
     enabled: opts?.enabled ?? true,
-    refetchInterval: 30_000,
   });
 }
