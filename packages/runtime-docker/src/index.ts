@@ -269,16 +269,24 @@ export class DockerRuntime implements Runtime {
   private readonly baseImage: string;
   private readonly docker: DockerClient;
   private readonly runtimeHostPort: number;
+  private readonly workingDir: string;
 
   /** instanceName → Docker container + runtime-host port */
   private readonly instances = new Map<string, InstanceEntry>();
   /** sessionId → which instance it belongs to */
   private readonly sessions = new Map<string, SessionEntry>();
 
-  constructor(opts?: { baseImage?: string; docker?: DockerClient; runtimeHostPort?: number }) {
+  constructor(opts?: {
+    baseImage?: string;
+    docker?: DockerClient;
+    runtimeHostPort?: number;
+    /** Working directory inside the container. Defaults to `/workspace`. */
+    cwd?: string;
+  }) {
     this.baseImage = opts?.baseImage ?? "node:22-slim";
     this.docker = opts?.docker ?? new Docker();
     this.runtimeHostPort = opts?.runtimeHostPort ?? DEFAULT_RUNTIME_HOST_PORT;
+    this.workingDir = opts?.cwd ?? DEFAULT_CONTAINER_WORKSPACE;
   }
 
   // ---------------------------------------------------------------------------
@@ -311,7 +319,7 @@ export class DockerRuntime implements Runtime {
       HostConfig: {
         PortBindings: { [portKey]: [{ HostPort: "0" }] },
       },
-      WorkingDir: DEFAULT_CONTAINER_WORKSPACE,
+      WorkingDir: this.workingDir,
       Labels: { [FLAMECAST_INSTANCE_LABEL]: instanceId },
     });
 

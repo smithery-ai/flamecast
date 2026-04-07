@@ -118,15 +118,25 @@ export class NodeRuntime implements Runtime {
   readonly onlyOne = true;
 
   private readonly explicitUrl: string | undefined;
+  private readonly cwd: string | undefined;
   private process: ManagedProcess | null = null;
   private url: string | null = null;
   private starting: Promise<void> | null = null;
 
-  constructor(url?: string) {
-    this.explicitUrl = url;
-    if (url) {
-      this.url = url;
+  constructor(urlOrOpts?: string | { url?: string; cwd?: string }) {
+    if (typeof urlOrOpts === "string") {
+      this.explicitUrl = urlOrOpts;
+      this.url = urlOrOpts;
+    } else if (urlOrOpts) {
+      this.explicitUrl = urlOrOpts.url;
+      if (urlOrOpts.url) this.url = urlOrOpts.url;
+      this.cwd = urlOrOpts.cwd;
     }
+  }
+
+  /** The workspace root for local file operations. */
+  private getWorkspaceRoot(): string {
+    return this.cwd ?? process.cwd();
   }
 
   async start(_instanceId: string): Promise<void> {
@@ -322,7 +332,7 @@ export class NodeRuntime implements Runtime {
 
     const { readFile } = await import("node:fs/promises");
     const path = await import("node:path");
-    const workspaceRoot = process.cwd();
+    const workspaceRoot = this.getWorkspaceRoot();
     const resolvedPath = resolveWorkspacePath(workspaceRoot, filePath, path);
     if (!resolvedPath) {
       return jsonResponse({ error: "Path outside workspace" }, 403);
@@ -348,7 +358,7 @@ export class NodeRuntime implements Runtime {
     const { readFile, readdir, stat } = await import("node:fs/promises");
     const path = await import("node:path");
 
-    const workspaceRoot = process.cwd();
+    const workspaceRoot = this.getWorkspaceRoot();
     const requestedPath = url.searchParams.get("path");
     const targetDir = requestedPath ? path.resolve(requestedPath) : workspaceRoot;
     const showAllFiles = url.searchParams.get("showAllFiles") === "true";
