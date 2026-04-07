@@ -112,6 +112,7 @@ export function RuntimeFileTree({
                   className={cn(
                     "flex w-full cursor-pointer items-center gap-1.5 rounded border-none bg-transparent px-2 py-1 text-left text-xs transition-colors hover:bg-muted/50",
                     selectedPath === absolutePath && "bg-muted",
+                    entry.path.startsWith(".") && "opacity-50",
                   )}
                   onClick={() => handleSelect(entry)}
                   role="listitem"

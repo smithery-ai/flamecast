@@ -131,6 +131,7 @@ export function DirectoryPicker({
                       key={entry.path}
                       className={cn(
                         "flex w-full cursor-pointer items-center gap-1.5 rounded border-none bg-transparent px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/50",
+                        entry.path.startsWith(".") && "opacity-50",
                       )}
                       onClick={() => handleNavigate(absolutePath)}
                       role="listitem"
