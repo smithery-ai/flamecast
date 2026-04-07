@@ -494,6 +494,7 @@ export class Flamecast<
       : (opts.runtimeInstance ?? runtime.provider);
 
     const { sessionId } = await this.sessionService.startSession(this.requireStorage(), {
+      sessionId: opts.sessionId,
       agentName,
       spawn,
       cwd,

@@ -108,6 +108,8 @@ export interface Session {
 // ---------------------------------------------------------------------------
 
 export interface CreateSessionBody {
+  /** Client-generated session ID. If omitted the server generates one. */
+  sessionId?: string;
   cwd?: string;
   agentTemplateId?: string;
   spawn?: AgentSpawn;

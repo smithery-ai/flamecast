@@ -26,6 +26,7 @@ export class SessionService {
   async startSession(
     storage: FlamecastStorage,
     opts: {
+      sessionId?: string;
       agentName: string;
       spawn: AgentSpawn;
       cwd: string;
@@ -44,7 +45,7 @@ export class SessionService {
       );
     }
 
-    const sessionId = crypto.randomUUID();
+    const sessionId = opts.sessionId ?? crypto.randomUUID();
     const body = {
       sessionId,
       command: opts.spawn.command,
