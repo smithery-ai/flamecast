@@ -67,8 +67,12 @@ export function RuntimeSessionTab({
     <Tabs defaultValue="markdown" className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 items-center border-b px-3 py-1">
         <TabsList className="h-7">
-          <TabsTrigger value="markdown" className="text-xs px-2 py-0.5">Markdown</TabsTrigger>
-          <TabsTrigger value="traces" className="text-xs px-2 py-0.5">Traces</TabsTrigger>
+          <TabsTrigger value="markdown" className="text-xs px-2 py-0.5">
+            Markdown
+          </TabsTrigger>
+          <TabsTrigger value="traces" className="text-xs px-2 py-0.5">
+            Traces
+          </TabsTrigger>
         </TabsList>
       </div>
 
@@ -87,7 +91,9 @@ export function RuntimeSessionTab({
               ) : (
                 markdownSegments.map((seg, index) => {
                   const isLiveAssistant =
-                    seg.kind === "assistant" && isProcessing && index === markdownSegments.length - 1;
+                    seg.kind === "assistant" &&
+                    isProcessing &&
+                    index === markdownSegments.length - 1;
                   if (seg.kind === "user") {
                     return (
                       <div
@@ -115,7 +121,9 @@ export function RuntimeSessionTab({
                     return (
                       <Fragment key={index}>
                         {index > 0 ? <Separator /> : null}
-                        <Streamdown className="max-w-none text-muted-foreground">{toolMd}</Streamdown>
+                        <Streamdown className="max-w-none text-muted-foreground">
+                          {toolMd}
+                        </Streamdown>
                       </Fragment>
                     );
                   }
@@ -151,7 +159,9 @@ export function RuntimeSessionTab({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => respondToPermission(pending.requestId, { outcome: "cancelled" })}
+                      onClick={() =>
+                        respondToPermission(pending.requestId, { outcome: "cancelled" })
+                      }
                     >
                       Cancel
                     </Button>

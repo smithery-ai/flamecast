@@ -1,10 +1,5 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import {
-  useRuntimes,
-  useStartRuntime,
-  useStopRuntime,
-  usePauseRuntime,
-} from "@flamecast/ui";
+import { useRuntimes, useStartRuntime, useStopRuntime, usePauseRuntime } from "@flamecast/ui";
 import { cn } from "@/lib/utils";
 import {
   Sidebar,
@@ -99,7 +94,6 @@ export function SessionsSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         )}
-
       </SidebarContent>
     </Sidebar>
   );
