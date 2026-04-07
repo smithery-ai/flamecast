@@ -122,9 +122,7 @@ export function RuntimeNewTab({
                 template={template}
                 runtimeInfo={runtimeInfo}
                 instanceName={instanceName}
-                onStartSession={(runtimeInstance) =>
-                  handleStartSession(template, runtimeInstance)
-                }
+                onStartSession={(runtimeInstance) => handleStartSession(template, runtimeInstance)}
               />
             ))}
           </div>
