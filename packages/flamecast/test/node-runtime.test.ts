@@ -166,8 +166,8 @@ describe("NodeRuntime", () => {
     expect(visibleSnapshot.root).toBe(process.cwd());
     expect(visibleSnapshot.path).toBe(process.cwd());
     // Single-level listing: only direct children, names only
-    // Gitignored entries are hidden; dotfiles like .gitignore are visible
-    expect(visibleSnapshot.entries.map((entry) => entry.path)).toContain(".gitignore");
+    // Gitignored entries and dotfiles are hidden by default
+    expect(visibleSnapshot.entries.map((entry) => entry.path)).not.toContain(".gitignore");
     expect(visibleSnapshot.entries.map((entry) => entry.path)).toContain("src");
     expect(visibleSnapshot.entries.map((entry) => entry.path)).not.toContain("src/index.ts");
     expect(visibleSnapshot.entries.map((entry) => entry.path)).not.toContain("ignored");

@@ -46,11 +46,9 @@ export function DirectoryPicker({
   const workspaceRoot = fsQuery.data?.root ?? "/";
   const displayPath = fsQuery.data?.path ?? currentPath ?? workspaceRoot;
 
-  type Entry = NonNullable<typeof fsQuery.data>["entries"][number];
-
-  const directories = (fsQuery.data?.entries ?? ([] as Entry[]))
-    .filter((e: Entry) => isDirType(e.type))
-    .sort((a: Entry, b: Entry) => a.path.localeCompare(b.path));
+  const directories = (fsQuery.data?.entries ?? [])
+    .filter((e) => isDirType(e.type))
+    .sort((a, b) => a.path.localeCompare(b.path));
 
   const isAtRoot = displayPath === workspaceRoot;
   const parentPath = displayPath.replace(/\/[^/]+$/, "") || "/";
@@ -123,7 +121,7 @@ export function DirectoryPicker({
               </p>
             ) : (
               <div className="font-mono text-xs" role="list">
-                {directories.map((entry: Entry) => {
+                {directories.map((entry) => {
                   const absolutePath =
                     displayPath === "/" ? `/${entry.path}` : `${displayPath}/${entry.path}`;
                   return (
