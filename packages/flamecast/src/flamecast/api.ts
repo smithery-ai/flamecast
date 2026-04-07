@@ -254,7 +254,9 @@ export function createApi(flamecast: FlamecastApi) {
           const instanceName = c.req.param("instanceName");
           const showAllFiles = c.req.query("showAllFiles") === "true";
           const path = c.req.query("path") || undefined;
-          return c.json(await flamecast.fetchRuntimeFileSystem(instanceName, { showAllFiles, path }));
+          return c.json(
+            await flamecast.fetchRuntimeFileSystem(instanceName, { showAllFiles, path }),
+          );
         } catch (error) {
           const msg = toErrorMessage(error);
           const status = toErrorStatus(error) ?? (msg.includes("not found") ? 404 : 500);

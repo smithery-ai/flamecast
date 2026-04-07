@@ -1,8 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6.0.1/schema-jsonc.json",
   "ignoreIssues": {
-    "apps/client/src/components/ui/**/*.tsx": ["exports"],
-    "apps/client/src/components/ai-elements/file-tree.tsx": ["exports", "types"]
+    "apps/client/src/components/ui/**/*.tsx": ["exports"]
   },
   "workspaces": {
     "packages/flamecast": {
