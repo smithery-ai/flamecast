@@ -12,7 +12,7 @@ interface ManagedSession {
   websocketUrl: string;
   runtimeName: string;
   webhooks: WebhookConfig[];
-  cwd: string;
+  cwd?: string;
 }
 
 export class SessionService {
