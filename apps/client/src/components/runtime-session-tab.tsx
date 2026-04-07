@@ -5,7 +5,7 @@ import {
   useFlamecastClient,
 } from "@flamecast/ui";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent } from "react";
+import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -446,8 +446,8 @@ function VerticalSplitPanel({
   bottomContent,
   defaultTopPercent = 55,
 }: {
-  topContent: React.ReactNode;
-  bottomContent: React.ReactNode;
+  topContent: ReactNode;
+  bottomContent: ReactNode;
   defaultTopPercent?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);

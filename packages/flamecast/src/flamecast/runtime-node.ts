@@ -372,7 +372,10 @@ export class NodeRuntime implements Runtime {
     });
   }
 
-  private async handleRuntimeFsSnapshot(url: URL, workspaceRootOverride?: string): Promise<Response> {
+  private async handleRuntimeFsSnapshot(
+    url: URL,
+    workspaceRootOverride?: string,
+  ): Promise<Response> {
     const { readFile, readdir, stat, access } = await import("node:fs/promises");
     const path = await import("node:path");
 
