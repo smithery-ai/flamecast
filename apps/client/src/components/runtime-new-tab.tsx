@@ -14,8 +14,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DirectoryPicker } from "@/components/directory-picker";
-import { GitWorktreePicker } from "@/components/git-worktree-picker";
-import { LoaderCircleIcon, PlayIcon, TerminalIcon, FolderOpenIcon } from "lucide-react";
+import { GitWorktreePicker, useActiveBranch } from "@/components/git-worktree-picker";
+import { LoaderCircleIcon, PlayIcon, TerminalIcon, FolderOpenIcon, GitBranchIcon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useCallback } from "react";
 import type { AgentTemplate } from "@flamecast/sdk/session";
@@ -37,6 +37,8 @@ export function RuntimeNewTab({
 
   const [cwd, setCwd] = useState<string | undefined>(undefined);
   const [dirPickerOpen, setDirPickerOpen] = useState(false);
+  const [worktreePickerOpen, setWorktreePickerOpen] = useState(false);
+  const [worktreePickerDefaultNew, setWorktreePickerDefaultNew] = useState(false);
 
   // Fetch workspace root (when no cwd selected) and current dir info (for git detection)
   const { data: rootFsData } = useRuntimeFileSystem(instanceName, { enabled: !cwd });
@@ -47,6 +49,7 @@ export function RuntimeNewTab({
   const fsData = cwd ? cwdFsData : rootFsData;
   const defaultCwd = rootFsData?.root;
   const gitPath = fsData?.gitPath;
+  const activeBranch = useActiveBranch(instanceName, gitPath, cwd ?? defaultCwd ?? "");
 
   const createMutation = useCreateSession({
     onError: (err) => toast.error("Failed to create session", { description: String(err.message) }),
@@ -89,7 +92,40 @@ export function RuntimeNewTab({
               <FolderOpenIcon className="inline size-3" />
               {cwd ?? defaultCwd ?? "…"}
             </button>
+            {gitPath && activeBranch && (
+              <>
+                {" on branch "}
+                <button
+                  type="button"
+                  className="inline-flex cursor-pointer items-center gap-1 rounded px-1 font-medium text-foreground underline decoration-dashed underline-offset-2 transition-colors hover:text-primary"
+                  onClick={() => { setWorktreePickerDefaultNew(false); setWorktreePickerOpen(true); }}
+                  title="Click to select a worktree"
+                >
+                  <GitBranchIcon className="inline size-3" />
+                  {activeBranch}
+                </button>
+              </>
+            )}
           </p>
+          {gitPath && (
+            <div className="mt-1.5 flex items-center justify-center gap-2">
+              <button
+                type="button"
+                className="inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => { setWorktreePickerDefaultNew(false); setWorktreePickerOpen(true); }}
+              >
+                Select worktree
+              </button>
+              <button
+                type="button"
+                className="inline-flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => { setWorktreePickerDefaultNew(true); setWorktreePickerOpen(true); }}
+              >
+                <PlusIcon className="size-3" />
+                New worktree
+              </button>
+            </div>
+          )}
         </div>
 
         <DirectoryPicker
@@ -107,6 +143,9 @@ export function RuntimeNewTab({
               gitPath={gitPath}
               currentPath={cwd ?? defaultCwd ?? gitPath}
               onSelect={(path) => setCwd(path)}
+              open={worktreePickerOpen}
+              onOpenChange={setWorktreePickerOpen}
+              defaultToNew={worktreePickerDefaultNew}
             />
           </div>
         )}

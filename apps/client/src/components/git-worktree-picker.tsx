@@ -34,24 +34,35 @@ export function GitWorktreePicker({
   gitPath,
   currentPath,
   onSelect,
+  open,
+  onOpenChange,
+  defaultToNew,
 }: {
   instanceName: string;
-  /** Absolute path to the git root directory. */
   gitPath: string;
-  /** The currently selected working directory. */
   currentPath: string;
-  /** Called when the user picks a directory — may be the same as currentPath. */
   onSelect: (absolutePath: string) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** If true, pre-select "Create new worktree" when opening. */
+  defaultToNew?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [selection, setSelection] = useState<WorktreeSelection>({ kind: "current" });
+  const [selection, setSelection] = useState<WorktreeSelection>(
+    defaultToNew ? { kind: "new" } : { kind: "current" },
+  );
   const [newWorktreeName, setNewWorktreeName] = useState("");
   const [baseBranch, setBaseBranch] = useState<string>("main");
 
-  // Always fetch worktrees (for collapsed summary) and branches (for form)
+  // Reset selection when toggling open with defaultToNew
+  useEffect(() => {
+    if (open && defaultToNew) {
+      setSelection({ kind: "new" });
+    }
+  }, [open, defaultToNew]);
+
   const worktreesQuery = useRuntimeGitWorktrees(instanceName, { path: gitPath });
   const branchesQuery = useRuntimeGitBranches(instanceName, {
-    enabled: expanded,
+    enabled: open,
     path: gitPath,
   });
 
@@ -64,18 +75,6 @@ export function GitWorktreePicker({
   const worktrees = worktreesQuery.data?.worktrees ?? [];
   const otherWorktrees = worktrees.filter((wt) => wt.path !== gitPath);
   const allBranches = branchesQuery.data?.branches ?? [];
-
-  // Find the branch for the currently active path
-  const currentWorktree = worktrees.find((wt) => wt.path === currentPath);
-  const mainWorktree = worktrees.find((wt) => wt.path === gitPath);
-  const activeBranch = currentWorktree?.branch ?? mainWorktree?.branch;
-
-  // Derive a display label for the selected path
-  const selectedLabel = selection.kind === "current"
-    ? activeBranch
-    : selection.kind === "worktree"
-      ? worktrees.find((wt) => wt.path === selection.path)?.branch ?? selection.path
-      : null;
 
   // Default to main/master once branches load
   useEffect(() => {
@@ -90,10 +89,10 @@ export function GitWorktreePicker({
   const handleApply = () => {
     if (selection.kind === "current") {
       onSelect(currentPath);
-      setExpanded(false);
+      onOpenChange(false);
     } else if (selection.kind === "worktree") {
       onSelect(selection.path);
-      setExpanded(false);
+      onOpenChange(false);
     } else if (selection.kind === "new") {
       const name = newWorktreeName.trim();
       if (!name) {
@@ -119,34 +118,8 @@ export function GitWorktreePicker({
     }
   };
 
-  // Collapsed: show current branch/path with a configure button
-  if (!expanded) {
-    return (
-      <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-xs">
-        <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        <BranchBadge branch={selectedLabel ?? activeBranch ?? "unknown"} />
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-            onClick={() => setExpanded(true)}
-          >
-            Select worktree
-          </button>
-          <button
-            type="button"
-            className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-            onClick={() => { setExpanded(true); setSelection({ kind: "new" }); }}
-          >
-            <PlusIcon className="size-3" />
-            New worktree
-          </button>
-        </div>
-      </div>
-    );
-  }
+  if (!open) return null;
 
-  // Expanded: full worktree picker
   return (
     <div className="rounded-md border p-3">
       <div className="mb-3 flex items-center justify-between">
@@ -157,7 +130,7 @@ export function GitWorktreePicker({
         <button
           type="button"
           className="flex cursor-pointer items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground"
-          onClick={() => setExpanded(false)}
+          onClick={() => onOpenChange(false)}
         >
           Done
         </button>
@@ -188,12 +161,11 @@ export function GitWorktreePicker({
               }
             }}
           >
-            {/* Current directory option */}
+            {/* Chosen directory option */}
             <label className="flex cursor-pointer items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/50">
               <RadioGroupItem value="current" />
               <FolderGit2Icon className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="shrink-0">Current directory</span>
-              {activeBranch && <BranchBadge branch={activeBranch} />}
+              <span className="shrink-0">Chosen directory</span>
             </label>
 
             {/* Existing worktrees */}
@@ -204,7 +176,7 @@ export function GitWorktreePicker({
               >
                 <RadioGroupItem value={`wt:${wt.path}`} />
                 <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate">{wt.path}</span>
+                <span className="min-w-0 truncate" dir="rtl">{wt.path}</span>
                 {wt.branch && <BranchBadge branch={wt.branch} />}
               </label>
             ))}
@@ -264,6 +236,25 @@ export function GitWorktreePicker({
       )}
     </div>
   );
+}
+
+/**
+ * Returns the active branch name for the given git path.
+ * Fetches worktrees to find the branch of the current/main worktree.
+ */
+export function useActiveBranch(
+  instanceName: string,
+  gitPath: string | undefined,
+  currentPath: string,
+) {
+  const worktreesQuery = useRuntimeGitWorktrees(instanceName, {
+    enabled: !!gitPath,
+    path: gitPath,
+  });
+  const worktrees = worktreesQuery.data?.worktrees ?? [];
+  const currentWorktree = worktrees.find((wt) => wt.path === currentPath);
+  const mainWorktree = worktrees.find((wt) => wt.path === gitPath);
+  return currentWorktree?.branch ?? mainWorktree?.branch ?? null;
 }
 
 function BranchBadge({ branch }: { branch: string }) {
