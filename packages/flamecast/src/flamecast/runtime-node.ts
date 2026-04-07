@@ -576,9 +576,7 @@ async function handleGitBranches(
 ): Promise<Response> {
   const path = await import("node:path");
   const requestedPath = url.searchParams.get("path");
-  const targetDir = requestedPath
-    ? resolveWorkspacePath(workspaceRoot, requestedPath, path) ?? workspaceRoot
-    : workspaceRoot;
+  const targetDir = requestedPath ? path.resolve(requestedPath) : workspaceRoot;
 
   const { stdout, stderr, exitCode } = await execGit(
     ["branch", "-a", "--format=%(refname:short)\t%(objectname:short)\t%(HEAD)"],
@@ -606,9 +604,7 @@ async function handleGitCommits(
 ): Promise<Response> {
   const path = await import("node:path");
   const requestedPath = url.searchParams.get("path");
-  const targetDir = requestedPath
-    ? resolveWorkspacePath(workspaceRoot, requestedPath, path) ?? workspaceRoot
-    : workspaceRoot;
+  const targetDir = requestedPath ? path.resolve(requestedPath) : workspaceRoot;
 
   const branch = url.searchParams.get("branch") || "HEAD";
   const limit = Math.min(parseInt(url.searchParams.get("limit") || "20", 10) || 20, 200);
@@ -644,9 +640,7 @@ async function handleGitWorktreesList(
 ): Promise<Response> {
   const path = await import("node:path");
   const requestedPath = url.searchParams.get("path");
-  const targetDir = requestedPath
-    ? resolveWorkspacePath(workspaceRoot, requestedPath, path) ?? workspaceRoot
-    : workspaceRoot;
+  const targetDir = requestedPath ? path.resolve(requestedPath) : workspaceRoot;
 
   const { stdout, stderr, exitCode } = await execGit(
     ["worktree", "list", "--porcelain"],
@@ -700,9 +694,7 @@ async function handleGitWorktreeCreate(
   }
 
   const requestedPath = body.path;
-  const targetDir = requestedPath
-    ? resolveWorkspacePath(workspaceRoot, requestedPath, pathMod) ?? workspaceRoot
-    : workspaceRoot;
+  const targetDir = requestedPath ? pathMod.resolve(requestedPath) : workspaceRoot;
 
   const worktreePath = pathMod.resolve(targetDir, "..", body.name);
   const args = ["worktree", "add", worktreePath];
