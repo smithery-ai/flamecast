@@ -1,8 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   useRuntimes,
   useRuntimeFileSystem,
   useStartRuntimeWithOptimisticUpdate,
+  useDeleteRuntime,
   useTerminal,
   useFlamecastClient,
   useTerminateSession,
@@ -25,6 +26,7 @@ import {
   MessageSquareIcon,
   LayoutGridIcon,
   GripHorizontalIcon,
+  Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -138,11 +140,17 @@ function RuntimeDetailPanel({
     isRunning ? instance.websocketUrl : undefined,
   );
 
+  const navigate = useNavigate();
   const terminateMutation = useTerminateSession();
 
   const startMutation = useStartRuntimeWithOptimisticUpdate(runtimeInfo, {
     instanceName: instance.name,
     onError: (err) => toast.error("Failed to start runtime", { description: String(err.message) }),
+  });
+
+  const deleteMutation = useDeleteRuntime({
+    onSuccess: () => void navigate({ to: "/" }),
+    onError: (err) => toast.error("Failed to delete runtime", { description: String(err.message) }),
   });
 
   // ─── Tab operations ──────────────────────────────────────────────────────
@@ -238,22 +246,43 @@ function RuntimeDetailPanel({
         <Card className="border-dashed">
           <CardHeader>
             <CardTitle className="text-base">
-              {startMutation.isPending ? "Starting runtime..." : "Runtime not running"}
+              {deleteMutation.isPending
+                ? "Deleting runtime..."
+                : startMutation.isPending
+                  ? "Starting runtime..."
+                  : "Runtime not running"}
             </CardTitle>
             <CardDescription>
-              {startMutation.isPending
-                ? "Waiting for the runtime instance to come up."
-                : `${instance.name} is currently ${instance.status}. Start it to begin working.`}
+              {deleteMutation.isPending
+                ? "Removing the runtime instance and its resources."
+                : startMutation.isPending
+                  ? "Waiting for the runtime instance to come up."
+                  : `${instance.name} is currently ${instance.status}. Start it to begin working.`}
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Button onClick={() => startMutation.mutate()} disabled={startMutation.isPending}>
+          <CardContent className="flex gap-2">
+            <Button
+              onClick={() => startMutation.mutate()}
+              disabled={startMutation.isPending || deleteMutation.isPending}
+            >
               {startMutation.isPending ? (
                 <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
               ) : (
                 <PlayIcon data-icon="inline-start" />
               )}
               {startMutation.isPending ? "Starting..." : "Start runtime"}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteMutation.mutate(instance.name)}
+              disabled={startMutation.isPending || deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? (
+                <LoaderCircleIcon data-icon="inline-start" className="animate-spin" />
+              ) : (
+                <Trash2Icon data-icon="inline-start" />
+              )}
+              {deleteMutation.isPending ? "Deleting..." : "Delete runtime"}
             </Button>
           </CardContent>
         </Card>

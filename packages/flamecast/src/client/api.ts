@@ -283,6 +283,12 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
       });
       await assertOk(response, "Failed to stop runtime");
     },
+    async deleteRuntime(instanceName) {
+      const response = await rpc.runtimes[":instanceName"].$delete({
+        param: { instanceName },
+      });
+      await assertOk(response, "Failed to delete runtime");
+    },
     async pauseRuntime(instanceName) {
       const response = await rpc.runtimes[":instanceName"].pause.$post({
         param: { instanceName },

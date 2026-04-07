@@ -16,6 +16,7 @@ export {
   useStartRuntime,
   useStopRuntime,
   usePauseRuntime,
+  useDeleteRuntime,
   useStartRuntimeWithOptimisticUpdate,
 } from "./hooks/use-runtime-mutations.js";
 export { useTerminateSession } from "./hooks/use-terminate-session.js";

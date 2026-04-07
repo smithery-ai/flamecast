@@ -23,6 +23,8 @@ export interface Runtime<TConfig extends Record<string, unknown> = {}> {
   stop?(instanceId: string): Promise<void>;
   /** Pause a runtime instance (sessions survive, resources freeze). */
   pause?(instanceId: string): Promise<void>;
+  /** Delete a runtime instance and permanently remove its resources. */
+  delete?(instanceId: string): Promise<void>;
   /** Query the live status of an instance from the actual runtime (e.g. Docker). */
   getInstanceStatus?(instanceId: string): Promise<"running" | "stopped" | "paused" | undefined>;
   /** Return the WebSocket URL for a running instance's runtime-host. */

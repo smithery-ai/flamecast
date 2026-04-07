@@ -399,6 +399,30 @@ export class Flamecast<
     await storage.saveRuntimeInstance({ ...instance, status: "stopped" });
   }
 
+  async deleteRuntime(instanceName: string): Promise<void> {
+    await this.ensureReady();
+    const storage = this.requireStorage();
+    const instances = await storage.listRuntimeInstances();
+    const instance = instances.find((i) => i.name === instanceName);
+    if (!instance) {
+      throw new Error(`Runtime instance "${instanceName}" not found`);
+    }
+
+    // If still running or paused, stop it first
+    if (instance.status === "running" || instance.status === "paused") {
+      await this.stopRuntime(instanceName);
+    }
+
+    // Let the runtime provider do any additional cleanup
+    const runtime = this.runtimesMap[instance.typeName];
+    if (runtime?.delete) {
+      await runtime.delete(instanceName);
+    }
+
+    // Remove from persistent storage
+    await storage.deleteRuntimeInstance(instanceName);
+  }
+
   async pauseRuntime(instanceName: string): Promise<void> {
     await this.ensureReady();
     const storage = this.requireStorage();
