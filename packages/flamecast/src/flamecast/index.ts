@@ -556,10 +556,13 @@ export class Flamecast<
 
   async fetchRuntimeFileSystem(
     instanceName: string,
-    opts: { showAllFiles?: boolean } = {},
+    opts: { showAllFiles?: boolean; path?: string } = {},
   ): Promise<FileSystemSnapshot> {
     await this.ensureReady();
-    const query = opts.showAllFiles ? "?showAllFiles=true" : "";
+    const params = new URLSearchParams();
+    if (opts.showAllFiles) params.set("showAllFiles", "true");
+    if (opts.path) params.set("path", opts.path);
+    const query = params.size > 0 ? `?${params.toString()}` : "";
     const response = await this.proxyRuntimeInstanceRequest(instanceName, `/fs/snapshot${query}`, {
       method: "GET",
     });
@@ -589,11 +592,14 @@ export class Flamecast<
 
   async fetchSessionFileSystem(
     id: string,
-    opts: { showAllFiles?: boolean } = {},
+    opts: { showAllFiles?: boolean; path?: string } = {},
   ): Promise<FileSystemSnapshot> {
     await this.ensureReady();
     await this.ensureSessionRegistered(id);
-    const query = opts.showAllFiles ? "?showAllFiles=true" : "";
+    const params = new URLSearchParams();
+    if (opts.showAllFiles) params.set("showAllFiles", "true");
+    if (opts.path) params.set("path", opts.path);
+    const query = params.size > 0 ? `?${params.toString()}` : "";
     const response = await this.sessionService.proxyRequest(id, `/fs/snapshot${query}`, {
       method: "GET",
     });

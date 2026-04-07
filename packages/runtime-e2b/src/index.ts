@@ -129,20 +129,13 @@ function isGitIgnored(path: string, rules: GitIgnoreRule[]): boolean {
   return ignored;
 }
 
-function resolveWorkspacePath(filePath: string): string | null {
+function resolveWorkspacePath(workspace: string, filePath: string): string | null {
   if (!filePath || filePath.includes("\0")) return null;
   const normalized = posix.normalize(filePath);
   if (normalized === ".." || normalized.startsWith("../") || normalized.startsWith("/")) {
     return null;
   }
-  return posix.join(SANDBOX_WORKSPACE, normalized);
-}
-
-function toWorkspaceRelativePath(path: string): string | null {
-  const normalized = posix.normalize(path);
-  if (normalized === SANDBOX_WORKSPACE) return null;
-  if (!normalized.startsWith(`${SANDBOX_WORKSPACE}/`)) return null;
-  return normalized.slice(SANDBOX_WORKSPACE.length + 1);
+  return posix.join(workspace, normalized);
 }
 
 // ---------------------------------------------------------------------------
@@ -183,6 +176,7 @@ export class E2BRuntime implements Runtime {
   private readonly apiKey: string;
   private readonly template: string;
   private readonly runtimeHostPort: number;
+  private readonly workspace: string;
 
   /** instanceName → E2B sandbox + runtime-host info */
   private readonly instances = new Map<string, InstanceEntry>();
@@ -202,11 +196,14 @@ export class E2BRuntime implements Runtime {
     runtimeHostPort?: number;
     /** URL to fetch the session-host binary from (for environments without filesystem access). */
     sessionHostUrl?: string;
+    /** Working directory inside the sandbox. Defaults to `/home/user`. */
+    cwd?: string;
   }) {
     this.apiKey = opts.apiKey;
     this.template = opts.template ?? "base";
     this.runtimeHostPort = opts.runtimeHostPort ?? DEFAULT_RUNTIME_HOST_PORT;
     this.sessionHostUrl = opts.sessionHostUrl;
+    this.workspace = opts.cwd ?? SANDBOX_WORKSPACE;
   }
 
   // ---------------------------------------------------------------------------
@@ -505,7 +502,7 @@ export class E2BRuntime implements Runtime {
       const inst = resolved.entry;
 
       // Forward to runtime-host at /sessions/{sessionId}/start
-      parsed.workspace = SANDBOX_WORKSPACE;
+      parsed.workspace = this.workspace;
       delete parsed.instanceName;
 
       const resp = await fetch(`${inst.hostUrl}/sessions/${sessionId}/start`, {
@@ -582,17 +579,21 @@ export class E2BRuntime implements Runtime {
     const sandbox = await this.getRunningSandbox(instanceId);
     if (sandbox instanceof Response) return sandbox;
 
-    const showAllFiles = new URL(request.url).searchParams.get("showAllFiles") === "true";
+    const url = new URL(request.url);
+    const showAllFiles = url.searchParams.get("showAllFiles") === "true";
+    const requestedPath = url.searchParams.get("path");
+    const targetDir = requestedPath ? posix.resolve(requestedPath) : this.workspace;
+
     let entries: RuntimeEntry[];
     try {
-      const listedEntries = await sandbox.files.list(SANDBOX_WORKSPACE, { depth: 64 });
+      const listedEntries = await sandbox.files.list(targetDir, { depth: 1 });
       const mappedEntries: RuntimeEntry[] = [];
       for (const entry of listedEntries) {
-        const relativePath = toWorkspaceRelativePath(entry.path);
-        if (!relativePath) continue;
+        const name = posix.basename(entry.path);
+        if (!name) continue;
 
         mappedEntries.push({
-          path: relativePath,
+          path: name,
           type: entry.type === "dir" ? "directory" : entry.type === "file" ? "file" : "other",
         });
       }
@@ -606,17 +607,21 @@ export class E2BRuntime implements Runtime {
       );
     }
     if (!showAllFiles) {
+      // Apply .gitignore rules from the directory being listed
       const gitIgnoreContents = await sandbox.files
-        .read(posix.join(SANDBOX_WORKSPACE, ".gitignore"), { format: "text" })
+        .read(posix.join(targetDir, ".gitignore"), { format: "text" })
         .catch(() => "");
       const rules = parseGitIgnoreRules(gitIgnoreContents);
-      entries = entries.filter((entry) => !isGitIgnored(entry.path, rules));
+      if (rules.length > 0) {
+        entries = entries.filter((entry) => !isGitIgnored(entry.path, rules));
+      }
     }
 
     const maxEntries = 10_000;
     const truncated = entries.length > maxEntries;
     return jsonResponse({
-      root: SANDBOX_WORKSPACE,
+      root: this.workspace,
+      path: targetDir,
       entries: truncated ? entries.slice(0, maxEntries) : entries,
       truncated,
       maxEntries,
@@ -632,7 +637,7 @@ export class E2BRuntime implements Runtime {
       return jsonResponse({ error: "Missing ?path= parameter" }, 400);
     }
 
-    const resolvedPath = resolveWorkspacePath(filePath);
+    const resolvedPath = resolveWorkspacePath(this.workspace, filePath);
     if (!resolvedPath) {
       return jsonResponse({ error: "Path outside workspace" }, 403);
     }

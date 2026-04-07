@@ -1,61 +1,60 @@
-import { useEffect, useMemo, useState } from "react";
-import { FileTree, FileTreeFile, FileTreeFolder } from "@/components/ai-elements/file-tree";
+import { useState } from "react";
 import { Switch } from "@/components/ui/switch";
-import { FolderTreeIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { ArrowUpIcon, FileIcon, FolderIcon, FolderTreeIcon, HomeIcon } from "lucide-react";
 import type { FileSystemEntry } from "@flamecast/sdk/session";
-
-type TreeNode = {
-  name: string;
-  path: string;
-  type: FileSystemEntry["type"];
-  children: TreeNode[];
-};
 
 export function RuntimeFileTree({
   workspaceRoot,
+  currentPath,
   entries,
   showAllFiles,
   onShowAllFilesChange,
   onFileSelect,
+  onNavigate,
   emptyTreeMessage = "No filesystem entries returned.",
 }: {
-  workspaceRoot: string | null;
+  /** The workspace root (absolute path). */
+  workspaceRoot: string;
+  /** The absolute path of the directory currently being shown. */
+  currentPath: string;
+  /** Direct children of `currentPath` — names only, not full paths. */
   entries: FileSystemEntry[];
   showAllFiles: boolean;
   onShowAllFilesChange: (showAllFiles: boolean) => void;
   onFileSelect: (path: string) => void;
+  /** Called when the user navigates to a different directory (absolute path). */
+  onNavigate: (absolutePath: string) => void;
   emptyTreeMessage?: string;
 }) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
 
-  const fileEntryMap = useMemo(
-    () => new Map(entries.map((entry) => [entry.path, entry])),
-    [entries],
-  );
-  const fileTree = useMemo(() => buildTree(entries), [entries]);
+  const isAtRoot = currentPath === workspaceRoot;
+  const parentPath = currentPath.replace(/\/[^/]+$/, "") || "/";
+  // Clamp "Up" to the workspace root — don't navigate above it
+  const canGoUp = !isAtRoot;
 
-  useEffect(() => {
-    setExpandedPaths((current) => (current.size > 0 ? current : getInitialExpandedPaths(fileTree)));
-  }, [fileTree]);
+  // Sort: directories first, then alphabetically
+  const sorted = [...entries].sort((a, b) => {
+    const aDir = isDirType(a.type);
+    const bDir = isDirType(b.type);
+    if (aDir && !bDir) return -1;
+    if (!aDir && bDir) return 1;
+    return a.path.localeCompare(b.path);
+  });
 
-  const handleTreeSelect = (path: string) => {
-    setSelectedPath(path);
-    setExpandedPaths((current) => {
-      const next = new Set(current);
-      for (const parentPath of getParentPaths(path)) {
-        next.add(parentPath);
-      }
-      const entry = fileEntryMap.get(path);
-      if (entry?.type === "directory") {
-        next.add(path);
-      }
-      return next;
-    });
-
-    const entry = fileEntryMap.get(path);
-    if (entry?.type === "file") {
-      onFileSelect(path);
+  const handleSelect = (entry: FileSystemEntry) => {
+    const absolutePath = currentPath === "/" ? `/${entry.path}` : `${currentPath}/${entry.path}`;
+    if (isDirType(entry.type)) {
+      onNavigate(absolutePath);
+    } else {
+      setSelectedPath(absolutePath);
+      // Strip workspace root prefix to get a workspace-relative path
+      const wsPrefix = workspaceRoot.endsWith("/") ? workspaceRoot : workspaceRoot + "/";
+      const relativePath = absolutePath.startsWith(wsPrefix)
+        ? absolutePath.slice(wsPrefix.length)
+        : entry.path;
+      onFileSelect(relativePath);
     }
   };
 
@@ -63,9 +62,7 @@ export function RuntimeFileTree({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
         <FolderTreeIcon className="size-3.5 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium">
-          {workspaceRoot ?? "Files"}
-        </span>
+        <span className="min-w-0 flex-1 truncate text-xs font-medium">{currentPath}</span>
         <label className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
           <span>All</span>
           <Switch
@@ -76,82 +73,66 @@ export function RuntimeFileTree({
           />
         </label>
       </div>
-      <div className="h-0 min-h-0 flex-1 overflow-auto p-1.5">
-        {fileTree.length === 0 ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">{emptyTreeMessage}</p>
-        ) : (
-          <FileTree
-            className="border-none bg-transparent text-xs"
-            expanded={expandedPaths}
-            onExpandedChange={setExpandedPaths}
-            onSelect={handleTreeSelect}
-            selectedPath={selectedPath ?? undefined}
+      {canGoUp && (
+        <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1">
+          <button
+            className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            onClick={() => onNavigate(parentPath)}
+            title="Go to parent directory"
+            type="button"
           >
-            {renderTree(fileTree)}
-          </FileTree>
+            <ArrowUpIcon className="size-3" />
+            <span>Up</span>
+          </button>
+          <button
+            className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            onClick={() => onNavigate(workspaceRoot)}
+            title="Go to home directory"
+            type="button"
+          >
+            <HomeIcon className="size-3" />
+            <span>Home</span>
+          </button>
+        </div>
+      )}
+      <div className="h-0 min-h-0 flex-1 overflow-auto p-1.5">
+        {sorted.length === 0 ? (
+          <p className="py-4 text-center text-xs text-muted-foreground">
+            {entries.length === 0 ? emptyTreeMessage : "Empty directory."}
+          </p>
+        ) : (
+          <div className="font-mono text-xs" role="list">
+            {sorted.map((entry) => {
+              const absolutePath =
+                currentPath === "/" ? `/${entry.path}` : `${currentPath}/${entry.path}`;
+              return (
+                <button
+                  key={entry.path}
+                  className={cn(
+                    "flex w-full cursor-pointer items-center gap-1.5 rounded border-none bg-transparent px-2 py-1 text-left text-xs transition-colors hover:bg-muted/50",
+                    selectedPath === absolutePath && "bg-muted",
+                  )}
+                  onClick={() => handleSelect(entry)}
+                  role="listitem"
+                  tabIndex={0}
+                  type="button"
+                >
+                  {isDirType(entry.type) ? (
+                    <FolderIcon className="size-4 shrink-0 text-blue-500" />
+                  ) : (
+                    <FileIcon className="size-4 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="truncate">{entry.path}</span>
+                </button>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-function renderTree(nodes: TreeNode[]) {
-  return nodes.map((node) =>
-    node.type === "directory" ? (
-      <FileTreeFolder key={node.path} name={node.name} path={node.path}>
-        {renderTree(node.children)}
-      </FileTreeFolder>
-    ) : (
-      <FileTreeFile key={node.path} name={node.name} path={node.path} />
-    ),
-  );
-}
-
-function buildTree(entries: FileSystemEntry[]): TreeNode[] {
-  const root: TreeNode = { name: "", path: "", type: "directory", children: [] };
-  for (const entry of entries) {
-    const segments = entry.path.split("/").filter(Boolean);
-    let current = root;
-    segments.forEach((segment, index) => {
-      const path = segments.slice(0, index + 1).join("/");
-      let child = current.children.find((c) => c.path === path);
-      if (!child) {
-        child = {
-          name: segment,
-          path,
-          type: index === segments.length - 1 ? entry.type : "directory",
-          children: [],
-        };
-        current.children.push(child);
-      }
-      if (index === segments.length - 1) child.type = entry.type;
-      current = child;
-    });
-  }
-  sortTree(root.children);
-  return root.children;
-}
-
-function sortTree(nodes: TreeNode[]) {
-  nodes.sort((a, b) => {
-    if (a.type === "directory" && b.type !== "directory") return -1;
-    if (a.type !== "directory" && b.type === "directory") return 1;
-    return a.name.localeCompare(b.name);
-  });
-  nodes.forEach((node) => {
-    if (node.children.length > 0) sortTree(node.children);
-  });
-}
-
-function getInitialExpandedPaths(nodes: TreeNode[]) {
-  return new Set(nodes.filter((n) => n.type === "directory").map((n) => n.path));
-}
-
-function getParentPaths(path: string) {
-  const segments = path.split("/").filter(Boolean);
-  const parents: string[] = [];
-  for (let i = 0; i < segments.length - 1; i++) {
-    parents.push(segments.slice(0, i + 1).join("/"));
-  }
-  return parents;
+function isDirType(type: FileSystemEntry["type"]): boolean {
+  return type === "directory" || type === "symlink";
 }

@@ -1,12 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useFlamecastClient } from "../provider.js";
 
-export function useSession(id: string, opts?: { showAllFiles?: boolean }) {
+export function useSession(id: string) {
   const client = useFlamecastClient();
   return useQuery({
-    queryKey: ["session", id, opts?.showAllFiles],
-    queryFn: () =>
-      client.fetchSession(id, { includeFileSystem: true, showAllFiles: opts?.showAllFiles }),
+    queryKey: ["session", id],
+    queryFn: () => client.fetchSession(id),
     staleTime: Infinity,
   });
 }

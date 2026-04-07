@@ -1,8 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6.0.1/schema-jsonc.json",
   "ignoreIssues": {
-    "apps/client/src/components/ui/**/*.tsx": ["exports"],
-    "apps/client/src/components/ai-elements/file-tree.tsx": ["exports", "types"]
+    "apps/client/src/components/ui/**/*.tsx": ["exports"]
   },
   "workspaces": {
     "packages/flamecast": {
@@ -37,7 +36,7 @@
       ],
       "ignoreUnresolved": ["./routeTree.gen"],
       "ignoreFiles": [
-        "src/components/ui/{accordion,alert-dialog,alert,aspect-ratio,avatar,breadcrumb,button-group,calendar,carousel,chart,checkbox,combobox,command,context-menu,direction,drawer,dropdown-menu,empty,field,hover-card,input-group,input-otp,item,kbd,menubar,native-select,navigation-menu,pagination,popover,progress,radio-group,resizable,scroll-area,select,slider,sonner,spinner,table,textarea,toggle-group,toggle}.tsx"
+        "src/components/ui/{accordion,alert-dialog,alert,aspect-ratio,avatar,breadcrumb,button-group,calendar,carousel,chart,checkbox,collapsible,combobox,command,context-menu,direction,drawer,dropdown-menu,empty,field,hover-card,input-group,input-otp,item,kbd,menubar,native-select,navigation-menu,pagination,popover,progress,radio-group,resizable,scroll-area,select,slider,sonner,spinner,table,textarea,toggle-group,toggle}.tsx"
       ],
       "ignoreDependencies": [
         "@base-ui/react",

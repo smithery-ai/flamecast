@@ -118,15 +118,25 @@ export class NodeRuntime implements Runtime {
   readonly onlyOne = true;
 
   private readonly explicitUrl: string | undefined;
+  private readonly cwd: string | undefined;
   private process: ManagedProcess | null = null;
   private url: string | null = null;
   private starting: Promise<void> | null = null;
 
-  constructor(url?: string) {
-    this.explicitUrl = url;
-    if (url) {
-      this.url = url;
+  constructor(urlOrOpts?: string | { url?: string; cwd?: string }) {
+    if (typeof urlOrOpts === "string") {
+      this.explicitUrl = urlOrOpts;
+      this.url = urlOrOpts;
+    } else if (urlOrOpts) {
+      this.explicitUrl = urlOrOpts.url;
+      if (urlOrOpts.url) this.url = urlOrOpts.url;
+      this.cwd = urlOrOpts.cwd;
     }
+  }
+
+  /** The workspace root for local file operations. */
+  private getWorkspaceRoot(): string {
+    return this.cwd ?? process.cwd();
   }
 
   async start(_instanceId: string): Promise<void> {
@@ -322,7 +332,7 @@ export class NodeRuntime implements Runtime {
 
     const { readFile } = await import("node:fs/promises");
     const path = await import("node:path");
-    const workspaceRoot = process.cwd();
+    const workspaceRoot = this.getWorkspaceRoot();
     const resolvedPath = resolveWorkspacePath(workspaceRoot, filePath, path);
     if (!resolvedPath) {
       return jsonResponse({ error: "Path outside workspace" }, 403);
@@ -345,46 +355,49 @@ export class NodeRuntime implements Runtime {
   }
 
   private async handleRuntimeFsSnapshot(url: URL): Promise<Response> {
-    const { readFile, readdir } = await import("node:fs/promises");
+    const { readFile, readdir, stat } = await import("node:fs/promises");
     const path = await import("node:path");
 
-    const workspaceRoot = process.cwd();
+    const workspaceRoot = this.getWorkspaceRoot();
+    const requestedPath = url.searchParams.get("path");
+    const targetDir = requestedPath ? path.resolve(requestedPath) : workspaceRoot;
     const showAllFiles = url.searchParams.get("showAllFiles") === "true";
-    const gitIgnoreContents = showAllFiles
-      ? ""
-      : await readFile(path.join(workspaceRoot, ".gitignore"), "utf8").catch(() => "");
-    const rules = showAllFiles ? [] : parseGitIgnoreRules(gitIgnoreContents);
+    const rules: GitIgnoreRule[] = [];
+    if (!showAllFiles) {
+      // Read .gitignore from the directory being listed
+      const gitIgnoreContents = await readFile(path.join(targetDir, ".gitignore"), "utf8").catch(
+        () => "",
+      );
+      rules.push(...parseGitIgnoreRules(gitIgnoreContents));
+    }
     const entries: RuntimeEntry[] = [];
 
-    const walk = async (dir: string): Promise<void> => {
-      const dirents = await readdir(dir, { withFileTypes: true }).catch(() => null);
-      if (!dirents) return;
+    const dirents = await readdir(targetDir, { withFileTypes: true }).catch(() => null);
+    if (dirents) {
       dirents.sort((left, right) => left.name.localeCompare(right.name));
-
       for (const dirent of dirents) {
-        const fullPath = path.join(dir, dirent.name);
-        const relativePath = toPortableRelativePath(workspaceRoot, fullPath, path);
-        if (!relativePath) continue;
-        if (!showAllFiles && isGitIgnored(relativePath, rules)) continue;
-
+        const name = dirent.name;
+        if (!showAllFiles && rules.length > 0 && isGitIgnored(name, rules)) continue;
+        let type: RuntimeEntry["type"];
         if (dirent.isDirectory()) {
-          entries.push({ path: relativePath, type: "directory" });
-          await walk(fullPath);
-          continue;
+          type = "directory";
+        } else if (dirent.isFile()) {
+          type = "file";
+        } else if (dirent.isSymbolicLink()) {
+          // Resolve symlink to determine if it points to a directory
+          const resolved = await stat(path.join(targetDir, name)).catch(() => null);
+          type = resolved?.isDirectory() ? "directory" : "file";
+        } else {
+          type = "other";
         }
-
-        entries.push({
-          path: relativePath,
-          type: dirent.isFile() ? "file" : dirent.isSymbolicLink() ? "symlink" : "other",
-        });
+        entries.push({ path: name, type });
       }
-    };
-
-    await walk(workspaceRoot);
+    }
 
     const maxEntries = 10_000;
     return jsonResponse({
       root: workspaceRoot,
+      path: targetDir,
       entries: entries.slice(0, maxEntries),
       truncated: entries.length > maxEntries,
       maxEntries,
@@ -423,14 +436,4 @@ function resolveWorkspacePath(
     return null;
   }
   return resolvedPath;
-}
-
-function toPortableRelativePath(
-  workspaceRoot: string,
-  fullPath: string,
-  path: typeof import("node:path"),
-): string | null {
-  const relativePath = path.relative(workspaceRoot, fullPath);
-  if (!relativePath || relativePath === ".") return null;
-  return relativePath.split(path.sep).join("/");
 }

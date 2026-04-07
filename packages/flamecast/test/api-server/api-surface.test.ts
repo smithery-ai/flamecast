@@ -41,6 +41,7 @@ const sampleFilePreview: FilePreview = {
 };
 const sampleFileSystem: FileSystemSnapshot = {
   root: "/tmp/flamecast",
+  path: "/tmp/flamecast",
   entries: [
     { path: "src", type: "directory" },
     { path: "src/index.ts", type: "file" },
@@ -370,6 +371,7 @@ describe("API server surface", () => {
     expect(await readJson(response)).toEqual(sampleFileSystem);
     expect(flamecast.fetchSessionFileSystem).toHaveBeenCalledWith(sampleAgentId, {
       showAllFiles: false,
+      path: undefined,
     });
   });
 
@@ -385,6 +387,7 @@ describe("API server surface", () => {
     expect(await readJson(response)).toEqual(sampleFileSystem);
     expect(flamecast.fetchSessionFileSystem).toHaveBeenCalledWith(sampleAgentId, {
       showAllFiles: true,
+      path: undefined,
     });
   });
 
@@ -443,6 +446,7 @@ describe("API server surface", () => {
     expect(await readJson(response)).toEqual(sampleFileSystem);
     expect(flamecast.fetchRuntimeFileSystem).toHaveBeenCalledWith("default", {
       showAllFiles: true,
+      path: undefined,
     });
   });
 

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Flamecast, NodeRuntime, listen } from "@flamecast/sdk";
@@ -20,7 +21,7 @@ const agentJsRuntime = agentJsBaseUrl ? new NodeRuntime(agentJsBaseUrl) : null;
 const flamecast = new Flamecast({
   storage: await createPsqlStorage(url ? { url } : undefined),
   runtimes: {
-    default: new NodeRuntime(),
+    default: new NodeRuntime({ cwd: homedir() }),
     ...(agentJsRuntime ? { agentjs: agentJsRuntime } : {}),
     docker: new DockerRuntime(),
     ...(e2bApiKey

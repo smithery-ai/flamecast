@@ -105,6 +105,7 @@ function RuntimeDetailPanel({
 }) {
   const client = useFlamecastClient();
   const [showAllFiles, setShowAllFiles] = useState(false);
+  const [fsPath, setFsPath] = useState<string | undefined>(undefined);
   const isRunning = instance.status === "running";
 
   // Tab state — hydrate from active sessions on mount
@@ -134,6 +135,7 @@ function RuntimeDetailPanel({
   const runtimeFsQuery = useRuntimeFileSystem(instance.name, {
     enabled: isRunning,
     showAllFiles,
+    path: fsPath,
   });
 
   const { terminals, sendInput, resize, onData, createTerminal, killTerminal } = useTerminal(
@@ -363,10 +365,12 @@ function RuntimeDetailPanel({
               ) : (
                 <RuntimeFileTree
                   workspaceRoot={runtimeFsQuery.data.root}
+                  currentPath={runtimeFsQuery.data.path ?? runtimeFsQuery.data.root}
                   entries={runtimeFsQuery.data.entries}
                   showAllFiles={showAllFiles}
                   onShowAllFilesChange={setShowAllFiles}
                   onFileSelect={openFileTab}
+                  onNavigate={setFsPath}
                 />
               )
             }
