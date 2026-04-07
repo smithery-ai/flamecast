@@ -926,19 +926,34 @@ func handleSessionFsSnapshot(sessionID string, w http.ResponseWriter, r *http.Re
 		return
 	}
 	showAllFiles := r != nil && r.URL.Query().Get("showAllFiles") == "true"
-	entries, err := filewatcher.WalkDirectory(sess.workspace, showAllFiles)
+	requestedPath := ""
+	if r != nil {
+		requestedPath = r.URL.Query().Get("path")
+	}
+
+	// Resolve the target directory — default to workspace root.
+	targetDir := sess.workspace
+	if requestedPath != "" {
+		// Absolute paths are used as-is; relative paths are resolved from workspace.
+		if filepath.IsAbs(requestedPath) {
+			targetDir = filepath.Clean(requestedPath)
+		} else {
+			targetDir = filepath.Clean(filepath.Join(sess.workspace, requestedPath))
+		}
+	}
+
+	// Shallow listing of immediate children only.
+	entries, err := filewatcher.ListDirectory(sess.workspace, targetDir, showAllFiles)
 	if err != nil {
 		writeJSON(w, 500, map[string]any{"error": err.Error()})
 		return
 	}
-	maxEntries := 10_000
-	truncated := len(entries) > maxEntries
-	limited := entries
-	if truncated {
-		limited = entries[:maxEntries]
-	}
 	result := map[string]any{
-		"root": sess.workspace, "entries": limited, "truncated": truncated, "maxEntries": maxEntries,
+		"root":       sess.workspace,
+		"path":       targetDir,
+		"entries":    entries,
+		"truncated":  false,
+		"maxEntries": 10_000,
 	}
 	if gitRoot := filewatcher.FindGitRoot(sess.workspace); gitRoot != "" {
 		result["gitPath"] = gitRoot
