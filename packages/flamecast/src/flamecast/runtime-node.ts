@@ -141,8 +141,12 @@ export class NodeRuntime implements Runtime {
   }
 
   /** The workspace root for local file operations. */
-  private getWorkspaceRoot(): string {
+  getDefaultCwd(): string {
     return this.cwd ?? process.cwd();
+  }
+
+  private getWorkspaceRoot(): string {
+    return this.getDefaultCwd();
   }
 
   async start(_instanceId: string): Promise<void> {
