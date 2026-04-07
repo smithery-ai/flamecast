@@ -7,6 +7,7 @@ export { useRuntimes } from "./hooks/use-runtimes.js";
 export { useSessions } from "./hooks/use-sessions.js";
 export { useSession } from "./hooks/use-session.js";
 export { useRuntimeFileSystem } from "./hooks/use-runtime-filesystem.js";
+export { useSessionFileSystem } from "./hooks/use-session-filesystem.js";
 
 // Mutation hooks
 export { useCreateSession } from "./hooks/use-create-session.js";

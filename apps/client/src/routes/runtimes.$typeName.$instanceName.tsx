@@ -1,22 +1,17 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   useRuntimes,
-  useRuntimeFileSystem,
   useStartRuntimeWithOptimisticUpdate,
   useDeleteRuntime,
-  useTerminal,
   useFlamecastClient,
   useTerminateSession,
   useSessions,
 } from "@flamecast/ui";
-import { RuntimeFileTree } from "@/components/runtime-file-tree";
 import { RuntimeNewTab } from "@/components/runtime-new-tab";
 import { RuntimeSessionTab } from "@/components/runtime-session-tab";
 import { RuntimeFileTab } from "@/components/runtime-file-tab";
-import { TerminalPanel } from "@/components/terminal-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import {
   LoaderCircleIcon,
   PlayIcon,
@@ -25,7 +20,6 @@ import {
   FileCode2Icon,
   MessageSquareIcon,
   LayoutGridIcon,
-  GripHorizontalIcon,
   Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -34,7 +28,6 @@ import {
   useCallback,
   useEffect,
   useRef,
-  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { cn } from "@/lib/utils";
 import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
@@ -104,8 +97,6 @@ function RuntimeDetailPanel({
   instance: RuntimeInstance;
 }) {
   const client = useFlamecastClient();
-  const [showAllFiles, setShowAllFiles] = useState(false);
-  const [fsPath, setFsPath] = useState<string | undefined>(undefined);
   const isRunning = instance.status === "running";
 
   // Tab state — hydrate from active sessions on mount
@@ -131,16 +122,6 @@ function RuntimeDetailPanel({
     setTabs(sessionTabs);
     setActiveTabId(sessionTabs[0].id);
   }, [sessions, instance.name]);
-
-  const runtimeFsQuery = useRuntimeFileSystem(instance.name, {
-    enabled: isRunning,
-    showAllFiles,
-    path: fsPath,
-  });
-
-  const { terminals, sendInput, resize, onData, createTerminal, killTerminal } = useTerminal(
-    isRunning ? instance.websocketUrl : undefined,
-  );
 
   const navigate = useNavigate();
   const terminateMutation = useTerminateSession();
@@ -298,95 +279,49 @@ function RuntimeDetailPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <ResizablePanelGroup className="min-h-0 flex-1">
-        {/* ── Left: Tabs area ── */}
-        <ResizablePanel defaultSize={65} minSize={30}>
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden h-full">
-            {/* Tab bar */}
-            <div className="flex shrink-0 items-center gap-0 border-b bg-muted/30 px-1">
-              <div className="flex min-w-0 flex-1 items-center overflow-x-auto">
-                {tabs.map((tab) => (
-                  <TabTrigger
-                    key={tab.id}
-                    tab={tab}
-                    isActive={tab.id === activeTabId}
-                    onClick={() => setActiveTabId(tab.id)}
-                    onClose={() => closeTab(tab.id)}
-                  />
-                ))}
-                <button
-                  type="button"
-                  className="flex shrink-0 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ml-2"
-                  onClick={addNewTab}
-                  title="New tab"
-                >
-                  <PlusIcon className="size-3.5" />
-                </button>
-              </div>
-            </div>
+      {/* Tab bar */}
+      <div className="flex shrink-0 items-center gap-0 border-b bg-muted/30 px-1">
+        <div className="flex min-w-0 flex-1 items-center overflow-x-auto">
+          {tabs.map((tab) => (
+            <TabTrigger
+              key={tab.id}
+              tab={tab}
+              isActive={tab.id === activeTabId}
+              onClick={() => setActiveTabId(tab.id)}
+              onClose={() => closeTab(tab.id)}
+            />
+          ))}
+          <button
+            type="button"
+            className="flex shrink-0 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ml-2"
+            onClick={addNewTab}
+            title="New tab"
+          >
+            <PlusIcon className="size-3.5" />
+          </button>
+        </div>
+      </div>
 
-            {/* Tab content */}
-            <div className="h-0 min-h-0 flex-1 flex flex-col overflow-hidden">
-              {activeTab?.type === "new-tab" && (
-                <RuntimeNewTab
-                  runtimeTypeName={runtimeInfo.typeName}
-                  instanceName={instance.name}
-                  onSessionCreated={openSessionTab}
-                />
-              )}
-              {activeTab?.type === "session" && (
-                <RuntimeSessionTab sessionId={activeTab.sessionId} />
-              )}
-              {activeTab?.type === "file" && (
-                <RuntimeFileTab filePath={activeTab.filePath} loadPreview={loadPreview} />
-              )}
-            </div>
-          </div>
-        </ResizablePanel>
-
-        <ResizableHandle />
-
-        {/* ── Right: Filesystem (top) + Terminals (bottom) ── */}
-        <ResizablePanel defaultSize={35} minSize={20}>
-          <VerticalSplitPanel
-            topContent={
-              runtimeFsQuery.isLoading ? (
-                <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
-                  <LoaderCircleIcon className="size-3.5 animate-spin" />
-                  Loading filesystem...
-                </div>
-              ) : runtimeFsQuery.isError || !runtimeFsQuery.data ? (
-                <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
-                  <p className="text-xs text-muted-foreground">Could not load filesystem</p>
-                  <Button variant="outline" size="sm" onClick={() => void runtimeFsQuery.refetch()}>
-                    Retry
-                  </Button>
-                </div>
-              ) : (
-                <RuntimeFileTree
-                  workspaceRoot={runtimeFsQuery.data.root}
-                  currentPath={runtimeFsQuery.data.path ?? runtimeFsQuery.data.root}
-                  entries={runtimeFsQuery.data.entries}
-                  showAllFiles={showAllFiles}
-                  onShowAllFilesChange={setShowAllFiles}
-                  onFileSelect={openFileTab}
-                  onNavigate={setFsPath}
-                />
-              )
-            }
-            bottomContent={
-              <TerminalPanel
-                terminals={terminals}
-                sendInput={sendInput}
-                resize={resize}
-                onData={onData}
-                onCreateTerminal={() => createTerminal()}
-                onRemoveTerminal={killTerminal}
-              />
-            }
+      {/* Tab content */}
+      <div className="h-0 min-h-0 flex-1 flex flex-col overflow-hidden">
+        {activeTab?.type === "new-tab" && (
+          <RuntimeNewTab
+            runtimeTypeName={runtimeInfo.typeName}
+            instanceName={instance.name}
+            onSessionCreated={openSessionTab}
           />
-        </ResizablePanel>
-      </ResizablePanelGroup>
+        )}
+        {activeTab?.type === "session" && (
+          <RuntimeSessionTab
+            sessionId={activeTab.sessionId}
+            runtimeWebsocketUrl={instance.websocketUrl}
+            onOpenFileTab={openFileTab}
+          />
+        )}
+        {activeTab?.type === "file" && (
+          <RuntimeFileTab filePath={activeTab.filePath} loadPreview={loadPreview} />
+        )}
+      </div>
     </div>
   );
 }
@@ -442,70 +377,6 @@ function TabTrigger({
       >
         <XIcon className="size-3" />
       </button>
-    </div>
-  );
-}
-
-// ─── Vertical Split Panel ────────────────────────────────────────────────────
-
-function VerticalSplitPanel({
-  topContent,
-  bottomContent,
-  defaultTopPercent = 55,
-}: {
-  topContent: React.ReactNode;
-  bottomContent: React.ReactNode;
-  defaultTopPercent?: number;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [topPercent, setTopPercent] = useState(defaultTopPercent);
-  const draggingRef = useRef(false);
-
-  const handleMouseDown = useCallback((e: ReactMouseEvent) => {
-    e.preventDefault();
-    draggingRef.current = true;
-
-    const onMouseMove = (ev: globalThis.MouseEvent) => {
-      if (!draggingRef.current || !containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const y = ev.clientY - rect.top;
-      const pct = Math.min(Math.max((y / rect.height) * 100, 15), 85);
-      setTopPercent(pct);
-      window.dispatchEvent(new Event("resize"));
-    };
-
-    const onMouseUp = () => {
-      draggingRef.current = false;
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      window.dispatchEvent(new Event("resize"));
-    };
-
-    document.body.style.cursor = "row-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
-  }, []);
-
-  return (
-    <div ref={containerRef} className="flex h-full flex-col border-l overflow-hidden">
-      {/* Top section */}
-      <div className="flex min-h-0 flex-col overflow-hidden" style={{ height: `${topPercent}%` }}>
-        {topContent}
-      </div>
-
-      {/* Drag handle */}
-      <div
-        className="flex h-2 shrink-0 cursor-row-resize items-center justify-center border-y bg-muted/30 hover:bg-muted/60 transition-colors"
-        onMouseDown={handleMouseDown}
-      >
-        <GripHorizontalIcon className="size-3 text-muted-foreground" />
-      </div>
-
-      {/* Bottom section */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{bottomContent}</div>
     </div>
   );
 }
