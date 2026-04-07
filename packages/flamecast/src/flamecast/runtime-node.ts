@@ -383,6 +383,7 @@ export class NodeRuntime implements Runtime {
       dirents.sort((left, right) => left.name.localeCompare(right.name));
       for (const dirent of dirents) {
         const name = dirent.name;
+        if (!showAllFiles && name.startsWith(".")) continue;
         if (!showAllFiles && rules.length > 0 && isGitIgnored(name, rules)) continue;
         let type: RuntimeEntry["type"];
         let isDir = false;

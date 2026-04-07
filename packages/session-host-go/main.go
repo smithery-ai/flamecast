@@ -919,13 +919,14 @@ func handleSessionFiles(sessionID string, w http.ResponseWriter, r *http.Request
 	})
 }
 
-func handleSessionFsSnapshot(sessionID string, w http.ResponseWriter, registry *sessionRegistry) {
+func handleSessionFsSnapshot(sessionID string, w http.ResponseWriter, r *http.Request, registry *sessionRegistry) {
 	sess := registry.get(sessionID)
 	if sess == nil || sess.workspace == "" {
 		writeJSON(w, 400, map[string]any{"error": fmt.Sprintf("Session %q not found", sessionID)})
 		return
 	}
-	entries, err := filewatcher.WalkDirectory(sess.workspace)
+	showAllFiles := r != nil && r.URL.Query().Get("showAllFiles") == "true"
+	entries, err := filewatcher.WalkDirectory(sess.workspace, showAllFiles)
 	if err != nil {
 		writeJSON(w, 500, map[string]any{"error": err.Error()})
 		return
@@ -1033,7 +1034,7 @@ func main() {
 
 	mux.HandleFunc("GET /sessions/{sessionId}/fs/snapshot", func(w http.ResponseWriter, r *http.Request) {
 		sessionID := r.PathValue("sessionId")
-		handleSessionFsSnapshot(sessionID, w, registry)
+		handleSessionFsSnapshot(sessionID, w, r, registry)
 	})
 
 	mux.HandleFunc("GET /sessions/{sessionId}/health", func(w http.ResponseWriter, r *http.Request) {
@@ -1139,7 +1140,7 @@ func main() {
 			return
 		}
 		sessionID := sessions[0]["sessionId"].(string)
-		handleSessionFsSnapshot(sessionID, w, registry)
+		handleSessionFsSnapshot(sessionID, w, r, registry)
 	})
 
 	// ---- WebSocket endpoint ----

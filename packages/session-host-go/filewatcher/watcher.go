@@ -327,8 +327,13 @@ func FindGitRoot(dir string) string {
 }
 
 // WalkDirectory recursively walks a directory, respecting .gitignore rules.
-func WalkDirectory(root string) ([]WalkEntry, error) {
-	rules := loadGitIgnoreRules(root)
+// When showAllFiles is false, dot-prefixed entries and gitignored files are hidden.
+func WalkDirectory(root string, showAllFiles ...bool) ([]WalkEntry, error) {
+	showAll := len(showAllFiles) > 0 && showAllFiles[0]
+	var rules []*gitIgnoreRule
+	if !showAll {
+		rules = loadGitIgnoreRules(root)
+	}
 	var entries []WalkEntry
 
 	var walk func(dir string) error
@@ -338,10 +343,15 @@ func WalkDirectory(root string) ([]WalkEntry, error) {
 			return nil // Skip unreadable directories
 		}
 		for _, d := range dirents {
+			// Hide dot-prefixed entries (e.g. .git, .env, .config)
+			if !showAll && strings.HasPrefix(d.Name(), ".") {
+				continue
+			}
+
 			fullPath := filepath.Join(dir, d.Name())
 			relPath, _ := filepath.Rel(root, fullPath)
 
-			if isGitIgnored(relPath, rules) {
+			if !showAll && isGitIgnored(relPath, rules) {
 				continue
 			}
 

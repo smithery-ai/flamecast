@@ -9,6 +9,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
   ArrowUpIcon,
@@ -34,10 +35,11 @@ export function DirectoryPicker({
   initialPath?: string;
 }) {
   const [currentPath, setCurrentPath] = useState<string | undefined>(initialPath);
+  const [showAllFiles, setShowAllFiles] = useState(false);
 
   const fsQuery = useRuntimeFileSystem(instanceName, {
     enabled: open,
-    showAllFiles: false,
+    showAllFiles,
     path: currentPath,
   });
 
@@ -74,28 +76,39 @@ export function DirectoryPicker({
 
         <div className="flex max-h-[400px] min-h-[200px] flex-col overflow-hidden rounded-md border">
           {/* Navigation bar */}
-          {!isAtRoot && (
-            <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1">
-              <button
-                className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-                onClick={() => handleNavigate(parentPath)}
-                title="Go to parent directory"
-                type="button"
-              >
-                <ArrowUpIcon className="size-3" />
-                <span>Up</span>
-              </button>
-              <button
-                className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-                onClick={() => setCurrentPath(undefined)}
-                title="Go to home directory"
-                type="button"
-              >
-                <HomeIcon className="size-3" />
-                <span>Home</span>
-              </button>
-            </div>
-          )}
+          <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1">
+            {!isAtRoot && (
+              <>
+                <button
+                  className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                  onClick={() => handleNavigate(parentPath)}
+                  title="Go to parent directory"
+                  type="button"
+                >
+                  <ArrowUpIcon className="size-3" />
+                  <span>Up</span>
+                </button>
+                <button
+                  className="flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                  onClick={() => setCurrentPath(undefined)}
+                  title="Go to home directory"
+                  type="button"
+                >
+                  <HomeIcon className="size-3" />
+                  <span>Home</span>
+                </button>
+              </>
+            )}
+            <label className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+              <span>All</span>
+              <Switch
+                aria-label="Show hidden and ignored files"
+                checked={showAllFiles}
+                onCheckedChange={setShowAllFiles}
+                size="sm"
+              />
+            </label>
+          </div>
 
           {/* Directory list */}
           <div className="flex-1 overflow-auto p-1.5">
