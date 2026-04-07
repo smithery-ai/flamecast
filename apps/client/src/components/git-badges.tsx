@@ -1,6 +1,6 @@
 /**
  * Renders git repo badges: a GitHub pill (icon + org/repo) if origin is a GitHub URL,
- * and a branch badge if not on main/master.
+ * or a branch badge if not a GitHub repo. Branch is only shown for non-GitHub repos.
  */
 export function GitBadges({
   branch,
@@ -10,35 +10,31 @@ export function GitBadges({
   origin?: string;
 }) {
   const github = origin ? parseGitHubOrigin(origin) : null;
-  const showBranch = branch && branch !== "main" && branch !== "master";
 
-  if (!github && !showBranch) {
-    // Fallback: just show branch name if present
-    if (branch) {
-      return (
-        <span className="ml-auto shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-          {branch}
+  // GitHub repo: show GitHub pill only (branch is redundant)
+  if (github) {
+    return (
+      <span className="ml-auto min-w-0 flex items-center gap-1">
+        <span className="inline-flex min-w-0 items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          <GitHubIcon className="size-2.5 shrink-0" />
+          <span className="truncate">{github}</span>
         </span>
-      );
-    }
-    return null;
+      </span>
+    );
   }
 
-  return (
-    <span className="ml-auto flex shrink-0 items-center gap-1">
-      {github && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-          <GitHubIcon className="size-2.5" />
-          {github}
+  // Non-GitHub repo: show branch name
+  if (branch) {
+    return (
+      <span className="ml-auto min-w-0 flex items-center gap-1">
+        <span className="inline-flex min-w-0 items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          <span className="truncate">{branch}</span>
         </span>
-      )}
-      {showBranch && (
-        <span className="inline-flex items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-          {branch}
-        </span>
-      )}
-    </span>
-  );
+      </span>
+    );
+  }
+
+  return null;
 }
 
 function parseGitHubOrigin(origin: string): string | null {

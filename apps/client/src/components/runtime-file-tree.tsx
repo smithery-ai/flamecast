@@ -127,7 +127,7 @@ export function RuntimeFileTree({
                   ) : (
                     <FileIcon className="size-4 shrink-0 text-muted-foreground" />
                   )}
-                  <span className="truncate">{entry.path}</span>
+                  <span className={entry.git ? "shrink-0" : "truncate"}>{entry.path}</span>
                   {entry.git && (
                     <GitBadges branch={entry.git.branch} origin={entry.git.origin} />
                   )}

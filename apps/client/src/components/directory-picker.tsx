@@ -64,7 +64,7 @@ export function DirectoryPicker({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Select directory</DialogTitle>
           <DialogDescription className="truncate font-mono text-xs">
@@ -129,7 +129,7 @@ export function DirectoryPicker({
                       ) : (
                         <FolderIcon className="size-4 shrink-0 text-blue-500" />
                       )}
-                      <span className="truncate">{entry.path}</span>
+                      <span className="shrink-0">{entry.path}</span>
                       {entry.git && (
                         <GitBadges branch={entry.git.branch} origin={entry.git.origin} />
                       )}
