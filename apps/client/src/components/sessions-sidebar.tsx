@@ -21,11 +21,7 @@ import {
   SidebarMenuItem,
   SidebarMenuSkeleton,
 } from "@/components/ui/sidebar";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   CheckIcon,
   LoaderCircleIcon,
@@ -415,9 +411,7 @@ function BackendUrlSetting() {
           )}
         >
           <SettingsIcon className="size-3.5 shrink-0" />
-          <span className="truncate">
-            {isCustom ? backendUrl : "Backend URL"}
-          </span>
+          <span className="truncate">{isCustom ? backendUrl : "Backend URL"}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent side="top" align="start" className="w-80">
@@ -469,9 +463,7 @@ function BackendUrlSetting() {
               </button>
             )}
           </div>
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            Default: {defaultUrl}
-          </p>
+          <p className="mt-1.5 text-[11px] text-muted-foreground">Default: {defaultUrl}</p>
         </form>
       </PopoverContent>
     </Popover>
