@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "npx concurrently -n conductor,client -c blue,green \"pnpm dev:conductor\" \"pnpm dev:client\"",
+    "dev:conductor": "durable-acp-server --port 4437 npx @agentclientprotocol/claude-agent-acp",
+    "dev:client": "turbo run dev --filter=flamecast-client",
     "dev:all": "turbo run dev",
     "dev:client": "turbo run dev --filter=flamecast-client",
     "dev:server": "turbo run dev --filter=flamecast-server",
@@ -23,6 +25,10 @@
     "test:server": "pnpm --filter flamecast-server test",
     "check": "pnpm ci:lint && pnpm build && pnpm test:api:coverage && pnpm test:server && pnpm knip",
     "clean": "git clean -ffdX"
+  },
+  "dependencies": {
+    "@durable-acp/server": "link:../gurdasnijor/durable-acp-rs/ts/packages/server",
+    "concurrently": "^9.0.0"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.30.0",
