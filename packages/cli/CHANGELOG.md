@@ -1,5 +1,11 @@
 # flamecast
 
+## 0.7.5
+
+### Patch Changes
+
+- a522eea: Auto-run migrations on fresh install when `.flamecast` directory does not exist
+
 ## 0.7.4
 
 ### Patch Changes
