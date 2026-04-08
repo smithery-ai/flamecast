@@ -132,7 +132,50 @@ export async function runUp(flags: UpFlags): Promise<number> {
   return daemonize(flags);
 }
 
-function daemonize(flags: UpFlags): number {
+async function waitForTunnel(
+  pid: number,
+  timeoutMs = 60_000,
+): Promise<{ connected: boolean; domain?: string; error?: string }> {
+  const start = Date.now();
+  const pollMs = 500;
+
+  while (Date.now() - start < timeoutMs) {
+    // Check if daemon is still alive
+    if (!isProcessRunning(pid)) {
+      return { connected: false, error: "daemon exited unexpectedly" };
+    }
+
+    let log: string;
+    try {
+      log = readFileSync(LOG_FILE, "utf8");
+    } catch {
+      log = "";
+    }
+
+    // Tunnel connected successfully
+    const liveMatch = log.match(/Live at (https:\/\/\S+)/);
+    if (liveMatch) {
+      return { connected: true, domain: liveMatch[1] };
+    }
+
+    // Tunnel provisioning failed
+    const unavailableMatch = log.match(/Tunnel unavailable: (.+)/);
+    if (unavailableMatch) {
+      return { connected: false, error: unavailableMatch[1] };
+    }
+
+    // cloudflared not available
+    if (log.includes("Running locally only.")) {
+      return { connected: false, error: "cloudflared not available" };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+
+  return { connected: false, error: "timed out waiting for tunnel" };
+}
+
+async function daemonize(flags: UpFlags): Promise<number> {
   mkdirSync(FLAMECAST_HOME, { recursive: true });
 
   // Check if already running
@@ -177,9 +220,16 @@ function daemonize(flags: UpFlags): number {
   const port = flags.port ?? 3001;
   console.log(`Flamecast started (PID ${child.pid})`);
   console.log(`  Local:  http://localhost:${port}`);
+
   if (flags.name) {
-    console.log(`  Tunnel: https://${flags.name}.flamecast.app (connecting...)`);
+    const result = await waitForTunnel(child.pid);
+    if (result.connected) {
+      console.log(`  Tunnel: ${result.domain}`);
+    } else {
+      console.log(`  Tunnel: https://${flags.name}.flamecast.app (${result.error})`);
+    }
   }
+
   console.log(`  Logs:   ${LOG_FILE}`);
 
   return 0;
