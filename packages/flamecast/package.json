@@ -2,7 +2,8 @@
   "name": "@flamecast/sdk",
   "version": "0.0.0",
   "files": [
-    "dist"
+    "dist",
+    "src/client"
   ],
   "type": "module",
   "main": "./dist/index.js",
@@ -21,8 +22,8 @@
       "import": "./dist/flamecast/api.js"
     },
     "./client": {
-      "types": "./dist/client/api.d.ts",
-      "import": "./dist/client/api.js"
+      "types": "./src/client/api.ts",
+      "import": "./src/client/api.ts"
     },
     "./session": {
       "types": "./dist/shared/session.d.ts",
