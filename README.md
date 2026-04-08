@@ -209,7 +209,7 @@ The `docker` and `e2b` runtime providers run agents inside sandboxes. Each sandb
 1. **`SESSION_HOST_BINARY` env var** — path to a local binary (used by `docker` provider on the host)
 2. **Local `@flamecast/session-host-go` package** — resolved via `import.meta.resolve` (works in Node.js, not in bundled environments)
 3. **`SESSION_HOST_URL` env var** — URL to download the binary (for environments without filesystem access like Cloudflare Workers)
-4. **Stable GitHub release** — `https://github.com/smithery-ai/flamecast/releases/download/session-host-latest/session-host-amd64`
+4. **Stable GitHub release** — `https://github.com/smithery-ai/flamecast/releases/download/session-host-latest/session-host-linux-amd64`
 
 > **Important:** E2B sandboxes are always x86_64 (amd64). The binary must be compiled for `GOARCH=amd64` regardless of your host architecture.
 

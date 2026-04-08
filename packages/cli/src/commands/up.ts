@@ -90,12 +90,11 @@ async function ensureSessionHost(): Promise<void> {
   const os = platform();
   const cpu = arch();
 
-  let binaryName: string;
-  if (os === "darwin" && cpu === "arm64") binaryName = "session-host-darwin-arm64";
-  else if (os === "darwin" && cpu === "x64") binaryName = "session-host-darwin-amd64";
-  else if (os === "linux" && cpu === "x64") binaryName = "session-host-amd64";
-  else if (os === "linux" && cpu === "arm64") binaryName = "session-host-arm64";
-  else throw new Error(`Unsupported platform: ${os}/${cpu}`);
+  const goArch = cpu === "x64" ? "amd64" : cpu;
+  if ((os !== "darwin" && os !== "linux") || (goArch !== "amd64" && goArch !== "arm64")) {
+    throw new Error(`Unsupported platform: ${os}/${cpu}`);
+  }
+  const binaryName = `session-host-${os}-${goArch}`;
 
   const url = `https://github.com/smithery-ai/flamecast/releases/download/session-host-latest/${binaryName}`;
   console.log(`Downloading session-host for ${os}/${cpu}...`);
