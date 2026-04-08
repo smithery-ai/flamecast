@@ -21,8 +21,8 @@
       "import": "./dist/flamecast/api.js"
     },
     "./client": {
-      "types": "./src/client/api.ts",
-      "import": "./src/client/api.ts"
+      "types": "./dist/client/api.d.ts",
+      "import": "./dist/client/api.js"
     },
     "./session": {
       "types": "./dist/shared/session.d.ts",
@@ -39,7 +39,6 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.16.1",
     "@flamecast/protocol": "workspace:*",
-    "@flamecast/session-host-go": "workspace:*",
     "@hono/node-server": "^1.19.11",
     "@hono/zod-validator": "^0.7.6",
     "hono": "^4.12.8",

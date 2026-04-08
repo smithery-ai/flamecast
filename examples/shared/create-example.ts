@@ -9,14 +9,14 @@ import type { Flamecast, AgentTemplate } from "@flamecast/sdk";
 /** Path to the built-in example agent (used by all examples). */
 export const AGENT_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  "../../packages/flamecast/src/flamecast/agent.ts",
+  "../../packages/flamecast/dist/flamecast/agent.js",
 );
 
 /** Default agent template wired to the example agent. */
 export const EXAMPLE_TEMPLATE: AgentTemplate = {
   id: "example",
   name: "Example agent",
-  spawn: { command: "pnpm", args: ["exec", "tsx", AGENT_PATH] },
+  spawn: { command: "node", args: [AGENT_PATH] },
   runtime: { provider: "default" },
 };
 
