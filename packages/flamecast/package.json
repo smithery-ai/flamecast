@@ -40,10 +40,8 @@
     "@agentclientprotocol/sdk": "^0.16.1",
     "@flamecast/protocol": "workspace:*",
     "@flamecast/session-host-go": "workspace:*",
-    "@flamecast/storage-psql": "workspace:*",
     "@hono/node-server": "^1.19.11",
     "@hono/zod-validator": "^0.7.6",
-    "drizzle-kit": "^0.31.10",
     "hono": "^4.12.8",
     "zod": "^4.3.6"
   },
