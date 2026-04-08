@@ -33,7 +33,7 @@
   "scripts": {
     "build": "pnpm run build:package",
     "build:package": "tsc -p tsconfig.package.json && cp src/flamecast/agent.ts dist/flamecast/agent.ts",
-"test": "vitest run --config vitest.integration.config.ts",
+    "test": "vitest run --config vitest.integration.config.ts",
     "test:api:coverage": "vitest run --coverage --config vitest.integration.config.ts"
   },
   "dependencies": {

@@ -9,8 +9,9 @@ import {
   closeSync,
   unlinkSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, platform, arch } from "node:os";
 import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -61,19 +62,19 @@ async function provisionTunnel(
   });
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({ error: response.statusText }))) as {
-      error?: string;
-    };
+    const body: { error?: string } = await response
+      .json()
+      .catch(() => ({ error: response.statusText }));
     throw new Error(body.error ?? `Bridge API error: ${response.status}`);
   }
 
-  return response.json() as Promise<{ tunnelToken: string; domain: string }>;
+  const result: { tunnelToken: string; domain: string } = await response.json();
+  return result;
 }
 
 async function ensureSessionHost(): Promise<void> {
   if (resolveNativeBinary()) return;
 
-  const { platform, arch } = await import("node:os");
   const os = platform();
   const cpu = arch();
 
@@ -87,9 +88,7 @@ async function ensureSessionHost(): Promise<void> {
   const url = `https://github.com/smithery-ai/flamecast/releases/download/session-host-latest/${binaryName}`;
   console.log(`Downloading session-host for ${os}/${cpu}...`);
 
-  const { createRequire } = await import("node:module");
-  const require = createRequire(import.meta.url);
-  const resolvePath = require.resolve("@flamecast/session-host-go/resolve");
+  const resolvePath = fileURLToPath(import.meta.resolve("@flamecast/session-host-go/resolve"));
   const pkgDir = dirname(resolvePath);
   const distDir = join(pkgDir, "dist");
   mkdirSync(distDir, { recursive: true });
@@ -183,7 +182,9 @@ async function runServer(flags: UpFlags): Promise<number> {
   try {
     await ensureSessionHost();
   } catch (error) {
-    console.error(`Failed to ensure session-host: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      `Failed to ensure session-host: ${error instanceof Error ? error.message : String(error)}`,
+    );
     console.error(`View logs: ${LOG_FILE}`);
     return 1;
   }

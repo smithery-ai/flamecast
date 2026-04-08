@@ -14,11 +14,7 @@ type CreateDnsRecordResponse = {
   };
 };
 
-async function cfFetch<T>(
-  path: string,
-  apiToken: string,
-  options: RequestInit = {},
-): Promise<T> {
+async function cfFetch<T>(path: string, apiToken: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${CF_API_BASE}${path}`, {
     ...options,
     headers: {
@@ -33,7 +29,7 @@ async function cfFetch<T>(
     throw new Error(`Cloudflare API error: ${response.status} ${text}`);
   }
 
-  return response.json() as Promise<T>;
+  return response.json<T>();
 }
 
 type ListTunnelsResponse = {
@@ -65,7 +61,7 @@ export async function createTunnel(
   });
 
   if (response.ok) {
-    const data = (await response.json()) as CreateTunnelResponse;
+    const data: CreateTunnelResponse = await response.json();
     return { tunnelId: data.result.id, tunnelToken: data.result.token };
   }
 
@@ -101,21 +97,17 @@ export async function configureTunnelIngress(
   hostname: string,
   port: number,
 ): Promise<void> {
-  await cfFetch(
-    `/accounts/${accountId}/cfd_tunnel/${tunnelId}/configurations`,
-    apiToken,
-    {
-      method: "PUT",
-      body: JSON.stringify({
-        config: {
-          ingress: [
-            { hostname, service: `http://localhost:${port}` },
-            { service: "http_status:404" },
-          ],
-        },
-      }),
-    },
-  );
+  await cfFetch(`/accounts/${accountId}/cfd_tunnel/${tunnelId}/configurations`, apiToken, {
+    method: "PUT",
+    body: JSON.stringify({
+      config: {
+        ingress: [
+          { hostname, service: `http://localhost:${port}` },
+          { service: "http_status:404" },
+        ],
+      },
+    }),
+  });
 }
 
 type ListDnsRecordsResponse = {
@@ -145,7 +137,7 @@ export async function createDnsRecord(
   });
 
   if (response.ok) {
-    const data = (await response.json()) as CreateDnsRecordResponse;
+    const data: CreateDnsRecordResponse = await response.json();
     return data.result.id;
   }
 
@@ -162,14 +154,10 @@ export async function createDnsRecord(
     }
 
     // Update the existing record to point to the right tunnel
-    await cfFetch(
-      `/zones/${zoneId}/dns_records/${record.id}`,
-      apiToken,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ content, proxied: true }),
-      },
-    );
+    await cfFetch(`/zones/${zoneId}/dns_records/${record.id}`, apiToken, {
+      method: "PATCH",
+      body: JSON.stringify({ content, proxied: true }),
+    });
 
     return record.id;
   }
@@ -183,11 +171,9 @@ export async function deleteTunnel(
   apiToken: string,
   tunnelId: string,
 ): Promise<void> {
-  await cfFetch(
-    `/accounts/${accountId}/cfd_tunnel/${tunnelId}?cascade=true`,
-    apiToken,
-    { method: "DELETE" },
-  );
+  await cfFetch(`/accounts/${accountId}/cfd_tunnel/${tunnelId}?cascade=true`, apiToken, {
+    method: "DELETE",
+  });
 }
 
 export async function deleteDnsRecord(
@@ -195,9 +181,5 @@ export async function deleteDnsRecord(
   apiToken: string,
   recordId: string,
 ): Promise<void> {
-  await cfFetch(
-    `/zones/${zoneId}/dns_records/${recordId}`,
-    apiToken,
-    { method: "DELETE" },
-  );
+  await cfFetch(`/zones/${zoneId}/dns_records/${recordId}`, apiToken, { method: "DELETE" });
 }

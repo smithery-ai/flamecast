@@ -16,11 +16,16 @@ tunnels.post("/", async (c) => {
   const port = body.port ?? 3001;
 
   if (!name || !/^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/.test(name)) {
-    return c.json({ error: "Invalid name. Use 3-32 lowercase letters, numbers, and hyphens." }, 400);
+    return c.json(
+      { error: "Invalid name. Use 3-32 lowercase letters, numbers, and hyphens." },
+      400,
+    );
   }
 
   // Check if name is already taken
-  const existing = await c.env.DB.prepare("SELECT * FROM tunnels WHERE name = ?").bind(name).first<TunnelRow>();
+  const existing = await c.env.DB.prepare("SELECT * FROM tunnels WHERE name = ?")
+    .bind(name)
+    .first<TunnelRow>();
   if (existing) {
     // Re-configure ingress in case the port changed
     await configureTunnelIngress(
@@ -44,20 +49,9 @@ tunnels.post("/", async (c) => {
     `flamecast-${name}`,
   );
 
-  await configureTunnelIngress(
-    c.env.CF_ACCOUNT_ID,
-    c.env.CF_API_TOKEN,
-    tunnelId,
-    hostname,
-    port,
-  );
+  await configureTunnelIngress(c.env.CF_ACCOUNT_ID, c.env.CF_API_TOKEN, tunnelId, hostname, port);
 
-  const dnsRecordId = await createDnsRecord(
-    c.env.CF_ZONE_ID,
-    c.env.CF_API_TOKEN,
-    name,
-    tunnelId,
-  );
+  const dnsRecordId = await createDnsRecord(c.env.CF_ZONE_ID, c.env.CF_API_TOKEN, name, tunnelId);
 
   await c.env.DB.prepare(
     "INSERT INTO tunnels (name, tunnel_id, tunnel_token, dns_record_id, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -71,7 +65,9 @@ tunnels.post("/", async (c) => {
 tunnels.delete("/:name", async (c) => {
   const name = c.req.param("name");
 
-  const row = await c.env.DB.prepare("SELECT * FROM tunnels WHERE name = ?").bind(name).first<TunnelRow>();
+  const row = await c.env.DB.prepare("SELECT * FROM tunnels WHERE name = ?")
+    .bind(name)
+    .first<TunnelRow>();
   if (!row) {
     return c.json({ error: "Tunnel not found" }, 404);
   }
@@ -86,7 +82,9 @@ tunnels.delete("/:name", async (c) => {
 tunnels.get("/:name", async (c) => {
   const name = c.req.param("name");
 
-  const row = await c.env.DB.prepare("SELECT * FROM tunnels WHERE name = ?").bind(name).first<TunnelRow>();
+  const row = await c.env.DB.prepare("SELECT * FROM tunnels WHERE name = ?")
+    .bind(name)
+    .first<TunnelRow>();
   if (!row) {
     return c.json({ error: "Tunnel not found" }, 404);
   }
