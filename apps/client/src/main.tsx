@@ -16,11 +16,9 @@ declare module "@tanstack/react-router" {
 
 // oxlint-disable-next-line no-type-assertion/no-type-assertion
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <FlamecastProvider>
-      <TooltipProvider>
-        <RouterProvider router={router} />
-      </TooltipProvider>
-    </FlamecastProvider>
-  </React.StrictMode>,
+  <FlamecastProvider>
+    <TooltipProvider>
+      <RouterProvider router={router} />
+    </TooltipProvider>
+  </FlamecastProvider>,
 );
