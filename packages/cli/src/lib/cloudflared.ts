@@ -1,5 +1,4 @@
 import { spawn, execSync, type ChildProcess } from "node:child_process";
-import { createInterface } from "node:readline";
 import { platform, arch } from "node:os";
 
 export function spawnCloudflared(tunnelToken: string): ChildProcess {
@@ -42,24 +41,7 @@ export async function ensureCloudflared(): Promise<boolean> {
     return false;
   }
 
-  // In non-interactive mode (e.g. background daemon where stdin is /dev/null),
-  // auto-install without prompting — the user explicitly passed --name so they
-  // want a tunnel.
-  const isInteractive = process.stdin.isTTY === true;
-  if (isInteractive) {
-    const approved = await confirm(
-      `cloudflared is not installed. Install it with \`${command}\`? [Y/n] `,
-    );
-
-    if (!approved) {
-      console.log("Skipping cloudflared installation.");
-      return false;
-    }
-  } else {
-    console.log(`cloudflared is not installed. Installing automatically...`);
-  }
-
-  console.log(`Running: ${command}`);
+  console.log("Setting up tunneling (one-time setup)...");
   try {
     execSync(command, { stdio: "inherit" });
   } catch {
@@ -112,14 +94,4 @@ function isCommandAvailable(cmd: string): boolean {
   } catch {
     return false;
   }
-}
-
-function confirm(prompt: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(prompt, (answer) => {
-      rl.close();
-      resolve(answer.trim().toLowerCase() !== "n");
-    });
-  });
 }
