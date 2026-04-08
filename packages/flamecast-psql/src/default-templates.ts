@@ -2,21 +2,21 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentTemplate } from "@flamecast/protocol/session";
 
-const thisDir = dirname(fileURLToPath(import.meta.url));
-const exampleAgentPath = resolve(thisDir, "../../flamecast/src/flamecast/agent.ts");
+const sdkDir = dirname(fileURLToPath(import.meta.resolve("@flamecast/sdk/package.json")));
+const exampleAgentPath = resolve(sdkDir, "dist/flamecast/agent.js");
 
 /** Builtin agent templates seeded on startup. */
 export const defaultAgentTemplates: AgentTemplate[] = [
   {
     id: "example",
     name: "Example agent",
-    spawn: { command: "pnpm", args: ["exec", "tsx", exampleAgentPath] },
+    spawn: { command: "node", args: [exampleAgentPath] },
     runtime: { provider: "default" },
   },
   {
     id: "codex",
     name: "Codex ACP",
-    spawn: { command: "pnpm", args: ["dlx", "@zed-industries/codex-acp"] },
+    spawn: { command: "npx", args: ["--yes", "@zed-industries/codex-acp"] },
     runtime: { provider: "default" },
   },
   {

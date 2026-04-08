@@ -1,6 +1,6 @@
 {
-  "name": "@flamecast/cli",
-  "version": "0.0.0",
+  "name": "flamecast",
+  "version": "0.6.0",
   "bin": {
     "flamecast": "./dist/cli.js"
   },
@@ -15,7 +15,6 @@
   },
   "dependencies": {
     "@flamecast/sdk": "workspace:*",
-    "@flamecast/session-host-go": "workspace:*",
     "@flamecast/storage-psql": "workspace:*",
     "@hono/node-server": "^1.19.11",
     "drizzle-kit": "^0.31.10",

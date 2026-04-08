@@ -10,8 +10,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import { homedir, platform, arch } from "node:os";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -25,11 +24,11 @@ import {
   defaultAgentTemplates,
 } from "@flamecast/storage-psql";
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
-import { resolveNativeBinary } from "@flamecast/session-host-go/resolve";
 import { spawnCloudflared, ensureCloudflared } from "../lib/cloudflared.js";
 import type { UpFlags } from "../types.js";
 
 const FLAMECAST_HOME = join(homedir(), ".flamecast");
+const SESSION_HOST_BIN_DIR = join(FLAMECAST_HOME, "bin");
 const LOG_FILE = join(FLAMECAST_HOME, "flamecast.log");
 const PID_FILE = join(FLAMECAST_HOME, "daemon.pid");
 const DEFAULT_BRIDGE_URL = "https://flamecast-bridge.smithery.workers.dev";
@@ -72,6 +71,19 @@ async function provisionTunnel(
   return result;
 }
 
+function resolveNativeBinary(): string | null {
+  if (process.env.SESSION_HOST_BINARY) {
+    const p = process.env.SESSION_HOST_BINARY;
+    if (!existsSync(p)) {
+      throw new Error(`SESSION_HOST_BINARY points to "${p}" which does not exist`);
+    }
+    return p;
+  }
+  const binaryPath = join(SESSION_HOST_BIN_DIR, "session-host-native");
+  if (existsSync(binaryPath)) return binaryPath;
+  return null;
+}
+
 async function ensureSessionHost(): Promise<void> {
   if (resolveNativeBinary()) return;
 
@@ -88,10 +100,7 @@ async function ensureSessionHost(): Promise<void> {
   const url = `https://github.com/smithery-ai/flamecast/releases/download/session-host-latest/${binaryName}`;
   console.log(`Downloading session-host for ${os}/${cpu}...`);
 
-  const resolvePath = fileURLToPath(import.meta.resolve("@flamecast/session-host-go/resolve"));
-  const pkgDir = dirname(resolvePath);
-  const distDir = join(pkgDir, "dist");
-  mkdirSync(distDir, { recursive: true });
+  mkdirSync(SESSION_HOST_BIN_DIR, { recursive: true });
 
   const response = await fetch(url, { redirect: "follow" });
   if (!response.ok) {
@@ -99,7 +108,7 @@ async function ensureSessionHost(): Promise<void> {
   }
 
   const buffer = Buffer.from(await response.arrayBuffer());
-  const outputPath = join(distDir, "session-host-native");
+  const outputPath = join(SESSION_HOST_BIN_DIR, "session-host-native");
   writeFileSync(outputPath, buffer);
   chmodSync(outputPath, 0o755);
   console.log("Downloaded session-host binary.");

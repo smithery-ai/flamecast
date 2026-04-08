@@ -190,14 +190,20 @@ export class NodeRuntime implements Runtime {
   }
 
   private async spawnRuntimeHost(): Promise<void> {
-    const { resolveNativeBinary } = await import("@flamecast/session-host-go/resolve");
+    const { existsSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { homedir } = await import("node:os");
     const { spawn } = await import("node:child_process");
 
-    const binaryPath = resolveNativeBinary();
+    let binaryPath: string | null = null;
+    if (process.env.SESSION_HOST_BINARY) {
+      binaryPath = process.env.SESSION_HOST_BINARY;
+    } else {
+      const candidate = join(homedir(), ".flamecast", "bin", "session-host-native");
+      if (existsSync(candidate)) binaryPath = candidate;
+    }
     if (!binaryPath) {
-      throw new Error(
-        "No native runtime-host binary found. Run: pnpm --filter @flamecast/session-host-go run postinstall",
-      );
+      throw new Error("No native runtime-host binary found. Run: flamecast up");
     }
 
     const port = await findFreePort();

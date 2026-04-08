@@ -2,7 +2,8 @@
   "name": "@flamecast/sdk",
   "version": "0.0.0",
   "files": [
-    "dist"
+    "dist",
+    "src/client"
   ],
   "type": "module",
   "main": "./dist/index.js",
@@ -39,7 +40,6 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.16.1",
     "@flamecast/protocol": "workspace:*",
-    "@flamecast/session-host-go": "workspace:*",
     "@hono/node-server": "^1.19.11",
     "@hono/zod-validator": "^0.7.6",
     "hono": "^4.12.8",
