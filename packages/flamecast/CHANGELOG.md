@@ -1,5 +1,13 @@
 # @flamecast/sdk
 
+## 0.1.1
+
+### Patch Changes
+
+- f5e6639: Test changeset release
+- Updated dependencies [f5e6639]
+  - @flamecast/protocol@0.1.1
+
 ## 0.1.0
 
 ### Minor Changes
