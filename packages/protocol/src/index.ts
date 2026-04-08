@@ -9,6 +9,7 @@ export type {
 } from "./runtime.js";
 
 export type {
+  FileSystemEntry,
   AgentSpawn,
   AgentTemplate,
   AgentTemplateRuntime,
@@ -30,44 +31,4 @@ export type {
   WebhookPayload,
 } from "./session.js";
 
-export type {
-  WsServerMessage,
-  WsControlMessage,
-  WsEventMessage,
-  WsConnectedMessage,
-  WsErrorMessage,
-  WsPromptAction,
-  WsPermissionRespondAction,
-  WsCancelAction,
-  WsTerminateAction,
-  WsPingAction,
-  WsQueueReorderAction,
-  WsQueueClearAction,
-  WsQueuePauseAction,
-  WsQueueResumeAction,
-} from "./ws.js";
-
-export type {
-  Channel,
-  WsChannelServerMessage,
-  WsChannelControlMessage,
-  WsChannelConnectedMessage,
-  WsSubscribedMessage,
-  WsUnsubscribedMessage,
-  WsChannelEventMessage,
-  WsSessionCreatedMessage,
-  WsSessionTerminatedMessage,
-  WsChannelErrorMessage,
-  WsPongMessage,
-  WsSubscribeAction,
-  WsUnsubscribeAction,
-  WsChannelPromptAction,
-  WsChannelPermissionRespondAction,
-  WsChannelCancelAction,
-  WsChannelTerminateAction,
-  WsChannelQueueReorderAction,
-  WsChannelQueueClearAction,
-  WsChannelQueuePauseAction,
-  WsChannelQueueResumeAction,
-  WsChannelPingAction,
-} from "./ws-channels.js";
+export { verifyWebhookSignature } from "./verify.js";

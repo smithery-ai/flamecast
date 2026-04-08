@@ -1,4 +1,9 @@
-import type { FileSystemEntry } from "./session-host.js";
+export interface FileSystemEntry {
+  path: string;
+  name: string;
+  type: "file" | "directory";
+  size?: number;
+}
 
 // ---------------------------------------------------------------------------
 // Agent configuration

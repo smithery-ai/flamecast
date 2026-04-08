@@ -30,7 +30,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { LoaderCircleIcon, PlusIcon, PlayIcon, TerminalIcon, SettingsIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
-import type { AgentTemplate } from "@flamecast/sdk/session";
+import type { AgentTemplate } from "@flamecast/protocol/session";
 import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 
 export const Route = createFileRoute("/agents")({

@@ -1,11 +1,17 @@
-import { useQuery } from "@tanstack/react-query";
-import { useFlamecastClient } from "../provider.js";
+/**
+ * useSession — get a single connection from the durable stream.
+ */
+
+import { useCollections } from "../provider.js";
 
 export function useSession(id: string) {
-  const client = useFlamecastClient();
-  return useQuery({
-    queryKey: ["session", id],
-    queryFn: () => client.fetchSession(id),
-    staleTime: Infinity,
-  });
+  const collections = useCollections();
+  const connection = [...collections.connections.toArray].find(
+    (c) => c.logicalConnectionId === id,
+  );
+  return {
+    data: connection ?? null,
+    isLoading: false,
+    error: null,
+  };
 }

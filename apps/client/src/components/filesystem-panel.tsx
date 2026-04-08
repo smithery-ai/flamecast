@@ -9,7 +9,7 @@ import {
   FolderTreeIcon,
   HomeIcon,
 } from "lucide-react";
-import type { FileSystemEntry } from "@flamecast/sdk/session";
+import type { FileSystemEntry } from "@flamecast/protocol/session";
 
 export function FileSystemPanel({
   workspaceRoot,

@@ -11,7 +11,7 @@
     "@agentclientprotocol/sdk": "^0.16.1",
     "@base-ui/react": "^1.3.0",
     "@flamecast/protocol": "workspace:*",
-    "@flamecast/sdk": "workspace:*",
+    "@durable-acp/server": "link:../../../../gurdasnijor/durable-acp-rs/ts/packages/server",
     "@flamecast/ui": "workspace:*",
     "@fontsource-variable/geist": "^5.2.8",
     "@tailwindcss/vite": "^4.2.2",

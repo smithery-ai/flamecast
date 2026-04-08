@@ -1,11 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
-import { useFlamecastClient } from "../provider.js";
-
-export function useRuntimes() {
-  const client = useFlamecastClient();
-  return useQuery({
-    queryKey: ["runtimes"],
-    queryFn: client.fetchRuntimes,
-    refetchInterval: 30_000,
-  });
+// TODO: Rewire to durable-acp-rs. Previously used deleted @flamecast/sdk REST client.
+export function placeholder() {
+  throw new Error("Not yet implemented — pending durable-acp-rs integration");
 }

@@ -1,5 +1,5 @@
 import * as acp from "@agentclientprotocol/sdk";
-import type { SessionLog } from "@flamecast/sdk/session";
+import type { SessionLog } from "@flamecast/protocol/session";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;

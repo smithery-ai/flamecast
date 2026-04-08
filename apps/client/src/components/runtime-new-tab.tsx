@@ -18,7 +18,7 @@ import { GitWorktreeMenu, useActiveBranch } from "@/components/git-worktree-pick
 import { PlayIcon, TerminalIcon, FolderOpenIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useCallback } from "react";
-import type { AgentTemplate } from "@flamecast/sdk/session";
+import type { AgentTemplate } from "@flamecast/protocol/session";
 import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 
 export function RuntimeNewTab({

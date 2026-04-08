@@ -10,7 +10,7 @@ import {
   HomeIcon,
 } from "lucide-react";
 import { GitBadges } from "@/components/git-badges";
-import type { FileSystemEntry } from "@flamecast/sdk/session";
+import type { FileSystemEntry } from "@flamecast/protocol/session";
 
 export function RuntimeFileTree({
   workspaceRoot,
