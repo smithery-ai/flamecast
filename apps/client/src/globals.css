@@ -131,3 +131,69 @@
     @apply font-sans;
   }
 }
+
+/* ── Streamdown overrides ─────────────────────────────────────────────────── */
+
+/* Bullets: switch from list-inside to list-outside so wrapped text aligns */
+[data-streamdown="ordered-list"],
+[data-streamdown="unordered-list"] {
+  list-style-position: outside;
+  padding-left: 1.5rem;
+}
+
+/* Remove the extra nested indent that list-inside needed */
+[data-streamdown="ordered-list"] li,
+[data-streamdown="unordered-list"] li {
+  padding-left: 0;
+}
+
+/* Tighter vertical rhythm on list items */
+[data-streamdown="list-item"] {
+  padding-top: 0.125rem;
+  padding-bottom: 0.125rem;
+}
+
+/* Code block wrapper */
+[data-streamdown="code-block"] {
+  position: relative;
+  padding: 0.25rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Compact language label */
+[data-streamdown="code-block-header"] {
+  height: 1.75rem;
+}
+
+/* Collapse header when no language */
+[data-streamdown="code-block-header"][data-language=""] {
+  display: none;
+}
+
+/* Action buttons: absolute top-right, vertically centered with the header */
+[data-streamdown="code-block-header"] + div {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  margin-top: 0;
+  height: 1.75rem;
+  display: flex;
+  align-items: center;
+}
+
+/* Code body: tighter vertical padding */
+[data-streamdown="code-block-body"] {
+  padding: 0.75rem 1rem;
+}
+
+/* Paragraph spacing — Tailwind preflight resets p margin to 0 */
+p + p {
+  margin-top: 0.5em;
+}
+
+/* More breathing room around headings */
+[data-streamdown^="heading-"] {
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
