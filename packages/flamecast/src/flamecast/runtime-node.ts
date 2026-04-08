@@ -203,9 +203,7 @@ export class NodeRuntime implements Runtime {
       if (existsSync(candidate)) binaryPath = candidate;
     }
     if (!binaryPath) {
-      throw new Error(
-        "No native runtime-host binary found. Run: flamecast up",
-      );
+      throw new Error("No native runtime-host binary found. Run: flamecast up");
     }
 
     const port = await findFreePort();
