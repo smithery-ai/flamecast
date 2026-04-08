@@ -137,8 +137,8 @@ function isFlamecastProcess(pid: number): boolean {
 }
 
 export async function runUp(flags: UpFlags): Promise<number> {
-  // If we're the daemon child, run the server directly
-  if (process.env.__FLAMECAST_DAEMON === "1") {
+  // If we're the daemon child, or --dev was passed, run the server directly
+  if (process.env.__FLAMECAST_DAEMON === "1" || flags.dev) {
     return runServer(flags);
   }
 

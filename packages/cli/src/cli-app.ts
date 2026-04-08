@@ -15,7 +15,7 @@ type Command =
 
 function printHelp(): void {
   console.log(`Usage:
-  flamecast up [--name <name>] [--url <postgres-url>] [--data-dir <path>] [--port <port>]
+  flamecast up [--name <name>] [--url <postgres-url>] [--data-dir <path>] [--port <port>] [--dev]
   flamecast down
   flamecast status
   flamecast db status [--url <postgres-url>] [--data-dir <path>] [--json]
@@ -29,6 +29,7 @@ Commands:
 
 Options:
   --name <name>        Expose as name.flamecast.app (requires cloudflared)
+  --dev                Run in foreground (no daemon). Use with tsx watch for hot reload.
 
 Environment:
   DATABASE_URL or POSTGRES_URL         Postgres connection string
@@ -93,6 +94,12 @@ function parseUpFlags(args: string[]): UpFlags {
 
     if (!arg.startsWith("--")) {
       throw new Error(`Unexpected argument "${arg}"`);
+    }
+
+    // Boolean flags (no value)
+    if (arg === "--dev") {
+      flags.dev = true;
+      continue;
     }
 
     const value = args[index + 1];

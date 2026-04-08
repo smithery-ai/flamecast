@@ -7,6 +7,7 @@
     "dev:all": "turbo run dev",
     "dev:client": "turbo run dev --filter=flamecast-client",
     "dev:server": "turbo run dev --filter=flamecast-server",
+    "dev:up": "tsx watch packages/cli/src/cli.ts -- up --dev",
     "build": "turbo run build",
     "start": "pnpm dev",
     "knip": "knip --config knip.json --workspace packages/flamecast --workspace examples/agent.js --workspace apps/server --workspace apps/client --no-config-hints",

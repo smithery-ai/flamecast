@@ -3,4 +3,5 @@ export type UpFlags = {
   url?: string;
   dataDir?: string;
   port?: number;
+  dev?: boolean;
 };
