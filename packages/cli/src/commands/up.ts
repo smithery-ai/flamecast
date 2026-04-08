@@ -22,6 +22,7 @@ import {
   createDatabase,
   createStorageFromDb,
   defaultAgentTemplates,
+  migrateDatabase,
 } from "@flamecast/storage-psql";
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
 import { spawnCloudflared, ensureCloudflared } from "../lib/cloudflared.js";
@@ -294,10 +295,16 @@ async function runServer(flags: UpFlags): Promise<number> {
   }
 
   const storageOptions = resolveStorageFlags(flags);
+  const isLocalDb = storageOptions.url === undefined;
+  const freshInstall = isLocalDb && !existsSync(join(process.cwd(), ".flamecast"));
   const bundle = await createDatabase(storageOptions);
 
   try {
-    await assertDatabaseReady(bundle);
+    if (freshInstall) {
+      await migrateDatabase(bundle);
+    } else {
+      await assertDatabaseReady(bundle);
+    }
 
     const storage = createStorageFromDb(bundle.db);
     if (storageOptions.url === undefined) {
