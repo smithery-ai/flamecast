@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, Navigate, useNavigate } from "@tanstack/react-router";
 import {
   useRuntimes,
   useAgentTemplates,
@@ -28,12 +28,28 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
+import { isDeveloperPreview } from "@/lib/developer-preview";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
 });
 
 function HomePage() {
+  if (!isDeveloperPreview) {
+    return (
+      <Navigate
+        to="/runtimes/$typeName/$instanceName"
+        params={{ typeName: "default", instanceName: "default" }}
+        replace
+      />
+    );
+  }
+  return <DeveloperHomePage />;
+}
+
+// ─── Developer Home Page (full controls) ──────────────────────────────────────
+
+function DeveloperHomePage() {
   const navigate = useNavigate();
   const { data: runtimes, isLoading: runtimesLoading } = useRuntimes();
   const { data: templates, isLoading: templatesLoading } = useAgentTemplates();
