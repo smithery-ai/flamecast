@@ -4,6 +4,7 @@ import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { FlamecastProvider } from "@flamecast/ui";
 import { routeTree } from "./routeTree.gen";
 import { resolveApiBaseUrl } from "./lib/api-base-url";
+import { BackendUrlProvider, useBackendUrl } from "./lib/backend-url-context";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
@@ -15,13 +16,24 @@ declare module "@tanstack/react-router" {
   }
 }
 
-// oxlint-disable-next-line no-type-assertion/no-type-assertion
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <FlamecastProvider baseUrl={resolveApiBaseUrl(import.meta.env)}>
+const defaultUrl = resolveApiBaseUrl(import.meta.env);
+
+function App() {
+  const { backendUrl } = useBackendUrl();
+  return (
+    <FlamecastProvider key={backendUrl} baseUrl={backendUrl}>
       <TooltipProvider>
         <RouterProvider router={router} />
       </TooltipProvider>
     </FlamecastProvider>
+  );
+}
+
+// oxlint-disable-next-line no-type-assertion/no-type-assertion
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <BackendUrlProvider defaultUrl={defaultUrl}>
+      <App />
+    </BackendUrlProvider>
   </React.StrictMode>,
 );
