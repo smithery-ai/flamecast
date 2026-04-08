@@ -3,6 +3,7 @@ import {
   useRuntimeFileSystem,
   useTerminal,
   useFlamecastClient,
+  useIsMobile,
 } from "@flamecast/ui";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
@@ -103,71 +104,95 @@ export function RuntimeSessionTab({
   // Chat shows a skeleton while the session initializes, filesystem has its own
   // loading spinner, and the terminal connects to the runtime immediately.
 
+  const isMobile = useIsMobile();
+
+  const filesystemContent = fsQuery.isLoading ? (
+    <FilesystemSkeleton />
+  ) : fsQuery.isError || !fsQuery.data ? (
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
+      <p className="text-xs text-muted-foreground">Could not load filesystem</p>
+      <Button variant="outline" size="sm" onClick={() => void fsQuery.refetch()}>
+        Retry
+      </Button>
+    </div>
+  ) : (
+    <RuntimeFileTree
+      workspaceRoot={fsQuery.data.root}
+      currentPath={fsQuery.data.path ?? fsQuery.data.root}
+      entries={fsQuery.data.entries}
+      showAllFiles={showAllFiles}
+      onShowAllFilesChange={setShowAllFiles}
+      onFileSelect={handleFileSelect}
+      onNavigate={setFsPath}
+    />
+  );
+
+  const terminalContent = (
+    <TerminalPanel
+      terminals={terminals}
+      sendInput={sendInput}
+      resize={resize}
+      onData={onData}
+      onCreateTerminal={() => createTerminal()}
+      onRemoveTerminal={killTerminal}
+    />
+  );
+
+  const conversationContent = isLoading ? (
+    <ChatSkeleton />
+  ) : !session ? (
+    <ChatConnecting />
+  ) : (
+    <SessionConversation
+      promptText={promptText}
+      setPromptText={setPromptText}
+      handleSend={handleSend}
+      logs={logs}
+      markdownSegments={markdownSegments}
+      isProcessing={isProcessing}
+      pendingPermissions={pendingPermissions}
+      respondToPermission={respondToPermission}
+      previewFilePath={previewFilePath}
+      onClosePreview={() => setPreviewFilePath(null)}
+      loadPreview={loadPreview}
+    />
+  );
+
+  // On mobile, merge filesystem & terminal into tabs alongside Markdown/Traces
+  if (isMobile) {
+    return (
+      <MobileSessionLayout
+        filesystemContent={filesystemContent}
+        terminalContent={terminalContent}
+        promptText={promptText}
+        setPromptText={setPromptText}
+        handleSend={handleSend}
+        isProcessing={isProcessing}
+        pendingPermissions={pendingPermissions}
+        logs={logs}
+        markdownSegments={markdownSegments}
+        respondToPermission={respondToPermission}
+        previewFilePath={previewFilePath}
+        onClosePreview={() => setPreviewFilePath(null)}
+        loadPreview={loadPreview}
+        isLoading={isLoading}
+        session={session}
+      />
+    );
+  }
+
   return (
     <ResizablePanelGroup className="min-h-0 flex-1">
       {/* Left: Conversation */}
       <ResizablePanel defaultSize={65} minSize={30}>
-        <div className="flex h-full min-h-0 flex-col overflow-hidden">
-          {isLoading ? (
-            <ChatSkeleton />
-          ) : !session ? (
-            <ChatConnecting />
-          ) : (
-            <SessionConversation
-              promptText={promptText}
-              setPromptText={setPromptText}
-              handleSend={handleSend}
-              logs={logs}
-              markdownSegments={markdownSegments}
-              isProcessing={isProcessing}
-              pendingPermissions={pendingPermissions}
-              respondToPermission={respondToPermission}
-              previewFilePath={previewFilePath}
-              onClosePreview={() => setPreviewFilePath(null)}
-              loadPreview={loadPreview}
-            />
-          )}
-        </div>
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">{conversationContent}</div>
       </ResizablePanel>
 
       <ResizableHandle />
 
       {/* Right: Filesystem + Terminal (session-scoped) */}
       <ResizablePanel defaultSize={35} minSize={20}>
-        <VerticalSplitPanel
-          topContent={
-            fsQuery.isLoading ? (
-              <FilesystemSkeleton />
-            ) : fsQuery.isError || !fsQuery.data ? (
-              <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4">
-                <p className="text-xs text-muted-foreground">Could not load filesystem</p>
-                <Button variant="outline" size="sm" onClick={() => void fsQuery.refetch()}>
-                  Retry
-                </Button>
-              </div>
-            ) : (
-              <RuntimeFileTree
-                workspaceRoot={fsQuery.data.root}
-                currentPath={fsQuery.data.path ?? fsQuery.data.root}
-                entries={fsQuery.data.entries}
-                showAllFiles={showAllFiles}
-                onShowAllFilesChange={setShowAllFiles}
-                onFileSelect={handleFileSelect}
-                onNavigate={setFsPath}
-              />
-            )
-          }
-          bottomContent={
-            <TerminalPanel
-              terminals={terminals}
-              sendInput={sendInput}
-              resize={resize}
-              onData={onData}
-              onCreateTerminal={() => createTerminal()}
-              onRemoveTerminal={killTerminal}
-            />
-          }
-        />
+        <VerticalSplitPanel topContent={filesystemContent} bottomContent={terminalContent} />
       </ResizablePanel>
     </ResizablePanelGroup>
   );
@@ -210,6 +235,257 @@ function FilesystemSkeleton() {
         ))}
       </div>
     </div>
+  );
+}
+
+// ─── Mobile Layout ───────────────────────────────────────────────────────────
+
+/**
+ * On mobile, filesystem and terminal are shown as tabs alongside Markdown/Traces
+ * instead of as resizable side panels.
+ */
+function MobileSessionLayout({
+  filesystemContent,
+  terminalContent,
+  promptText,
+  setPromptText,
+  handleSend,
+  isProcessing,
+  pendingPermissions,
+  respondToPermission,
+  logs,
+  markdownSegments,
+  previewFilePath,
+  onClosePreview,
+  loadPreview,
+  isLoading,
+  session,
+}: {
+  filesystemContent: ReactNode;
+  terminalContent: ReactNode;
+  promptText: string;
+  setPromptText: (v: string) => void;
+  handleSend: () => void;
+  isProcessing: boolean;
+  pendingPermissions: ReturnType<typeof useSessionState>["pendingPermissions"];
+  respondToPermission: ReturnType<typeof useSessionState>["respondToPermission"];
+  logs: ReturnType<typeof useSessionState>["logs"];
+  markdownSegments: ReturnType<typeof useSessionState>["markdownSegments"];
+  previewFilePath: string | null;
+  onClosePreview: () => void;
+  loadPreview: (path: string) => Promise<{ content: string; truncated: boolean }>;
+  isLoading: boolean;
+  session: ReturnType<typeof useSessionState>["session"];
+}) {
+  // When the session hasn't loaded yet, show loading/connecting state directly
+  if (isLoading) return <ChatSkeleton />;
+  if (!session) return <ChatConnecting />;
+
+  // If a file is being previewed inline, delegate to SessionConversation which handles it
+  if (previewFilePath) {
+    return (
+      <SessionConversation
+        promptText={promptText}
+        setPromptText={setPromptText}
+        handleSend={handleSend}
+        logs={logs}
+        markdownSegments={markdownSegments}
+        isProcessing={isProcessing}
+        pendingPermissions={pendingPermissions}
+        respondToPermission={respondToPermission}
+        previewFilePath={previewFilePath}
+        onClosePreview={onClosePreview}
+        loadPreview={loadPreview}
+      />
+    );
+  }
+
+  return (
+    <Tabs defaultValue="markdown" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center border-b px-3 py-2">
+        <TabsList className="h-7">
+          <TabsTrigger value="markdown" className="text-xs px-2 py-0.5">
+            Markdown
+          </TabsTrigger>
+          <TabsTrigger value="traces" className="text-xs px-2 py-0.5">
+            Traces
+          </TabsTrigger>
+          <TabsTrigger value="files" className="text-xs px-2 py-0.5">
+            Files
+          </TabsTrigger>
+          <TabsTrigger value="terminal" className="text-xs px-2 py-0.5">
+            Terminal
+          </TabsTrigger>
+        </TabsList>
+      </div>
+
+      <TabsContent value="markdown" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+        <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <StickToBottom
+            className="relative flex min-h-0 flex-1 flex-col"
+            resize="smooth"
+            initial="smooth"
+          >
+            <StickToBottom.Content className="flex flex-col gap-4 p-4">
+              {markdownSegments.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No conversation yet. Send a prompt below.
+                </p>
+              ) : (
+                markdownSegments.map((seg, index) => {
+                  const isLiveAssistant =
+                    seg.kind === "assistant" &&
+                    isProcessing &&
+                    index === markdownSegments.length - 1;
+                  if (seg.kind === "user") {
+                    return (
+                      <div
+                        key={index}
+                        className="rounded-lg border border-border/70 bg-muted/70 px-3 py-2.5 dark:bg-muted/40"
+                      >
+                        <Streamdown className="max-w-none text-foreground">{seg.text}</Streamdown>
+                      </div>
+                    );
+                  }
+                  if (seg.kind === "assistant") {
+                    return (
+                      <Streamdown
+                        key={index}
+                        className="max-w-none"
+                        animated
+                        isAnimating={isLiveAssistant}
+                      >
+                        {seg.text}
+                      </Streamdown>
+                    );
+                  }
+                  if (seg.kind === "tool") {
+                    const toolMd = `**Tool:** ${seg.title}${seg.status ? ` — \`${seg.status}\`` : ""}`;
+                    return (
+                      <Fragment key={index}>
+                        {index > 0 ? <Separator /> : null}
+                        <Streamdown className="max-w-none text-muted-foreground">
+                          {toolMd}
+                        </Streamdown>
+                      </Fragment>
+                    );
+                  }
+                  return null;
+                })
+              )}
+              {pendingPermissions.map((pending) => (
+                <Card key={pending.requestId} className="max-w-2xl border-primary/50 bg-primary/5">
+                  <CardHeader>
+                    <CardTitle className="text-base">Permission required</CardTitle>
+                    <CardDescription>
+                      {pending.title}
+                      {pending.kind ? (
+                        <Badge variant="outline" className="ml-2">
+                          {pending.kind}
+                        </Badge>
+                      ) : null}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex flex-wrap gap-2">
+                    {pending.options.map((opt) => (
+                      <Button
+                        key={opt.optionId}
+                        variant={opt.kind === "allow_once" ? "default" : "secondary"}
+                        size="sm"
+                        onClick={() =>
+                          respondToPermission(pending.requestId, { optionId: opt.optionId })
+                        }
+                      >
+                        {opt.name}
+                      </Button>
+                    ))}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        respondToPermission(pending.requestId, { outcome: "cancelled" })
+                      }
+                    >
+                      Cancel
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </StickToBottom.Content>
+            <ScrollToBottomFab />
+          </StickToBottom>
+        </section>
+      </TabsContent>
+
+      <TabsContent value="traces" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+        <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <StickToBottom
+            className="relative flex min-h-0 flex-1 flex-col"
+            resize="smooth"
+            initial="smooth"
+          >
+            <StickToBottom.Content className="flex flex-col gap-3 p-4">
+              {logs.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No logs yet. Send a prompt to get started.
+                </p>
+              ) : (
+                logs.map((log, index) => (
+                  <Fragment key={index}>
+                    {index > 0 ? <Separator /> : null}
+                    <div className="flex items-start gap-3 text-sm">
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {new Date(log.timestamp).toLocaleTimeString()}
+                      </span>
+                      <div className="min-w-0 flex-1 flex-col gap-2">
+                        <Badge variant={getLogVariant(log.type)} className="w-fit shrink-0">
+                          {log.type}
+                        </Badge>
+                        <pre className="min-w-0 overflow-auto rounded-md bg-muted p-2 text-xs">
+                          {JSON.stringify(log.data, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+                  </Fragment>
+                ))
+              )}
+            </StickToBottom.Content>
+            <ScrollToBottomFab />
+          </StickToBottom>
+        </section>
+      </TabsContent>
+
+      <TabsContent value="files" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+        {filesystemContent}
+      </TabsContent>
+
+      <TabsContent value="terminal" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+        {terminalContent}
+      </TabsContent>
+
+      <div className="flex shrink-0 items-center gap-2 border-t px-3 py-2">
+        <Input
+          value={promptText}
+          onChange={(event) => setPromptText(event.target.value)}
+          onKeyDown={(event) => event.key === "Enter" && handleSend()}
+          placeholder="Send a prompt to the agent..."
+          disabled={isProcessing || pendingPermissions.length > 0}
+          className="h-8 text-sm"
+        />
+        <Button
+          size="sm"
+          onClick={handleSend}
+          disabled={isProcessing || pendingPermissions.length > 0 || !promptText.trim()}
+        >
+          <SendIcon data-icon="inline-start" />
+          {pendingPermissions.length > 0
+            ? "Permission required"
+            : isProcessing
+              ? "Processing..."
+              : "Send"}
+        </Button>
+      </div>
+    </Tabs>
   );
 }
 
@@ -258,7 +534,7 @@ function SessionConversation({
 
   return (
     <Tabs defaultValue="markdown" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center border-b px-3 py-1">
+      <div className="flex shrink-0 items-center border-b px-3 py-2">
         <TabsList className="h-7">
           <TabsTrigger value="markdown" className="text-xs px-2 py-0.5">
             Markdown
