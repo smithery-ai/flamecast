@@ -9,7 +9,6 @@
     "jsx": "react-jsx"
   },
   "include": [
-    "src/cli.ts",
     "src/index.ts",
     "src/edge.ts",
     "src/worker.ts",

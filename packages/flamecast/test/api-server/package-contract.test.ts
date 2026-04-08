@@ -7,7 +7,6 @@ const PackageJsonSchema = z.object({
   main: z.string(),
   types: z.string(),
   exports: z.record(z.string(), z.union([z.string(), z.record(z.string(), z.string())])),
-  bin: z.record(z.string(), z.string()),
   files: z.array(z.string()),
 });
 
@@ -21,7 +20,6 @@ describe("package contract", () => {
     expect(packageJson.name).toBe("@flamecast/sdk");
     expect(packageJson.main).toBe("./dist/index.js");
     expect(packageJson.types).toBe("./dist/index.d.ts");
-    expect(packageJson.bin.flamecast).toBe("./dist/cli.js");
     expect(packageJson.files).toEqual(["dist"]);
     expect(packageJson.exports["."]).toEqual({
       types: "./dist/index.d.ts",
