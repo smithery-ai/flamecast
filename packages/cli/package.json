@@ -1,6 +1,6 @@
 {
   "name": "flamecast",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "bin": {
     "flamecast": "./dist/cli.js"
   },
