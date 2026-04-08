@@ -178,7 +178,7 @@ function daemonize(flags: UpFlags): number {
   console.log(`Flamecast started (PID ${child.pid})`);
   console.log(`  Local:  http://localhost:${port}`);
   if (flags.name) {
-    console.log(`  Tunnel: https://${flags.name}.flamecast.app`);
+    console.log(`  Tunnel: https://${flags.name}.flamecast.app (connecting...)`);
   }
   console.log(`  Logs:   ${LOG_FILE}`);
 
