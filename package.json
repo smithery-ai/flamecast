@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npx concurrently -n conductor,client -c blue,green \"pnpm dev:conductor\" \"pnpm dev:client\"",
+    "dev": "pnpm dev:conductor & pnpm dev:client",
     "dev:conductor": "durable-acp-server --port 4437 claude-agent-acp",
     "dev:client": "turbo run dev --filter=flamecast-client",
     "dev:all": "turbo run dev",
@@ -28,7 +28,6 @@
   },
   "dependencies": {
     "@durable-acp/server": "link:/Users/gnijor/gurdasnijor/durable-acp-rs",
-    "concurrently": "^9.0.0"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.30.0",
