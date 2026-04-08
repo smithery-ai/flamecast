@@ -27,7 +27,7 @@
     "clean": "git clean -ffdX"
   },
   "dependencies": {
-    "@durable-acp/server": "link:/Users/gnijor/gurdasnijor/durable-acp-rs",
+    "@durable-acp/server": "link:/Users/gnijor/gurdasnijor/durable-acp-rs"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.30.0",
