@@ -31,6 +31,9 @@
     },
     "./package.json": "./package.json"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "pnpm run build:package",
     "build:package": "tsc -p tsconfig.package.json && cp src/flamecast/agent.ts dist/flamecast/agent.ts",
@@ -49,8 +52,5 @@
     "@vitest/coverage-v8": "^4.1.0",
     "knip": "^6.0.1",
     "vitest": "^4.1.0"
-  },
-  "publishConfig": {
-    "access": "public"
   }
 }

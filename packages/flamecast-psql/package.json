@@ -18,6 +18,9 @@
     },
     "./package.json": "./package.json"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.package.json && rm -rf dist/migrations && cp -r src/migrations dist/migrations",
     "test": "vitest run",
@@ -34,8 +37,5 @@
   "devDependencies": {
     "drizzle-kit": "^0.31.8",
     "vitest": "^4.1.0"
-  },
-  "publishConfig": {
-    "access": "public"
   }
 }

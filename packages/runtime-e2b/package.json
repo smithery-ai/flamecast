@@ -11,6 +11,9 @@
       "import": "./dist/index.js"
     }
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -20,8 +23,5 @@
     "@flamecast/protocol": "workspace:*",
     "@flamecast/session-host-go": "workspace:*",
     "e2b": "^2.18.0"
-  },
-  "publishConfig": {
-    "access": "public"
   }
 }

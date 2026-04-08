@@ -47,6 +47,9 @@
       "import": "./dist/verify.js"
     }
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
     "build:package": "tsc"
@@ -56,8 +59,5 @@
   },
   "devDependencies": {
     "typescript": "^5.8.3"
-  },
-  "publishConfig": {
-    "access": "public"
   }
 }

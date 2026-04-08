@@ -11,6 +11,9 @@
       "import": "./dist/index.js"
     }
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -24,8 +27,5 @@
   "devDependencies": {
     "@types/dockerode": "^3.3.37",
     "typescript": "^5.8.3"
-  },
-  "publishConfig": {
-    "access": "public"
   }
 }
