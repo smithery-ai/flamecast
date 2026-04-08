@@ -1,6 +1,9 @@
 {
   "name": "@flamecast/runtime-e2b",
   "version": "0.1.0",
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -17,5 +20,8 @@
     "@flamecast/protocol": "workspace:*",
     "@flamecast/session-host-go": "workspace:*",
     "e2b": "^2.18.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
