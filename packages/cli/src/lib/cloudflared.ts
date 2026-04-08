@@ -42,13 +42,21 @@ export async function ensureCloudflared(): Promise<boolean> {
     return false;
   }
 
-  const approved = await confirm(
-    `cloudflared is not installed. Install it with \`${command}\`? [Y/n] `,
-  );
+  // In non-interactive mode (e.g. background daemon where stdin is /dev/null),
+  // auto-install without prompting — the user explicitly passed --name so they
+  // want a tunnel.
+  const isInteractive = process.stdin.isTTY === true;
+  if (isInteractive) {
+    const approved = await confirm(
+      `cloudflared is not installed. Install it with \`${command}\`? [Y/n] `,
+    );
 
-  if (!approved) {
-    console.log("Skipping cloudflared installation.");
-    return false;
+    if (!approved) {
+      console.log("Skipping cloudflared installation.");
+      return false;
+    }
+  } else {
+    console.log(`cloudflared is not installed. Installing automatically...`);
   }
 
   console.log(`Running: ${command}`);
