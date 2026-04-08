@@ -22,9 +22,17 @@ jobs:
         with:
           go-version-file: packages/session-host-go/go.mod
 
-      - name: Build
+      - name: Build all platforms
         working-directory: packages/session-host-go
-        run: GOOS=linux GOARCH=amd64 go build -o dist/session-host-amd64 .
+        run: |
+          mkdir -p dist
+          for pair in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os="${pair%%/*}"
+            arch="${pair##*/}"
+            output="dist/session-host-${os}-${arch}"
+            echo "Building ${os}/${arch}..."
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -o "$output" -ldflags="-s -w" .
+          done
 
       - name: Delete existing release
         run: gh release delete session-host-latest -y --cleanup-tag || true
@@ -34,7 +42,10 @@ jobs:
       - name: Create release
         run: |
           gh release create session-host-latest \
-            packages/session-host-go/dist/session-host-amd64 \
+            packages/session-host-go/dist/session-host-linux-amd64 \
+            packages/session-host-go/dist/session-host-linux-arm64 \
+            packages/session-host-go/dist/session-host-darwin-amd64 \
+            packages/session-host-go/dist/session-host-darwin-arm64 \
             --title "session-host (latest)" \
             --notes "Rolling release — runtime-host with multi-session support."
         env:

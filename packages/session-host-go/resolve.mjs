@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
  * so this URL never changes.
  */
 export const SESSION_HOST_DEFAULT_URL =
-  "https://github.com/smithery-ai/flamecast/releases/download/session-host-latest/session-host-amd64";
+  "https://github.com/smithery-ai/flamecast/releases/download/session-host-latest/session-host-linux-amd64";
 
 /**
  * Resolve a download URL for the runtime-host binary.
