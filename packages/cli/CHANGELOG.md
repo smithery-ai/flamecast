@@ -1,5 +1,11 @@
 # flamecast
 
+## 0.7.3
+
+### Patch Changes
+
+- 3548f00: Fix daemon lifecycle: detect stale PID files from recycled PIDs, wait for server to actually start before reporting success, handle port-in-use errors gracefully, report accurate tunnel status, auto-install cloudflared when using --name, and add `flamecast status` command.
+
 ## 0.7.2
 
 ### Patch Changes
