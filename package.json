@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "npx concurrently -n conductor,client -c blue,green \"pnpm dev:conductor\" \"pnpm dev:client\"",
-    "dev:conductor": "durable-acp-server --port 4437 npx @agentclientprotocol/claude-agent-acp",
+    "dev:conductor": "node node_modules/@durable-acp/server/dist/cli.js --port 4437 npx @agentclientprotocol/claude-agent-acp",
     "dev:client": "turbo run dev --filter=flamecast-client",
     "dev:all": "turbo run dev",
     "dev:client": "turbo run dev --filter=flamecast-client",
