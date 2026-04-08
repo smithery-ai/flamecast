@@ -162,7 +162,6 @@ export function RuntimeSessionTab({
   if (isMobile) {
     return (
       <MobileSessionLayout
-        conversationContent={conversationContent}
         filesystemContent={filesystemContent}
         terminalContent={terminalContent}
         promptText={promptText}
@@ -186,19 +185,14 @@ export function RuntimeSessionTab({
     <ResizablePanelGroup className="min-h-0 flex-1">
       {/* Left: Conversation */}
       <ResizablePanel defaultSize={65} minSize={30}>
-        <div className="flex h-full min-h-0 flex-col overflow-hidden">
-          {conversationContent}
-        </div>
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">{conversationContent}</div>
       </ResizablePanel>
 
       <ResizableHandle />
 
       {/* Right: Filesystem + Terminal (session-scoped) */}
       <ResizablePanel defaultSize={35} minSize={20}>
-        <VerticalSplitPanel
-          topContent={filesystemContent}
-          bottomContent={terminalContent}
-        />
+        <VerticalSplitPanel topContent={filesystemContent} bottomContent={terminalContent} />
       </ResizablePanel>
     </ResizablePanelGroup>
   );
@@ -251,7 +245,6 @@ function FilesystemSkeleton() {
  * instead of as resizable side panels.
  */
 function MobileSessionLayout({
-  conversationContent,
   filesystemContent,
   terminalContent,
   promptText,
@@ -268,7 +261,6 @@ function MobileSessionLayout({
   isLoading,
   session,
 }: {
-  conversationContent: ReactNode;
   filesystemContent: ReactNode;
   terminalContent: ReactNode;
   promptText: string;
@@ -310,7 +302,7 @@ function MobileSessionLayout({
 
   return (
     <Tabs defaultValue="markdown" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center border-b px-3 py-1">
+      <div className="flex shrink-0 items-center border-b px-3 py-2">
         <TabsList className="h-7">
           <TabsTrigger value="markdown" className="text-xs px-2 py-0.5">
             Markdown
@@ -542,7 +534,7 @@ function SessionConversation({
 
   return (
     <Tabs defaultValue="markdown" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center border-b px-3 py-1">
+      <div className="flex shrink-0 items-center border-b px-3 py-2">
         <TabsList className="h-7">
           <TabsTrigger value="markdown" className="text-xs px-2 py-0.5">
             Markdown
