@@ -1,8 +1,8 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   createDatabase,
   getDrizzleStudioConfig,
@@ -10,8 +10,10 @@ import {
   migrateDatabase,
 } from "@flamecast/storage-psql";
 
-const require = createRequire(import.meta.url);
-const DRIZZLE_KIT_BIN = path.join(path.dirname(require.resolve("drizzle-kit")), "bin.cjs");
+const DRIZZLE_KIT_BIN = path.join(
+  path.dirname(fileURLToPath(import.meta.resolve("drizzle-kit"))),
+  "bin.cjs",
+);
 
 export type DbFlags = {
   url?: string;
