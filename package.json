@@ -25,7 +25,7 @@
     "clean": "git clean -ffdX",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "ci:publish": "turbo run build --filter=@flamecast/protocol --filter=@flamecast/sdk --filter=@flamecast/storage-psql --filter=flamecast && pnpm publish -r"
+    "ci:publish": "turbo run build --filter=@flamecast/protocol --filter=@flamecast/sdk --filter=@flamecast/storage-psql --filter=flamecast && pnpm --filter @flamecast/protocol --filter @flamecast/sdk --filter @flamecast/storage-psql --filter flamecast publish"
   },
   "devDependencies": {
     "@changesets/cli": "^2.30.0",
