@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useState } from "react";
 
 const STORAGE_KEY = "flamecast_backend_url";
+const URL_PARAM = "backendUrl";
 
 interface BackendUrlContextValue {
   backendUrl: string;
@@ -18,9 +19,14 @@ export function BackendUrlProvider({
   defaultUrl: string;
   children: React.ReactNode;
 }) {
-  const [backendUrl, setBackendUrlState] = useState(
-    () => localStorage.getItem(STORAGE_KEY) || defaultUrl,
-  );
+  const [backendUrl, setBackendUrlState] = useState(() => {
+    const paramUrl = new URLSearchParams(window.location.search).get(URL_PARAM);
+    if (paramUrl) {
+      localStorage.setItem(STORAGE_KEY, paramUrl);
+      return paramUrl;
+    }
+    return localStorage.getItem(STORAGE_KEY) || defaultUrl;
+  });
 
   const setBackendUrl = useCallback(
     (url: string) => {
