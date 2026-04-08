@@ -195,10 +195,26 @@ export class NodeRuntime implements Runtime {
     const { homedir } = await import("node:os");
     const { spawn } = await import("node:child_process");
 
+    // Resolution order:
+    //  1. SESSION_HOST_BINARY env var
+    //  2. @flamecast/session-host-go/dist/session-host-native (monorepo / npm package)
+    //  3. ~/.flamecast/bin/session-host-native (installed by `flamecast up`)
     let binaryPath: string | null = null;
     if (process.env.SESSION_HOST_BINARY) {
       binaryPath = process.env.SESSION_HOST_BINARY;
-    } else {
+    }
+    if (!binaryPath) {
+      try {
+        // Dynamic import — the package may not be installed (e.g. published SDK
+        // without the Go binary package). The try/catch handles that gracefully.
+        const specifier = "@flamecast/session-host-go/resolve";
+        const mod: { resolveNativeBinary?: () => string | null } = await import(specifier);
+        if (mod.resolveNativeBinary) binaryPath = mod.resolveNativeBinary();
+      } catch {
+        // Package not available — fall through to ~/.flamecast check
+      }
+    }
+    if (!binaryPath) {
       const candidate = join(homedir(), ".flamecast", "bin", "session-host-native");
       if (existsSync(candidate)) binaryPath = candidate;
     }

@@ -37,6 +37,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { useBackendUrl } from "@/lib/backend-url-context";
+import { isDeveloperPreview } from "@/lib/developer-preview";
 import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 
 export function SessionsSidebar() {
@@ -91,7 +92,7 @@ export function SessionsSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {(isRuntimesLoading || (runtimes && runtimes.length > 0)) && (
+        {isDeveloperPreview && (isRuntimesLoading || (runtimes && runtimes.length > 0)) && (
           <SidebarGroup>
             <SidebarGroupLabel>Runtimes</SidebarGroupLabel>
             <SidebarGroupContent>

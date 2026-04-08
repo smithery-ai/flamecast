@@ -52,5 +52,8 @@
     "@vitest/coverage-v8": "^4.1.0",
     "knip": "^6.0.1",
     "vitest": "^4.1.0"
+  },
+  "optionalDependencies": {
+    "@flamecast/session-host-go": "workspace:*"
   }
 }
