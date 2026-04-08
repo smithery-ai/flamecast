@@ -7,5 +7,12 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": []
+  "ignore": [
+    "@flamecast/bridge",
+    "@flamecast/agent-js",
+    "@flamecast/example-*",
+    "flamecast-client",
+    "flamecast-server",
+    "docs"
+  ]
 }
