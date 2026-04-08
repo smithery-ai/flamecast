@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm dev:clean && pnpm dev:conductor & pnpm dev:client",
+    "dev": "pnpm dev:clean && trap 'kill 0' EXIT && pnpm dev:conductor & pnpm dev:client & wait",
     "dev:clean": "lsof -ti :4437 | xargs kill 2>/dev/null; lsof -ti :4438 | xargs kill 2>/dev/null; rm -rf ~/Library/Application\\ Support/durable-acp/; echo 'Ports cleared, data reset'",
     "dev:conductor": "durable-acp-server --port 4437 claude-agent-acp",
     "dev:client": "turbo run dev --filter=flamecast-client",
