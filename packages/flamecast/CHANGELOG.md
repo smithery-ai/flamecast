@@ -1,5 +1,11 @@
 # @flamecast/sdk
 
+## 0.1.2
+
+### Patch Changes
+
+- 711d0f1: Fix runtime-host binary resolution to check @flamecast/session-host-go/dist before falling back to ~/.flamecast/bin, fixing "No native runtime-host binary found" in monorepo development.
+
 ## 0.1.1
 
 ### Patch Changes
