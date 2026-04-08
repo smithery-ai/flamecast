@@ -10,9 +10,9 @@
     }
   },
   "dependencies": {
-    "@durable-acp/server": "link:../../../../gurdasnijor/durable-acp-rs/ts/packages/server",
-    "@durable-acp/transport": "link:../../../../gurdasnijor/durable-acp-rs/ts/packages/acp-transport",
-    "durable-session": "link:../../../../gurdasnijor/durable-acp-rs/ts/packages/durable-session"
+    "@durable-acp/server": "link:/Users/gnijor/gurdasnijor/durable-acp-rs",
+    "@durable-acp/transport": "link:/Users/gnijor/gurdasnijor/durable-acp-rs/ts/packages/acp-transport",
+    "durable-session": "link:/Users/gnijor/gurdasnijor/durable-acp-rs/ts/packages/durable-session"
   },
   "peerDependencies": {
     "@agentclientprotocol/sdk": "^0.18.1",

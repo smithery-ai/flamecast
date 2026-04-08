@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "npx concurrently -n conductor,client -c blue,green \"pnpm dev:conductor\" \"pnpm dev:client\"",
-    "dev:conductor": "node node_modules/@durable-acp/server/dist/cli.js --port 4437 npx @agentclientprotocol/claude-agent-acp",
+    "dev:conductor": "durable-acp-server --port 4437 claude-agent-acp",
     "dev:client": "turbo run dev --filter=flamecast-client",
     "dev:all": "turbo run dev",
     "dev:client": "turbo run dev --filter=flamecast-client",
@@ -27,7 +27,7 @@
     "clean": "git clean -ffdX"
   },
   "dependencies": {
-    "@durable-acp/server": "link:../gurdasnijor/durable-acp-rs/ts/packages/server",
+    "@durable-acp/server": "link:/Users/gnijor/gurdasnijor/durable-acp-rs",
     "concurrently": "^9.0.0"
   },
   "devDependencies": {
