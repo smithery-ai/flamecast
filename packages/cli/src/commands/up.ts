@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -33,7 +33,7 @@ const LOG_FILE = join(FLAMECAST_HOME, "flamecast.log");
 const PID_FILE = join(FLAMECAST_HOME, "daemon.pid");
 const DEFAULT_BRIDGE_URL = "https://flamecast-bridge.smithery.workers.dev";
 
-export { LOG_FILE, PID_FILE };
+export { LOG_FILE, PID_FILE, isFlamecastProcess };
 
 function resolveStorageFlags(flags: UpFlags): { url?: string; dataDir?: string } {
   const url = flags.url ?? process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
@@ -114,11 +114,24 @@ async function ensureSessionHost(): Promise<void> {
   console.log("Downloaded session-host binary.");
 }
 
-function isProcessRunning(pid: number): boolean {
+function isFlamecastProcess(pid: number): boolean {
   try {
     process.kill(pid, 0);
-    return true;
   } catch {
+    return false;
+  }
+
+  // The process exists, but verify it's actually a flamecast daemon
+  // (PIDs get recycled by the OS, so the PID could belong to an unrelated process)
+  try {
+    const cmd =
+      platform() === "darwin"
+        ? `ps -p ${pid} -o command=`
+        : `cat /proc/${pid}/cmdline 2>/dev/null || ps -p ${pid} -o args=`;
+    const output = execSync(cmd, { timeout: 2000 }).toString();
+    return output.includes("flamecast");
+  } catch {
+    // If we can't inspect the process, assume it's not ours
     return false;
   }
 }
@@ -132,19 +145,24 @@ export async function runUp(flags: UpFlags): Promise<number> {
   return daemonize(flags);
 }
 
-function daemonize(flags: UpFlags): number {
+async function daemonize(flags: UpFlags): Promise<number> {
   mkdirSync(FLAMECAST_HOME, { recursive: true });
 
   // Check if already running
   if (existsSync(PID_FILE)) {
     const pid = parseInt(readFileSync(PID_FILE, "utf8").trim(), 10);
-    if (isProcessRunning(pid)) {
+    if (isFlamecastProcess(pid)) {
       console.log(`Flamecast is already running (PID ${pid})`);
       console.log(`Logs: ${LOG_FILE}`);
       return 1;
     }
     // Stale PID file
     unlinkSync(PID_FILE);
+  }
+
+  // If --name is set, ensure cloudflared is installed before spawning the daemon
+  if (flags.name && !(await ensureCloudflared())) {
+    flags = { ...flags, name: undefined };
   }
 
   // Wipe log file on restart
@@ -159,12 +177,11 @@ function daemonize(flags: UpFlags): number {
 
   const child = spawn(process.execPath, childArgs, {
     detached: true,
-    stdio: ["ignore", logFd, logFd],
+    stdio: ["ignore", logFd, logFd, "ipc"],
     env: { ...process.env, __FLAMECAST_DAEMON: "1" },
     cwd: process.cwd(),
   });
 
-  child.unref();
   closeSync(logFd);
 
   if (!child.pid) {
@@ -172,15 +189,94 @@ function daemonize(flags: UpFlags): number {
     return 1;
   }
 
+  type IpcMsg =
+    | { type: "ready" }
+    | { type: "error"; error: string }
+    | { type: "tunnel"; domain?: string; error?: string };
+
+  // Helper: wait for the next IPC message or child exit
+  function waitForMessage(
+    timeoutMs: number,
+  ): Promise<IpcMsg | { type: "exit"; code: number | null } | { type: "timeout" }> {
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        cleanup();
+        resolve({ type: "timeout" });
+      }, timeoutMs);
+
+      function onMessage(msg: IpcMsg) {
+        cleanup();
+        resolve(msg);
+      }
+      function onExit(code: number | null) {
+        cleanup();
+        resolve({ type: "exit", code });
+      }
+      function cleanup() {
+        clearTimeout(timeout);
+        child.off("message", onMessage);
+        child.off("exit", onExit);
+      }
+
+      child.on("message", onMessage);
+      child.on("exit", onExit);
+    });
+  }
+
+  // Phase 1: wait for server to be ready
+  const first = await waitForMessage(30_000);
+
+  if (first.type === "error") {
+    child.disconnect();
+    child.unref();
+    console.error(`Failed to start Flamecast: ${first.error}`);
+    return 1;
+  }
+  if (first.type === "exit") {
+    console.error(
+      `Failed to start Flamecast: process exited with code ${first.code}. Check logs: ${LOG_FILE}`,
+    );
+    return 1;
+  }
+  if (first.type === "timeout") {
+    child.disconnect();
+    child.unref();
+    console.error(`Failed to start Flamecast: timed out waiting for server to start`);
+    return 1;
+  }
+
+  // Server is up — write PID file so `flamecast down` works
   writeFileSync(PID_FILE, String(child.pid));
 
   const port = flags.port ?? 3001;
-  console.log(`Flamecast started (PID ${child.pid})`);
-  console.log(`  Local:  http://localhost:${port}`);
+  console.log(`Logs: ${LOG_FILE}`);
+
+  // Phase 2: if --name was given, wait for tunnel result
+  let tunnelDomain: string | undefined;
   if (flags.name) {
-    console.log(`  Tunnel: https://${flags.name}.flamecast.app (connecting...)`);
+    console.log("Connecting tunnel...");
+    const tunnelMsg = await waitForMessage(60_000);
+    if (tunnelMsg.type === "tunnel") {
+      if (tunnelMsg.error) {
+        console.error(`Tunnel failed: ${tunnelMsg.error}`);
+        console.log("Running locally only.");
+      } else {
+        tunnelDomain = tunnelMsg.domain;
+      }
+    } else {
+      console.error("Tunnel timed out.");
+      console.log("Running locally only.");
+    }
   }
-  console.log(`  Logs:   ${LOG_FILE}`);
+
+  child.disconnect();
+  child.unref();
+
+  console.log(`\nFlamecast started (PID ${child.pid})`);
+  console.log(`  Local:  http://localhost:${port}`);
+  if (tunnelDomain) {
+    console.log(`  Tunnel: https://${tunnelDomain}`);
+  }
 
   return 0;
 }
@@ -191,10 +287,10 @@ async function runServer(flags: UpFlags): Promise<number> {
   try {
     await ensureSessionHost();
   } catch (error) {
-    console.error(
-      `Failed to ensure session-host: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    const msg = `Failed to ensure session-host: ${error instanceof Error ? error.message : String(error)}`;
+    console.error(msg);
     console.error(`View logs: ${LOG_FILE}`);
+    if (process.send) process.send({ type: "error", error: msg });
     return 1;
   }
 
@@ -226,10 +322,19 @@ async function runServer(flags: UpFlags): Promise<number> {
     });
     wrapper.all("*", (c: { req: { raw: Request } }) => flamecast.app.fetch(c.req.raw));
 
-    const server = serve({ fetch: wrapper.fetch, port }, () => {
-      console.log(`Flamecast running on http://localhost:${port}`);
-      console.log(`API: http://localhost:${port}/api`);
+    const server = await new Promise<ReturnType<typeof serve>>((resolve, reject) => {
+      const s = serve({ fetch: wrapper.fetch, port }, () => {
+        resolve(s);
+      });
+      s.on("error", (err: NodeJS.ErrnoException) => {
+        reject(err);
+      });
     });
+    console.log(`Flamecast running on http://localhost:${port}`);
+    console.log(`API: http://localhost:${port}/api`);
+
+    // Server is listening — tell the parent immediately
+    if (process.send) process.send({ type: "ready" });
 
     // Proxy WebSocket upgrades to the session-host so they work through the tunnel.
     server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
@@ -269,18 +374,19 @@ async function runServer(flags: UpFlags): Promise<number> {
     let cloudflaredProcess: import("node:child_process").ChildProcess | null = null;
     if (flags.name) {
       if (!(await ensureCloudflared())) {
-        console.log("Running locally only.");
+        if (process.send) process.send({ type: "tunnel", error: "cloudflared not available" });
       } else {
         const bridgeUrl = process.env.FLAMECAST_BRIDGE_URL ?? DEFAULT_BRIDGE_URL;
         try {
           const tunnel = await provisionTunnel(bridgeUrl, flags.name, port);
           cloudflaredProcess = spawnCloudflared(tunnel.tunnelToken);
           console.log(`Live at https://${tunnel.domain}`);
+          if (process.send) process.send({ type: "tunnel", domain: tunnel.domain });
         } catch (error) {
-          console.log(
-            `Tunnel unavailable: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          const msg = error instanceof Error ? error.message : String(error);
+          console.log(`Tunnel unavailable: ${msg}`);
           console.log("Running locally only.");
+          if (process.send) process.send({ type: "tunnel", error: msg });
         }
       }
     }
@@ -332,6 +438,8 @@ async function runServer(flags: UpFlags): Promise<number> {
     });
   } catch (error) {
     await bundle.close().catch(() => {});
+    const msg = error instanceof Error ? error.message : String(error);
+    if (process.send) process.send({ type: "error", error: msg });
     throw error;
   }
 }

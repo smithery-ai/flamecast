@@ -1,5 +1,6 @@
 import { runUp } from "./commands/up.js";
 import { runDown } from "./commands/down.js";
+import { runStatus } from "./commands/status.js";
 import { runDbStatus, runDbMigrate, runDbStudio, type DbFlags } from "./commands/db.js";
 import type { UpFlags } from "./types.js";
 
@@ -7,6 +8,7 @@ type Command =
   | { kind: "help" }
   | { kind: "up"; flags: UpFlags }
   | { kind: "down" }
+  | { kind: "status" }
   | { kind: "db-status"; flags: DbFlags }
   | { kind: "db-migrate"; flags: DbFlags }
   | { kind: "db-studio"; flags: DbFlags };
@@ -15,6 +17,7 @@ function printHelp(): void {
   console.log(`Usage:
   flamecast up [--name <name>] [--url <postgres-url>] [--data-dir <path>] [--port <port>]
   flamecast down
+  flamecast status
   flamecast db status [--url <postgres-url>] [--data-dir <path>] [--json]
   flamecast db migrate [--url <postgres-url>] [--data-dir <path>]
   flamecast db studio [--url <postgres-url>] [--data-dir <path>] [--host <host>] [--port <port>]
@@ -22,6 +25,7 @@ function printHelp(): void {
 Commands:
   up                   Start Flamecast as a background daemon
   down                 Stop the running daemon
+  status               Show whether Flamecast is running
 
 Options:
   --name <name>        Expose as name.flamecast.app (requires cloudflared)
@@ -136,6 +140,10 @@ export function parseCliArgs(argv: string[]): Command {
     return { kind: "down" };
   }
 
+  if (first === "status") {
+    return { kind: "status" };
+  }
+
   if (first === "db") {
     if (!second) {
       throw new Error('Missing db subcommand. Expected "status", "migrate", or "studio".');
@@ -173,6 +181,10 @@ export async function runCli(argv: string[]): Promise<number> {
 
   if (command.kind === "down") {
     return runDown();
+  }
+
+  if (command.kind === "status") {
+    return runStatus();
   }
 
   if (command.kind === "db-status") {
