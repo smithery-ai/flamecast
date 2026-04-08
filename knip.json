@@ -15,11 +15,6 @@
       ],
       "ignoreBinaries": ["knip", "vitest"]
     },
-    "examples/agent.js": {
-      "entry": ["src/**/*.ts", "test/**/*.test.ts"],
-      "ignoreFiles": [".wrangler/**"],
-      "ignoreBinaries": ["tsc", "vitest", "wrangler"]
-    },
     "apps/server": {
       "entry": ["src/**/*.ts", "agent.ts", "test/**/*.test.ts"],
       "ignoreBinaries": ["drizzle-kit", "tsx", "vitest"]
