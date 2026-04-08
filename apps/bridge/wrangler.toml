@@ -1,0 +1,20 @@
+name = "flamecast-bridge"
+main = "src/worker.ts"
+compatibility_date = "2026-03-27"
+compatibility_flags = ["nodejs_compat"]
+
+# Secrets (set via `wrangler secret put`):
+# CF_API_TOKEN
+# CF_ACCOUNT_ID
+# CF_ZONE_ID
+
+# Create D1 database via: wrangler d1 create flamecast-bridge
+# Then fill in the database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "flamecast-bridge"
+database_id = "2f3c069c-27f5-4329-9451-e966facd9ab9"
+
+[observability.logs]
+enabled = true
+invocation_logs = true

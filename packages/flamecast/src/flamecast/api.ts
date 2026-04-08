@@ -93,6 +93,7 @@ export function createApi(flamecast: FlamecastApi) {
 
     const request = new URL(requestUrl);
     candidate.hostname = request.hostname;
+    candidate.port = request.port;
     candidate.protocol = request.protocol === "https:" ? "wss:" : "ws:";
     return candidate.toString();
   };

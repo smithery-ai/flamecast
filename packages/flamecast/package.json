@@ -1,9 +1,6 @@
 {
   "name": "@flamecast/sdk",
   "version": "0.0.0",
-  "bin": {
-    "flamecast": "./dist/cli.js"
-  },
   "files": [
     "dist"
   ],
@@ -36,8 +33,7 @@
   "scripts": {
     "build": "pnpm run build:package",
     "build:package": "tsc -p tsconfig.package.json && cp src/flamecast/agent.ts dist/flamecast/agent.ts",
-    "start": "node dist/cli.js",
-    "test": "vitest run --config vitest.integration.config.ts",
+"test": "vitest run --config vitest.integration.config.ts",
     "test:api:coverage": "vitest run --coverage --config vitest.integration.config.ts"
   },
   "dependencies": {
