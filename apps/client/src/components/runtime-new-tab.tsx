@@ -82,7 +82,15 @@ export function RuntimeNewTab({
       runtimeInstance,
       cwd,
     });
-  }, [createMutation, cwd, onSessionCreated, selectedTemplate, needsInstanceSelect, selectedInstance, instanceName]);
+  }, [
+    createMutation,
+    cwd,
+    onSessionCreated,
+    selectedTemplate,
+    needsInstanceSelect,
+    selectedInstance,
+    instanceName,
+  ]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto p-6">
@@ -96,20 +104,13 @@ export function RuntimeNewTab({
                   type="button"
                   className="inline-flex cursor-pointer items-center gap-1 rounded px-1 font-semibold underline decoration-dashed underline-offset-2 transition-colors hover:text-primary"
                 >
-                  {templatesLoading
-                    ? "…"
-                    : selectedTemplate
-                      ? selectedTemplate.name
-                      : "agent"}
+                  {templatesLoading ? "…" : selectedTemplate ? selectedTemplate.name : "agent"}
                   <ChevronDownIcon className="inline size-3.5 text-muted-foreground" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
                 {displayTemplates.map((t) => (
-                  <DropdownMenuItem
-                    key={t.id}
-                    onSelect={() => setSelectedTemplateId(t.id)}
-                  >
+                  <DropdownMenuItem key={t.id} onSelect={() => setSelectedTemplateId(t.id)}>
                     {t.name}
                     {t.runtime.provider !== runtimeTypeName && (
                       <span className="ml-auto text-[10px] text-muted-foreground">

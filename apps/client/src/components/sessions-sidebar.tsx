@@ -92,31 +92,30 @@ export function SessionsSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {isDeveloperPreview &&
-          (isRuntimesLoading || (runtimes && runtimes.length > 0)) && (
-            <SidebarGroup>
-              <SidebarGroupLabel>Runtimes</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {isRuntimesLoading ? (
-                    <>
-                      <SidebarMenuSkeleton />
-                      <SidebarMenuSkeleton />
-                    </>
-                  ) : (
-                    runtimes?.map((rt) => (
-                      <RuntimeTypeItem
-                        key={rt.typeName}
-                        runtime={rt}
-                        activeTypeName={activeRuntimeTypeName}
-                        activeInstanceName={activeRuntimeInstanceName}
-                      />
-                    ))
-                  )}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          )}
+        {isDeveloperPreview && (isRuntimesLoading || (runtimes && runtimes.length > 0)) && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Runtimes</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {isRuntimesLoading ? (
+                  <>
+                    <SidebarMenuSkeleton />
+                    <SidebarMenuSkeleton />
+                  </>
+                ) : (
+                  runtimes?.map((rt) => (
+                    <RuntimeTypeItem
+                      key={rt.typeName}
+                      runtime={rt}
+                      activeTypeName={activeRuntimeTypeName}
+                      activeInstanceName={activeRuntimeInstanceName}
+                    />
+                  ))
+                )}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
       <SidebarFooter>
         <BackendUrlSetting />
