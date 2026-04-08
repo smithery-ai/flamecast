@@ -9,21 +9,6 @@ export type {
 } from "./runtime.js";
 
 export type {
-  FileSystemEntry,
-  PermissionRequestEvent,
-  FilesystemSnapshotEvent,
-  FilePreviewEvent,
-  PermissionRespondAction,
-  FsSnapshotAction,
-  FilePreviewAction,
-  SessionHostStartRequest,
-  SessionHostStartResponse,
-  SessionHostHealthResponse,
-  SessionCallbackEvent,
-  PermissionCallbackResponse,
-} from "./session-host.js";
-
-export type {
   AgentSpawn,
   AgentTemplate,
   AgentTemplateRuntime,
@@ -46,13 +31,6 @@ export type {
 } from "./session.js";
 
 export type {
-  FlamecastStorage,
-  SessionMeta,
-  SessionRuntimeInfo,
-  StoredSession,
-} from "./storage.js";
-
-export type {
   WsServerMessage,
   WsControlMessage,
   WsEventMessage,
@@ -68,15 +46,6 @@ export type {
   WsQueuePauseAction,
   WsQueueResumeAction,
 } from "./ws.js";
-
-export type {
-  RuntimeHostStartSessionRequest,
-  RuntimeHostStartSessionResponse,
-  RuntimeHostSessionStatus,
-  RuntimeHostHealthResponse,
-  RuntimeHostPromptRequest,
-  RuntimeHostPermissionResponse,
-} from "./runtime-host.js";
 
 export type {
   Channel,
