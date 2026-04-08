@@ -1,4 +1,10 @@
-// TODO: Rewire to durable-acp-rs. Previously used deleted @flamecast/sdk REST client.
-export function placeholder() {
-  throw new Error("Not yet implemented — pending durable-acp-rs integration");
+/**
+ * useAgentTemplates — list available agent templates.
+ *
+ * TODO: Wire to a REST endpoint that reads agents.toml from the conductor.
+ * For now returns an empty list (no throw).
+ */
+
+export function useAgentTemplates() {
+  return { data: [], isLoading: false, error: null };
 }
