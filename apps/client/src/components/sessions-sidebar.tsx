@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -21,16 +22,25 @@ import {
   SidebarMenuSkeleton,
 } from "@/components/ui/sidebar";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  CheckIcon,
   LoaderCircleIcon,
   PauseIcon,
   PlayIcon,
   PlusIcon,
+  RotateCcwIcon,
+  SettingsIcon,
   SquareIcon,
   TerminalIcon,
   Trash2Icon,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useBackendUrl } from "@/lib/backend-url-context";
 import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 
 export function SessionsSidebar() {
@@ -110,6 +120,9 @@ export function SessionsSidebar() {
           </SidebarGroup>
         )}
       </SidebarContent>
+      <SidebarFooter>
+        <BackendUrlSetting />
+      </SidebarFooter>
     </Sidebar>
   );
 }
@@ -374,5 +387,93 @@ function RuntimeTypeItem({
         );
       })}
     </>
+  );
+}
+
+function BackendUrlSetting() {
+  const { backendUrl, defaultUrl, setBackendUrl, resetBackendUrl } = useBackendUrl();
+  const [draft, setDraft] = useState(backendUrl);
+  const [open, setOpen] = useState(false);
+
+  const isCustom = backendUrl !== defaultUrl;
+  const isDirty = draft !== backendUrl;
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (nextOpen) setDraft(backendUrl);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted transition-colors cursor-pointer",
+            isCustom && "text-foreground",
+          )}
+        >
+          <SettingsIcon className="size-3.5 shrink-0" />
+          <span className="truncate">
+            {isCustom ? backendUrl : "Backend URL"}
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="top" align="start" className="w-80">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const url = draft.trim();
+            if (url) {
+              setBackendUrl(url);
+              setOpen(false);
+              toast.success("Backend URL updated");
+            }
+          }}
+        >
+          <label className="text-xs font-medium text-muted-foreground" htmlFor="backend-url-input">
+            Backend URL
+          </label>
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <input
+              id="backend-url-input"
+              type="url"
+              className="h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              placeholder={defaultUrl}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              autoFocus
+            />
+            <button
+              type="submit"
+              disabled={!isDirty || !draft.trim()}
+              title="Save"
+              className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-input hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+            >
+              <CheckIcon className="size-4" />
+            </button>
+            {isCustom && (
+              <button
+                type="button"
+                title="Reset to default"
+                className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-input hover:bg-muted"
+                onClick={() => {
+                  resetBackendUrl();
+                  setDraft(defaultUrl);
+                  setOpen(false);
+                  toast.success("Backend URL reset to default");
+                }}
+              >
+                <RotateCcwIcon className="size-4" />
+              </button>
+            )}
+          </div>
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            Default: {defaultUrl}
+          </p>
+        </form>
+      </PopoverContent>
+    </Popover>
   );
 }
