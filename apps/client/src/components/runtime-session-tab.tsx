@@ -76,8 +76,10 @@ export function RuntimeSessionTab({
   });
 
   // Session-scoped terminal (shares the runtime WebSocket)
-  const { terminals, sendInput, resize, onData, createTerminal, killTerminal } =
-    useTerminal(ws, runtimeWebsocketUrl);
+  const { terminals, sendInput, resize, onData, createTerminal, killTerminal } = useTerminal(
+    ws,
+    runtimeWebsocketUrl,
+  );
 
   // Inline file preview for files opened from session file tree
   const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);

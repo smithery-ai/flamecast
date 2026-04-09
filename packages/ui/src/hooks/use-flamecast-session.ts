@@ -31,11 +31,7 @@ function toSessionLog(message: WsChannelServerMessage): SessionLog | null {
  * @param ws         A shared {@link RuntimeWebSocketHandle} (from `useRuntimeWebSocket`).
  * @param ready      Whether the session is ready (i.e. has a websocketUrl from the REST API).
  */
-export function useFlamecastSession(
-  sessionId: string,
-  ws: RuntimeWebSocketHandle,
-  ready: boolean,
-) {
+export function useFlamecastSession(sessionId: string, ws: RuntimeWebSocketHandle, ready: boolean) {
   const client = useFlamecastClient();
   const [events, setEvents] = useState<SessionLog[]>([]);
   /** Track the last seq we've seen for replay-on-reconnect. */

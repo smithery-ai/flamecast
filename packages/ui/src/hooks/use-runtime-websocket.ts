@@ -224,10 +224,7 @@ export function useRuntimeWebSocket(websocketUrl?: string): RuntimeWebSocketHand
     ws.send(JSON.stringify(message));
   }, []);
 
-  return useMemo(
-    () => ({ connectionState, subscribe, send }),
-    [connectionState, subscribe, send],
-  );
+  return useMemo(() => ({ connectionState, subscribe, send }), [connectionState, subscribe, send]);
 }
 
 /**
