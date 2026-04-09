@@ -221,6 +221,28 @@ describe("API server surface", () => {
     expect(await readJson(response)).toEqual(sampleSession);
   });
 
+  it("preserves the runtime websocket port for relative agent requests", async () => {
+    const session = {
+      ...sampleSession,
+      websocketUrl: "ws://localhost:9999/sessions/session-1",
+    } satisfies Session;
+    const flamecast = createFlamecastStub({
+      createSession: vi.fn(async () => session),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/agents", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        agentTemplateId: sampleAgentTemplate.id,
+      } satisfies CreateSessionBody),
+    });
+
+    expect(response.status).toBe(201);
+    expect(await readJson(response)).toEqual(session);
+  });
+
   it("rejects invalid agent payloads", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);

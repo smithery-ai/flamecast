@@ -2,7 +2,13 @@
   "$schema": "https://turbo.build/schema.json",
   "futureFlags": { "experimentalObservability": true },
   "ui": "tui",
-  "globalPassThroughEnv": ["FLAMECAST_AGENT_JS_BASE_URL", "ROUTER_PORT"],
+  "globalPassThroughEnv": [
+    "FLAMECAST_AGENT_JS_BASE_URL",
+    "ROUTER_PORT",
+    "USE_NONLOCAL_RUNTIMES",
+    "FLAMECAST_PORT",
+    "PORT"
+  ],
   "tasks": {
     "dev": {
       "cache": false,

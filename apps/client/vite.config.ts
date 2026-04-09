@@ -4,6 +4,9 @@ import tailwindcss from "@tailwindcss/vite";
 import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import path from "path";
 
+const flamecastPort = process.env.FLAMECAST_PORT ?? process.env.PORT ?? "3001";
+const apiTarget = `http://localhost:${flamecastPort}`;
+
 export default defineConfig({
   plugins: [
     TanStackRouterVite({
@@ -22,7 +25,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       "/api": {
-        target: "http://localhost:3001",
+        target: apiTarget,
         changeOrigin: true,
       },
     },

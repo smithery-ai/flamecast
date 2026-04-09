@@ -79,6 +79,32 @@ describe("NodeRuntime", () => {
     expect(requests[0].body).toBe(requestBody);
   });
 
+  it("preserves upstream session URLs when /start already returns them", async () => {
+    const upstreamBody = {
+      acpSessionId: "abc",
+      hostUrl: "http://localhost:9999/sessions/abc",
+      websocketUrl: "ws://localhost:9999/sessions/abc",
+    };
+    const { url, server } = await startMockServer(() => ({
+      status: 200,
+      body: JSON.stringify(upstreamBody),
+    }));
+    serverToCleanup = server;
+
+    const runtime = new NodeRuntime(url);
+    const response = await runtime.fetchSession(
+      "abc",
+      new Request("http://host/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: "echo", args: ["hi"], workspace: "." }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(upstreamBody);
+  });
+
   it("propagates error status codes from upstream", async () => {
     const { url, server } = await startMockServer(() => ({
       status: 500,
