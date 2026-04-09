@@ -244,11 +244,8 @@ export function SlashCommandInput({
           comboboxAnchorClassName="slash-combobox-anchor"
           comboboxComponent={Combobox}
           comboboxItemComponent={ComboboxItem}
-          onComboboxOpen={() => {
-            comboboxOpenRef.current = true;
-          }}
-          onComboboxClose={() => {
-            comboboxOpenRef.current = false;
+          onComboboxFocusChange={(item) => {
+            comboboxOpenRef.current = item !== null;
           }}
           allowSpaces={true}
           autoSpace={true}
