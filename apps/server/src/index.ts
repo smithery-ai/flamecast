@@ -20,7 +20,6 @@ const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
 const e2bApiKey = process.env.E2B_API_KEY;
 const agentJsBaseUrl = process.env.FLAMECAST_AGENT_JS_BASE_URL;
 const agentJsRuntime = agentJsBaseUrl ? new NodeRuntime(agentJsBaseUrl) : null;
-const port = Number(process.env.FLAMECAST_PORT ?? process.env.PORT ?? "3001");
 
 const flamecast = new Flamecast({
   storage: await createPsqlStorage(url ? { url } : undefined),
@@ -45,7 +44,7 @@ const flamecast = new Flamecast({
   }),
 });
 
-listen(flamecast, { port, cors: true }, (info) => {
+listen(flamecast, { port: 3001, cors: true }, (info) => {
   console.log(`Flamecast running on http://localhost:${info.port}`);
 });
 

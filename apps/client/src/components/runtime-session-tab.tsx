@@ -1,7 +1,6 @@
 import {
   useSessionState,
   useRuntimeFileSystem,
-  useRuntimeWebSocket,
   useFlamecastClient,
   useIsMobile,
 } from "@flamecast/ui";
@@ -27,21 +26,18 @@ import { useEnqueueMessage } from "@flamecast/ui";
 export function RuntimeSessionTab({
   sessionId,
   instanceName,
-  runtimeWebsocketUrl,
+  sessionWebsocketUrl,
   cwd,
   initialPrompt,
 }: {
   sessionId: string;
   instanceName: string;
-  runtimeWebsocketUrl?: string;
+  sessionWebsocketUrl?: string;
   /** Initial working directory — used to load the file tree immediately. */
   cwd?: string;
   initialPrompt?: string;
 }) {
   const client = useFlamecastClient();
-
-  // Single multiplexed WebSocket for the entire runtime instance.
-  const ws = useRuntimeWebSocket(runtimeWebsocketUrl);
 
   const fetchCommands = useCallback(
     () =>
@@ -61,7 +57,7 @@ export function RuntimeSessionTab({
     isProcessing,
     pendingPermissions,
     respondToPermission,
-  } = useSessionState(sessionId, ws);
+  } = useSessionState(sessionId, sessionWebsocketUrl);
 
   const enqueueMutation = useEnqueueMessage();
 

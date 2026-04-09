@@ -4,12 +4,6 @@ import type {
   WsChannelServerMessage,
 } from "@flamecast/protocol/ws/channels";
 import { createWsMessageDedupeState, rememberWsMessage } from "../lib/ws-message-dedupe.js";
-import {
-  detectRuntimeWebSocketProtocol,
-  getRuntimeWebSocketChannel,
-  toWireControlMessage,
-  type RuntimeWebSocketProtocol,
-} from "../lib/runtime-websocket-protocol.js";
 
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
 
@@ -53,7 +47,6 @@ export function useRuntimeWebSocket(websocketUrl?: string): RuntimeWebSocketHand
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const seenMessagesRef = useRef(createWsMessageDedupeState());
-  const protocolRef = useRef<RuntimeWebSocketProtocol>({ kind: "unknown" });
 
   /** channel → { handlers, getSince } */
   const channelSubsRef = useRef<
@@ -64,7 +57,6 @@ export function useRuntimeWebSocket(websocketUrl?: string): RuntimeWebSocketHand
     let disposed = false;
     reconnectAttemptsRef.current = 0;
     seenMessagesRef.current = createWsMessageDedupeState();
-    protocolRef.current = { kind: "unknown" };
 
     if (!websocketUrl) {
       setConnectionState("disconnected");
@@ -124,19 +116,15 @@ export function useRuntimeWebSocket(websocketUrl?: string): RuntimeWebSocketHand
           }
 
           // On the "connected" handshake, (re-)subscribe all registered channels.
-          const protocol = detectRuntimeWebSocketProtocol(message);
-          if (protocol) {
-            protocolRef.current = protocol;
-            if (protocol.kind === "channel") {
-              subscribeAll(ws);
-            }
+          if (message.type === "connected") {
+            subscribeAll(ws);
             return;
           }
 
           // Route channel-tagged messages to the appropriate handlers.
           // The server uses prefix matching (subscription "terminals" matches
           // event channel "terminals:term-123"), so we mirror that here.
-          const channel = getRuntimeWebSocketChannel(message, protocolRef.current);
+          const channel = getMessageChannel(message);
           if (channel) {
             for (const [subChannel, sub] of channelSubsRef.current) {
               if (channelMatches(subChannel, channel)) {
@@ -203,7 +191,7 @@ export function useRuntimeWebSocket(websocketUrl?: string): RuntimeWebSocketHand
       // If the channel was just created and we're already connected, subscribe now.
       if (isNew) {
         const ws = wsRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN && protocolRef.current.kind === "channel") {
+        if (ws && ws.readyState === WebSocket.OPEN) {
           const since = opts?.getSince?.();
           const msg: WsChannelControlMessage = {
             action: "subscribe",
@@ -233,9 +221,7 @@ export function useRuntimeWebSocket(websocketUrl?: string): RuntimeWebSocketHand
   const send = useCallback((message: WsChannelControlMessage) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const payload = toWireControlMessage(message, protocolRef.current);
-    if (!payload) return;
-    ws.send(JSON.stringify(payload));
+    ws.send(JSON.stringify(message));
   }, []);
 
   return useMemo(() => ({ connectionState, subscribe, send }), [connectionState, subscribe, send]);
@@ -247,4 +233,19 @@ export function useRuntimeWebSocket(websocketUrl?: string): RuntimeWebSocketHand
  */
 function channelMatches(subscription: string, eventChannel: string): boolean {
   return subscription === eventChannel || eventChannel.startsWith(subscription + ":");
+}
+
+function getMessageChannel(message: WsChannelServerMessage): string | undefined {
+  switch (message.type) {
+    case "event":
+      return message.channel;
+    case "error":
+      return message.channel;
+    case "subscribed":
+      return message.channel;
+    case "unsubscribed":
+      return message.channel;
+    default:
+      return undefined;
+  }
 }

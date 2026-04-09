@@ -19,6 +19,12 @@ import { WebhookDeliveryEngine } from "./events/webhooks.js";
 import { EventBus } from "./events/bus.js";
 import { SessionEventPersistence } from "./events/session-event-persistence.js";
 import { resolveAgentId } from "./events/channels.js";
+import {
+  detectSessionWebSocketProtocol,
+  toNormalizedSessionTapEvent,
+  toSessionPermissionResponseMessage,
+  type SessionWebSocketProtocol,
+} from "./session-websocket-protocol.js";
 import type {
   SessionCallbackEvent,
   PermissionCallbackResponse,
@@ -1219,31 +1225,33 @@ export class Flamecast<
 
     try {
       const ws = new WebSocket(websocketUrl);
+      let protocol: SessionWebSocketProtocol = { kind: "unknown" };
       this.eventTaps.set(sessionId, ws);
 
       ws.onmessage = (event) => {
         try {
-          const msg = JSON.parse(String(event.data));
+          const msg: unknown = JSON.parse(String(event.data));
 
-          // Wait for the "connected" handshake before subscribing.
-          if (msg.type === "connected") {
-            ws.send(JSON.stringify({ action: "subscribe", channel: `session:${sessionId}` }));
+          const detectedProtocol = detectSessionWebSocketProtocol(msg);
+          if (detectedProtocol) {
+            protocol = detectedProtocol;
+            if (protocol.kind === "channel") {
+              ws.send(JSON.stringify({ action: "subscribe", channel: `session:${sessionId}` }));
+            }
             return;
           }
 
-          if (msg.type !== "event" || !msg.sessionId) return;
-          this.eventBus.pushEvent({
-            sessionId: msg.sessionId,
-            agentId: msg.agentId ?? resolveAgentId(msg.sessionId),
-            event: msg.event,
-          });
+          const normalizedEvent = toNormalizedSessionTapEvent(msg, sessionId, protocol);
+          if (!normalizedEvent) return;
+
+          this.eventBus.pushEvent(normalizedEvent);
 
           // Auto-approve permission requests when the per-session or global setting is enabled.
           if (
-            msg.event?.type === "permission_request" &&
+            normalizedEvent.event.type === "permission_request" &&
             (this._sessionAutoApprove.get(sessionId) || this._settings.autoApprovePermissions)
           ) {
-            const data = msg.event.data;
+            const data = normalizedEvent.event.data;
             const requestId = typeof data?.requestId === "string" ? data.requestId : undefined;
             const options = Array.isArray(data?.options) ? data.options : [];
             const approveOpt = options.find(
@@ -1253,10 +1261,9 @@ export class Flamecast<
             if (requestId && approveOpt) {
               ws.send(
                 JSON.stringify({
-                  action: "permission.respond",
-                  sessionId,
-                  requestId,
-                  body: { optionId: approveOpt.optionId },
+                  ...toSessionPermissionResponseMessage(protocol, sessionId, requestId, {
+                    optionId: approveOpt.optionId,
+                  }),
                 }),
               );
             }
@@ -1264,18 +1271,24 @@ export class Flamecast<
 
           // Detect prompt completion (RPC response with stopReason: "end_turn")
           // and trigger message queue drain for this session.
-          const ev = msg.event;
+          const ev = normalizedEvent.event;
+          const payload = ev.data.payload;
+          const hasEndTurn =
+            typeof payload === "object" &&
+            payload !== null &&
+            "stopReason" in payload &&
+            payload.stopReason === "end_turn";
           if (
             ev?.type === "rpc" &&
             ev.data?.direction === "agent_to_client" &&
             ev.data?.method === "session/prompt" &&
             ev.data?.phase === "response" &&
-            ev.data?.payload?.stopReason === "end_turn"
+            hasEndTurn
           ) {
             console.log(
-              `[MessageQueue] WS tap: end_turn detected for session ${msg.sessionId}, scheduling drain in 2s`,
+              `[MessageQueue] WS tap: end_turn detected for session ${sessionId}, scheduling drain in 2s`,
             );
-            setTimeout(() => void this.drainNextQueuedMessage(msg.sessionId), 2000);
+            setTimeout(() => void this.drainNextQueuedMessage(sessionId), 2000);
           }
         } catch {
           // Ignore malformed messages.

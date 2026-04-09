@@ -86,5 +86,5 @@ describe("agent.js runtime", () => {
     expect(first).toEqual({ counter: 1 });
     expect(second).toEqual({ counter: 2 });
     expect(isolated).toEqual({ counter: 1 });
-  }, 15_000);
+  });
 });

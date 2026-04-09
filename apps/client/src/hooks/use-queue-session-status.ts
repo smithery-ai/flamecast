@@ -60,6 +60,7 @@ export function useQueueSessionStatus(queue: QueuedMessage[]) {
   // WebSocket-based real-time statuses
   const [wsStatuses, setWsStatuses] = useState<Map<string, SessionStatus>>(new Map());
   const wsRefs = useRef<Map<string, WebSocket>>(new Map());
+  const protocolsRef = useRef<Map<string, "unknown" | "channel" | "direct-session">>(new Map());
 
   // Manage WebSocket connections incrementally — only open/close what changed
   useEffect(() => {
@@ -69,6 +70,7 @@ export function useQueueSessionStatus(queue: QueuedMessage[]) {
 
       const ws = new WebSocket(url);
       wsRefs.current.set(id, ws);
+      protocolsRef.current.set(id, "unknown");
 
       const thisSessionId = id;
 
@@ -77,12 +79,34 @@ export function useQueueSessionStatus(queue: QueuedMessage[]) {
           const message = JSON.parse(String(event.data));
 
           if (message.type === "connected") {
-            ws.send(
-              JSON.stringify({
-                action: "subscribe",
-                channel: `session:${thisSessionId}`,
-              }),
-            );
+            if (typeof message.connectionId === "string") {
+              protocolsRef.current.set(thisSessionId, "channel");
+              ws.send(
+                JSON.stringify({
+                  action: "subscribe",
+                  channel: `session:${thisSessionId}`,
+                }),
+              );
+            } else if (typeof message.sessionId === "string") {
+              protocolsRef.current.set(thisSessionId, "direct-session");
+            }
+            return;
+          }
+
+          if (message.type !== "event") {
+            return;
+          }
+
+          const protocol = protocolsRef.current.get(thisSessionId) ?? "unknown";
+          if (typeof message.channel === "string") {
+            const expectedChannel = `session:${thisSessionId}`;
+            if (
+              message.channel !== expectedChannel &&
+              !message.channel.startsWith(expectedChannel + ":")
+            ) {
+              return;
+            }
+          } else if (protocol !== "direct-session") {
             return;
           }
 
@@ -138,6 +162,7 @@ export function useQueueSessionStatus(queue: QueuedMessage[]) {
         if (wsRefs.current.get(thisSessionId) === ws) {
           wsRefs.current.delete(thisSessionId);
         }
+        protocolsRef.current.delete(thisSessionId);
       };
     }
 
@@ -146,6 +171,7 @@ export function useQueueSessionStatus(queue: QueuedMessage[]) {
       if (!wsUrlMap.has(id)) {
         ws.close();
         wsRefs.current.delete(id);
+        protocolsRef.current.delete(id);
         setWsStatuses((prev) => {
           const next = new Map(prev);
           next.delete(id);
@@ -162,6 +188,7 @@ export function useQueueSessionStatus(queue: QueuedMessage[]) {
         ws.close();
       }
       wsRefs.current.clear();
+      protocolsRef.current.clear();
     };
   }, []);
 
