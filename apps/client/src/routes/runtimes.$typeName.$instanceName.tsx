@@ -4,7 +4,6 @@ import {
   useStartRuntimeWithOptimisticUpdate,
   useDeleteRuntime,
   useFlamecastClient,
-  useTerminateSession,
   useSessions,
 } from "@flamecast/ui";
 import { RuntimeNewTab } from "@/components/runtime-new-tab";
@@ -154,8 +153,6 @@ function RuntimeDetailPanel({
     });
   }, [activeSessionId, navigate]);
 
-  const terminateMutation = useTerminateSession();
-
   const startMutation = useStartRuntimeWithOptimisticUpdate(runtimeInfo, {
     instanceName: instance.name,
     onError: (err) => toast.error("Failed to start runtime", { description: String(err.message) }),
@@ -224,11 +221,6 @@ function RuntimeDetailPanel({
       const idx = tabs.findIndex((t) => t.id === tabId);
       if (idx === -1) return;
 
-      const closedTab = tabs[idx];
-      if (closedTab.type === "session") {
-        terminateMutation.mutate(closedTab.sessionId);
-      }
-
       const next = tabs.filter((t) => t.id !== tabId);
 
       if (next.length === 0) {
@@ -244,7 +236,7 @@ function RuntimeDetailPanel({
         setActiveTabId(next[newIdx].id);
       }
     },
-    [tabs, activeTabId, terminateMutation],
+    [tabs, activeTabId],
   );
 
   const loadPreview = useCallback(

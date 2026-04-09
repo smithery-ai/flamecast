@@ -8,6 +8,7 @@ import {
   usePauseRuntime,
   useDeleteRuntime,
   useRuntimeFileSystem,
+  useTerminateSession,
 } from "@flamecast/ui";
 import { cn } from "@/lib/utils";
 import {
@@ -199,6 +200,7 @@ function SessionItem({
   const navigate = useNavigate();
   const target = resolveRuntimeTypeName(session, runtimes);
   const isPending = !session.spawn.command;
+  const terminateMutation = useTerminateSession();
 
   const title = session.title || session.agentName;
   const cwd = session.cwd;
@@ -240,6 +242,22 @@ function SessionItem({
           </div>
         </div>
       </SidebarMenuButton>
+      <SidebarMenuAction
+        showOnHover
+        title="Stop session"
+        className="z-10 !top-1/2 right-1 !-translate-y-1/2 size-7 cursor-pointer rounded-md hover:bg-muted"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          terminateMutation.mutate(session.id);
+        }}
+      >
+        {terminateMutation.isPending ? (
+          <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
+        ) : (
+          <Trash2Icon className="size-3.5 shrink-0" />
+        )}
+      </SidebarMenuAction>
     </SidebarMenuItem>
   );
 }
