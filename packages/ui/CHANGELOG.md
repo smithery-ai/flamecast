@@ -1,5 +1,12 @@
 # @flamecast/ui
 
+## 2.0.1
+
+### Patch Changes
+
+- Updated dependencies [dfd809b]
+  - @flamecast/sdk@0.2.1
+
 ## 2.0.0
 
 ### Minor Changes
