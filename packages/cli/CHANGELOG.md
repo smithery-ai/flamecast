@@ -1,5 +1,13 @@
 # flamecast
 
+## 0.7.6
+
+### Patch Changes
+
+- Updated dependencies [432c815]
+  - @flamecast/sdk@0.2.0
+  - @flamecast/storage-psql@0.1.3
+
 ## 0.7.5
 
 ### Patch Changes
