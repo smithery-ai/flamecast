@@ -40,15 +40,14 @@ export function RuntimeSessionTab({
 }) {
   const client = useFlamecastClient();
 
-  // Fetch slash commands from API
-  const [slashCommands, setSlashCommands] = useState<{ name: string; description: string }[]>([]);
-  useEffect(() => {
-    client.rpc.agents[":agentId"].commands
-      .$get({ param: { agentId: sessionId } })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => { if (Array.isArray(data)) setSlashCommands(data); })
-      .catch(() => {});
-  }, [client, sessionId]);
+  const fetchCommands = useCallback(
+    () =>
+      client.rpc.agents[":agentId"].commands
+        .$get({ param: { agentId: sessionId } })
+        .then((r) => (r.ok ? r.json() : []))
+        .then((data) => (Array.isArray(data) ? data : [])),
+    [client, sessionId],
+  );
 
   const {
     session,
@@ -147,7 +146,7 @@ export function RuntimeSessionTab({
     <ChatConnecting />
   ) : (
     <SessionConversation
-      slashCommands={slashCommands}
+      fetchCommands={fetchCommands}
       prompt={prompt}
       logs={logs}
       markdownSegments={markdownSegments}
@@ -166,7 +165,7 @@ export function RuntimeSessionTab({
       <MobileSessionLayout
         filesystemContent={filesystemContent}
         terminalContent={terminalContent}
-        slashCommands={slashCommands}
+        fetchCommands={fetchCommands}
         prompt={prompt}
         isProcessing={isProcessing}
         pendingPermissions={pendingPermissions}
@@ -248,7 +247,7 @@ function FilesystemSkeleton() {
 function MobileSessionLayout({
   filesystemContent,
   terminalContent,
-  slashCommands,
+  fetchCommands,
   prompt,
   isProcessing,
   pendingPermissions,
@@ -263,7 +262,7 @@ function MobileSessionLayout({
 }: {
   filesystemContent: ReactNode;
   terminalContent: ReactNode;
-  slashCommands: { name: string; description: string }[];
+  fetchCommands: () => Promise<{ name: string; description: string }[]>;
   prompt: (text: string) => void;
   isProcessing: boolean;
   pendingPermissions: ReturnType<typeof useSessionState>["pendingPermissions"];
@@ -284,7 +283,7 @@ function MobileSessionLayout({
   if (previewFilePath) {
     return (
       <SessionConversation
-        slashCommands={slashCommands}
+        fetchCommands={fetchCommands}
         prompt={prompt}
         logs={logs}
         markdownSegments={markdownSegments}
@@ -463,7 +462,7 @@ function MobileSessionLayout({
 
       <div className="flex shrink-0 items-center gap-2 border-t px-3 py-2">
         <SlashCommandInput
-          commands={slashCommands}
+          fetchCommands={fetchCommands}
           onSend={prompt}
           disabled={isProcessing || pendingPermissions.length > 0}
           placeholder={
@@ -482,7 +481,7 @@ function MobileSessionLayout({
 // ─── Conversation Panel ───────────────────────────────────────────────────────
 
 function SessionConversation({
-  slashCommands,
+  fetchCommands,
   prompt,
   logs,
   markdownSegments,
@@ -493,7 +492,7 @@ function SessionConversation({
   onClosePreview,
   loadPreview,
 }: {
-  slashCommands: { name: string; description: string }[];
+  fetchCommands: () => Promise<{ name: string; description: string }[]>;
   prompt: (text: string) => void;
   logs: ReturnType<typeof useSessionState>["logs"];
   markdownSegments: ReturnType<typeof useSessionState>["markdownSegments"];
@@ -671,7 +670,7 @@ function SessionConversation({
 
       <div className="flex shrink-0 items-center gap-2 border-t px-3 py-2">
         <SlashCommandInput
-          commands={slashCommands}
+          fetchCommands={fetchCommands}
           onSend={prompt}
           disabled={isProcessing || pendingPermissions.length > 0}
           placeholder={

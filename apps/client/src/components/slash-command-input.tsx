@@ -37,7 +37,7 @@ interface SlashCommand {
 // Combobox components
 // ---------------------------------------------------------------------------
 
-const Combobox = forwardRef<HTMLDivElement, BeautifulMentionsComboboxProps>(
+const Combobox = forwardRef<any, BeautifulMentionsComboboxProps>(
   function Combobox({ loading, itemType, children, ...props }, ref) {
     if (itemType === "trigger") {
       return <div ref={ref} className="hidden" {...props} />;
@@ -149,13 +149,13 @@ function EditablePlugin({ editable }: { editable: boolean }) {
 // ---------------------------------------------------------------------------
 
 export function SlashCommandInput({
-  commands,
+  fetchCommands,
   onSend,
   disabled = false,
   placeholder = "Send a prompt to the agent…",
   className,
 }: {
-  commands: SlashCommand[];
+  fetchCommands: () => Promise<SlashCommand[]>;
   onSend: (text: string) => void;
   disabled?: boolean;
   placeholder?: string;
@@ -163,14 +163,18 @@ export function SlashCommandInput({
 }) {
   const [comboboxOpen, setComboboxOpen] = useState(false);
 
+  // Fetch commands from the API on every search invocation.
+  // The plugin calls onSearch each time the user types after "/",
+  // and shows the loading state while the promise is pending.
   const onSearch = useCallback(
     async (_trigger: string, query?: string | null): Promise<BeautifulMentionsItem[]> => {
+      const commands = await fetchCommands();
       const q = (query ?? "").toLowerCase();
       return commands
         .filter((c) => c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q))
         .map((c) => ({ value: c.name, description: c.description }));
     },
-    [commands],
+    [fetchCommands],
   );
 
   const initialConfig = useMemo(
@@ -211,7 +215,7 @@ export function SlashCommandInput({
         <BeautifulMentionsPlugin
           triggers={["/"]}
           onSearch={onSearch}
-          searchDelay={0}
+          searchDelay={250}
           menuItemLimit={false}
           combobox
           comboboxAnchorClassName="slash-combobox-anchor"
