@@ -8,10 +8,7 @@ import type { Env, TunnelRow } from "../types.js";
  * a message to the linked Flamecast instance so it spawns a
  * new session with the email content as the initial prompt.
  */
-export async function handleEmail(
-  message: ForwardableEmailMessage,
-  env: Env,
-): Promise<void> {
+export async function handleEmail(message: ForwardableEmailMessage, env: Env): Promise<void> {
   const to = message.to;
   const domain = extractDomain(to);
 
@@ -61,16 +58,12 @@ export async function handleEmail(
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "unknown error");
-    console.error(
-      `Failed to enqueue email to ${targetUrl}: ${response.status} ${errorBody}`,
-    );
+    console.error(`Failed to enqueue email to ${targetUrl}: ${response.status} ${errorBody}`);
     message.setReject(`Flamecast instance unavailable (${response.status})`);
     return;
   }
 
-  console.log(
-    `Email from ${from} to ${domain}@flamecast.app enqueued successfully`,
-  );
+  console.log(`Email from ${from} to ${domain}@flamecast.app enqueued successfully`);
 }
 
 /** Extract the domain portion from `{domain}@flamecast.app`. */
@@ -80,9 +73,7 @@ function extractDomain(to: string): string | null {
 }
 
 /** Read a ReadableStream into an ArrayBuffer. */
-async function streamToArrayBuffer(
-  stream: ReadableStream,
-): Promise<ArrayBuffer> {
+async function streamToArrayBuffer(stream: ReadableStream): Promise<ArrayBuffer> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let totalLength = 0;
@@ -110,9 +101,7 @@ function formatEmailPrompt(email: {
   subject: string;
   body: string;
 }): string {
-  const sender = email.fromName
-    ? `${email.fromName} <${email.from}>`
-    : email.from;
+  const sender = email.fromName ? `${email.fromName} <${email.from}>` : email.from;
 
   return `You received an email. Process it and take appropriate action.
 
