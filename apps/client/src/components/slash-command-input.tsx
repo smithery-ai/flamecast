@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, forwardRef } from "react";
+import { useCallback, useEffect, useMemo, forwardRef } from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
@@ -18,7 +18,7 @@ import type {
 import {
   $getRoot,
   KEY_ENTER_COMMAND,
-  COMMAND_PRIORITY_LOW,
+  COMMAND_PRIORITY_NORMAL,
   CLEAR_EDITOR_COMMAND,
 } from "lexical";
 import { ClearEditorPlugin } from "@lexical/react/LexicalClearEditorPlugin";
@@ -119,23 +119,15 @@ const ComboboxItem = forwardRef<HTMLLIElement, BeautifulMentionsComboboxItemProp
 // Plugins
 // ---------------------------------------------------------------------------
 
-function EnterToSendPlugin({
-  onSend,
-  comboboxOpen,
-}: {
-  onSend: (text: string) => void;
-  comboboxOpen: boolean;
-}) {
+function EnterToSendPlugin({ onSend }: { onSend: (text: string) => void }) {
   const [editor] = useLexicalComposerContext();
-  const openRef = useRef(comboboxOpen);
-  openRef.current = comboboxOpen;
 
   useEffect(() => {
     return editor.registerCommand(
       KEY_ENTER_COMMAND,
       (event) => {
+        // Shift+Enter inserts a newline (handled by Lexical default)
         if (event?.shiftKey) return false;
-        if (openRef.current) return false;
         event?.preventDefault();
         const text = editor.getEditorState().read(() => $getRoot().getTextContent());
         if (!text.trim()) return true;
@@ -143,7 +135,7 @@ function EnterToSendPlugin({
         editor.dispatchCommand(CLEAR_EDITOR_COMMAND, undefined);
         return true;
       },
-      COMMAND_PRIORITY_LOW,
+      COMMAND_PRIORITY_NORMAL,
     );
   }, [editor, onSend]);
 
@@ -173,8 +165,6 @@ export function SlashCommandInput({
   placeholder?: string;
   className?: string;
 }) {
-  const [comboboxOpen, setComboboxOpen] = useState(false);
-
   // Fetch commands from the API on every search invocation.
   // The plugin calls onSearch each time the user types after "/",
   // and shows the loading state while the promise is pending.
@@ -210,7 +200,7 @@ export function SlashCommandInput({
           contentEditable={
             <ContentEditable
               className={cn(
-                "h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors",
+                "min-h-8 max-h-40 w-full overflow-y-auto rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors",
                 "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                 disabled && "cursor-not-allowed opacity-50",
               )}
@@ -233,14 +223,13 @@ export function SlashCommandInput({
           comboboxAnchorClassName="slash-combobox-anchor"
           comboboxComponent={Combobox}
           comboboxItemComponent={ComboboxItem}
-          onComboboxOpen={() => setComboboxOpen(true)}
-          onComboboxClose={() => setComboboxOpen(false)}
+
           allowSpaces={true}
           autoSpace={true}
         />
         <ClearEditorPlugin />
         <ZeroWidthPlugin />
-        <EnterToSendPlugin onSend={onSend} comboboxOpen={comboboxOpen} />
+        <EnterToSendPlugin onSend={onSend} />
         <EditablePlugin editable={!disabled} />
       </div>
     </LexicalComposer>
