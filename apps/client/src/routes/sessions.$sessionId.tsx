@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useSessionState } from "@flamecast/ui";
+import { useSession, sessionLogsToSegments } from "@flamecast/ui";
 import { Fragment, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -16,7 +16,10 @@ export const Route = createFileRoute("/sessions/$sessionId")({
 
 function PreviousSessionPage() {
   const { sessionId } = Route.useParams();
-  const { session, isLoading, logs, markdownSegments } = useSessionState(sessionId);
+  const { data: session, isLoading } = useSession(sessionId);
+
+  const logs = useMemo(() => session?.logs ?? [], [session?.logs]);
+  const markdownSegments = useMemo(() => sessionLogsToSegments(logs), [logs]);
 
   if (isLoading) {
     return (
@@ -67,8 +70,8 @@ function ReadOnlyConversation({
   logs,
   markdownSegments,
 }: {
-  logs: ReturnType<typeof useSessionState>["logs"];
-  markdownSegments: ReturnType<typeof useSessionState>["markdownSegments"];
+  logs: { type: string; data: Record<string, unknown>; timestamp: string }[];
+  markdownSegments: ReturnType<typeof sessionLogsToSegments>;
 }) {
   return (
     <Tabs defaultValue="markdown" className="flex min-h-0 flex-1 flex-col overflow-hidden">
