@@ -51,43 +51,64 @@ import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 import type { Session } from "@flamecast/protocol/session";
 
 export function SessionsSidebar() {
-  const { activeRuntimeTypeName, activeRuntimeInstanceName, activeSessionId } = useRouterState({
-    select: (s) => {
-      const runtimeMatch = s.matches.find(
-        (m) =>
-          m.routeId === "/runtimes/$typeName/$instanceName" || m.routeId === "/runtimes/$typeName",
-      );
-      const instanceMatch = s.matches.find(
-        (m) => m.routeId === "/runtimes/$typeName/$instanceName",
-      );
-      const search = instanceMatch?.search;
-      const sessionId =
-        typeof search === "object" &&
-        search !== null &&
-        "sessionId" in search &&
-        typeof search.sessionId === "string"
-          ? search.sessionId
-          : undefined;
+  const { activeRuntimeTypeName, activeRuntimeInstanceName, activeSessionId, activeTerminal } =
+    useRouterState({
+      select: (s) => {
+        const runtimeMatch = s.matches.find(
+          (m) =>
+            m.routeId === "/runtimes/$typeName/$instanceName" ||
+            m.routeId === "/runtimes/$typeName",
+        );
+        const instanceMatch = s.matches.find(
+          (m) => m.routeId === "/runtimes/$typeName/$instanceName",
+        );
+        const search = instanceMatch?.search;
+        const sessionId =
+          typeof search === "object" &&
+          search !== null &&
+          "sessionId" in search &&
+          typeof search.sessionId === "string"
+            ? search.sessionId
+            : undefined;
 
-      // Also detect previous session view route
-      const sessionViewMatch = s.matches.find((m) => m.routeId === "/sessions/$sessionId");
-      const viewingSessionId =
-        typeof sessionViewMatch?.params.sessionId === "string"
-          ? sessionViewMatch.params.sessionId
-          : undefined;
+        const isTerminal =
+          typeof search === "object" &&
+          search !== null &&
+          "terminal" in search &&
+          (search.terminal === true || search.terminal === "true");
 
-      return {
-        activeRuntimeTypeName: runtimeMatch?.params.typeName,
-        activeRuntimeInstanceName: instanceMatch?.params.instanceName,
-        activeSessionId: sessionId ?? viewingSessionId,
-      };
-    },
-  });
+        // Also detect previous session view route
+        const sessionViewMatch = s.matches.find((m) => m.routeId === "/sessions/$sessionId");
+        const viewingSessionId =
+          typeof sessionViewMatch?.params.sessionId === "string"
+            ? sessionViewMatch.params.sessionId
+            : undefined;
+
+        return {
+          activeRuntimeTypeName: runtimeMatch?.params.typeName,
+          activeRuntimeInstanceName: instanceMatch?.params.instanceName,
+          activeSessionId: sessionId ?? viewingSessionId,
+          activeTerminal: isTerminal ?? false,
+        };
+      },
+    });
   const { data: runtimes, isLoading: isRuntimesLoading } = useRuntimes();
   const { data: sessions, isLoading: isSessionsLoading } = useSessions();
   const activeSessions = sessions?.filter((s) => s.status === "active") ?? [];
   const previousSessions = sessions?.filter((s) => s.status === "killed") ?? [];
   const { data: queue = [] } = useMessageQueue();
+
+  // Running runtime instances for terminal sidebar entries
+  const runningInstances =
+    runtimes?.flatMap((rt) =>
+      rt.instances
+        .filter((i) => i.status === "running")
+        .map((i) => ({
+          typeName: rt.typeName,
+          instanceName: i.name,
+          cwd: activeSessions.find((s) => s.runtime === i.name)?.cwd,
+        })),
+    ) ?? [];
 
   return (
     <Sidebar>
@@ -164,6 +185,27 @@ export function SessionsSidebar() {
                     />
                   ))
                 )}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {runningInstances.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Terminals</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {runningInstances.map((item) => (
+                  <TerminalSidebarItem
+                    key={item.instanceName}
+                    typeName={item.typeName}
+                    instanceName={item.instanceName}
+                    cwd={item.cwd}
+                    isActive={
+                      activeTerminal && activeRuntimeInstanceName === item.instanceName
+                    }
+                  />
+                ))}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -343,6 +385,52 @@ function PreviousSessionItem({ session, isActive }: { session: Session; isActive
           </span>
           {endedAt && (
             <span className="text-[10px] leading-tight text-muted-foreground/70">{endedAt}</span>
+          )}
+        </div>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
+function TerminalSidebarItem({
+  typeName,
+  instanceName,
+  cwd,
+  isActive,
+}: {
+  typeName: string;
+  instanceName: string;
+  cwd?: string;
+  isActive: boolean;
+}) {
+  const navigate = useNavigate();
+  const cwdShort = cwd ? shortenPath(cwd) : undefined;
+
+  const handleClick = () => {
+    void navigate({
+      to: "/runtimes/$typeName/$instanceName",
+      params: { typeName, instanceName },
+      search: { terminal: true },
+    });
+  };
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        className="h-auto items-start py-1.5"
+        isActive={isActive}
+        onClick={handleClick}
+      >
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex items-center gap-1.5">
+            <TerminalIcon className="size-3 shrink-0" />
+            <span className="truncate text-xs font-medium leading-tight">{instanceName}</span>
+          </div>
+          {cwdShort && (
+            <div className="flex min-w-0 items-center gap-1 text-[10px] leading-tight text-muted-foreground">
+              <FolderIcon className="size-2.5 shrink-0" />
+              <span className="truncate">{cwdShort}</span>
+            </div>
           )}
         </div>
       </SidebarMenuButton>

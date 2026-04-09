@@ -4,8 +4,11 @@ import {
   useStartRuntimeWithOptimisticUpdate,
   useDeleteRuntime,
   useSessions,
+  useTerminal,
+  useRuntimeWebSocket,
 } from "@flamecast/ui";
 import { RuntimeSessionTab } from "@/components/runtime-session-tab";
+import { TerminalPanel } from "@/components/terminal-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoaderCircleIcon, PlayIcon, Trash2Icon } from "lucide-react";
@@ -17,12 +20,13 @@ export const Route = createFileRoute("/runtimes/$typeName/$instanceName")({
   component: RuntimeInstancePage,
   validateSearch: (search: Record<string, unknown>) => ({
     sessionId: typeof search.sessionId === "string" ? search.sessionId : undefined,
+    terminal: search.terminal === true || search.terminal === "true" ? true : undefined,
   }),
 });
 
 function RuntimeInstancePage() {
   const { typeName, instanceName } = Route.useParams();
-  const { sessionId: searchSessionId } = Route.useSearch();
+  const { sessionId: searchSessionId, terminal: searchTerminal } = Route.useSearch();
   const { data: runtimes } = useRuntimes();
 
   const runtimeInfo = runtimes?.find((rt) => rt.typeName === typeName);
@@ -53,6 +57,7 @@ function RuntimeInstancePage() {
         runtimeInfo={runtimeInfo}
         instance={instance}
         focusSessionId={searchSessionId}
+        focusTerminal={searchTerminal}
       />
     </div>
   );
@@ -64,14 +69,23 @@ function RuntimeDetailPanel({
   runtimeInfo,
   instance,
   focusSessionId,
+  focusTerminal,
 }: {
   runtimeInfo: RuntimeInfo;
   instance: RuntimeInstance;
   focusSessionId?: string;
+  focusTerminal?: boolean;
 }) {
   const isRunning = instance.status === "running";
   const { data: sessions } = useSessions();
   const navigate = useNavigate();
+
+  // Runtime-level WebSocket + terminal state
+  const ws = useRuntimeWebSocket(instance.websocketUrl);
+  const { terminals, sendInput, resize, onData, createTerminal, killTerminal } = useTerminal(
+    ws,
+    instance.websocketUrl,
+  );
 
   // Find active sessions for this runtime instance
   const instanceSessions =
@@ -83,6 +97,7 @@ function RuntimeDetailPanel({
 
   // Keep URL in sync with the displayed session
   useEffect(() => {
+    if (focusTerminal) return;
     if (activeSession && activeSession.id !== focusSessionId) {
       void navigate({
         search: { sessionId: activeSession.id },
@@ -94,7 +109,7 @@ function RuntimeDetailPanel({
         replace: true,
       });
     }
-  }, [activeSession, focusSessionId, navigate]);
+  }, [activeSession, focusSessionId, focusTerminal, navigate]);
 
   const startMutation = useStartRuntimeWithOptimisticUpdate(runtimeInfo, {
     instanceName: instance.name,
@@ -155,6 +170,21 @@ function RuntimeDetailPanel({
           </CardContent>
         </Card>
       </div>
+    );
+  }
+
+  // ─── Terminal view ─────────────────────────────────────────────────────
+
+  if (focusTerminal) {
+    return (
+      <TerminalPanel
+        terminals={terminals}
+        sendInput={sendInput}
+        resize={resize}
+        onData={onData}
+        onCreateTerminal={() => createTerminal()}
+        onRemoveTerminal={killTerminal}
+      />
     );
   }
 
