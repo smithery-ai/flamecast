@@ -4,7 +4,6 @@ import {
   useStartRuntimeWithOptimisticUpdate,
   useDeleteRuntime,
   useFlamecastClient,
-  useTerminateSession,
   useSessions,
 } from "@flamecast/ui";
 import { RuntimeNewTab } from "@/components/runtime-new-tab";
@@ -110,6 +109,8 @@ function RuntimeDetailPanel({
   const [tabs, setTabs] = useState<Tab[]>([initialTab.current]);
   const [activeTabId, setActiveTabId] = useState(initialTab.current.id);
   const hydratedRef = useRef(false);
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
 
   useEffect(() => {
     if (hydratedRef.current || !sessions) return;
@@ -131,14 +132,60 @@ function RuntimeDetailPanel({
     setActiveTabId((focusTab ?? sessionTabs[0]).id);
   }, [sessions, instance.name, focusSessionId]);
 
-  // When focusSessionId changes after hydration, switch to that tab
+  // When focusSessionId changes after hydration, switch to that tab or re-open it.
+  // Reads current tabs via ref to avoid re-running when closeTab updates the tab list.
   useEffect(() => {
     if (!focusSessionId || !hydratedRef.current) return;
-    const existing = tabs.find((t) => t.type === "session" && t.sessionId === focusSessionId);
+
+    const existing = tabsRef.current.find(
+      (t) => t.type === "session" && t.sessionId === focusSessionId,
+    );
     if (existing) {
       setActiveTabId(existing.id);
+      return;
     }
-  }, [focusSessionId, tabs]);
+
+    // Tab was closed — re-open it if the session is still active
+    const session = sessions?.find((s) => s.id === focusSessionId && s.status === "active");
+    if (!session) return;
+
+    const tab: Tab = {
+      id: makeTabId(),
+      type: "session",
+      sessionId: session.id,
+      label: session.agentName,
+    };
+    setTabs((prev) => [...prev, tab]);
+    setActiveTabId(tab.id);
+  }, [focusSessionId, sessions]);
+
+  // Close tabs whose sessions are no longer active (e.g. terminated from sidebar)
+  useEffect(() => {
+    if (!hydratedRef.current || !sessions) return;
+    const deadTabIds = tabsRef.current
+      .filter(
+        (t) =>
+          t.type === "session" &&
+          !sessions.some((s) => s.id === t.sessionId && s.status === "active"),
+      )
+      .map((t) => t.id);
+    if (deadTabIds.length === 0) return;
+
+    setTabs((prev) => {
+      const next = prev.filter((t) => !deadTabIds.includes(t.id));
+      if (next.length === 0) {
+        const newTab: Tab = { id: makeTabId(), type: "new-tab" };
+        setActiveTabId(newTab.id);
+        return [newTab];
+      }
+      return next;
+    });
+    setActiveTabId((prevId) => {
+      if (!deadTabIds.includes(prevId)) return prevId;
+      const remaining = tabsRef.current.filter((t) => !deadTabIds.includes(t.id));
+      return remaining.length > 0 ? remaining[0].id : prevId;
+    });
+  }, [sessions]);
 
   const navigate = useNavigate();
 
@@ -153,8 +200,6 @@ function RuntimeDetailPanel({
       replace: true,
     });
   }, [activeSessionId, navigate]);
-
-  const terminateMutation = useTerminateSession();
 
   const startMutation = useStartRuntimeWithOptimisticUpdate(runtimeInfo, {
     instanceName: instance.name,
@@ -224,11 +269,6 @@ function RuntimeDetailPanel({
       const idx = tabs.findIndex((t) => t.id === tabId);
       if (idx === -1) return;
 
-      const closedTab = tabs[idx];
-      if (closedTab.type === "session") {
-        terminateMutation.mutate(closedTab.sessionId);
-      }
-
       const next = tabs.filter((t) => t.id !== tabId);
 
       if (next.length === 0) {
@@ -244,7 +284,7 @@ function RuntimeDetailPanel({
         setActiveTabId(next[newIdx].id);
       }
     },
-    [tabs, activeTabId, terminateMutation],
+    [tabs, activeTabId],
   );
 
   const loadPreview = useCallback(
