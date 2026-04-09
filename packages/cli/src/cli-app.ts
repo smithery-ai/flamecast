@@ -29,6 +29,7 @@ Commands:
 
 Options:
   --name <name>        Expose as name.flamecast.app (requires cloudflared)
+                       Emails to name@flamecast.app will create new sessions
 
 Environment:
   DATABASE_URL or POSTGRES_URL         Postgres connection string

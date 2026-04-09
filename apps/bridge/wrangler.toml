@@ -15,6 +15,15 @@ binding = "DB"
 database_name = "flamecast-bridge"
 database_id = "2f3c069c-27f5-4329-9451-e966facd9ab9"
 
+# Email Workers: bind an email route so the worker can receive
+# emails sent to *@flamecast.app.  The actual catch-all route
+# (*@flamecast.app → this worker) is configured in the Cloudflare
+# dashboard under Email Routing > Routes.
+
+# Optional: send_email binding for auto-reply capabilities
+# [[send_email]]
+# name = "EMAIL"
+
 [observability.logs]
 enabled = true
 invocation_logs = true
