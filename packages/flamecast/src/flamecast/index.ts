@@ -1039,15 +1039,18 @@ export class Flamecast<
       const ws = new WebSocket(websocketUrl);
       this.eventTaps.set(sessionId, ws);
 
-      ws.onopen = () => {
-        ws.send(
-          JSON.stringify({ action: "subscribe", channel: `session:${sessionId}` }),
-        );
-      };
-
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(String(event.data));
+
+          // Wait for the "connected" handshake before subscribing.
+          if (msg.type === "connected") {
+            ws.send(
+              JSON.stringify({ action: "subscribe", channel: `session:${sessionId}` }),
+            );
+            return;
+          }
+
           if (msg.type !== "event" || !msg.sessionId) return;
           this.eventBus.pushEvent({
             sessionId: msg.sessionId,

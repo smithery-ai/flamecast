@@ -40,7 +40,7 @@ function PreviousSessionPage() {
     );
   }
 
-  const title = session.title || session.agentName;
+  const title = session.title || "(empty session)";
   const endedAt = session.lastUpdatedAt
     ? new Date(session.lastUpdatedAt).toLocaleString()
     : undefined;
