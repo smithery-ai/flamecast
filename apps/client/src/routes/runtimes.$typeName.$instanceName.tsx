@@ -141,6 +141,19 @@ function RuntimeDetailPanel({
   }, [focusSessionId, tabs]);
 
   const navigate = useNavigate();
+
+  // Keep the URL's sessionId search param in sync with the active tab.
+  // This lets the sidebar (and browser history) always reflect the focused session.
+  const currentTab = tabs.find((t) => t.id === activeTabId);
+  const activeSessionId = currentTab?.type === "session" ? currentTab.sessionId : undefined;
+
+  useEffect(() => {
+    void navigate({
+      search: activeSessionId ? { sessionId: activeSessionId } : {},
+      replace: true,
+    });
+  }, [activeSessionId, navigate]);
+
   const terminateMutation = useTerminateSession();
 
   const startMutation = useStartRuntimeWithOptimisticUpdate(runtimeInfo, {

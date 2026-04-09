@@ -121,28 +121,14 @@ export function SessionsSidebar() {
                     <SidebarMenuSkeleton />
                   </>
                 ) : (
-                  activeSessions.map((session) => {
-                    const target = resolveRuntimeTypeName(session, runtimes ?? []);
-                    const isOnSameInstance =
-                      !!target &&
-                      activeRuntimeTypeName === target.typeName &&
-                      activeRuntimeInstanceName === target.instanceName;
-                    // Active if explicitly selected via sessionId, or if it's the
-                    // only session on the currently-viewed runtime instance.
-                    const sessionActive =
-                      activeSessionId === session.id ||
-                      (isOnSameInstance &&
-                        !activeSessionId &&
-                        activeSessions.filter((s) => s.runtime === session.runtime).length === 1);
-                    return (
-                      <SessionItem
-                        key={session.id}
-                        session={session}
-                        runtimes={runtimes ?? []}
-                        isActive={sessionActive}
-                      />
-                    );
-                  })
+                  activeSessions.map((session) => (
+                    <SessionItem
+                      key={session.id}
+                      session={session}
+                      runtimes={runtimes ?? []}
+                      isActive={activeSessionId === session.id}
+                    />
+                  ))
                 )}
               </SidebarMenu>
             </SidebarGroupContent>
