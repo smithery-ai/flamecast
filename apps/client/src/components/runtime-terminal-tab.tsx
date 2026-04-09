@@ -1,22 +1,18 @@
-import { useTerminal, useRuntimeWebSocket } from "@flamecast/ui";
 import { XTermView } from "@/components/terminal-panel";
 import { LoaderCircleIcon } from "lucide-react";
 
 export function RuntimeTerminalTab({
-  runtimeWebsocketUrl,
-  cwd,
+  terminalId,
+  sendInput,
+  resize,
+  onData,
 }: {
-  runtimeWebsocketUrl?: string;
-  cwd?: string;
+  terminalId?: string;
+  sendInput: (terminalId: string, data: string) => void;
+  resize: (terminalId: string, cols: number, rows: number) => void;
+  onData: (terminalId: string, listener: (data: string) => void) => () => void;
 }) {
-  const ws = useRuntimeWebSocket(runtimeWebsocketUrl);
-  const { terminals, sendInput, resize, onData } = useTerminal(ws, runtimeWebsocketUrl, {
-    autoCreate: { cwd },
-  });
-
-  const terminal = terminals[0];
-
-  if (!terminal) {
+  if (!terminalId) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center bg-black">
         <LoaderCircleIcon className="size-5 animate-spin text-muted-foreground" />
@@ -27,8 +23,8 @@ export function RuntimeTerminalTab({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-black">
       <XTermView
-        terminalId={terminal.terminalId}
-        initialOutput={terminal.output}
+        terminalId={terminalId}
+        initialOutput=""
         sendInput={sendInput}
         resize={resize}
         onData={onData}

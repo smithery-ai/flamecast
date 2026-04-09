@@ -5,6 +5,8 @@ import {
   useDeleteRuntime,
   useFlamecastClient,
   useSessions,
+  useRuntimeWebSocket,
+  useTerminal,
 } from "@flamecast/ui";
 import { RuntimeNewTab } from "@/components/runtime-new-tab";
 import { RuntimeSessionTab } from "@/components/runtime-session-tab";
@@ -45,7 +47,7 @@ type Tab =
   | { id: string; type: "session"; sessionId: string; label: string; cwd?: string }
   | { id: string; type: "file"; filePath: string; label: string }
   | { id: string; type: "filesystem"; cwd?: string }
-  | { id: string; type: "terminal"; cwd?: string };
+  | { id: string; type: "terminal"; cwd?: string; terminalId?: string };
 
 let nextTabId = 1;
 function makeTabId() {
@@ -109,6 +111,18 @@ function RuntimeDetailPanel({
 }) {
   const client = useFlamecastClient();
   const isRunning = instance.status === "running";
+
+  // Shared runtime WebSocket + terminal hook — must be called unconditionally
+  // (before any early returns) to satisfy Rules of Hooks.
+  const ws = useRuntimeWebSocket(isRunning ? instance.websocketUrl : undefined);
+  const {
+    terminals: runtimeTerminals,
+    sendInput,
+    resize,
+    onData,
+    createTerminal,
+    killTerminal,
+  } = useTerminal(ws, isRunning ? instance.websocketUrl : undefined);
 
   // Tab state — hydrate from active sessions on mount
   const { data: sessions } = useSessions();
@@ -297,14 +311,46 @@ function RuntimeDetailPanel({
         setTabs((prev) => [...prev, tab]);
       }
       setActiveTabId(tab.id);
+      createTerminal({ cwd: tabCwd });
     },
-    [tabs, activeTabId],
+    [tabs, activeTabId, createTerminal],
   );
+
+  // Assign terminal IDs to tabs that don't have one yet.
+  // When a new runtime terminal appears that isn't claimed by any tab, assign it
+  // to the oldest terminal tab without a terminalId.
+  useEffect(() => {
+    const claimedIds = new Set(
+      tabs
+        .filter((t): t is Tab & { type: "terminal" } => t.type === "terminal" && !!t.terminalId)
+        .map((t) => t.terminalId),
+    );
+    const unclaimedTerminals = runtimeTerminals.filter((rt) => !claimedIds.has(rt.terminalId));
+    const pendingTabs = tabs.filter(
+      (t): t is Tab & { type: "terminal" } => t.type === "terminal" && !t.terminalId,
+    );
+    if (unclaimedTerminals.length === 0 || pendingTabs.length === 0) return;
+
+    setTabs((prev) =>
+      prev.map((t) => {
+        if (t.type !== "terminal" || t.terminalId) return t;
+        const next = unclaimedTerminals.shift();
+        if (!next) return t;
+        return { ...t, terminalId: next.terminalId };
+      }),
+    );
+  }, [runtimeTerminals, tabs]);
 
   const closeTab = useCallback(
     (tabId: string) => {
       const idx = tabs.findIndex((t) => t.id === tabId);
       if (idx === -1) return;
+
+      // Kill the underlying terminal process when closing a terminal tab
+      const closedTab = tabs[idx];
+      if (closedTab.type === "terminal" && closedTab.terminalId) {
+        killTerminal(closedTab.terminalId);
+      }
 
       const next = tabs.filter((t) => t.id !== tabId);
 
@@ -321,12 +367,28 @@ function RuntimeDetailPanel({
         setActiveTabId(next[newIdx].id);
       }
     },
-    [tabs, activeTabId],
+    [tabs, activeTabId, killTerminal],
   );
 
   const loadPreview = useCallback(
     (path: string) => client.fetchRuntimeFilePreview(instance.name, path),
     [client, instance.name],
+  );
+
+  // ─── Terminal tabs context (must be before early returns) ─────────────────
+
+  const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
+
+  const terminalTabsValue = useMemo(
+    () => ({
+      terminalTabs: tabs
+        .filter((t): t is Tab & { type: "terminal" } => t.type === "terminal")
+        .map((t) => ({ id: t.id, cwd: t.cwd })),
+      activeTerminalTabId: activeTab?.type === "terminal" ? activeTab.id : undefined,
+      focusTerminalTab: (id: string) => setActiveTabId(id),
+      closeTerminalTab: (id: string) => closeTab(id),
+    }),
+    [tabs, activeTab, closeTab],
   );
 
   // ─── Not running state ───────────────────────────────────────────────────
@@ -382,20 +444,6 @@ function RuntimeDetailPanel({
   }
 
   // ─── Running state: full layout ──────────────────────────────────────────
-
-  const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
-
-  const terminalTabsValue = useMemo(
-    () => ({
-      terminalTabs: tabs
-        .filter((t): t is Tab & { type: "terminal" } => t.type === "terminal")
-        .map((t) => ({ id: t.id, cwd: t.cwd })),
-      activeTerminalTabId: activeTab?.type === "terminal" ? activeTab.id : undefined,
-      focusTerminalTab: (id: string) => setActiveTabId(id),
-      closeTerminalTab: (id: string) => closeTab(id),
-    }),
-    [tabs, activeTab, closeTab],
-  );
 
   return (
     <TerminalTabsProvider value={terminalTabsValue}>
@@ -456,7 +504,12 @@ function RuntimeDetailPanel({
             />
           )}
           {activeTab?.type === "terminal" && (
-            <RuntimeTerminalTab runtimeWebsocketUrl={instance.websocketUrl} cwd={activeTab.cwd} />
+            <RuntimeTerminalTab
+              terminalId={activeTab.terminalId}
+              sendInput={sendInput}
+              resize={resize}
+              onData={onData}
+            />
           )}
         </div>
       </div>
