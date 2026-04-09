@@ -105,17 +105,33 @@ export function SessionsSidebar() {
   const previousSessions = sessions?.filter((s) => s.status === "killed") ?? [];
   const { data: queue = [] } = useMessageQueue();
 
-  // Running runtime instances for terminal sidebar sections
+  // Running runtime instances for terminal sidebar sections.
+  // For onlyOne runtimes, the instance name equals the type name and may or
+  // may not appear in rt.instances — include it if any instance is running OR
+  // if the runtime has a websocket-capable instance.
   const runningInstances =
-    runtimes?.flatMap((rt) =>
-      rt.instances
+    runtimes?.flatMap((rt) => {
+      const running = rt.instances
         .filter((i) => i.status === "running")
         .map((i) => ({
           typeName: rt.typeName,
           instanceName: i.name,
           websocketUrl: i.websocketUrl,
-        })),
-    ) ?? [];
+        }));
+      // For onlyOne runtimes with no explicit running instances, check if
+      // there's any instance at all (it auto-starts).
+      if (rt.onlyOne && running.length === 0 && rt.instances.length > 0) {
+        const inst = rt.instances[0];
+        if (inst.websocketUrl) {
+          running.push({
+            typeName: rt.typeName,
+            instanceName: inst.name,
+            websocketUrl: inst.websocketUrl,
+          });
+        }
+      }
+      return running;
+    }) ?? [];
 
   return (
     <Sidebar>
