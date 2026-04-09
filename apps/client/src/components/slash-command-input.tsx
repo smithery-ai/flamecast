@@ -142,6 +142,8 @@ function EnterToSendPlugin({
       (event) => {
         // Combobox open → let the plugin handle item selection
         if (comboboxOpenRef.current) return false;
+        // Shift+Enter → insert newline
+        if (event?.shiftKey) return false;
         // Combobox closed → send message
         event?.preventDefault();
         const text = editor.getEditorState().read(() => $getRoot().getTextContent());
