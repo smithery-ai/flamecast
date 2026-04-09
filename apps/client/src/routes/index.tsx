@@ -176,13 +176,21 @@ function DeveloperHomePage() {
           onSend={handleSend}
           disabled={!isReady || needsRunningInstance || isBusy}
           placeholder={
-            !isReady
-              ? "Loading…"
-              : needsRunningInstance
-                ? "Start a runtime instance first…"
-                : "Send a prompt or type / for commands…"
+            createMutation.isPending
+              ? "Creating session…"
+              : !isReady
+                ? "Loading…"
+                : needsRunningInstance
+                  ? "Start a runtime instance first…"
+                  : "Send a prompt or type / for commands…"
           }
         />
+        {createMutation.isPending && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <LoaderCircleIcon className="size-4 animate-spin" />
+            <span>Creating session and sending message…</span>
+          </div>
+        )}
 
         <div className="flex flex-wrap items-center gap-3">
           {/* Runtime type dropdown */}
