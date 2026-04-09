@@ -101,6 +101,10 @@ export interface Session {
   websocketUrl?: string;
   /** Runtime instance name this session is scoped to. */
   runtime?: string;
+  /** Working directory the session was started in. */
+  cwd?: string;
+  /** Human-readable title derived from the first user prompt. */
+  title?: string;
 }
 
 // ---------------------------------------------------------------------------

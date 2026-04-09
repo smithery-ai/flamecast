@@ -1,10 +1,13 @@
+import React from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   useRuntimes,
+  useSessions,
   useStartRuntime,
   useStopRuntime,
   usePauseRuntime,
   useDeleteRuntime,
+  useRuntimeFileSystem,
 } from "@flamecast/ui";
 import { cn } from "@/lib/utils";
 import {
@@ -22,8 +25,11 @@ import {
   SidebarMenuSkeleton,
 } from "@/components/ui/sidebar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { GitBadges } from "@/components/git-badges";
 import {
   CheckIcon,
+  FolderIcon,
+  GitBranchIcon,
   LoaderCircleIcon,
   PauseIcon,
   PlayIcon,
@@ -39,9 +45,10 @@ import { toast } from "sonner";
 import { useBackendUrl } from "@/lib/backend-url-context";
 import { isDeveloperPreview } from "@/lib/developer-preview";
 import type { RuntimeInfo } from "@flamecast/protocol/runtime";
+import type { Session } from "@flamecast/protocol/session";
 
 export function SessionsSidebar() {
-  const { activeRuntimeTypeName, activeRuntimeInstanceName } = useRouterState({
+  const { activeRuntimeTypeName, activeRuntimeInstanceName, activeSessionId } = useRouterState({
     select: (s) => {
       const runtimeMatch = s.matches.find(
         (m) =>
@@ -50,13 +57,24 @@ export function SessionsSidebar() {
       const instanceMatch = s.matches.find(
         (m) => m.routeId === "/runtimes/$typeName/$instanceName",
       );
+      const search = instanceMatch?.search;
+      const sessionId =
+        typeof search === "object" &&
+        search !== null &&
+        "sessionId" in search &&
+        typeof search.sessionId === "string"
+          ? search.sessionId
+          : undefined;
       return {
         activeRuntimeTypeName: runtimeMatch?.params.typeName,
         activeRuntimeInstanceName: instanceMatch?.params.instanceName,
+        activeSessionId: sessionId,
       };
     },
   });
   const { data: runtimes, isLoading: isRuntimesLoading } = useRuntimes();
+  const { data: sessions, isLoading: isSessionsLoading } = useSessions();
+  const activeSessions = sessions?.filter((s) => s.status === "active") ?? [];
 
   return (
     <Sidebar>
@@ -92,6 +110,31 @@ export function SessionsSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {(isSessionsLoading || activeSessions.length > 0) && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Sessions</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {isSessionsLoading ? (
+                  <>
+                    <SidebarMenuSkeleton />
+                    <SidebarMenuSkeleton />
+                  </>
+                ) : (
+                  activeSessions.map((session) => (
+                    <SessionItem
+                      key={session.id}
+                      session={session}
+                      runtimes={runtimes ?? []}
+                      isActive={activeSessionId === session.id}
+                    />
+                  ))
+                )}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
         {isDeveloperPreview && (isRuntimesLoading || (runtimes && runtimes.length > 0)) && (
           <SidebarGroup>
             <SidebarGroupLabel>Runtimes</SidebarGroupLabel>
@@ -123,6 +166,138 @@ export function SessionsSidebar() {
     </Sidebar>
   );
 }
+
+// ─── Session Item ─────────────────────────────────────────────────────────────
+
+/** Resolve a session's runtime instance to its type name for navigation. */
+function resolveRuntimeTypeName(
+  session: Session,
+  runtimes: RuntimeInfo[],
+): { typeName: string; instanceName: string } | null {
+  const instanceName = session.runtime;
+  if (!instanceName) return null;
+  for (const rt of runtimes) {
+    if (rt.onlyOne && rt.typeName === instanceName) {
+      return { typeName: rt.typeName, instanceName };
+    }
+    if (rt.instances.some((i) => i.name === instanceName)) {
+      return { typeName: rt.typeName, instanceName };
+    }
+  }
+  return null;
+}
+
+function SessionItem({
+  session,
+  runtimes,
+  isActive,
+}: {
+  session: Session;
+  runtimes: RuntimeInfo[];
+  isActive: boolean;
+}) {
+  const navigate = useNavigate();
+  const target = resolveRuntimeTypeName(session, runtimes);
+  const isPending = !session.spawn.command;
+
+  const title = session.title || session.agentName;
+  const cwd = session.cwd;
+  const cwdShort = cwd ? shortenPath(cwd) : undefined;
+
+  const handleClick = () => {
+    if (!target) return;
+    void navigate({
+      to: "/runtimes/$typeName/$instanceName",
+      params: target,
+      search: { sessionId: session.id },
+    });
+  };
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        className="h-auto items-start py-1.5"
+        isActive={isActive}
+        onClick={handleClick}
+        disabled={!target && !isPending}
+      >
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex items-center gap-1.5">
+            {isPending && (
+              <LoaderCircleIcon className="size-3 shrink-0 animate-spin text-muted-foreground" />
+            )}
+            <span className="truncate text-xs font-medium leading-tight">{title}</span>
+          </div>
+          <div className="flex min-w-0 items-center gap-1 text-[10px] leading-tight text-muted-foreground">
+            {target ? (
+              <SessionGitOrCwd instanceName={target.instanceName} cwd={cwd} cwdShort={cwdShort} />
+            ) : cwdShort ? (
+              <span className="flex min-w-0 items-center gap-1">
+                <FolderIcon className="size-2.5 shrink-0" />
+                <span className="truncate">{cwdShort}</span>
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
+/**
+ * Shows git info if cwd is a git repo, otherwise shows the directory path.
+ * - GitHub repo: GitHub pill + branch badge (no folder icon)
+ * - Non-GitHub git repo: git icon + filepath + branch badge
+ * - No git: folder icon + filepath
+ */
+function SessionGitOrCwd({
+  instanceName,
+  cwd,
+  cwdShort,
+}: {
+  instanceName: string;
+  cwd?: string;
+  cwdShort?: string;
+}) {
+  const parentPath = cwd ? cwd.replace(/\/[^/]+\/?$/, "") || "/" : undefined;
+  const dirName = cwd ? cwd.replace(/\/$/, "").split("/").pop() : undefined;
+
+  const { data: fsData } = useRuntimeFileSystem(instanceName, {
+    path: parentPath,
+    enabled: !!parentPath,
+  });
+
+  const gitEntry = fsData?.entries.find((e) => e.path === dirName && e.git);
+  const git = gitEntry?.git;
+
+  if (git) {
+    return (
+      <span className="flex min-w-0 items-center gap-1">
+        <GitBranchIcon className="size-2.5 shrink-0" />
+        {cwdShort && <span className="truncate">{cwdShort}</span>}
+        <GitBadges branch={git.branch} origin={git.origin} />
+      </span>
+    );
+  }
+
+  if (!cwdShort) return null;
+
+  return (
+    <span className="flex min-w-0 items-center gap-1">
+      <FolderIcon className="size-2.5 shrink-0" />
+      <span className="truncate">{cwdShort}</span>
+    </span>
+  );
+}
+
+/** Shorten an absolute path to its last 2 segments for compact display. */
+function shortenPath(path: string): string {
+  const parts = path.replace(/\/+$/, "").split("/").filter(Boolean);
+  if (parts.length <= 2) return "/" + parts.join("/");
+  return parts.slice(-2).join("/");
+}
+
+// ─── Runtime Type Item ────────────────────────────────────────────────────────
 
 function RuntimeTypeItem({
   runtime,

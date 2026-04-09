@@ -75,16 +75,19 @@ export function RuntimeNewTab({
     if (!selectedTemplate) return;
     const sessionId = crypto.randomUUID();
     const runtimeInstance = needsInstanceSelect ? selectedInstance : instanceName;
-    onSessionCreated(sessionId, selectedTemplate.name, cwd);
+    const sessionCwd = cwd ?? defaultCwd;
+    onSessionCreated(sessionId, selectedTemplate.name, sessionCwd);
     createMutation.mutate({
       sessionId,
       agentTemplateId: selectedTemplate.id,
       runtimeInstance,
-      cwd,
+      cwd: sessionCwd,
+      agentName: selectedTemplate.name,
     });
   }, [
     createMutation,
     cwd,
+    defaultCwd,
     onSessionCreated,
     selectedTemplate,
     needsInstanceSelect,
