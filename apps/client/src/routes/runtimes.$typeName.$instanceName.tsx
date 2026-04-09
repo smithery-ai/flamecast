@@ -130,14 +130,27 @@ function RuntimeDetailPanel({
     setActiveTabId((focusTab ?? sessionTabs[0]).id);
   }, [sessions, instance.name, focusSessionId]);
 
-  // When focusSessionId changes after hydration, switch to that tab
+  // When focusSessionId changes after hydration, switch to that tab or re-open it
   useEffect(() => {
     if (!focusSessionId || !hydratedRef.current) return;
     const existing = tabs.find((t) => t.type === "session" && t.sessionId === focusSessionId);
     if (existing) {
       setActiveTabId(existing.id);
+      return;
     }
-  }, [focusSessionId, tabs]);
+    // Tab was closed — re-open it if the session is still active
+    const session = sessions?.find((s) => s.id === focusSessionId && s.status === "active");
+    if (session) {
+      const tab: Tab = {
+        id: makeTabId(),
+        type: "session",
+        sessionId: session.id,
+        label: session.agentName,
+      };
+      setTabs((prev) => [...prev, tab]);
+      setActiveTabId(tab.id);
+    }
+  }, [focusSessionId, tabs, sessions]);
 
   const navigate = useNavigate();
 
