@@ -1,6 +1,7 @@
 import type { AgentTemplate } from "@flamecast/sdk";
 
 type CreateAgentTemplatesOptions = {
+  dockerEnabled: boolean;
   agentJsEnabled: boolean;
   e2bEnabled: boolean;
   hostAgentPath: string;
@@ -8,6 +9,7 @@ type CreateAgentTemplatesOptions = {
 };
 
 export function createAgentTemplates({
+  dockerEnabled,
   agentJsEnabled,
   e2bEnabled,
   hostAgentPath,
@@ -21,19 +23,35 @@ export function createAgentTemplates({
   return [
     {
       id: "echo-agent",
-      name: "Echo Agent",
+      name: "Dummy Agent",
       spawn: { command: "npx", args: ["tsx", hostAgentPath] },
-      runtime: { provider: "default" },
+      runtime: { provider: "local" },
     },
     {
-      id: "docker-echo-agent",
-      name: "Echo Agent",
-      spawn: { command: "npx", args: ["tsx", "agent.ts"] },
-      runtime: {
-        provider: "docker",
-        setup: sandboxSetup,
-      },
-    },
+      id: "codex",
+      name: "Codex",
+      spawn: { command: "npx", args: ["--yes", "@zed-industries/codex-acp"] },
+      runtime: { provider: "local" },
+    } satisfies AgentTemplate,
+    {
+      id: "claude-code",
+      name: "Claude Code",
+      spawn: { command: "npx", args: ["--yes", "@zed-industries/claude-agent-acp"] },
+      runtime: { provider: "local" },
+    } satisfies AgentTemplate,
+    ...(dockerEnabled
+      ? [
+          {
+            id: "docker-echo-agent",
+            name: "Echo Agent",
+            spawn: { command: "npx", args: ["tsx", "agent.ts"] },
+            runtime: {
+              provider: "docker",
+              setup: sandboxSetup,
+            },
+          } satisfies AgentTemplate,
+        ]
+      : []),
     ...(e2bEnabled
       ? [
           {
