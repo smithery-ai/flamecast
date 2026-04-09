@@ -43,7 +43,8 @@ const Combobox = forwardRef<any, BeautifulMentionsComboboxProps>(
     // one is typed. Render an invisible container so the plugin's refs stay
     // intact but nothing is visible to the user.
     if (itemType === "trigger" && !loading) {
-      return <ul ref={ref} {...props} style={{ display: "contents" }} />;
+      const { children: _triggerChildren, ...triggerRest } = props;
+      return <ul ref={ref} {...triggerRest} style={{ display: "none" }} />;
     }
     // Async search in-flight — show loading indicator
     if (loading) {
