@@ -28,6 +28,8 @@ export type FlamecastApi = Pick<
   | "listSessions"
   | "pauseRuntime"
   | "promptSession"
+  | "settings"
+  | "updateSettings"
   | "proxyQueueRequest"
   | "resolvePermission"
   | "registerAgentTemplate"
@@ -156,6 +158,18 @@ export function createApi(flamecast: FlamecastApi) {
           return c.json({ status: "ok", sessions: sessions.length });
         } catch (error) {
           return c.json({ status: "degraded", error: toErrorMessage(error) }, 503);
+        }
+      })
+      .get("/settings", (c) => {
+        return c.json(flamecast.settings);
+      })
+      .patch("/settings", async (c) => {
+        try {
+          const body = await c.req.json();
+          const updated = flamecast.updateSettings(body);
+          return c.json(updated);
+        } catch (error) {
+          return c.json({ error: toErrorMessage(error) }, 400);
         }
       })
       .get("/agent-templates", async (c) => {

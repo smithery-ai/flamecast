@@ -5,6 +5,7 @@ import { FlamecastProvider } from "@flamecast/ui";
 import { routeTree } from "./routeTree.gen";
 import { resolveApiBaseUrl } from "./lib/api-base-url";
 import { BackendUrlProvider, useBackendUrl } from "./lib/backend-url-context";
+import { DefaultAgentConfigProvider } from "./lib/default-agent-config-context";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
@@ -33,7 +34,9 @@ function App() {
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BackendUrlProvider defaultUrl={defaultUrl}>
-      <App />
+      <DefaultAgentConfigProvider>
+        <App />
+      </DefaultAgentConfigProvider>
     </BackendUrlProvider>
   </React.StrictMode>,
 );

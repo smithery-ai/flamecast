@@ -7,6 +7,7 @@ import {
   useStartRuntime,
   useRuntimeFileSystem,
 } from "@flamecast/ui";
+import { useDefaultAgentConfig } from "@/lib/default-agent-config-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -51,6 +52,7 @@ function HomePage() {
 
 function DeveloperHomePage() {
   const navigate = useNavigate();
+  const { config } = useDefaultAgentConfig();
   const { data: runtimes, isLoading: runtimesLoading } = useRuntimes();
   const { data: templates, isLoading: templatesLoading } = useAgentTemplates();
   const { data: sessions } = useSessions();
@@ -74,10 +76,10 @@ function DeveloperHomePage() {
     : undefined;
   const needsRunningInstance = isMultiInstance && runningInstances.length === 0;
 
-  // --- Agent selection (default: first) ---
+  // --- Agent selection (default: from settings config, fallback to first) ---
   const matchingTemplates = templates?.filter((t) => t.runtime.provider === activeRuntime) ?? [];
   const defaultTemplate = matchingTemplates[0] ?? templates?.[0];
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(config.agentTemplateId);
   const activeTemplate = selectedTemplateId
     ? (templates?.find((t) => t.id === selectedTemplateId) ?? defaultTemplate)
     : defaultTemplate;
@@ -99,8 +101,8 @@ function DeveloperHomePage() {
     ? (matchingSessions.find((s) => s.id === selectedSessionId) ?? matchingSessions[0])
     : matchingSessions[0];
 
-  // --- Working directory ---
-  const [cwd, setCwd] = useState<string | undefined>(undefined);
+  // --- Working directory (default: from settings config) ---
+  const [cwd, setCwd] = useState<string | undefined>(config.defaultDirectory || undefined);
   const [dirPickerOpen, setDirPickerOpen] = useState(false);
 
   // Resolve an instance name for the directory picker

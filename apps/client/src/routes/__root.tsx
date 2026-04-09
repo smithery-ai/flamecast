@@ -19,11 +19,13 @@ function RootLayout() {
         (m) => m.routeId === "/runtimes/$typeName/$instanceName",
       );
       const isAgents = state.matches.some((m) => m.routeId === "/agents");
+      const isSettings = state.matches.some((m) => m.routeId === "/settings");
       const sessionMatch = state.matches.find((m) => m.routeId === "/sessions/$sessionId");
       return {
         runtimeTypeName: runtimeMatch?.params.typeName,
         runtimeInstanceName: instanceMatch?.params.instanceName,
         isAgents,
+        isSettings,
         isSessionView: !!sessionMatch,
       };
     },
@@ -64,13 +66,24 @@ function Breadcrumbs({
   runtimeTypeName,
   runtimeInstanceName,
   isAgents,
+  isSettings,
   isSessionView,
 }: {
   runtimeTypeName?: string;
   runtimeInstanceName?: string;
   isAgents: boolean;
+  isSettings: boolean;
   isSessionView: boolean;
 }) {
+  if (isSettings) {
+    return (
+      <>
+        <BreadcrumbSeparator />
+        <span className="font-medium">Settings</span>
+      </>
+    );
+  }
+
   if (isAgents) {
     return (
       <>
