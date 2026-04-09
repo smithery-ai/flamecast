@@ -9,10 +9,12 @@ export function RuntimeFilesystemTab({
   instanceName,
   cwd,
   onOpenFileTab,
+  onOpenTerminal,
 }: {
   instanceName: string;
   cwd?: string;
   onOpenFileTab?: (filePath: string) => void;
+  onOpenTerminal?: (terminalCwd: string) => void;
 }) {
   const client = useFlamecastClient();
   const [showAllFiles, setShowAllFiles] = useState(false);
@@ -98,6 +100,7 @@ export function RuntimeFilesystemTab({
         onShowAllFilesChange={setShowAllFiles}
         onFileSelect={handleFileSelect}
         onNavigate={setFsPath}
+        onOpenTerminal={onOpenTerminal}
       />
     </div>
   );

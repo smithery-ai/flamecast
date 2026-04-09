@@ -26,8 +26,9 @@ import {
   TerminalSquareIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { TerminalTabsProvider } from "@/lib/terminal-tabs-context";
 import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
 
 export const Route = createFileRoute("/runtimes/$typeName/$instanceName")({
@@ -384,66 +385,82 @@ function RuntimeDetailPanel({
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {/* Tab bar */}
-      <div className="flex shrink-0 items-center gap-0 border-b bg-muted/30 px-1">
-        <div className="flex min-w-0 items-center overflow-x-auto">
-          {tabs.map((tab) => (
-            <TabTrigger
-              key={tab.id}
-              tab={tab}
-              isActive={tab.id === activeTabId}
-              onClick={() => setActiveTabId(tab.id)}
-              onClose={() => closeTab(tab.id)}
-            />
-          ))}
-        </div>
-        <button
-          type="button"
-          className="flex shrink-0 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ml-1"
-          onClick={addNewTab}
-          title="New tab"
-        >
-          <PlusIcon className="size-3.5" />
-        </button>
-      </div>
+  const terminalTabsValue = useMemo(
+    () => ({
+      terminalTabs: tabs
+        .filter((t): t is Tab & { type: "terminal" } => t.type === "terminal")
+        .map((t) => ({ id: t.id, cwd: t.cwd })),
+      activeTerminalTabId: activeTab?.type === "terminal" ? activeTab.id : undefined,
+      focusTerminalTab: (id: string) => setActiveTabId(id),
+      closeTerminalTab: (id: string) => closeTab(id),
+    }),
+    [tabs, activeTab, closeTab],
+  );
 
-      {/* Tab content */}
-      <div className="h-0 min-h-0 flex-1 flex flex-col overflow-hidden">
-        {activeTab?.type === "new-tab" && (
-          <RuntimeNewTab
-            runtimeTypeName={runtimeInfo.typeName}
-            instanceName={instance.name}
-            onSessionCreated={openSessionTab}
-            onOpenFilesystem={openFilesystemTab}
-            onOpenTerminal={openTerminalTab}
-          />
-        )}
-        {activeTab?.type === "session" && (
-          <RuntimeSessionTab
-            sessionId={activeTab.sessionId}
-            instanceName={instance.name}
-            runtimeWebsocketUrl={instance.websocketUrl}
-            cwd={activeTab.cwd}
-            onOpenFileTab={openFileTab}
-          />
-        )}
-        {activeTab?.type === "file" && (
-          <RuntimeFileTab filePath={activeTab.filePath} loadPreview={loadPreview} />
-        )}
-        {activeTab?.type === "filesystem" && (
-          <RuntimeFilesystemTab
-            instanceName={instance.name}
-            cwd={activeTab.cwd}
-            onOpenFileTab={openFileTab}
-          />
-        )}
-        {activeTab?.type === "terminal" && (
-          <RuntimeTerminalTab runtimeWebsocketUrl={instance.websocketUrl} cwd={activeTab.cwd} />
-        )}
+  return (
+    <TerminalTabsProvider value={terminalTabsValue}>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* Tab bar */}
+        <div className="flex shrink-0 items-center gap-0 border-b bg-muted/30 px-1">
+          <div className="flex min-w-0 items-center overflow-x-auto">
+            {tabs.map((tab) => (
+              <TabTrigger
+                key={tab.id}
+                tab={tab}
+                isActive={tab.id === activeTabId}
+                onClick={() => setActiveTabId(tab.id)}
+                onClose={() => closeTab(tab.id)}
+              />
+            ))}
+          </div>
+          <button
+            type="button"
+            className="flex shrink-0 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ml-1"
+            onClick={addNewTab}
+            title="New tab"
+          >
+            <PlusIcon className="size-3.5" />
+          </button>
+        </div>
+
+        {/* Tab content */}
+        <div className="h-0 min-h-0 flex-1 flex flex-col overflow-hidden">
+          {activeTab?.type === "new-tab" && (
+            <RuntimeNewTab
+              runtimeTypeName={runtimeInfo.typeName}
+              instanceName={instance.name}
+              onSessionCreated={openSessionTab}
+              onOpenFilesystem={openFilesystemTab}
+              onOpenTerminal={openTerminalTab}
+            />
+          )}
+          {activeTab?.type === "session" && (
+            <RuntimeSessionTab
+              sessionId={activeTab.sessionId}
+              instanceName={instance.name}
+              runtimeWebsocketUrl={instance.websocketUrl}
+              cwd={activeTab.cwd}
+              onOpenFileTab={openFileTab}
+              onOpenTerminal={openTerminalTab}
+            />
+          )}
+          {activeTab?.type === "file" && (
+            <RuntimeFileTab filePath={activeTab.filePath} loadPreview={loadPreview} />
+          )}
+          {activeTab?.type === "filesystem" && (
+            <RuntimeFilesystemTab
+              instanceName={instance.name}
+              cwd={activeTab.cwd}
+              onOpenFileTab={openFileTab}
+              onOpenTerminal={openTerminalTab}
+            />
+          )}
+          {activeTab?.type === "terminal" && (
+            <RuntimeTerminalTab runtimeWebsocketUrl={instance.websocketUrl} cwd={activeTab.cwd} />
+          )}
+        </div>
       </div>
-    </div>
+    </TerminalTabsProvider>
   );
 }
 

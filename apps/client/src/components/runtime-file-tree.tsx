@@ -8,6 +8,7 @@ import {
   FolderTreeIcon,
   GitBranchIcon,
   HomeIcon,
+  TerminalSquareIcon,
 } from "lucide-react";
 import { GitBadges } from "@/components/git-badges";
 import type { FileSystemEntry } from "@flamecast/sdk/session";
@@ -20,6 +21,7 @@ export function RuntimeFileTree({
   onShowAllFilesChange,
   onFileSelect,
   onNavigate,
+  onOpenTerminal,
   emptyTreeMessage = "No filesystem entries returned.",
 }: {
   /** The workspace root (absolute path). */
@@ -33,6 +35,8 @@ export function RuntimeFileTree({
   onFileSelect: (path: string) => void;
   /** Called when the user navigates to a different directory (absolute path). */
   onNavigate: (absolutePath: string) => void;
+  /** Called when the user wants to open a terminal in the current directory. */
+  onOpenTerminal?: (cwd: string) => void;
   emptyTreeMessage?: string;
 }) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -71,6 +75,16 @@ export function RuntimeFileTree({
       <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
         <FolderTreeIcon className="size-3.5 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-xs font-medium">{currentPath}</span>
+        {onOpenTerminal && (
+          <button
+            type="button"
+            className="flex shrink-0 cursor-pointer items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={() => onOpenTerminal(currentPath)}
+            title="Open terminal here"
+          >
+            <TerminalSquareIcon className="size-3.5" />
+          </button>
+        )}
         <label className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
           <span>All</span>
           <Switch
