@@ -39,8 +39,13 @@ interface SlashCommand {
 
 const Combobox = forwardRef<any, BeautifulMentionsComboboxProps>(
   function Combobox({ loading, itemType, ...props }, ref) {
-    // While the async search is in-flight, show a loading indicator
-    // regardless of whether we're in trigger or value mode.
+    // Trigger mode: the plugin shows available triggers (e.g. "/") before
+    // one is typed. Render an invisible container so the plugin's refs stay
+    // intact but nothing is visible to the user.
+    if (itemType === "trigger" && !loading) {
+      return <ul ref={ref} {...props} style={{ display: "contents" }} />;
+    }
+    // Async search in-flight — show loading indicator
     if (loading) {
       return (
         <div
@@ -54,7 +59,7 @@ const Combobox = forwardRef<any, BeautifulMentionsComboboxProps>(
     // Extract children to check for empty state
     const { children, ...rest } = props;
     const hasItems = Array.isArray(children) ? children.length > 0 : Boolean(children);
-    if (!hasItems && itemType === "value") {
+    if (!hasItems) {
       return (
         <div
           ref={ref}
