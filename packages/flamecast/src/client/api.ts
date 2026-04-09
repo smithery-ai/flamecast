@@ -9,6 +9,7 @@ import {
   SessionSchema,
 } from "../shared/session.js";
 import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
+import type { QueuedMessage } from "@flamecast/protocol/storage";
 import type {
   AgentTemplate,
   CreateSessionBody,
@@ -119,6 +120,9 @@ export type FlamecastClient = {
   // Prompts
   promptSession(id: string, text: string): Promise<PromptResult>;
 
+  // Status
+  fetchSessionStatus(id: string): Promise<{ processing: boolean; pendingPermission: boolean }>;
+
   // Permissions
   resolvePermission(
     sessionId: string,
@@ -137,6 +141,15 @@ export type FlamecastClient = {
   reorderQueue(id: string, order: string[]): Promise<void>;
   pauseQueue(id: string): Promise<void>;
   resumeQueue(id: string): Promise<void>;
+
+  // Global message queue
+  listMessageQueue(): Promise<QueuedMessage[]>;
+  enqueueMessage(
+    message: Omit<QueuedMessage, "id" | "createdAt" | "sentAt" | "status">,
+  ): Promise<QueuedMessage>;
+  sendQueuedMessage(id: number): Promise<Record<string, unknown>>;
+  removeQueuedMessage(id: number): Promise<void>;
+  clearMessageQueue(): Promise<void>;
 
   // Runtimes
   fetchRuntimes(): Promise<RuntimeInfo[]>;
@@ -275,6 +288,20 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
       return response.json();
     },
 
+    // -- Status --
+
+    async fetchSessionStatus(id) {
+      const response = await rpc.agents[":agentId"].status.$get({
+        param: { agentId: id },
+      });
+      await assertOk(response, "Status fetch failed");
+      const data = await response.json();
+      return {
+        processing: Boolean(data.processing),
+        pendingPermission: Boolean(data.pendingPermission),
+      };
+    },
+
     // -- Permissions --
 
     async resolvePermission(sessionId, requestId, body) {
@@ -342,6 +369,38 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
         param: { agentId: id },
       });
       await assertOk(response, "Failed to resume queue");
+    },
+
+    // -- Global message queue --
+
+    async listMessageQueue() {
+      const response = await rpc["message-queue"].$get();
+      await assertOk(response, "Failed to fetch message queue");
+      return response.json().then((data) => data ?? []);
+    },
+    async enqueueMessage(message) {
+      const response = await rpc["message-queue"].$post({
+        json: { ...message },
+      });
+      await assertOk(response, "Enqueue failed");
+      return response.json();
+    },
+    async sendQueuedMessage(id) {
+      const response = await rpc["message-queue"][":id"].send.$post({
+        param: { id: String(id) },
+      });
+      await assertOk(response, "Send failed");
+      return response.json();
+    },
+    async removeQueuedMessage(id) {
+      const response = await rpc["message-queue"][":id"].$delete({
+        param: { id: String(id) },
+      });
+      await assertOk(response, "Failed to remove queued message");
+    },
+    async clearMessageQueue() {
+      const response = await rpc["message-queue"].$delete();
+      await assertOk(response, "Failed to clear message queue");
     },
 
     // -- Runtimes --

@@ -47,6 +47,7 @@ export type {
 
 export type {
   FlamecastStorage,
+  QueuedMessage,
   SessionMeta,
   SessionRuntimeInfo,
   StoredSession,

@@ -64,6 +64,13 @@
       "when": 1775724669964,
       "tag": "0008_bumpy_violations",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1775820000000,
+      "tag": "0009_message_queue",
+      "breakpoints": true
     }
   ]
 }

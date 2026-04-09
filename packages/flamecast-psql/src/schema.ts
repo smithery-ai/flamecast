@@ -1,4 +1,13 @@
-import { boolean, index, integer, jsonb, pgSchema, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgSchema,
+  serial,
+  text,
+  timestamp,
+} from "drizzle-orm/pg-core";
 import type {
   AgentSpawn,
   AgentTemplateRuntime,
@@ -42,6 +51,25 @@ export const agentTemplates = flamecastSchema.table(
       .defaultNow(),
   },
   (t) => [index("idx_agent_templates_list").on(t.managed, t.sortOrder, t.createdAt, t.id)],
+);
+
+export const messageQueue = flamecastSchema.table(
+  "message_queue",
+  {
+    id: serial("id").primaryKey(),
+    sessionId: text("session_id"),
+    text: text("text").notNull(),
+    runtime: text("runtime").notNull(),
+    agent: text("agent").notNull(),
+    agentTemplateId: text("agent_template_id"),
+    directory: text("directory"),
+    status: text("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+      .notNull()
+      .defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true, mode: "string" }),
+  },
+  (t) => [index("idx_message_queue_pending").on(t.sessionId, t.status, t.createdAt)],
 );
 
 export const runtimeInstances = flamecastSchema.table("runtime_instances", {

@@ -29,6 +29,7 @@ import {
   ShieldCheckIcon,
 } from "lucide-react";
 import { SlashCommandInput } from "@/components/slash-command-input";
+import { useEnqueueMessage } from "@flamecast/ui";
 
 export function RuntimeSessionTab({
   sessionId,
@@ -69,8 +70,23 @@ export function RuntimeSessionTab({
     isProcessing,
     pendingPermissions,
     respondToPermission,
-    prompt,
   } = useSessionState(sessionId, ws);
+
+  const enqueueMutation = useEnqueueMessage();
+
+  const prompt = useCallback(
+    (text: string) => {
+      enqueueMutation.mutate({
+        text,
+        runtime: instanceName,
+        agent: session?.agentName ?? "",
+        agentTemplateId: null,
+        directory: cwd ?? null,
+        sessionId,
+      });
+    },
+    [enqueueMutation.mutate, instanceName, session?.agentName, cwd, sessionId],
+  );
 
   // Filesystem state — uses the runtime filesystem API so it loads immediately,
   // without waiting for the session to be created on the server.
@@ -483,13 +499,15 @@ function MobileSessionLayout({
         <SlashCommandInput
           fetchCommands={fetchCommands}
           onSend={prompt}
-          disabled={isProcessing || pendingPermissions.length > 0}
+          disabled={isLoading || !session}
           placeholder={
-            pendingPermissions.length > 0
-              ? "Permission required…"
-              : isProcessing
-                ? "Processing…"
-                : "Send a prompt to the agent…"
+            isLoading || !session
+              ? "Connecting to session…"
+              : pendingPermissions.length > 0
+                ? "Permission required — message will be queued"
+                : isProcessing
+                  ? "Processing — message will be queued"
+                  : "Send a prompt to the agent…"
           }
         />
       </div>
@@ -694,12 +712,12 @@ function SessionConversation({
         <SlashCommandInput
           fetchCommands={fetchCommands}
           onSend={prompt}
-          disabled={isProcessing || pendingPermissions.length > 0}
+          disabled={false}
           placeholder={
             pendingPermissions.length > 0
-              ? "Permission required…"
+              ? "Permission required — message will be queued"
               : isProcessing
-                ? "Processing…"
+                ? "Processing — message will be queued"
                 : "Send a prompt to the agent…"
           }
         />

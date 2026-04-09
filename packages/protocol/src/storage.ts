@@ -1,6 +1,20 @@
 import type { RuntimeInstance } from "./runtime.js";
 import type { AgentTemplate, Session, WebhookConfig } from "./session.js";
 
+/** A message in the global message queue, persisted server-side. */
+export interface QueuedMessage {
+  id: number;
+  sessionId: string | null;
+  text: string;
+  runtime: string;
+  agent: string;
+  agentTemplateId: string | null;
+  directory: string | null;
+  status: "pending" | "sent";
+  createdAt: string;
+  sentAt: string | null;
+}
+
 /** Durable slice of {@link Session} (everything except runtime-only state). */
 export type SessionMeta = Omit<Session, "fileSystem" | "logs" | "promptQueue">;
 
@@ -63,4 +77,14 @@ export interface FlamecastStorage {
   saveRuntimeInstance(instance: RuntimeInstance): Promise<void>;
   listRuntimeInstances(): Promise<RuntimeInstance[]>;
   deleteRuntimeInstance(name: string): Promise<void>;
+
+  // Message queue
+  enqueueMessage(
+    message: Omit<QueuedMessage, "id" | "createdAt" | "sentAt" | "status">,
+  ): Promise<QueuedMessage>;
+  listQueuedMessages(): Promise<QueuedMessage[]>;
+  getNextPendingMessage(sessionId: string): Promise<QueuedMessage | null>;
+  markMessageSent(id: number): Promise<void>;
+  removeMessage(id: number): Promise<void>;
+  clearMessageQueue(): Promise<void>;
 }

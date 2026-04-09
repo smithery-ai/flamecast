@@ -9,6 +9,7 @@ import {
   useDeleteRuntime,
   useRuntimeFileSystem,
   useTerminateSession,
+  useMessageQueue,
 } from "@flamecast/ui";
 import { cn } from "@/lib/utils";
 import {
@@ -31,6 +32,7 @@ import {
   CheckIcon,
   FolderIcon,
   GitBranchIcon,
+  InboxIcon,
   LoaderCircleIcon,
   PauseIcon,
   PlayIcon,
@@ -85,6 +87,7 @@ export function SessionsSidebar() {
   const { data: sessions, isLoading: isSessionsLoading } = useSessions();
   const activeSessions = sessions?.filter((s) => s.status === "active") ?? [];
   const previousSessions = sessions?.filter((s) => s.status === "killed") ?? [];
+  const { data: queue = [] } = useMessageQueue();
 
   return (
     <Sidebar>
@@ -121,6 +124,19 @@ export function SessionsSidebar() {
                   <Link to="/agents">
                     <TerminalIcon className="size-4" />
                     Agents
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
+                  <Link to="/queue">
+                    <InboxIcon className="size-4" />
+                    Queue
+                    {queue.filter((m) => m.status === "pending").length > 0 && (
+                      <span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium leading-none text-primary-foreground">
+                        {queue.filter((m) => m.status === "pending").length}
+                      </span>
+                    )}
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

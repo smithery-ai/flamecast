@@ -1,13 +1,14 @@
 import { and, asc, desc, eq, inArray, not } from "drizzle-orm";
 import type {
   FlamecastStorage,
+  QueuedMessage,
   SessionMeta,
   SessionRuntimeInfo,
   StoredSession,
 } from "@flamecast/protocol";
 import type { RuntimeInstance } from "@flamecast/protocol/runtime";
 import type { AgentTemplate } from "@flamecast/protocol/session";
-import { agentTemplates, runtimeInstances, sessions } from "./schema.js";
+import { agentTemplates, messageQueue, runtimeInstances, sessions } from "./schema.js";
 import type { PsqlAppDb } from "./types.js";
 
 function rowToMeta(row: typeof sessions.$inferSelect | undefined): SessionMeta | null {
@@ -317,5 +318,73 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
     async deleteRuntimeInstance(name: string) {
       await db.delete(runtimeInstances).where(eq(runtimeInstances.name, name));
     },
+
+    // ── Message queue ──────────────────────────────────────────────────────
+
+    async enqueueMessage(message) {
+      const rows = await db
+        .insert(messageQueue)
+        .values({
+          sessionId: message.sessionId,
+          text: message.text,
+          runtime: message.runtime,
+          agent: message.agent,
+          agentTemplateId: message.agentTemplateId,
+          directory: message.directory,
+          status: "pending",
+        })
+        .returning();
+      const row = rows[0];
+      if (!row) throw new Error("Failed to insert message");
+      return rowToQueuedMessage(row);
+    },
+
+    async listQueuedMessages() {
+      const rows = await db
+        .select()
+        .from(messageQueue)
+        .orderBy(asc(messageQueue.createdAt), asc(messageQueue.id));
+      return rows.map(rowToQueuedMessage);
+    },
+
+    async getNextPendingMessage(sessionId: string) {
+      const rows = await db
+        .select()
+        .from(messageQueue)
+        .where(and(eq(messageQueue.sessionId, sessionId), eq(messageQueue.status, "pending")))
+        .orderBy(asc(messageQueue.createdAt), asc(messageQueue.id))
+        .limit(1);
+      return rows[0] ? rowToQueuedMessage(rows[0]) : null;
+    },
+
+    async markMessageSent(id: number) {
+      await db
+        .update(messageQueue)
+        .set({ status: "sent", sentAt: new Date().toISOString() })
+        .where(eq(messageQueue.id, id));
+    },
+
+    async removeMessage(id: number) {
+      await db.delete(messageQueue).where(eq(messageQueue.id, id));
+    },
+
+    async clearMessageQueue() {
+      await db.delete(messageQueue);
+    },
+  };
+}
+
+function rowToQueuedMessage(row: typeof messageQueue.$inferSelect): QueuedMessage {
+  return {
+    id: row.id,
+    sessionId: row.sessionId,
+    text: row.text,
+    runtime: row.runtime,
+    agent: row.agent,
+    agentTemplateId: row.agentTemplateId,
+    directory: row.directory,
+    status: row.status === "sent" ? "sent" : "pending",
+    createdAt: row.createdAt,
+    sentAt: row.sentAt,
   };
 }
