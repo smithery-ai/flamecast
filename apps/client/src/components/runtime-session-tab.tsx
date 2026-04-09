@@ -714,9 +714,15 @@ function AutoApproveToggle({ sessionId }: { sessionId: string }) {
   const client = useFlamecastClient();
   const queryClient = useQueryClient();
 
-  const { data: settings } = useQuery({
+  const { data: globalSettings } = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => client.fetchSettings(),
+  });
+
+  const { data: sessionSettings } = useQuery({
     queryKey: ["session-settings", sessionId],
     queryFn: () => client.fetchSessionSettings(sessionId),
+    enabled: !globalSettings?.autoApprovePermissions,
   });
 
   const mutation = useMutation({
@@ -726,6 +732,15 @@ function AutoApproveToggle({ sessionId }: { sessionId: string }) {
       queryClient.setQueryData(["session-settings", sessionId], updated);
     },
   });
+
+  if (globalSettings?.autoApprovePermissions) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <ShieldCheckIcon className="size-3.5 text-primary" />
+        <span className="text-xs text-muted-foreground">Auto-approve on (global)</span>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-1.5">
@@ -739,7 +754,7 @@ function AutoApproveToggle({ sessionId }: { sessionId: string }) {
       <Switch
         id={`auto-approve-${sessionId}`}
         size="sm"
-        checked={settings?.autoApprovePermissions ?? false}
+        checked={sessionSettings?.autoApprovePermissions ?? false}
         disabled={mutation.isPending}
         onCheckedChange={(checked) => mutation.mutate({ autoApprovePermissions: !!checked })}
       />
