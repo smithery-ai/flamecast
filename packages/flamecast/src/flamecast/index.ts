@@ -187,6 +187,9 @@ export class Flamecast<
   private readonly webhookEngine = new WebhookDeliveryEngine();
   private readonly webhookAbortControllers = new Map<string, AbortController>();
 
+  /** Active WebSocket taps that mirror runtime events into the EventBus. */
+  private readonly eventTaps = new Map<string, WebSocket>();
+
   /** Event bus for lifecycle events and session history. */
   readonly eventBus = new EventBus();
 
@@ -269,6 +272,7 @@ export class Flamecast<
    * stay alive and will be recovered via `recoverSessions()` on the next start.
    */
   async close(): Promise<void> {
+    for (const [id] of this.eventTaps) this.closeEventTap(id);
     for (const ac of this.webhookAbortControllers.values()) ac.abort();
     this.webhookAbortControllers.clear();
     this.webhookEngine.clear();
@@ -558,6 +562,12 @@ export class Flamecast<
       agentId: resolveAgentId(sessionId),
     });
 
+    // Open a WebSocket tap to capture runtime events for persistence.
+    const wsUrl = this.sessionService.getWebsocketUrl(sessionId);
+    if (wsUrl) {
+      this.openEventTap(sessionId, wsUrl);
+    }
+
     return this.snapshotSession(sessionId);
   }
 
@@ -757,6 +767,9 @@ export class Flamecast<
     const sessionCtx = await this.buildSessionContext(id);
 
     await this.sessionService.terminateSession(this.requireStorage(), id);
+
+    // Close the event tap before clearing history so no more events arrive.
+    this.closeEventTap(id);
 
     // Emit lifecycle event for in-process subscribers such as SSE streams.
     this.eventBus.emitSessionTerminated({
@@ -1013,6 +1026,60 @@ export class Flamecast<
     };
   }
 
+  /**
+   * Open a WebSocket connection to the runtime and subscribe to a session's
+   * channel. All events are pushed into the EventBus so they're persisted to
+   * disk via the NDJSON listener and available for history replay.
+   */
+  private openEventTap(sessionId: string, websocketUrl: string): void {
+    if (this.eventTaps.has(sessionId)) return;
+    if (typeof globalThis.WebSocket === "undefined") return;
+
+    try {
+      const ws = new WebSocket(websocketUrl);
+      this.eventTaps.set(sessionId, ws);
+
+      ws.onopen = () => {
+        ws.send(
+          JSON.stringify({ action: "subscribe", channel: `session:${sessionId}` }),
+        );
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(String(event.data));
+          if (msg.type !== "event" || !msg.sessionId) return;
+          this.eventBus.pushEvent({
+            sessionId: msg.sessionId,
+            agentId: msg.agentId ?? resolveAgentId(msg.sessionId),
+            event: msg.event,
+          });
+        } catch {
+          // Ignore malformed messages.
+        }
+      };
+
+      ws.onclose = () => {
+        this.eventTaps.delete(sessionId);
+      };
+
+      ws.onerror = () => {
+        // Will trigger onclose.
+      };
+    } catch {
+      // WebSocket construction failed — skip tap for this session.
+    }
+  }
+
+  /** Tear down the event tap for a session. */
+  private closeEventTap(sessionId: string): void {
+    const ws = this.eventTaps.get(sessionId);
+    if (ws) {
+      try { ws.close(); } catch { /* ignore */ }
+      this.eventTaps.delete(sessionId);
+    }
+  }
+
   private async loadStoredSession(sessionId: string): Promise<StoredSession | null> {
     return this.requireStorage().getStoredSession(sessionId);
   }
@@ -1116,6 +1183,7 @@ export class Flamecast<
             sessionId: session.meta.id,
             websocketUrl: session.runtimeInfo.websocketUrl,
           });
+          this.openEventTap(session.meta.id, session.runtimeInfo.websocketUrl);
           console.log(`[Flamecast] Recovered session "${session.meta.id}"`);
         } else {
           await storage.finalizeSession(session.meta.id, "terminated");
