@@ -357,10 +357,24 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
       return rows[0] ? rowToQueuedMessage(rows[0]) : null;
     },
 
+    async markMessageProcessing(id: number) {
+      await db
+        .update(messageQueue)
+        .set({ status: "processing" })
+        .where(eq(messageQueue.id, id));
+    },
+
     async markMessageSent(id: number) {
       await db
         .update(messageQueue)
         .set({ status: "sent", sentAt: new Date().toISOString() })
+        .where(eq(messageQueue.id, id));
+    },
+
+    async revertMessageToPending(id: number) {
+      await db
+        .update(messageQueue)
+        .set({ status: "pending" })
         .where(eq(messageQueue.id, id));
     },
 

@@ -10,7 +10,7 @@ export interface QueuedMessage {
   agent: string;
   agentTemplateId: string | null;
   directory: string | null;
-  status: "pending" | "sent";
+  status: "pending" | "processing" | "sent";
   createdAt: string;
   sentAt: string | null;
 }
@@ -84,7 +84,9 @@ export interface FlamecastStorage {
   ): Promise<QueuedMessage>;
   listQueuedMessages(): Promise<QueuedMessage[]>;
   getNextPendingMessage(sessionId: string): Promise<QueuedMessage | null>;
+  markMessageProcessing(id: number): Promise<void>;
   markMessageSent(id: number): Promise<void>;
+  revertMessageToPending(id: number): Promise<void>;
   removeMessage(id: number): Promise<void>;
   clearMessageQueue(): Promise<void>;
 }

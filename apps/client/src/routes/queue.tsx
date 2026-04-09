@@ -216,6 +216,7 @@ function QueueItem({
 }) {
   const time = new Date(item.createdAt).toLocaleTimeString();
   const isSent = item.status === "sent";
+  const isProcessing = item.status === "processing";
 
   // Determine tooltip label for play button
   let tooltipLabel = "Send to session";
@@ -243,6 +244,15 @@ function QueueItem({
               <Badge variant="destructive" className="gap-1 text-xs">
                 Session ended
               </Badge>
+            ) : isProcessing ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex items-center">
+                    <LoaderCircleIcon className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="left">Processing...</TooltipContent>
+              </Tooltip>
             ) : needsAttention && onGoToChat ? (
               <Button
                 variant="ghost"
@@ -316,6 +326,12 @@ function QueueItem({
                 sessionKilled ? "text-red-500" : sessionBusy ? "text-yellow-500" : "text-green-500",
               )}
             />
+          </Badge>
+        )}
+        {isProcessing && (
+          <Badge variant="default" className="gap-1 text-xs bg-blue-600">
+            <LoaderCircleIcon className="size-3 animate-spin" />
+            processing
           </Badge>
         )}
         {isSent && (
