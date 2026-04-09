@@ -9,6 +9,8 @@ import {
 import { RuntimeNewTab } from "@/components/runtime-new-tab";
 import { RuntimeSessionTab } from "@/components/runtime-session-tab";
 import { RuntimeFileTab } from "@/components/runtime-file-tab";
+import { RuntimeFilesystemTab } from "@/components/runtime-filesystem-tab";
+import { RuntimeTerminalTab } from "@/components/runtime-terminal-tab";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -20,6 +22,8 @@ import {
   MessageSquareIcon,
   LayoutGridIcon,
   Trash2Icon,
+  FolderOpenIcon,
+  TerminalSquareIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useCallback, useEffect, useRef } from "react";
@@ -38,7 +42,9 @@ export const Route = createFileRoute("/runtimes/$typeName/$instanceName")({
 type Tab =
   | { id: string; type: "new-tab" }
   | { id: string; type: "session"; sessionId: string; label: string; cwd?: string }
-  | { id: string; type: "file"; filePath: string; label: string };
+  | { id: string; type: "file"; filePath: string; label: string }
+  | { id: string; type: "filesystem"; cwd?: string }
+  | { id: string; type: "terminal"; cwd?: string };
 
 let nextTabId = 1;
 function makeTabId() {
@@ -264,6 +270,36 @@ function RuntimeDetailPanel({
     [tabs],
   );
 
+  const openFilesystemTab = useCallback(
+    (tabCwd?: string) => {
+      const tab: Tab = { id: makeTabId(), type: "filesystem", cwd: tabCwd };
+      // Replace the current active new-tab, otherwise append
+      const activeTab = tabs.find((t) => t.id === activeTabId);
+      if (activeTab?.type === "new-tab") {
+        setTabs((prev) => prev.map((t) => (t.id === activeTab.id ? tab : t)));
+      } else {
+        setTabs((prev) => [...prev, tab]);
+      }
+      setActiveTabId(tab.id);
+    },
+    [tabs, activeTabId],
+  );
+
+  const openTerminalTab = useCallback(
+    (tabCwd?: string) => {
+      const tab: Tab = { id: makeTabId(), type: "terminal", cwd: tabCwd };
+      // Replace the current active new-tab, otherwise append
+      const activeTab = tabs.find((t) => t.id === activeTabId);
+      if (activeTab?.type === "new-tab") {
+        setTabs((prev) => prev.map((t) => (t.id === activeTab.id ? tab : t)));
+      } else {
+        setTabs((prev) => [...prev, tab]);
+      }
+      setActiveTabId(tab.id);
+    },
+    [tabs, activeTabId],
+  );
+
   const closeTab = useCallback(
     (tabId: string) => {
       const idx = tabs.findIndex((t) => t.id === tabId);
@@ -380,6 +416,8 @@ function RuntimeDetailPanel({
             runtimeTypeName={runtimeInfo.typeName}
             instanceName={instance.name}
             onSessionCreated={openSessionTab}
+            onOpenFilesystem={openFilesystemTab}
+            onOpenTerminal={openTerminalTab}
           />
         )}
         {activeTab?.type === "session" && (
@@ -393,6 +431,16 @@ function RuntimeDetailPanel({
         )}
         {activeTab?.type === "file" && (
           <RuntimeFileTab filePath={activeTab.filePath} loadPreview={loadPreview} />
+        )}
+        {activeTab?.type === "filesystem" && (
+          <RuntimeFilesystemTab
+            instanceName={instance.name}
+            cwd={activeTab.cwd}
+            onOpenFileTab={openFileTab}
+          />
+        )}
+        {activeTab?.type === "terminal" && (
+          <RuntimeTerminalTab runtimeWebsocketUrl={instance.websocketUrl} cwd={activeTab.cwd} />
         )}
       </div>
     </div>
@@ -417,11 +465,22 @@ function TabTrigger({
       <LayoutGridIcon className="size-3 shrink-0" />
     ) : tab.type === "session" ? (
       <MessageSquareIcon className="size-3 shrink-0" />
+    ) : tab.type === "filesystem" ? (
+      <FolderOpenIcon className="size-3 shrink-0" />
+    ) : tab.type === "terminal" ? (
+      <TerminalSquareIcon className="size-3 shrink-0" />
     ) : (
       <FileCode2Icon className="size-3 shrink-0" />
     );
 
-  const label = tab.type === "new-tab" ? "New Tab" : tab.type === "session" ? tab.label : tab.label;
+  const label =
+    tab.type === "new-tab"
+      ? "New Tab"
+      : tab.type === "filesystem"
+        ? "Files"
+        : tab.type === "terminal"
+          ? "Terminal"
+          : tab.label;
 
   return (
     <div

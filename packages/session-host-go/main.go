@@ -632,6 +632,7 @@ type channelControlMessage struct {
 	Order      []string        `json:"order,omitempty"`
 	TerminalID string          `json:"terminalId,omitempty"`
 	Data       string          `json:"data,omitempty"`
+	Cwd        string          `json:"cwd,omitempty"`
 	Cols       uint16          `json:"cols,omitempty"`
 	Rows       uint16          `json:"rows,omitempty"`
 }
@@ -776,11 +777,13 @@ func handleChannelControl(clientID string, raw json.RawMessage, registry *sessio
 			command = "/bin/sh"
 		}
 		cwd, _ := os.Getwd()
-		// Use session workspace if available
+		// Use session workspace if available, then fall back to explicit cwd
 		if msg.SessionID != "" {
 			if sess := registry.get(msg.SessionID); sess != nil && sess.workspace != "" {
 				cwd = sess.workspace
 			}
+		} else if msg.Cwd != "" {
+			cwd = msg.Cwd
 		}
 		termID := "term-" + generateUUID()
 		t, err := runtimeTerminals.Create(termID, command, nil, cwd, nil, msg.Cols, msg.Rows)

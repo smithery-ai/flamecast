@@ -141,7 +141,7 @@ export function RuntimeSessionTab({
       sendInput={sendInput}
       resize={resize}
       onData={onData}
-      onCreateTerminal={() => createTerminal()}
+      onCreateTerminal={() => createTerminal({ sessionId })}
       onRemoveTerminal={killTerminal}
     />
   );

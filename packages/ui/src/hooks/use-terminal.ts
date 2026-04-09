@@ -139,10 +139,12 @@ export function useTerminal(ws: RuntimeWebSocketHandle, websocketUrl?: string) {
   }, []);
 
   const createTerminal = useCallback(
-    (command?: string) => {
+    (opts?: { command?: string; sessionId?: string; cwd?: string }) => {
       const msg: WsChannelControlMessage = {
         action: "terminal.create",
-        data: command,
+        data: opts?.command,
+        sessionId: opts?.sessionId,
+        cwd: opts?.cwd,
       };
       sendOrQueue(msg);
     },

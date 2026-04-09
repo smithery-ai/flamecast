@@ -21,7 +21,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DirectoryPicker } from "@/components/directory-picker";
 import { GitWorktreeMenu, useActiveBranch } from "@/components/git-worktree-picker";
-import { PlayIcon, FolderOpenIcon, ChevronDownIcon, PlusIcon } from "lucide-react";
+import {
+  PlayIcon,
+  FolderOpenIcon,
+  ChevronDownIcon,
+  PlusIcon,
+  TerminalSquareIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useState, useCallback } from "react";
 import { Link } from "@tanstack/react-router";
@@ -30,10 +36,14 @@ export function RuntimeNewTab({
   runtimeTypeName,
   instanceName,
   onSessionCreated,
+  onOpenFilesystem,
+  onOpenTerminal,
 }: {
   runtimeTypeName: string;
   instanceName: string;
   onSessionCreated: (sessionId: string, agentName: string, cwd?: string) => void;
+  onOpenFilesystem?: (cwd?: string) => void;
+  onOpenTerminal?: (cwd?: string) => void;
 }) {
   const { data: allTemplates = [], isLoading: templatesLoading } = useAgentTemplates();
   const { data: runtimes } = useRuntimes();
@@ -199,6 +209,29 @@ export function RuntimeNewTab({
             <PlayIcon data-icon="inline-start" />
             Go
           </Button>
+
+          <div className="flex gap-2">
+            {onOpenFilesystem && (
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => onOpenFilesystem(cwd ?? defaultCwd)}
+              >
+                <FolderOpenIcon data-icon="inline-start" />
+                Files
+              </Button>
+            )}
+            {onOpenTerminal && (
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => onOpenTerminal(cwd ?? defaultCwd)}
+              >
+                <TerminalSquareIcon data-icon="inline-start" />
+                Terminal
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </div>
