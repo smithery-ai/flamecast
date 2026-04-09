@@ -75,26 +75,23 @@ export function listen(
     }
 
     const target = new URL(wsUrl);
-    const upstream = createConnection(
-      { host: target.hostname, port: Number(target.port) },
-      () => {
-        const path = req.url ?? "/";
-        const headers = [`GET ${path} HTTP/1.1`];
-        for (let i = 0; i < req.rawHeaders.length; i += 2) {
-          const key = req.rawHeaders[i];
-          if (key.toLowerCase() === "host") {
-            headers.push(`Host: ${target.host}`);
-          } else {
-            headers.push(`${key}: ${req.rawHeaders[i + 1]}`);
-          }
+    const upstream = createConnection({ host: target.hostname, port: Number(target.port) }, () => {
+      const path = req.url ?? "/";
+      const headers = [`GET ${path} HTTP/1.1`];
+      for (let i = 0; i < req.rawHeaders.length; i += 2) {
+        const key = req.rawHeaders[i];
+        if (key.toLowerCase() === "host") {
+          headers.push(`Host: ${target.host}`);
+        } else {
+          headers.push(`${key}: ${req.rawHeaders[i + 1]}`);
         }
-        upstream.write(headers.join("\r\n") + "\r\n\r\n");
-        if (head.length > 0) upstream.write(head);
+      }
+      upstream.write(headers.join("\r\n") + "\r\n\r\n");
+      if (head.length > 0) upstream.write(head);
 
-        upstream.pipe(socket);
-        socket.pipe(upstream);
-      },
-    );
+      upstream.pipe(socket);
+      socket.pipe(upstream);
+    });
 
     upstream.on("error", () => socket.destroy());
     socket.on("error", () => upstream.destroy());
