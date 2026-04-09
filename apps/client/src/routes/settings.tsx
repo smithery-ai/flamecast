@@ -1,5 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useAgentTemplates, useRuntimes, useRuntimeFileSystem, useFlamecastClient } from "@flamecast/ui";
+import {
+  useAgentTemplates,
+  useRuntimes,
+  useRuntimeFileSystem,
+  useFlamecastClient,
+} from "@flamecast/ui";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useBackendUrl } from "@/lib/backend-url-context";
 import { useDefaultAgentConfig } from "@/lib/default-agent-config-context";
@@ -154,9 +159,7 @@ function PermissionsSection() {
             id="auto-approve"
             checked={settings?.autoApprovePermissions ?? false}
             disabled={mutation.isPending}
-            onCheckedChange={(checked) =>
-              mutation.mutate({ autoApprovePermissions: !!checked })
-            }
+            onCheckedChange={(checked) => mutation.mutate({ autoApprovePermissions: !!checked })}
           />
         </div>
       </CardContent>
@@ -173,9 +176,7 @@ function DefaultAgentConfigSection() {
 
   // Resolve a runtime instance for the directory picker
   const firstRunningInstance =
-    runtimes
-      ?.flatMap((rt) => rt.instances)
-      .find((i) => i.status === "running")?.name ??
+    runtimes?.flatMap((rt) => rt.instances).find((i) => i.status === "running")?.name ??
     runtimes?.[0]?.typeName ??
     "default";
 
