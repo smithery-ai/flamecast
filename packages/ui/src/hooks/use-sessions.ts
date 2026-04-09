@@ -6,6 +6,6 @@ export function useSessions() {
   return useQuery({
     queryKey: ["sessions"],
     queryFn: client.fetchSessions,
-    refetchInterval: 30_000,
+    refetchInterval: 5_000,
   });
 }

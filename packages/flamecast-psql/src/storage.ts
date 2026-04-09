@@ -23,6 +23,7 @@ function rowToMeta(row: typeof sessions.$inferSelect | undefined): SessionMeta |
     pendingPermission: row.pendingPermission,
     runtime: row.runtime ?? undefined,
     cwd: row.cwd ?? undefined,
+    title: row.title ?? undefined,
   };
 }
 
@@ -195,18 +196,20 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
         runtimeMeta: runtimeInfo?.runtimeMeta ?? null,
         runtime: meta.runtime ?? null,
         cwd: meta.cwd ?? null,
+        title: meta.title ?? null,
         webhooks,
       });
     },
 
     async updateSession(
       id: string,
-      patch: Partial<Pick<SessionMeta, "lastUpdatedAt" | "pendingPermission">>,
+      patch: Partial<Pick<SessionMeta, "lastUpdatedAt" | "pendingPermission" | "title">>,
     ) {
       const updates: Partial<typeof sessions.$inferInsert> = {};
       if (patch.lastUpdatedAt !== undefined) updates.lastUpdatedAt = patch.lastUpdatedAt;
       if (patch.pendingPermission !== undefined)
         updates.pendingPermission = patch.pendingPermission;
+      if (patch.title !== undefined) updates.title = patch.title;
       if (Object.keys(updates).length === 0) return;
       await db.update(sessions).set(updates).where(eq(sessions.id, id));
     },

@@ -7,7 +7,7 @@ import {
   useStopRuntime,
   usePauseRuntime,
   useDeleteRuntime,
-  useRuntimeGitBranches,
+  useRuntimeFileSystem,
 } from "@flamecast/ui";
 import { cn } from "@/lib/utils";
 import {
@@ -29,6 +29,7 @@ import { GitBadges } from "@/components/git-badges";
 import {
   CheckIcon,
   FolderIcon,
+  GitBranchIcon,
   LoaderCircleIcon,
   PauseIcon,
   PlayIcon,
@@ -47,7 +48,7 @@ import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 import type { Session } from "@flamecast/protocol/session";
 
 export function SessionsSidebar() {
-  const { activeRuntimeTypeName, activeRuntimeInstanceName } = useRouterState({
+  const { activeRuntimeTypeName, activeRuntimeInstanceName, activeSessionId } = useRouterState({
     select: (s) => {
       const runtimeMatch = s.matches.find(
         (m) =>
@@ -56,9 +57,18 @@ export function SessionsSidebar() {
       const instanceMatch = s.matches.find(
         (m) => m.routeId === "/runtimes/$typeName/$instanceName",
       );
+      const search = instanceMatch?.search;
+      const sessionId =
+        typeof search === "object" &&
+        search !== null &&
+        "sessionId" in search &&
+        typeof search.sessionId === "string"
+          ? search.sessionId
+          : undefined;
       return {
         activeRuntimeTypeName: runtimeMatch?.params.typeName,
         activeRuntimeInstanceName: instanceMatch?.params.instanceName,
+        activeSessionId: sessionId,
       };
     },
   });
@@ -111,9 +121,28 @@ export function SessionsSidebar() {
                     <SidebarMenuSkeleton />
                   </>
                 ) : (
-                  activeSessions.map((session) => (
-                    <SessionItem key={session.id} session={session} runtimes={runtimes ?? []} />
-                  ))
+                  activeSessions.map((session) => {
+                    const target = resolveRuntimeTypeName(session, runtimes ?? []);
+                    const isOnSameInstance =
+                      !!target &&
+                      activeRuntimeTypeName === target.typeName &&
+                      activeRuntimeInstanceName === target.instanceName;
+                    // Active if explicitly selected via sessionId, or if it's the
+                    // only session on the currently-viewed runtime instance.
+                    const sessionActive =
+                      activeSessionId === session.id ||
+                      (isOnSameInstance &&
+                        !activeSessionId &&
+                        activeSessions.filter((s) => s.runtime === session.runtime).length === 1);
+                    return (
+                      <SessionItem
+                        key={session.id}
+                        session={session}
+                        runtimes={runtimes ?? []}
+                        isActive={sessionActive}
+                      />
+                    );
+                  })
                 )}
               </SidebarMenu>
             </SidebarGroupContent>
@@ -172,7 +201,15 @@ function resolveRuntimeTypeName(
   return null;
 }
 
-function SessionItem({ session, runtimes }: { session: Session; runtimes: RuntimeInfo[] }) {
+function SessionItem({
+  session,
+  runtimes,
+  isActive,
+}: {
+  session: Session;
+  runtimes: RuntimeInfo[];
+  isActive: boolean;
+}) {
   const navigate = useNavigate();
   const target = resolveRuntimeTypeName(session, runtimes);
 
@@ -193,6 +230,7 @@ function SessionItem({ session, runtimes }: { session: Session; runtimes: Runtim
     <SidebarMenuItem>
       <SidebarMenuButton
         className="h-auto items-start py-1.5"
+        isActive={isActive}
         onClick={handleClick}
         disabled={!target}
       >
@@ -216,7 +254,12 @@ function SessionItem({ session, runtimes }: { session: Session; runtimes: Runtim
   );
 }
 
-/** Shows git badge (repo + branch) if cwd is a git repo, otherwise shows the directory path. */
+/**
+ * Shows git info if cwd is a git repo, otherwise shows the directory path.
+ * - GitHub repo: GitHub pill + branch badge (no folder icon)
+ * - Non-GitHub git repo: git icon + filepath + branch badge
+ * - No git: folder icon + filepath
+ */
 function SessionGitOrCwd({
   instanceName,
   cwd,
@@ -226,17 +269,33 @@ function SessionGitOrCwd({
   cwd?: string;
   cwdShort?: string;
 }) {
-  const { data: gitData } = useRuntimeGitBranches(instanceName, {
-    path: cwd,
-    enabled: !!cwd,
+  const parentPath = cwd ? cwd.replace(/\/[^/]+\/?$/, "") || "/" : undefined;
+  const dirName = cwd ? cwd.replace(/\/$/, "").split("/").pop() : undefined;
+
+  const { data: fsData } = useRuntimeFileSystem(instanceName, {
+    path: parentPath,
+    enabled: !!parentPath,
   });
 
-  const currentBranch = gitData?.branches.find((b) => b.current && !b.remote);
+  const gitEntry = fsData?.entries.find((e) => e.path === dirName && e.git);
+  const git = gitEntry?.git;
 
-  if (currentBranch) {
+  if (git) {
+    const isGitHub = git.origin?.includes("github.com");
+    if (isGitHub) {
+      // GitHub: show GitHub pill + branch badge
+      return (
+        <span className="flex min-w-0 items-center gap-1">
+          <GitBadges origin={git.origin} branch={git.branch} />
+        </span>
+      );
+    }
+    // Non-GitHub git: git icon + filepath + branch badge
     return (
-      <span className="flex min-w-0 items-center">
-        <GitBadges branch={currentBranch.name} />
+      <span className="flex min-w-0 items-center gap-1">
+        <GitBranchIcon className="size-2.5 shrink-0" />
+        {cwdShort && <span className="truncate">{cwdShort}</span>}
+        <GitBadges branch={git.branch} />
       </span>
     );
   }

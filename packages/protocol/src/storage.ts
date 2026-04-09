@@ -49,7 +49,7 @@ export interface FlamecastStorage {
   ): Promise<void>;
   updateSession(
     id: string,
-    patch: Partial<Pick<SessionMeta, "lastUpdatedAt" | "pendingPermission">>,
+    patch: Partial<Pick<SessionMeta, "lastUpdatedAt" | "pendingPermission" | "title">>,
   ): Promise<void>;
   getSessionMeta(id: string): Promise<SessionMeta | null>;
   getStoredSession(id: string): Promise<StoredSession | null>;

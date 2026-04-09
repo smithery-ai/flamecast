@@ -236,6 +236,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "webhooks": {
           "name": "webhooks",
           "type": "jsonb",

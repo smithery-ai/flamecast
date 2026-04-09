@@ -206,6 +206,15 @@ export class Flamecast<
       onAgentMessage: opts.onAgentMessage,
       onError: opts.onError,
     };
+
+    // Listen for prompt events to persist session title on first prompt.
+    this.eventBus.onEvent((channelEvent) => {
+      const { event, sessionId } = channelEvent;
+      const text = this.extractPromptText(event);
+      if (text) {
+        void this.maybeSetSessionTitle(sessionId, text);
+      }
+    });
   }
 
   /** Names of registered runtimes (used for API validation). */
@@ -653,6 +662,10 @@ export class Flamecast<
   async promptSession(id: string, text: string): Promise<Record<string, unknown>> {
     await this.ensureReady();
     await this.ensureSessionRegistered(id);
+
+    // Persist the first prompt as the session title.
+    void this.maybeSetSessionTitle(id, text);
+
     const response = await this.sessionService.proxyRequest(id, "/prompt", {
       method: "POST",
       body: JSON.stringify({ text }),
@@ -757,7 +770,7 @@ export class Flamecast<
     const storage = this.requireStorage();
     const lastUpdatedAt = new Date().toISOString();
     const persistSessionState = async (
-      patch: Partial<Pick<Session, "lastUpdatedAt" | "pendingPermission">>,
+      patch: Partial<Pick<Session, "lastUpdatedAt" | "pendingPermission" | "title">>,
     ): Promise<void> => {
       await storage.updateSession(sessionId, patch).catch(() => {});
     };
@@ -1267,6 +1280,49 @@ export class Flamecast<
         }
       }
     }
+    return undefined;
+  }
+
+  /** Set the session title to the first user prompt (no-op if already set). */
+  private async maybeSetSessionTitle(sessionId: string, text: string): Promise<void> {
+    try {
+      const storage = this.requireStorage();
+      const meta = await storage.getSessionMeta(sessionId);
+      if (meta?.title) return; // already has a title
+      const title = text.length > 120 ? text.slice(0, 120) + "..." : text;
+      await storage.updateSession(sessionId, { title });
+    } catch {
+      // Best-effort — don't break the prompt flow.
+    }
+  }
+
+  /** Extract prompt text from a callback event (prompt_sent or RPC). */
+  private extractPromptText(event: {
+    type: string;
+    data: Record<string, unknown>;
+  }): string | undefined {
+    const isRecord = (v: unknown): v is Record<string, unknown> =>
+      typeof v === "object" && v !== null;
+
+    if (event.type === "prompt_sent" && typeof event.data.text === "string") {
+      return event.data.text;
+    }
+
+    if (
+      event.type === "rpc" &&
+      event.data.method === "session/prompt" &&
+      event.data.direction === "client_to_agent" &&
+      event.data.phase === "request" &&
+      isRecord(event.data.payload) &&
+      Array.isArray(event.data.payload.prompt)
+    ) {
+      for (const item of event.data.payload.prompt) {
+        if (isRecord(item) && item.type === "text" && typeof item.text === "string") {
+          return item.text;
+        }
+      }
+    }
+
     return undefined;
   }
 
