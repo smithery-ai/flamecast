@@ -103,7 +103,6 @@ export function createApi(flamecast: FlamecastApi) {
 
     const request = new URL(requestUrl);
     candidate.hostname = request.hostname;
-    candidate.port = request.port;
     // Non-localhost hosts are behind TLS (e.g. Cloudflare tunnel), so always use wss.
     // Localhost may be plain HTTP, so check the request protocol.
     const isSecure =
