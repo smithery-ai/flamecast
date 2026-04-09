@@ -41,6 +41,9 @@ export function useFlamecastSession(
   /** Track the last seq we've seen for replay-on-reconnect. */
   const lastSeqRef = useRef(0);
 
+  // Destructure stable method refs so effects don't depend on the whole handle.
+  const { subscribe, send: wsSend } = ws;
+
   useEffect(() => {
     setEvents([]);
     lastSeqRef.current = 0;
@@ -49,7 +52,7 @@ export function useFlamecastSession(
 
     const channel = `session:${sessionId}`;
 
-    const unsubscribe = ws.subscribe(
+    const unsubscribe = subscribe(
       channel,
       (message: WsChannelServerMessage) => {
         // Skip protocol-level messages that aren't session events.
@@ -75,15 +78,15 @@ export function useFlamecastSession(
     );
 
     return unsubscribe;
-  }, [sessionId, ready, ws]);
+  }, [sessionId, ready, subscribe]);
 
   const connectionState = ready ? ws.connectionState : "disconnected";
 
   const send = useCallback(
     (message: Parameters<RuntimeWebSocketHandle["send"]>[0]) => {
-      ws.send(message);
+      wsSend(message);
     },
-    [ws],
+    [wsSend],
   );
 
   const prompt = useCallback(

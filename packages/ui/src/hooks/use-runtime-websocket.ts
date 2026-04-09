@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   WsChannelControlMessage,
   WsChannelServerMessage,
@@ -214,7 +214,10 @@ export function useRuntimeWebSocket(websocketUrl?: string): RuntimeWebSocketHand
     ws.send(JSON.stringify(message));
   }, []);
 
-  return { connectionState, subscribe, send };
+  return useMemo(
+    () => ({ connectionState, subscribe, send }),
+    [connectionState, subscribe, send],
+  );
 }
 
 function getMessageChannel(message: WsChannelServerMessage): string | undefined {

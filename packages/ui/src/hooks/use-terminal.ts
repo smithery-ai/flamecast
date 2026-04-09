@@ -29,6 +29,9 @@ export function useTerminal(ws: RuntimeWebSocketHandle, websocketUrl?: string) {
   const subscribedRef = useRef(false);
   const dismissedTerminalIdsRef = useRef<Set<string>>(new Set());
 
+  // Destructure stable method refs so effects don't depend on the whole handle.
+  const { subscribe, send: wsSend } = ws;
+
   useEffect(() => {
     setTerminals([]);
     listenersRef.current = new Map();
@@ -38,12 +41,12 @@ export function useTerminal(ws: RuntimeWebSocketHandle, websocketUrl?: string) {
 
     if (!websocketUrl) return;
 
-    const unsubscribe = ws.subscribe("terminals", (message: WsChannelServerMessage) => {
+    const unsubscribe = subscribe("terminals", (message: WsChannelServerMessage) => {
       if (message.type === "subscribed" && message.channel === "terminals") {
         subscribedRef.current = true;
         // Flush queued messages now that we're subscribed.
         for (const pending of queuedMessagesRef.current) {
-          ws.send(pending);
+          wsSend(pending);
         }
         queuedMessagesRef.current = [];
         return;
@@ -85,7 +88,7 @@ export function useTerminal(ws: RuntimeWebSocketHandle, websocketUrl?: string) {
       subscribedRef.current = false;
       unsubscribe();
     };
-  }, [websocketUrl, ws]);
+  }, [websocketUrl, subscribe, wsSend]);
 
   const sendOrQueue = useCallback(
     (message: WsChannelControlMessage) => {
@@ -93,9 +96,9 @@ export function useTerminal(ws: RuntimeWebSocketHandle, websocketUrl?: string) {
         queuedMessagesRef.current.push(message);
         return;
       }
-      ws.send(message);
+      wsSend(message);
     },
-    [ws],
+    [wsSend],
   );
 
   const sendInput = useCallback(
