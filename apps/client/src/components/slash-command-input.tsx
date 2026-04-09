@@ -17,8 +17,6 @@ import type {
 } from "lexical-beautiful-mentions";
 import {
   $getRoot,
-  $getSelection,
-  $isRangeSelection,
   KEY_ENTER_COMMAND,
   COMMAND_PRIORITY_NORMAL,
   CLEAR_EDITOR_COMMAND,
@@ -137,43 +135,19 @@ function EnterToSendPlugin({
   comboboxOpenRef: React.RefObject<boolean>;
 }) {
   const [editor] = useLexicalComposerContext();
-  const lastEnterRef = useRef(0);
 
   useEffect(() => {
     return editor.registerCommand(
       KEY_ENTER_COMMAND,
       (event) => {
-        // Let the combobox handle Enter for item selection
+        // Combobox open → let the plugin handle item selection
         if (comboboxOpenRef.current) return false;
-
-        const now = Date.now();
-        const timeSinceLastEnter = now - lastEnterRef.current;
-        lastEnterRef.current = now;
-
-        // Double-Enter (two presses within 500ms) → send message
-        if (timeSinceLastEnter < 500) {
-          event?.preventDefault();
-          // Read text, trim trailing newlines from the first Enter
-          const text = editor
-            .getEditorState()
-            .read(() => $getRoot().getTextContent())
-            .replace(/\n+$/, "");
-          if (!text.trim()) return true;
-          onSend(text);
-          editor.dispatchCommand(CLEAR_EDITOR_COMMAND, undefined);
-          lastEnterRef.current = 0;
-          return true;
-        }
-
-        // Single Enter → insert double newline (two paragraph breaks)
+        // Combobox closed → send message
         event?.preventDefault();
-        editor.update(() => {
-          const selection = $getSelection();
-          if ($isRangeSelection(selection)) {
-            selection.insertParagraph();
-            selection.insertParagraph();
-          }
-        });
+        const text = editor.getEditorState().read(() => $getRoot().getTextContent());
+        if (!text.trim()) return true;
+        onSend(text);
+        editor.dispatchCommand(CLEAR_EDITOR_COMMAND, undefined);
         return true;
       },
       COMMAND_PRIORITY_NORMAL,
