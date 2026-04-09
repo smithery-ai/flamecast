@@ -1,4 +1,4 @@
-import { createFileRoute, Link, Navigate, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   useRuntimes,
   useAgentTemplates,
@@ -29,7 +29,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
-import { isDeveloperPreview } from "@/lib/developer-preview";
 import { useEnqueueMessage } from "@flamecast/ui";
 
 export const Route = createFileRoute("/")({
@@ -37,15 +36,6 @@ export const Route = createFileRoute("/")({
 });
 
 function HomePage() {
-  if (!isDeveloperPreview) {
-    return (
-      <Navigate
-        to="/runtimes/$typeName/$instanceName"
-        params={{ typeName: "default", instanceName: "default" }}
-        replace
-      />
-    );
-  }
   return <DeveloperHomePage />;
 }
 
