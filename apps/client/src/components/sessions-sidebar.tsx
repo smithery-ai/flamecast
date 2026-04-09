@@ -435,8 +435,6 @@ function TerminalsSidebarSection({
     createTerminal();
   };
 
-  if (terminals.length === 0 && !pendingCreate) return null;
-
   return (
     <SidebarGroup>
       <SidebarGroupLabel className="flex items-center justify-between pr-1">
