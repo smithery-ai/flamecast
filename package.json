@@ -60,5 +60,10 @@
         }
       }
     }
+  },
+  "dependencies": {
+    "@lexical/react": "^0.42.0",
+    "lexical": "^0.42.0",
+    "lexical-beautiful-mentions": "^0.1.48"
   }
 }

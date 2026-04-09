@@ -197,3 +197,24 @@ p + p {
   margin-top: 1.5rem;
   margin-bottom: 0.5rem;
 }
+
+/* Slash command combobox — render above the input, full width */
+.slash-combobox-anchor {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  width: 100%;
+  z-index: 50;
+  padding-bottom: 4px;
+}
+
+/* Slash command mention pill */
+.slash-mention {
+  display: inline;
+  border-radius: 0.25rem;
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+  color: var(--primary);
+  padding: 0 0.25rem;
+  font-weight: 500;
+}

@@ -10,7 +10,6 @@ import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -20,7 +19,8 @@ import { RuntimeFileTab } from "@/components/runtime-file-tab";
 import { TerminalPanel } from "@/components/terminal-panel";
 import { Streamdown } from "streamdown";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
-import { ChevronDownIcon, SendIcon, LoaderCircleIcon, GripHorizontalIcon } from "lucide-react";
+import { ChevronDownIcon, LoaderCircleIcon, GripHorizontalIcon } from "lucide-react";
+import { SlashCommandInput } from "@/components/slash-command-input";
 
 export function RuntimeSessionTab({
   sessionId,
@@ -39,7 +39,16 @@ export function RuntimeSessionTab({
   onOpenFileTab?: (filePath: string) => void;
 }) {
   const client = useFlamecastClient();
-  const [promptText, setPromptText] = useState("");
+
+  // Fetch slash commands from API
+  const [slashCommands, setSlashCommands] = useState<{ name: string; description: string }[]>([]);
+  useEffect(() => {
+    client.rpc.agents[":agentId"].commands
+      .$get({ param: { agentId: sessionId } })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => { if (Array.isArray(data)) setSlashCommands(data); })
+      .catch(() => {});
+  }, [client, sessionId]);
 
   const {
     session,
@@ -94,12 +103,6 @@ export function RuntimeSessionTab({
     }
   }, [initialPrompt, isConnected, prompt]);
 
-  const handleSend = useCallback(() => {
-    if (!promptText.trim()) return;
-    prompt(promptText);
-    setPromptText("");
-  }, [promptText, prompt]);
-
   // Always render the full layout — each panel handles its own loading state.
   // Chat shows a skeleton while the session initializes, filesystem has its own
   // loading spinner, and the terminal connects to the runtime immediately.
@@ -144,9 +147,8 @@ export function RuntimeSessionTab({
     <ChatConnecting />
   ) : (
     <SessionConversation
-      promptText={promptText}
-      setPromptText={setPromptText}
-      handleSend={handleSend}
+      slashCommands={slashCommands}
+      prompt={prompt}
       logs={logs}
       markdownSegments={markdownSegments}
       isProcessing={isProcessing}
@@ -164,9 +166,8 @@ export function RuntimeSessionTab({
       <MobileSessionLayout
         filesystemContent={filesystemContent}
         terminalContent={terminalContent}
-        promptText={promptText}
-        setPromptText={setPromptText}
-        handleSend={handleSend}
+        slashCommands={slashCommands}
+        prompt={prompt}
         isProcessing={isProcessing}
         pendingPermissions={pendingPermissions}
         logs={logs}
@@ -247,9 +248,8 @@ function FilesystemSkeleton() {
 function MobileSessionLayout({
   filesystemContent,
   terminalContent,
-  promptText,
-  setPromptText,
-  handleSend,
+  slashCommands,
+  prompt,
   isProcessing,
   pendingPermissions,
   respondToPermission,
@@ -263,9 +263,8 @@ function MobileSessionLayout({
 }: {
   filesystemContent: ReactNode;
   terminalContent: ReactNode;
-  promptText: string;
-  setPromptText: (v: string) => void;
-  handleSend: () => void;
+  slashCommands: { name: string; description: string }[];
+  prompt: (text: string) => void;
   isProcessing: boolean;
   pendingPermissions: ReturnType<typeof useSessionState>["pendingPermissions"];
   respondToPermission: ReturnType<typeof useSessionState>["respondToPermission"];
@@ -285,9 +284,8 @@ function MobileSessionLayout({
   if (previewFilePath) {
     return (
       <SessionConversation
-        promptText={promptText}
-        setPromptText={setPromptText}
-        handleSend={handleSend}
+        slashCommands={slashCommands}
+        prompt={prompt}
         logs={logs}
         markdownSegments={markdownSegments}
         isProcessing={isProcessing}
@@ -464,26 +462,18 @@ function MobileSessionLayout({
       </TabsContent>
 
       <div className="flex shrink-0 items-center gap-2 border-t px-3 py-2">
-        <Input
-          value={promptText}
-          onChange={(event) => setPromptText(event.target.value)}
-          onKeyDown={(event) => event.key === "Enter" && handleSend()}
-          placeholder="Send a prompt to the agent..."
+        <SlashCommandInput
+          commands={slashCommands}
+          onSend={prompt}
           disabled={isProcessing || pendingPermissions.length > 0}
-          className="h-8 text-sm"
+          placeholder={
+            pendingPermissions.length > 0
+              ? "Permission required…"
+              : isProcessing
+                ? "Processing…"
+                : "Send a prompt to the agent…"
+          }
         />
-        <Button
-          size="sm"
-          onClick={handleSend}
-          disabled={isProcessing || pendingPermissions.length > 0 || !promptText.trim()}
-        >
-          <SendIcon data-icon="inline-start" />
-          {pendingPermissions.length > 0
-            ? "Permission required"
-            : isProcessing
-              ? "Processing..."
-              : "Send"}
-        </Button>
       </div>
     </Tabs>
   );
@@ -492,9 +482,8 @@ function MobileSessionLayout({
 // ─── Conversation Panel ───────────────────────────────────────────────────────
 
 function SessionConversation({
-  promptText,
-  setPromptText,
-  handleSend,
+  slashCommands,
+  prompt,
   logs,
   markdownSegments,
   isProcessing,
@@ -504,9 +493,8 @@ function SessionConversation({
   onClosePreview,
   loadPreview,
 }: {
-  promptText: string;
-  setPromptText: (v: string) => void;
-  handleSend: () => void;
+  slashCommands: { name: string; description: string }[];
+  prompt: (text: string) => void;
   logs: ReturnType<typeof useSessionState>["logs"];
   markdownSegments: ReturnType<typeof useSessionState>["markdownSegments"];
   isProcessing: boolean;
@@ -682,26 +670,18 @@ function SessionConversation({
       </TabsContent>
 
       <div className="flex shrink-0 items-center gap-2 border-t px-3 py-2">
-        <Input
-          value={promptText}
-          onChange={(event) => setPromptText(event.target.value)}
-          onKeyDown={(event) => event.key === "Enter" && handleSend()}
-          placeholder="Send a prompt to the agent..."
+        <SlashCommandInput
+          commands={slashCommands}
+          onSend={prompt}
           disabled={isProcessing || pendingPermissions.length > 0}
-          className="h-8 text-sm"
+          placeholder={
+            pendingPermissions.length > 0
+              ? "Permission required…"
+              : isProcessing
+                ? "Processing…"
+                : "Send a prompt to the agent…"
+          }
         />
-        <Button
-          size="sm"
-          onClick={handleSend}
-          disabled={isProcessing || pendingPermissions.length > 0 || !promptText.trim()}
-        >
-          <SendIcon data-icon="inline-start" />
-          {pendingPermissions.length > 0
-            ? "Permission required"
-            : isProcessing
-              ? "Processing..."
-              : "Send"}
-        </Button>
       </div>
     </Tabs>
   );
