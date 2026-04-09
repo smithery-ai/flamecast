@@ -10,6 +10,9 @@ import dotenv from "dotenv";
 import { createAgentTemplates } from "./agent-templates.js";
 
 dotenv.config();
+
+const USE_NONLOCAL_RUNTIMES = process.env.USE_NONLOCAL_RUNTIMES === "true";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const agentSource = readFileSync(resolve(__dirname, "../agent.ts"), "utf8");
 
@@ -21,16 +24,19 @@ const agentJsRuntime = agentJsBaseUrl ? new NodeRuntime(agentJsBaseUrl) : null;
 const flamecast = new Flamecast({
   storage: await createPsqlStorage(url ? { url } : undefined),
   runtimes: {
-    default: new NodeRuntime({ cwd: homedir() }),
-    ...(agentJsRuntime ? { agentjs: agentJsRuntime } : {}),
-    docker: new DockerRuntime(),
-    ...(e2bApiKey
-      ? { e2b: new E2BRuntime({ apiKey: e2bApiKey, template: "flamecast-node22" }) }
-      : {}),
+    local: new NodeRuntime({ cwd: homedir() }),
+    ...(USE_NONLOCAL_RUNTIMES ? {
+      ...(agentJsRuntime ? { agentjs: agentJsRuntime } : {}),
+      docker: new DockerRuntime(),
+      ...(e2bApiKey
+        ? { e2b: new E2BRuntime({ apiKey: e2bApiKey, template: "flamecast-node22" }) }
+        : {}),
+    } : {}),
   },
   agentTemplates: createAgentTemplates({
-    agentJsEnabled: agentJsRuntime !== null,
-    e2bEnabled: Boolean(e2bApiKey),
+    dockerEnabled: USE_NONLOCAL_RUNTIMES,
+    agentJsEnabled: USE_NONLOCAL_RUNTIMES && agentJsRuntime !== null,
+    e2bEnabled: USE_NONLOCAL_RUNTIMES && Boolean(e2bApiKey),
     hostAgentPath: resolve(__dirname, "../agent.ts"),
     agentSource,
   }),
