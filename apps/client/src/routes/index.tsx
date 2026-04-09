@@ -30,6 +30,7 @@ import {
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
 import { isDeveloperPreview } from "@/lib/developer-preview";
+import { useEnqueueMessage } from "@flamecast/ui";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -97,9 +98,12 @@ function DeveloperHomePage() {
   }, [sessions, activeTemplate, isMultiInstance, activeInstance]);
 
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
-  const activeSession = selectedSessionId
-    ? (matchingSessions.find((s) => s.id === selectedSessionId) ?? matchingSessions[0])
-    : matchingSessions[0];
+  const wantsNewSession = selectedSessionId === "__new__";
+  const activeSession = wantsNewSession
+    ? undefined
+    : selectedSessionId
+      ? (matchingSessions.find((s) => s.id === selectedSessionId) ?? matchingSessions[0])
+      : matchingSessions[0];
 
   // --- Working directory (default: from settings config) ---
   const [cwd, setCwd] = useState<string | undefined>(config.defaultDirectory || undefined);
@@ -118,6 +122,12 @@ function DeveloperHomePage() {
   });
   const gitPath = cwdFsData?.gitPath;
   const activeBranch = useActiveBranch(pickerInstanceName, gitPath, cwd ?? "");
+
+  // --- Message queue ---
+  const enqueueMutation = useEnqueueMessage({
+    onSuccess: () => toast.success("Message queued"),
+    onError: (err) => toast.error("Failed to queue message", { description: String(err.message) }),
+  });
 
   // --- Mutations ---
   const [prompt, setPrompt] = useState("");
@@ -139,34 +149,72 @@ function DeveloperHomePage() {
     startRuntimeMutation.mutate({ typeName: activeRuntime, name: instanceName });
   };
 
-  const handleCreateSession = () => {
-    if (!activeTemplate) return;
-    createMutation.mutate({
-      agentTemplateId: activeTemplate.id,
-      runtimeInstance: activeInstance?.name,
-      cwd,
-    });
-  };
-
   const handleSend = () => {
-    if (!prompt.trim() || !activeSession) return;
-    // Navigate to the runtime instance containing the session
-    const rt = runtimes?.find(
-      (r) =>
-        r.typeName === activeSession.runtime ||
-        r.instances.some((i) => i.name === activeSession.runtime),
-    );
-    const typeName = rt?.typeName ?? activeSession.runtime ?? activeRuntime;
-    const instanceName = activeSession.runtime ?? typeName;
-    void navigate({
-      to: "/runtimes/$typeName/$instanceName",
-      params: { typeName, instanceName },
-    });
+    if (!prompt.trim() || !isReady) return;
+    const text = prompt.trim();
+    setPrompt("");
+
+    if (activeSession) {
+      // Enqueue with existing session
+      enqueueMutation.mutate({
+        text,
+        runtime: activeRuntime,
+        agent: activeTemplate?.name ?? "None",
+        agentTemplateId: activeTemplate?.id ?? null,
+        directory: cwd ?? null,
+        sessionId: activeSession.id,
+      });
+      const rt = runtimes?.find(
+        (r) =>
+          r.typeName === activeSession.runtime ||
+          r.instances.some((i) => i.name === activeSession.runtime),
+      );
+      const typeName = rt?.typeName ?? activeSession.runtime ?? activeRuntime;
+      const instanceName = activeSession.runtime ?? typeName;
+      void navigate({
+        to: "/runtimes/$typeName/$instanceName",
+        params: { typeName, instanceName },
+        search: { sessionId: activeSession.id },
+      });
+    } else if (activeTemplate) {
+      // No session — create one, then enqueue the message with the new session ID
+      const templateName = activeTemplate.name;
+      const templateId = activeTemplate.id;
+      const runtimeName = activeRuntime;
+      const instanceName = activeInstance?.name ?? activeRuntime;
+      const dir = cwd ?? null;
+      createMutation.mutate(
+        {
+          agentTemplateId: templateId,
+          runtimeInstance: activeInstance?.name,
+          cwd,
+          agentName: templateName,
+        },
+        {
+          onSuccess: (session) => {
+            enqueueMutation.mutate({
+              text,
+              runtime: runtimeName,
+              agent: templateName,
+              agentTemplateId: templateId,
+              directory: dir,
+              sessionId: session.id,
+            });
+            // Navigate to the session — use known runtime params, not session.runtime
+            // which may not be populated yet
+            void navigate({
+              to: "/runtimes/$typeName/$instanceName",
+              params: { typeName: runtimeName, instanceName },
+              search: { sessionId: session.id },
+            });
+          },
+        },
+      );
+    }
   };
 
   const hasActiveSession = !!activeSession;
-  const canSend = prompt.trim() && hasActiveSession && isReady;
-  const isBusy = startRuntimeMutation.isPending || createMutation.isPending;
+  const canSend = prompt.trim() && isReady;
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col items-center justify-center gap-8 px-1">
@@ -187,10 +235,10 @@ function DeveloperHomePage() {
                 : needsRunningInstance
                   ? "Start a runtime instance first…"
                   : !hasActiveSession
-                    ? "Create a session first…"
+                    ? "Send a message to start a new session…"
                     : "Send a prompt to the agent..."
             }
-            disabled={!isReady || !hasActiveSession}
+            disabled={!isReady}
             className="flex-1"
           />
           <Button onClick={handleSend} disabled={!canSend}>
@@ -351,7 +399,7 @@ function DeveloperHomePage() {
                     ? "Creating…"
                     : activeSession
                       ? `...${activeSession.id.slice(-8)}`
-                      : "None"}
+                      : "New"}
                   <ChevronDownIcon className="size-3 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
@@ -362,12 +410,9 @@ function DeveloperHomePage() {
                   </DropdownMenuItem>
                 ))}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={handleCreateSession}
-                  disabled={isBusy || !activeTemplate}
-                >
+                <DropdownMenuItem onSelect={() => setSelectedSessionId("__new__")}>
                   <PlusIcon className="size-3.5" />
-                  Create new
+                  New session
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

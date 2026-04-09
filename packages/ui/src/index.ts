@@ -26,6 +26,13 @@ export {
   useStartRuntimeWithOptimisticUpdate,
 } from "./hooks/use-runtime-mutations.js";
 export { useTerminateSession } from "./hooks/use-terminate-session.js";
+export {
+  useMessageQueue,
+  useEnqueueMessage,
+  useSendQueuedMessage,
+  useRemoveQueuedMessage,
+  useClearMessageQueue,
+} from "./hooks/use-message-queue.js";
 
 // WebSocket hooks
 export { useRuntimeWebSocket } from "./hooks/use-runtime-websocket.js";

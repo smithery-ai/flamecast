@@ -145,15 +145,13 @@ function RuntimeDetailPanel({
       return;
     }
 
-    // Tab was closed — re-open it if the session is still active
-    const session = sessions?.find((s) => s.id === focusSessionId && s.status === "active");
-    if (!session) return;
-
+    // Tab doesn't exist yet — create it optimistically (session may still be starting)
+    const session = sessions?.find((s) => s.id === focusSessionId);
     const tab: Tab = {
       id: makeTabId(),
       type: "session",
-      sessionId: session.id,
-      label: session.agentName,
+      sessionId: focusSessionId,
+      label: session?.agentName ?? "Starting...",
     };
     setTabs((prev) => [...prev, tab]);
     setActiveTabId(tab.id);

@@ -630,6 +630,136 @@ export class Flamecast<
     return this.snapshotSession(id, { ...opts, includeLogs: true });
   }
 
+  /** Lightweight status check for a session's processing state. */
+  async getSessionStatus(id: string): Promise<{ processing: boolean; pendingPermission: boolean }> {
+    await this.ensureReady();
+    const stored = await this.ensureSessionRegistered(id);
+    if (!stored) throw new Error(`Session "${id}" not found`);
+
+    const promptQueue = this.sessionService.hasSession(id)
+      ? await this.sessionService
+          .proxyRequest(id, "/queue", { method: "GET" })
+          .then((r) => (r.ok ? r.json().catch(() => null) : null))
+          .catch(() => null)
+      : null;
+
+    return {
+      processing: promptQueue?.processing ?? false,
+      pendingPermission: !!stored.meta.pendingPermission,
+    };
+  }
+
+  // ── Message Queue ─────────────────────────────────────────────────────
+
+  async enqueueMessage(message: Parameters<FlamecastStorage["enqueueMessage"]>[0]) {
+    const storage = this.requireStorage();
+    const queued = await storage.enqueueMessage(message);
+    // If the message has a session, try to send immediately if the session is idle
+    if (queued.sessionId) {
+      console.log(
+        `[MessageQueue] message ${queued.id} enqueued for session ${queued.sessionId}, attempting immediate drain`,
+      );
+      void this.drainNextQueuedMessage(queued.sessionId);
+    }
+    return queued;
+  }
+
+  async listQueuedMessages() {
+    const storage = this.requireStorage();
+    return storage.listQueuedMessages();
+  }
+
+  async markMessageSent(id: number) {
+    const storage = this.requireStorage();
+    return storage.markMessageSent(id);
+  }
+
+  async removeMessage(id: number) {
+    const storage = this.requireStorage();
+    return storage.removeMessage(id);
+  }
+
+  async clearMessageQueue() {
+    const storage = this.requireStorage();
+    return storage.clearMessageQueue();
+  }
+
+  /** Per-session lock to prevent concurrent drainNextQueuedMessage calls. */
+  private drainingSessionIds = new Set<string>();
+
+  /**
+   * After an agent completes a turn for a session, check the message queue
+   * and auto-send the next pending message if one exists.
+   * Skips if the session has a pending permission or is still processing.
+   */
+  private async drainNextQueuedMessage(sessionId: string): Promise<void> {
+    if (this.drainingSessionIds.has(sessionId)) {
+      console.log(`[MessageQueue] drain already in progress for session ${sessionId}, skipping`);
+      return;
+    }
+    this.drainingSessionIds.add(sessionId);
+    console.log(`[MessageQueue] drainNextQueuedMessage starting for session ${sessionId}`);
+    try {
+      const storage = this.requireStorage();
+
+      // Re-fetch session state to catch any permission_request that arrived
+      const meta = await storage.getSessionMeta(sessionId);
+      if (meta?.pendingPermission) {
+        console.log(`[MessageQueue] skip: session ${sessionId} has pending permission`);
+        return;
+      }
+      if (meta?.status !== "active") {
+        console.log(`[MessageQueue] skip: session ${sessionId} status is "${meta?.status}"`);
+        return;
+      }
+
+      // Verify the session-host prompt queue is truly idle (not processing, no items)
+      const hasSession = this.sessionService.hasSession(sessionId);
+      console.log(`[MessageQueue] sessionService.hasSession(${sessionId}) = ${hasSession}`);
+      const promptQueue = hasSession
+        ? await this.sessionService
+            .proxyRequest(sessionId, "/queue", { method: "GET" })
+            .then((r) => (r.ok ? r.json().catch(() => null) : null))
+            .catch((err) => {
+              console.log(`[MessageQueue] failed to fetch prompt queue: ${err}`);
+              return null;
+            })
+        : null;
+      console.log(`[MessageQueue] session ${sessionId} promptQueue:`, JSON.stringify(promptQueue));
+      if (promptQueue?.processing) {
+        console.log(`[MessageQueue] skip: session ${sessionId} prompt queue is still processing`);
+        return;
+      }
+      if (promptQueue?.size > 0) {
+        console.log(
+          `[MessageQueue] skip: session ${sessionId} prompt queue has ${promptQueue.size} items`,
+        );
+        return;
+      }
+
+      const next = await storage.getNextPendingMessage(sessionId);
+      if (!next) {
+        console.log(`[MessageQueue] no pending messages for session ${sessionId}`);
+        return;
+      }
+
+      console.log(
+        `[MessageQueue] auto-sending message ${next.id} ("${next.text.slice(0, 50)}") to session ${sessionId}`,
+      );
+      // Send first, mark after — if prompt fails, message stays pending for retry
+      await this.promptSession(sessionId, next.text);
+      await storage.markMessageSent(next.id);
+      console.log(`[MessageQueue] message ${next.id} sent and marked successfully`);
+    } catch (err) {
+      console.warn(
+        `[MessageQueue] failed to auto-send for session ${sessionId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    } finally {
+      this.drainingSessionIds.delete(sessionId);
+    }
+  }
+
   /** Proxy a queue management request to the session-host. */
   async proxyQueueRequest(id: string, path: string, init: RequestInit): Promise<Response> {
     await this.ensureReady();
@@ -844,6 +974,7 @@ export class Flamecast<
     sessionId: string,
     event: SessionCallbackEvent,
   ): Promise<PermissionCallbackResponse | { ok: true }> {
+    console.log(`[MessageQueue] handleSessionEvent: type="${event.type}" session=${sessionId}`);
     await this.ensureReady();
     await this.ensureSessionRegistered(sessionId);
     const storage = this.requireStorage();
@@ -876,7 +1007,10 @@ export class Flamecast<
 
       case "end_turn": {
         await persistSessionState({ lastUpdatedAt });
-        // REST-prompt end_turn — delivered to webhooks only (no in-process handler yet)
+        console.log(
+          `[MessageQueue] end_turn received for session ${sessionId}, scheduling drain in 2s`,
+        );
+        setTimeout(() => void this.drainNextQueuedMessage(sessionId), 2000);
         result = { ok: true };
         break;
       }
@@ -1126,6 +1260,22 @@ export class Flamecast<
                 }),
               );
             }
+          }
+
+          // Detect prompt completion (RPC response with stopReason: "end_turn")
+          // and trigger message queue drain for this session.
+          const ev = msg.event;
+          if (
+            ev?.type === "rpc" &&
+            ev.data?.direction === "agent_to_client" &&
+            ev.data?.method === "session/prompt" &&
+            ev.data?.phase === "response" &&
+            ev.data?.payload?.stopReason === "end_turn"
+          ) {
+            console.log(
+              `[MessageQueue] WS tap: end_turn detected for session ${msg.sessionId}, scheduling drain in 2s`,
+            );
+            setTimeout(() => void this.drainNextQueuedMessage(msg.sessionId), 2000);
           }
         } catch {
           // Ignore malformed messages.

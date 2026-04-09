@@ -24,6 +24,7 @@ export type FlamecastApi = Pick<
   | "getSession"
   | "getSessionAutoApprove"
   | "setSessionAutoApprove"
+  | "getSessionStatus"
   | "handleSessionEvent"
   | "listAgentTemplates"
   | "listRuntimes"
@@ -41,6 +42,11 @@ export type FlamecastApi = Pick<
   | "deleteRuntime"
   | "terminateSession"
   | "runtimeNames"
+  | "enqueueMessage"
+  | "listQueuedMessages"
+  | "markMessageSent"
+  | "removeMessage"
+  | "clearMessageQueue"
 >;
 
 function toErrorMessage(error: unknown, fallback = "Unknown error"): string {
@@ -376,6 +382,15 @@ export function createApi(flamecast: FlamecastApi) {
       })
       .get("/agents/:agentId", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
       .get("/agents/:agentId/", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
+      .get("/agents/:agentId/status", async (c) => {
+        try {
+          const agentId = c.req.param("agentId");
+          const status = await flamecast.getSessionStatus(agentId);
+          return c.json(status);
+        } catch {
+          return c.json({ error: "Agent not found" }, 404);
+        }
+      })
       .get("/agents/:agentId/commands", async (c) => {
         // Hardcoded slash commands with simulated latency
         await new Promise((r) => setTimeout(r, 3000));
@@ -576,6 +591,72 @@ export function createApi(flamecast: FlamecastApi) {
             });
           });
         });
+      })
+      // ---- Global message queue ----
+      .get("/message-queue", async (c) => {
+        try {
+          return c.json(await flamecast.listQueuedMessages());
+        } catch (error) {
+          return c.json({ error: toErrorMessage(error) }, 500);
+        }
+      })
+      .post("/message-queue", async (c) => {
+        try {
+          const body = await c.req.json();
+          if (!body || typeof body.text !== "string" || !body.text.trim()) {
+            return c.json({ error: "Missing 'text' field" }, 400);
+          }
+          const message = await flamecast.enqueueMessage({
+            sessionId: body.sessionId ?? null,
+            text: body.text,
+            runtime: body.runtime ?? "",
+            agent: body.agent ?? "",
+            agentTemplateId: body.agentTemplateId ?? null,
+            directory: body.directory ?? null,
+          });
+          return c.json(message, 201);
+        } catch (error) {
+          return c.json({ error: toErrorMessage(error) }, 500);
+        }
+      })
+      .post("/message-queue/:id/send", async (c) => {
+        try {
+          const id = parseInt(c.req.param("id"), 10);
+          if (isNaN(id)) return c.json({ error: "Invalid id" }, 400);
+          const messages = await flamecast.listQueuedMessages();
+          const msg = messages.find((m) => m.id === id);
+          if (!msg) return c.json({ error: "Message not found" }, 404);
+          if (!msg.sessionId) return c.json({ error: "No session attached" }, 400);
+          console.log(
+            `[MessageQueue] API send: message ${id} ("${msg.text.slice(0, 50)}") to session ${msg.sessionId}`,
+          );
+          const result = await flamecast.promptSession(msg.sessionId, msg.text);
+          await flamecast.markMessageSent(id);
+          console.log(`[MessageQueue] API send: message ${id} sent and marked successfully`);
+          return c.json(result);
+        } catch (error) {
+          const errMsg = toErrorMessage(error);
+          const status = errMsg.includes("not found") ? 404 : 500;
+          return c.json({ error: errMsg }, status);
+        }
+      })
+      .delete("/message-queue/:id", async (c) => {
+        try {
+          const id = parseInt(c.req.param("id"), 10);
+          if (isNaN(id)) return c.json({ error: "Invalid id" }, 400);
+          await flamecast.removeMessage(id);
+          return c.json({ ok: true });
+        } catch (error) {
+          return c.json({ error: toErrorMessage(error) }, 500);
+        }
+      })
+      .delete("/message-queue", async (c) => {
+        try {
+          await flamecast.clearMessageQueue();
+          return c.json({ ok: true });
+        } catch (error) {
+          return c.json({ error: toErrorMessage(error) }, 500);
+        }
       })
   );
 }
