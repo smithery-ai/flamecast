@@ -656,10 +656,16 @@ export function createApi(flamecast: FlamecastApi) {
           console.log(
             `[MessageQueue] API send: message ${id} ("${msg.text.slice(0, 50)}") to session ${msg.sessionId}`,
           );
-          const result = await flamecast.promptSession(msg.sessionId, msg.text);
-          await flamecast.markMessageSent(id);
-          console.log(`[MessageQueue] API send: message ${id} sent and marked successfully`);
-          return c.json(result);
+          await flamecast.markMessageProcessing(id);
+          try {
+            const result = await flamecast.promptSession(msg.sessionId, msg.text);
+            await flamecast.markMessageSent(id);
+            console.log(`[MessageQueue] API send: message ${id} sent and marked successfully`);
+            return c.json(result);
+          } catch (promptErr) {
+            await flamecast.revertMessageToPending(id);
+            throw promptErr;
+          }
         } catch (error) {
           const errMsg = toErrorMessage(error);
           const status = errMsg.includes("not found") ? 404 : 500;

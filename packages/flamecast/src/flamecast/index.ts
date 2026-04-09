@@ -669,9 +669,19 @@ export class Flamecast<
     return storage.listQueuedMessages();
   }
 
+  async markMessageProcessing(id: number) {
+    const storage = this.requireStorage();
+    return storage.markMessageProcessing(id);
+  }
+
   async markMessageSent(id: number) {
     const storage = this.requireStorage();
     return storage.markMessageSent(id);
+  }
+
+  async revertMessageToPending(id: number) {
+    const storage = this.requireStorage();
+    return storage.revertMessageToPending(id);
   }
 
   async removeMessage(id: number) {
@@ -746,10 +756,17 @@ export class Flamecast<
       console.log(
         `[MessageQueue] auto-sending message ${next.id} ("${next.text.slice(0, 50)}") to session ${sessionId}`,
       );
-      // Send first, mark after — if prompt fails, message stays pending for retry
-      await this.promptSession(sessionId, next.text);
-      await storage.markMessageSent(next.id);
-      console.log(`[MessageQueue] message ${next.id} sent and marked successfully`);
+      // Mark as processing so the UI reflects the in-flight state
+      await storage.markMessageProcessing(next.id);
+      try {
+        await this.promptSession(sessionId, next.text);
+        await storage.markMessageSent(next.id);
+        console.log(`[MessageQueue] message ${next.id} sent and marked successfully`);
+      } catch (promptErr) {
+        // Revert to pending so the message can be retried
+        await storage.revertMessageToPending(next.id);
+        throw promptErr;
+      }
     } catch (err) {
       console.warn(
         `[MessageQueue] failed to auto-send for session ${sessionId}:`,
