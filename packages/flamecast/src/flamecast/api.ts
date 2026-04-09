@@ -294,6 +294,32 @@ export function createApi(flamecast: FlamecastApi) {
           return c.json({ error: msg }, status);
         }
       })
+      .get("/runtimes/:instanceName/fs/commands", async (c) => {
+        const dir = c.req.query("path") || c.req.param("instanceName");
+        await new Promise((r) => setTimeout(r, 1500));
+        return c.json([
+          {
+            name: "scaffold",
+            description: `Scaffold a new project in ${dir}`,
+          },
+          {
+            name: "analyze",
+            description: `Analyze the codebase structure of ${dir}`,
+          },
+          {
+            name: "test",
+            description: `Run tests for the project in ${dir}`,
+          },
+          {
+            name: "lint",
+            description: `Lint and format code in ${dir}`,
+          },
+          {
+            name: "deploy",
+            description: `Deploy the project from ${dir}`,
+          },
+        ]);
+      })
       // ---- Git operations ----
       .get("/runtimes/:instanceName/fs/git/branches", async (c) => {
         try {
