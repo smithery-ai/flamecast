@@ -229,7 +229,7 @@ function SessionItem({
             <span className="truncate text-xs font-medium leading-tight">{title}</span>
           </div>
           <div className="flex min-w-0 items-center gap-1.5 text-[10px] leading-tight text-muted-foreground">
-            {!isPending && target ? (
+            {target ? (
               <SessionGitOrCwd instanceName={target.instanceName} cwd={cwd} cwdShort={cwdShort} />
             ) : cwdShort ? (
               <span className="flex min-w-0 items-center gap-1">
