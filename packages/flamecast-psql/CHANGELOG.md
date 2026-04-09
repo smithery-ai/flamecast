@@ -1,5 +1,11 @@
 # @flamecast/storage-psql
 
+## 0.1.4
+
+### Patch Changes
+
+- 98fddf9: Add default agent templates for Claude Code and Codex
+
 ## 0.1.3
 
 ### Patch Changes
