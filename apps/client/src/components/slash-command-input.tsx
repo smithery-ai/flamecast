@@ -39,17 +39,8 @@ interface SlashCommand {
 
 const Combobox = forwardRef<any, BeautifulMentionsComboboxProps>(
   function Combobox({ loading, itemType, ...props }, ref) {
-    if (itemType === "trigger") {
-      // Must still render a real element (not hidden) so the plugin can
-      // transition to value mode when the trigger is detected in the text.
-      return (
-        <div
-          ref={ref}
-          style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}
-          {...props}
-        />
-      );
-    }
+    // While the async search is in-flight, show a loading indicator
+    // regardless of whether we're in trigger or value mode.
     if (loading) {
       return (
         <div
@@ -60,10 +51,10 @@ const Combobox = forwardRef<any, BeautifulMentionsComboboxProps>(
         </div>
       );
     }
-    // Check if the plugin passed any item children
+    // Extract children to check for empty state
     const { children, ...rest } = props;
     const hasItems = Array.isArray(children) ? children.length > 0 : Boolean(children);
-    if (!hasItems) {
+    if (!hasItems && itemType === "value") {
       return (
         <div
           ref={ref}
