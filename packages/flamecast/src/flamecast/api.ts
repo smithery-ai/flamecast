@@ -360,6 +360,27 @@ export function createApi(flamecast: FlamecastApi) {
       })
       .get("/agents/:agentId", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
       .get("/agents/:agentId/", async (c) => getAgentSnapshot(c, c.req.param("agentId")))
+      .get("/agents/:agentId/commands", async (c) => {
+        // Hardcoded slash commands with simulated latency
+        await new Promise((r) => setTimeout(r, 3000));
+        return c.json([
+          { name: "debug", description: "Debug your current session by reading the debug log" },
+          {
+            name: "simplify",
+            description: "Review changed code for reuse, quality, and efficiency",
+          },
+          {
+            name: "compact",
+            description: "Clear conversation history but keep a summary in context",
+          },
+          { name: "review", description: "Review a pull request" },
+          {
+            name: "init",
+            description: "Initialize a new CLAUDE.md file with codebase documentation",
+          },
+          { name: "security-review", description: "Complete a security review of pending changes" },
+        ]);
+      })
       .post("/agents/:agentId/prompts", async (c) => {
         try {
           const agentId = c.req.param("agentId");

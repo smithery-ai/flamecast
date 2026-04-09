@@ -28,6 +28,11 @@
     "ci:publish": "turbo run build && pnpm publish -r",
     "co": "sh -c 'git checkout \"$1\" && git pull && rm -rf apps/server/.flamecast/ && cd apps/server && pnpm flamecast db migrate && cd ../.. && pnpm dev' --"
   },
+  "dependencies": {
+    "@lexical/react": "^0.42.0",
+    "lexical": "^0.42.0",
+    "lexical-beautiful-mentions": "^0.1.48"
+  },
   "devDependencies": {
     "@changesets/cli": "^2.30.0",
     "@cloudflare/vite-plugin": "^1.30.0",
