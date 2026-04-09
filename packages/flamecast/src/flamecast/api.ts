@@ -632,12 +632,37 @@ export function createApi(flamecast: FlamecastApi) {
           if (!body || typeof body.text !== "string" || !body.text.trim()) {
             return c.json({ error: "Missing 'text' field" }, 400);
           }
+
+          // Resolve defaults to match landing page behavior:
+          // Runtime → first available runtime
+          // Agent → first template matching that runtime, or first overall
+          let runtime = body.runtime ?? "";
+          let agent = body.agent ?? "";
+          let agentTemplateId = body.agentTemplateId ?? null;
+
+          if (!runtime || !agent || !agentTemplateId) {
+            const [runtimes, templates] = await Promise.all([
+              flamecast.listRuntimes(),
+              flamecast.listAgentTemplates(),
+            ]);
+            if (!runtime && runtimes.length > 0) {
+              runtime = runtimes[0].typeName;
+            }
+            if (!agentTemplateId && templates.length > 0) {
+              const match = templates.find((t) => t.runtime.provider === runtime) ?? templates[0];
+              if (match) {
+                if (!agent) agent = match.name;
+                agentTemplateId = match.id;
+              }
+            }
+          }
+
           const message = await flamecast.enqueueMessage({
             sessionId: body.sessionId ?? null,
             text: body.text,
-            runtime: body.runtime ?? "",
-            agent: body.agent ?? "",
-            agentTemplateId: body.agentTemplateId ?? null,
+            runtime,
+            agent,
+            agentTemplateId,
             directory: body.directory ?? null,
           });
           return c.json(message, 201);
