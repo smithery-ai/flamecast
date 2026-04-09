@@ -365,10 +365,19 @@ export function createApi(flamecast: FlamecastApi) {
         await new Promise((r) => setTimeout(r, 3000));
         return c.json([
           { name: "debug", description: "Debug your current session by reading the debug log" },
-          { name: "simplify", description: "Review changed code for reuse, quality, and efficiency" },
-          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          {
+            name: "simplify",
+            description: "Review changed code for reuse, quality, and efficiency",
+          },
+          {
+            name: "compact",
+            description: "Clear conversation history but keep a summary in context",
+          },
           { name: "review", description: "Review a pull request" },
-          { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" },
+          {
+            name: "init",
+            description: "Initialize a new CLAUDE.md file with codebase documentation",
+          },
           { name: "security-review", description: "Complete a security review of pending changes" },
         ]);
       })

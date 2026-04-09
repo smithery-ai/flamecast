@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, forwardRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, forwardRef } from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
@@ -38,59 +38,67 @@ interface SlashCommand {
 // ---------------------------------------------------------------------------
 
 // oxlint-disable-next-line no-explicit-any -- ref can be HTMLUListElement or HTMLDivElement
-const Combobox = forwardRef<any, BeautifulMentionsComboboxProps>(
-  function Combobox({ loading, itemType, ...props }, ref) {
-    // Trigger mode: the plugin shows available triggers (e.g. "/") before
-    // one is typed. Render an invisible container so the plugin's refs stay
-    // intact but nothing is visible to the user.
-    if (itemType === "trigger" && !loading) {
-      // oxlint-disable-next-line no-unused-vars -- destructure children out to discard them
-      const { children: _triggerChildren, ...triggerRest } = props;
-      return <ul ref={ref} {...triggerRest} style={{ display: "none" }} />;
-    }
-    // Async search in-flight — show loading indicator
-    if (loading) {
-      return (
-        <div
-          ref={ref}
-          className="w-full rounded-md border bg-popover p-3 text-sm text-popover-foreground shadow-md"
-        >
-          <span className="animate-pulse text-muted-foreground">Loading commands…</span>
-        </div>
-      );
-    }
-    // Extract children to check for empty state
-    const { children, ...rest } = props;
-    const hasItems = Array.isArray(children) ? children.length > 0 : Boolean(children);
-    if (!hasItems) {
-      return (
-        <div
-          ref={ref}
-          className="w-full rounded-md border bg-popover p-3 text-sm text-muted-foreground shadow-md"
-          {...rest}
-        >
-          No commands available
-        </div>
-      );
-    }
+const Combobox = forwardRef<any, BeautifulMentionsComboboxProps>(function Combobox(
+  { loading, itemType, ...props },
+  ref,
+) {
+  // Trigger mode: the plugin shows available triggers (e.g. "/") before
+  // one is typed. Render an invisible container so the plugin's refs stay
+  // intact but nothing is visible to the user.
+  if (itemType === "trigger" && !loading) {
+    // oxlint-disable-next-line no-unused-vars -- destructure children out to discard them
+    const { children: _triggerChildren, ...triggerRest } = props;
+    return <ul ref={ref} {...triggerRest} style={{ display: "none" }} />;
+  }
+  // Async search in-flight — show loading indicator
+  if (loading) {
     return (
-      <ul
+      <div
         ref={ref}
-        style={{ scrollbarWidth: "none" }}
-        className="w-full max-h-[300px] list-none overflow-y-scroll overscroll-contain rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+        className="w-full rounded-md border bg-popover p-3 text-sm text-popover-foreground shadow-md"
+      >
+        <span className="animate-pulse text-muted-foreground">Loading commands…</span>
+      </div>
+    );
+  }
+  // Extract children to check for empty state
+  const { children, ...rest } = props;
+  const hasItems = Array.isArray(children) ? children.length > 0 : Boolean(children);
+  if (!hasItems) {
+    return (
+      <div
+        ref={ref}
+        className="w-full rounded-md border bg-popover p-3 text-sm text-muted-foreground shadow-md"
         {...rest}
       >
-        {children}
-      </ul>
+        No commands available
+      </div>
     );
-  },
-);
+  }
+  return (
+    <ul
+      ref={ref}
+      style={{ scrollbarWidth: "none" }}
+      className="w-full max-h-[300px] list-none overflow-y-scroll overscroll-contain rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+      {...rest}
+    >
+      {children}
+    </ul>
+  );
+});
 
 const ComboboxItem = forwardRef<HTMLLIElement, BeautifulMentionsComboboxItemProps>(
   function ComboboxItem({ selected, item, ...props }, ref) {
     if (item.itemType === "trigger") {
       return (
-        <li ref={ref} {...props} className={cn("cursor-pointer rounded-sm px-2 py-1.5 text-sm", selected && "bg-accent text-accent-foreground")}>
+        <li
+          ref={ref}
+          {...props}
+          className={cn(
+            "cursor-pointer rounded-sm px-2 py-1.5 text-sm",
+            selected && "bg-accent text-accent-foreground",
+          )}
+        >
           {item.value}
         </li>
       );
@@ -119,7 +127,13 @@ const ComboboxItem = forwardRef<HTMLLIElement, BeautifulMentionsComboboxItemProp
 // Plugins
 // ---------------------------------------------------------------------------
 
-function EnterToSendPlugin({ onSend }: { onSend: (text: string) => void }) {
+function EnterToSendPlugin({
+  onSend,
+  comboboxOpenRef,
+}: {
+  onSend: (text: string) => void;
+  comboboxOpenRef: React.RefObject<boolean>;
+}) {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
@@ -128,6 +142,8 @@ function EnterToSendPlugin({ onSend }: { onSend: (text: string) => void }) {
       (event) => {
         // Shift+Enter inserts a newline (handled by Lexical default)
         if (event?.shiftKey) return false;
+        // Let the combobox handle Enter for item selection
+        if (comboboxOpenRef.current) return false;
         event?.preventDefault();
         const text = editor.getEditorState().read(() => $getRoot().getTextContent());
         if (!text.trim()) return true;
@@ -137,14 +153,16 @@ function EnterToSendPlugin({ onSend }: { onSend: (text: string) => void }) {
       },
       COMMAND_PRIORITY_NORMAL,
     );
-  }, [editor, onSend]);
+  }, [editor, onSend, comboboxOpenRef]);
 
   return null;
 }
 
 function EditablePlugin({ editable }: { editable: boolean }) {
   const [editor] = useLexicalComposerContext();
-  useEffect(() => { editor.setEditable(editable); }, [editor, editable]);
+  useEffect(() => {
+    editor.setEditable(editable);
+  }, [editor, editable]);
   return null;
 }
 
@@ -165,6 +183,10 @@ export function SlashCommandInput({
   placeholder?: string;
   className?: string;
 }) {
+  // Track combobox open state via a ref so the Enter handler can
+  // check it synchronously without stale closure issues.
+  const comboboxOpenRef = useRef(false);
+
   // Fetch commands from the API on every search invocation.
   // The plugin calls onSearch each time the user types after "/",
   // and shows the loading state while the promise is pending.
@@ -223,13 +245,18 @@ export function SlashCommandInput({
           comboboxAnchorClassName="slash-combobox-anchor"
           comboboxComponent={Combobox}
           comboboxItemComponent={ComboboxItem}
-
+          onComboboxOpen={() => {
+            comboboxOpenRef.current = true;
+          }}
+          onComboboxClose={() => {
+            comboboxOpenRef.current = false;
+          }}
           allowSpaces={true}
           autoSpace={true}
         />
         <ClearEditorPlugin />
         <ZeroWidthPlugin />
-        <EnterToSendPlugin onSend={onSend} />
+        <EnterToSendPlugin onSend={onSend} comboboxOpenRef={comboboxOpenRef} />
         <EditablePlugin editable={!disabled} />
       </div>
     </LexicalComposer>
