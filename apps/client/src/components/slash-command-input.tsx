@@ -38,9 +38,17 @@ interface SlashCommand {
 // ---------------------------------------------------------------------------
 
 const Combobox = forwardRef<any, BeautifulMentionsComboboxProps>(
-  function Combobox({ loading, itemType, children, ...props }, ref) {
+  function Combobox({ loading, itemType, ...props }, ref) {
     if (itemType === "trigger") {
-      return <div ref={ref} className="hidden" {...props} />;
+      // Must still render a real element (not hidden) so the plugin can
+      // transition to value mode when the trigger is detected in the text.
+      return (
+        <div
+          ref={ref}
+          style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }}
+          {...props}
+        />
+      );
     }
     if (loading) {
       return (
@@ -52,12 +60,15 @@ const Combobox = forwardRef<any, BeautifulMentionsComboboxProps>(
         </div>
       );
     }
-    const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
-    if (!hasChildren) {
+    // Check if the plugin passed any item children
+    const { children, ...rest } = props;
+    const hasItems = Array.isArray(children) ? children.length > 0 : Boolean(children);
+    if (!hasItems) {
       return (
         <div
           ref={ref}
           className="w-full rounded-md border bg-popover p-3 text-sm text-muted-foreground shadow-md"
+          {...rest}
         >
           No commands available
         </div>
@@ -66,10 +77,12 @@ const Combobox = forwardRef<any, BeautifulMentionsComboboxProps>(
     return (
       <ul
         ref={ref}
-        {...props}
         style={{ scrollbarWidth: "none" }}
         className="w-full max-h-[300px] list-none overflow-y-scroll overscroll-contain rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
-      />
+        {...rest}
+      >
+        {children}
+      </ul>
     );
   },
 );
