@@ -17,6 +17,7 @@ import type { FlamecastStorage, StoredSession } from "./storage.js";
 import { SessionService } from "./session-service.js";
 import { WebhookDeliveryEngine } from "./events/webhooks.js";
 import { EventBus } from "./events/bus.js";
+import { SessionEventPersistence } from "./events/session-event-persistence.js";
 import { resolveAgentId } from "./events/channels.js";
 import type {
   SessionCallbackEvent,
@@ -91,6 +92,7 @@ export type {
   StoredSession,
 } from "./storage.js";
 export { NodeRuntime } from "./runtime-node.js";
+export { SessionEventPersistence } from "./events/session-event-persistence.js";
 
 // ---------------------------------------------------------------------------
 // Event handler context types
@@ -165,6 +167,12 @@ export type FlamecastOptions<
   callbackUrl?: string;
   /** Global webhooks delivered for all sessions. Merged with per-session webhooks at creation time. */
   webhooks?: Omit<WebhookConfig, "id">[];
+  /**
+   * Directory for persisting session event logs as NDJSON files.
+   * Each session writes to `<sessionsDir>/<sessionId>.jsonl`.
+   * Defaults to `<cwd>/.flamecast/sessions`.
+   */
+  sessionsDir?: string;
 } & FlamecastEventHandlers<R>;
 
 export class Flamecast<
@@ -182,6 +190,9 @@ export class Flamecast<
   /** Event bus for lifecycle events and session history. */
   readonly eventBus = new EventBus();
 
+  /** Persistent session event log (NDJSON files). */
+  private readonly eventPersistence: SessionEventPersistence;
+
   /** Registered event handlers. */
   readonly handlers: Readonly<FlamecastEventHandlers<R>>;
 
@@ -197,6 +208,9 @@ export class Flamecast<
     this.initialAgentTemplates = opts.agentTemplates;
     this.callbackUrl = opts.callbackUrl;
     this.globalWebhooks = opts.webhooks ?? [];
+    this.eventPersistence = new SessionEventPersistence(
+      opts.sessionsDir ?? `${process.cwd()}/.flamecast/sessions`,
+    );
     this.runtimesMap = opts.runtimes;
     this.sessionService = new SessionService(opts.runtimes);
     this.app = createServerApp(this);
@@ -213,6 +227,18 @@ export class Flamecast<
       const text = this.extractPromptText(event);
       if (text) {
         void this.maybeSetSessionTitle(sessionId, text);
+      }
+    });
+
+    // Persist every event to disk as NDJSON.
+    this.eventBus.onEvent((channelEvent) => {
+      try {
+        this.eventPersistence.appendEvent(channelEvent);
+      } catch (err) {
+        console.warn(
+          `[Flamecast] Failed to persist event for session "${channelEvent.sessionId}":`,
+          err instanceof Error ? err.message : err,
+        );
       }
     });
   }
@@ -538,11 +564,9 @@ export class Flamecast<
   async listSessions(): Promise<Session[]> {
     await this.ensureReady();
     const allMetas = await this.requireStorage().listAllSessions();
-    const activeMetas = allMetas.filter((meta) => meta.status === "active");
-    const sessions = await Promise.all(
-      activeMetas.map((meta) => this.snapshotSession(meta.id, { readOnly: true })),
+    return Promise.all(
+      allMetas.map((meta) => this.snapshotSession(meta.id, { readOnly: true })),
     );
-    return sessions.filter((session) => session.status === "active");
   }
 
   async getSession(
@@ -1200,13 +1224,21 @@ export class Flamecast<
           .catch(() => null)
       : null;
 
-    const logs: SessionLog[] = opts.includeLogs
-      ? this.eventBus.getHistory(id).map(({ event }) => ({
+    const logs: SessionLog[] = [];
+    if (opts.includeLogs) {
+      // Try in-memory history first; fall back to persisted NDJSON for terminated sessions.
+      let history = this.eventBus.getHistory(id);
+      if (history.length === 0) {
+        history = this.eventPersistence.readEvents(id);
+      }
+      for (const { event } of history) {
+        logs.push({
           type: event.type,
           data: structuredClone(event.data),
           timestamp: event.timestamp,
-        }))
-      : [];
+        });
+      }
+    }
 
     const fileSystem =
       opts.includeFileSystem && this.sessionService.hasSession(id)
@@ -1244,13 +1276,16 @@ export class Flamecast<
     };
   }
 
-  /** Extract the first user prompt text from the in-memory event history. */
+  /** Extract the first user prompt text from event history (in-memory, then disk). */
   private deriveSessionTitle(sessionId: string): string | undefined {
     const truncate = (text: string) => (text.length > 120 ? text.slice(0, 120) + "..." : text);
     const isRecord = (v: unknown): v is Record<string, unknown> =>
       typeof v === "object" && v !== null;
 
-    const history = this.eventBus.getHistory(sessionId);
+    let history = this.eventBus.getHistory(sessionId);
+    if (history.length === 0) {
+      history = this.eventPersistence.readEvents(sessionId);
+    }
     for (const { event } of history) {
       if (event.type === "prompt_sent" && isRecord(event.data)) {
         const { text } = event.data;
