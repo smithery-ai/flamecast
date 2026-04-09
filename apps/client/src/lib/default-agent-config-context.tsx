@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useState } from "react";
 
 const STORAGE_KEY = "flamecast_default_agent_config";
 
-export interface DefaultAgentConfig {
+interface DefaultAgentConfig {
   agentTemplateId: string;
   defaultDirectory: string;
   createWorktree: boolean;

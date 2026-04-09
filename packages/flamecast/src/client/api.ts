@@ -78,6 +78,10 @@ export type FlamecastSettings = {
   autoApprovePermissions: boolean;
 };
 
+const FlamecastSettingsSchema = z.object({
+  autoApprovePermissions: z.boolean(),
+});
+
 export type FlamecastClient = {
   rpc: FlamecastRpcClient;
 
@@ -179,13 +183,11 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
 
     async fetchSettings() {
       const response = await rpc.settings.$get();
-      await assertOk(response, "Failed to fetch settings");
-      return response.json() as Promise<FlamecastSettings>;
+      return parseOkJson(response, FlamecastSettingsSchema, "Failed to fetch settings");
     },
     async updateSettings(patch) {
       const response = await rpc.settings.$patch({ json: patch });
-      await assertOk(response, "Failed to update settings");
-      return response.json() as Promise<FlamecastSettings>;
+      return parseOkJson(response, FlamecastSettingsSchema, "Failed to update settings");
     },
 
     // -- Agent templates --
