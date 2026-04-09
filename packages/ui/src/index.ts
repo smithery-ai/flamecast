@@ -28,8 +28,9 @@ export {
 export { useTerminateSession } from "./hooks/use-terminate-session.js";
 
 // WebSocket hooks
+export { useRuntimeWebSocket } from "./hooks/use-runtime-websocket.js";
+export type { ConnectionState, RuntimeWebSocketHandle } from "./hooks/use-runtime-websocket.js";
 export { useFlamecastSession } from "./hooks/use-flamecast-session.js";
-export type { ConnectionState } from "./hooks/use-flamecast-session.js";
 export { useSessionState } from "./hooks/use-session-state.js";
 export { useTerminal } from "./hooks/use-terminal.js";
 export type { TerminalSession } from "./hooks/use-terminal.js";

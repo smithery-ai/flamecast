@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  WsChannelControlMessage,
-  WsChannelServerMessage,
-} from "@flamecast/protocol/ws/channels";
+import type { WsChannelServerMessage } from "@flamecast/protocol/ws/channels";
 import type { SessionLog, PermissionResponseBody } from "@flamecast/sdk/session";
 import { useFlamecastClient } from "../provider.js";
-import { createWsMessageDedupeState, rememberWsMessage } from "../lib/ws-message-dedupe.js";
+import type { RuntimeWebSocketHandle } from "./use-runtime-websocket.js";
 
-export type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
+export type { ConnectionState } from "./use-runtime-websocket.js";
 
 function toSessionLog(message: WsChannelServerMessage): SessionLog | null {
   if (message.type === "error") {
@@ -27,140 +24,66 @@ function toSessionLog(message: WsChannelServerMessage): SessionLog | null {
   };
 }
 
-export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
+/**
+ * Subscribes to a session channel on a shared runtime WebSocket.
+ *
+ * @param sessionId  The session to subscribe to.
+ * @param ws         A shared {@link RuntimeWebSocketHandle} (from `useRuntimeWebSocket`).
+ * @param ready      Whether the session is ready (i.e. has a websocketUrl from the REST API).
+ */
+export function useFlamecastSession(sessionId: string, ws: RuntimeWebSocketHandle, ready: boolean) {
   const client = useFlamecastClient();
   const [events, setEvents] = useState<SessionLog[]>([]);
-  const [connectionState, setConnectionState] = useState<ConnectionState>(
-    websocketUrl ? "connecting" : "disconnected",
-  );
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectAttemptsRef = useRef(0);
-  const seenMessagesRef = useRef(createWsMessageDedupeState());
   /** Track the last seq we've seen for replay-on-reconnect. */
   const lastSeqRef = useRef(0);
 
+  // Destructure stable method refs so effects don't depend on the whole handle.
+  const { subscribe, send: wsSend } = ws;
+
   useEffect(() => {
-    let disposed = false;
     setEvents([]);
-    reconnectAttemptsRef.current = 0;
-    seenMessagesRef.current = createWsMessageDedupeState();
     lastSeqRef.current = 0;
 
-    if (!websocketUrl) {
-      setConnectionState("disconnected");
-      return () => {
-        disposed = true;
-      };
-    }
+    if (!ready) return;
 
-    const clearReconnectTimer = () => {
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-    };
+    const channel = `session:${sessionId}`;
 
-    const openWebSocket = () => {
-      if (disposed) return;
-      setConnectionState(reconnectAttemptsRef.current === 0 ? "connecting" : "reconnecting");
-
-      const ws = new WebSocket(websocketUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        if (disposed || wsRef.current !== ws) return;
-        reconnectAttemptsRef.current = 0;
-        setConnectionState("connected");
-      };
-
-      ws.onmessage = (event) => {
-        if (disposed || wsRef.current !== ws) return;
-
-        const rawMessage = String(event.data);
-        if (!rememberWsMessage(seenMessagesRef.current, rawMessage)) {
+    const unsubscribe = subscribe(
+      channel,
+      (message: WsChannelServerMessage) => {
+        // Skip protocol-level messages that aren't session events.
+        if (
+          message.type === "subscribed" ||
+          message.type === "unsubscribed" ||
+          message.type === "pong"
+        ) {
           return;
         }
 
-        try {
-          const message: WsChannelServerMessage = JSON.parse(rawMessage);
-
-          // On receiving the "connected" handshake, subscribe to this session
-          if (message.type === "connected") {
-            const subscribeMsg: WsChannelControlMessage = {
-              action: "subscribe",
-              channel: `session:${sessionId}`,
-              since: lastSeqRef.current,
-            };
-            ws.send(JSON.stringify(subscribeMsg));
-            return;
-          }
-
-          // Skip non-event protocol messages
-          if (
-            message.type === "subscribed" ||
-            message.type === "unsubscribed" ||
-            message.type === "pong"
-          ) {
-            return;
-          }
-
-          // Track sequence numbers for replay on reconnect
-          if (message.type === "event" && message.seq > lastSeqRef.current) {
-            lastSeqRef.current = message.seq;
-          }
-
-          const log = toSessionLog(message);
-          if (log) {
-            setEvents((current) => [...current, log]);
-          }
-        } catch {
-          // Ignore malformed messages from the runtime host.
-        }
-      };
-
-      ws.onclose = () => {
-        const wasCurrent = wsRef.current === ws;
-        if (wasCurrent) {
-          wsRef.current = null;
+        // Track sequence numbers for replay on reconnect.
+        if (message.type === "event" && message.seq > lastSeqRef.current) {
+          lastSeqRef.current = message.seq;
         }
 
-        if (disposed || !wasCurrent) {
-          return;
+        const log = toSessionLog(message);
+        if (log) {
+          setEvents((current) => [...current, log]);
         }
+      },
+      { getSince: () => lastSeqRef.current },
+    );
 
-        reconnectAttemptsRef.current++;
-        if (reconnectAttemptsRef.current > 5) {
-          setConnectionState("disconnected");
-          return;
-        }
+    return unsubscribe;
+  }, [sessionId, ready, subscribe]);
 
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current - 1), 16_000);
-        reconnectTimerRef.current = setTimeout(() => {
-          reconnectTimerRef.current = null;
-          openWebSocket();
-        }, delay);
-      };
-    };
+  const connectionState = ready ? ws.connectionState : "disconnected";
 
-    openWebSocket();
-
-    return () => {
-      disposed = true;
-      clearReconnectTimer();
-      const ws = wsRef.current;
-      wsRef.current = null;
-      if (ws) {
-        ws.close();
-      }
-    };
-  }, [sessionId, websocketUrl]);
-
-  const send = useCallback((message: WsChannelControlMessage) => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify(message));
-  }, []);
+  const send = useCallback(
+    (message: Parameters<RuntimeWebSocketHandle["send"]>[0]) => {
+      wsSend(message);
+    },
+    [wsSend],
+  );
 
   const prompt = useCallback(
     (text: string) => {

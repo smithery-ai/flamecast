@@ -2,6 +2,7 @@ import {
   useSessionState,
   useRuntimeFileSystem,
   useTerminal,
+  useRuntimeWebSocket,
   useFlamecastClient,
   useIsMobile,
 } from "@flamecast/ui";
@@ -40,6 +41,9 @@ export function RuntimeSessionTab({
 }) {
   const client = useFlamecastClient();
 
+  // Single multiplexed WebSocket for the entire runtime instance.
+  const ws = useRuntimeWebSocket(runtimeWebsocketUrl);
+
   const fetchCommands = useCallback(
     () =>
       client.rpc.agents[":agentId"].commands
@@ -59,7 +63,7 @@ export function RuntimeSessionTab({
     pendingPermissions,
     respondToPermission,
     prompt,
-  } = useSessionState(sessionId);
+  } = useSessionState(sessionId, ws);
 
   // Filesystem state — uses the runtime filesystem API so it loads immediately,
   // without waiting for the session to be created on the server.
@@ -71,9 +75,11 @@ export function RuntimeSessionTab({
     path: fsPath,
   });
 
-  // Session-scoped terminal (connects to the runtime instance — works immediately)
-  const { terminals, sendInput, resize, onData, createTerminal, killTerminal } =
-    useTerminal(runtimeWebsocketUrl);
+  // Session-scoped terminal (shares the runtime WebSocket)
+  const { terminals, sendInput, resize, onData, createTerminal, killTerminal } = useTerminal(
+    ws,
+    runtimeWebsocketUrl,
+  );
 
   // Inline file preview for files opened from session file tree
   const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);
