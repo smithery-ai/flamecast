@@ -5,10 +5,14 @@ import {
   useDeleteRuntime,
   useFlamecastClient,
   useSessions,
+  useRuntimeWebSocket,
+  useTerminal,
 } from "@flamecast/ui";
 import { RuntimeNewTab } from "@/components/runtime-new-tab";
 import { RuntimeSessionTab } from "@/components/runtime-session-tab";
 import { RuntimeFileTab } from "@/components/runtime-file-tab";
+import { RuntimeFilesystemTab } from "@/components/runtime-filesystem-tab";
+import { RuntimeTerminalTab } from "@/components/runtime-terminal-tab";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -20,10 +24,13 @@ import {
   MessageSquareIcon,
   LayoutGridIcon,
   Trash2Icon,
+  FolderOpenIcon,
+  TerminalSquareIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { TerminalTabsProvider } from "@/lib/terminal-tabs-context";
 import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
 
 export const Route = createFileRoute("/runtimes/$typeName/$instanceName")({
@@ -38,7 +45,9 @@ export const Route = createFileRoute("/runtimes/$typeName/$instanceName")({
 type Tab =
   | { id: string; type: "new-tab" }
   | { id: string; type: "session"; sessionId: string; label: string; cwd?: string }
-  | { id: string; type: "file"; filePath: string; label: string };
+  | { id: string; type: "file"; filePath: string; label: string }
+  | { id: string; type: "filesystem"; cwd?: string }
+  | { id: string; type: "terminal"; cwd?: string; terminalId?: string };
 
 let nextTabId = 1;
 function makeTabId() {
@@ -102,6 +111,18 @@ function RuntimeDetailPanel({
 }) {
   const client = useFlamecastClient();
   const isRunning = instance.status === "running";
+
+  // Shared runtime WebSocket + terminal hook — must be called unconditionally
+  // (before any early returns) to satisfy Rules of Hooks.
+  const ws = useRuntimeWebSocket(isRunning ? instance.websocketUrl : undefined);
+  const {
+    terminals: runtimeTerminals,
+    sendInput,
+    resize,
+    onData,
+    createTerminal,
+    killTerminal,
+  } = useTerminal(ws, isRunning ? instance.websocketUrl : undefined);
 
   // Tab state — hydrate from active sessions on mount
   const { data: sessions } = useSessions();
@@ -264,10 +285,72 @@ function RuntimeDetailPanel({
     [tabs],
   );
 
+  const openFilesystemTab = useCallback(
+    (tabCwd?: string) => {
+      const tab: Tab = { id: makeTabId(), type: "filesystem", cwd: tabCwd };
+      // Replace the current active new-tab, otherwise append
+      const activeTab = tabs.find((t) => t.id === activeTabId);
+      if (activeTab?.type === "new-tab") {
+        setTabs((prev) => prev.map((t) => (t.id === activeTab.id ? tab : t)));
+      } else {
+        setTabs((prev) => [...prev, tab]);
+      }
+      setActiveTabId(tab.id);
+    },
+    [tabs, activeTabId],
+  );
+
+  const openTerminalTab = useCallback(
+    (tabCwd?: string) => {
+      const tab: Tab = { id: makeTabId(), type: "terminal", cwd: tabCwd };
+      // Replace the current active new-tab, otherwise append
+      const activeTab = tabs.find((t) => t.id === activeTabId);
+      if (activeTab?.type === "new-tab") {
+        setTabs((prev) => prev.map((t) => (t.id === activeTab.id ? tab : t)));
+      } else {
+        setTabs((prev) => [...prev, tab]);
+      }
+      setActiveTabId(tab.id);
+      createTerminal({ cwd: tabCwd });
+    },
+    [tabs, activeTabId, createTerminal],
+  );
+
+  // Assign terminal IDs to tabs that don't have one yet.
+  // When a new runtime terminal appears that isn't claimed by any tab, assign it
+  // to the oldest terminal tab without a terminalId.
+  useEffect(() => {
+    const claimedIds = new Set(
+      tabs
+        .filter((t): t is Tab & { type: "terminal" } => t.type === "terminal" && !!t.terminalId)
+        .map((t) => t.terminalId),
+    );
+    const unclaimedTerminals = runtimeTerminals.filter((rt) => !claimedIds.has(rt.terminalId));
+    const pendingTabs = tabs.filter(
+      (t): t is Tab & { type: "terminal" } => t.type === "terminal" && !t.terminalId,
+    );
+    if (unclaimedTerminals.length === 0 || pendingTabs.length === 0) return;
+
+    setTabs((prev) =>
+      prev.map((t) => {
+        if (t.type !== "terminal" || t.terminalId) return t;
+        const next = unclaimedTerminals.shift();
+        if (!next) return t;
+        return { ...t, terminalId: next.terminalId };
+      }),
+    );
+  }, [runtimeTerminals, tabs]);
+
   const closeTab = useCallback(
     (tabId: string) => {
       const idx = tabs.findIndex((t) => t.id === tabId);
       if (idx === -1) return;
+
+      // Kill the underlying terminal process when closing a terminal tab
+      const closedTab = tabs[idx];
+      if (closedTab.type === "terminal" && closedTab.terminalId) {
+        killTerminal(closedTab.terminalId);
+      }
 
       const next = tabs.filter((t) => t.id !== tabId);
 
@@ -284,12 +367,28 @@ function RuntimeDetailPanel({
         setActiveTabId(next[newIdx].id);
       }
     },
-    [tabs, activeTabId],
+    [tabs, activeTabId, killTerminal],
   );
 
   const loadPreview = useCallback(
     (path: string) => client.fetchRuntimeFilePreview(instance.name, path),
     [client, instance.name],
+  );
+
+  // ─── Terminal tabs context (must be before early returns) ─────────────────
+
+  const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
+
+  const terminalTabsValue = useMemo(
+    () => ({
+      terminalTabs: tabs
+        .filter((t): t is Tab & { type: "terminal" } => t.type === "terminal")
+        .map((t) => ({ id: t.id, cwd: t.cwd })),
+      activeTerminalTabId: activeTab?.type === "terminal" ? activeTab.id : undefined,
+      focusTerminalTab: (id: string) => setActiveTabId(id),
+      closeTerminalTab: (id: string) => closeTab(id),
+    }),
+    [tabs, activeTab, closeTab],
   );
 
   // ─── Not running state ───────────────────────────────────────────────────
@@ -346,56 +445,75 @@ function RuntimeDetailPanel({
 
   // ─── Running state: full layout ──────────────────────────────────────────
 
-  const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {/* Tab bar */}
-      <div className="flex shrink-0 items-center gap-0 border-b bg-muted/30 px-1">
-        <div className="flex min-w-0 items-center overflow-x-auto">
-          {tabs.map((tab) => (
-            <TabTrigger
-              key={tab.id}
-              tab={tab}
-              isActive={tab.id === activeTabId}
-              onClick={() => setActiveTabId(tab.id)}
-              onClose={() => closeTab(tab.id)}
-            />
-          ))}
+    <TerminalTabsProvider value={terminalTabsValue}>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* Tab bar */}
+        <div className="flex shrink-0 items-center gap-0 border-b bg-muted/30 px-1">
+          <div className="flex min-w-0 items-center overflow-x-auto">
+            {tabs.map((tab) => (
+              <TabTrigger
+                key={tab.id}
+                tab={tab}
+                isActive={tab.id === activeTabId}
+                onClick={() => setActiveTabId(tab.id)}
+                onClose={() => closeTab(tab.id)}
+              />
+            ))}
+          </div>
+          <button
+            type="button"
+            className="flex shrink-0 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ml-1"
+            onClick={addNewTab}
+            title="New tab"
+          >
+            <PlusIcon className="size-3.5" />
+          </button>
         </div>
-        <button
-          type="button"
-          className="flex shrink-0 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ml-1"
-          onClick={addNewTab}
-          title="New tab"
-        >
-          <PlusIcon className="size-3.5" />
-        </button>
-      </div>
 
-      {/* Tab content */}
-      <div className="h-0 min-h-0 flex-1 flex flex-col overflow-hidden">
-        {activeTab?.type === "new-tab" && (
-          <RuntimeNewTab
-            runtimeTypeName={runtimeInfo.typeName}
-            instanceName={instance.name}
-            onSessionCreated={openSessionTab}
-          />
-        )}
-        {activeTab?.type === "session" && (
-          <RuntimeSessionTab
-            sessionId={activeTab.sessionId}
-            instanceName={instance.name}
-            runtimeWebsocketUrl={instance.websocketUrl}
-            cwd={activeTab.cwd}
-            onOpenFileTab={openFileTab}
-          />
-        )}
-        {activeTab?.type === "file" && (
-          <RuntimeFileTab filePath={activeTab.filePath} loadPreview={loadPreview} />
-        )}
+        {/* Tab content */}
+        <div className="h-0 min-h-0 flex-1 flex flex-col overflow-hidden">
+          {activeTab?.type === "new-tab" && (
+            <RuntimeNewTab
+              runtimeTypeName={runtimeInfo.typeName}
+              instanceName={instance.name}
+              onSessionCreated={openSessionTab}
+              onOpenFilesystem={openFilesystemTab}
+              onOpenTerminal={openTerminalTab}
+            />
+          )}
+          {activeTab?.type === "session" && (
+            <RuntimeSessionTab
+              sessionId={activeTab.sessionId}
+              instanceName={instance.name}
+              runtimeWebsocketUrl={instance.websocketUrl}
+              cwd={activeTab.cwd}
+              onOpenFileTab={openFileTab}
+              onOpenTerminal={openTerminalTab}
+            />
+          )}
+          {activeTab?.type === "file" && (
+            <RuntimeFileTab filePath={activeTab.filePath} loadPreview={loadPreview} />
+          )}
+          {activeTab?.type === "filesystem" && (
+            <RuntimeFilesystemTab
+              instanceName={instance.name}
+              cwd={activeTab.cwd}
+              onOpenFileTab={openFileTab}
+              onOpenTerminal={openTerminalTab}
+            />
+          )}
+          {activeTab?.type === "terminal" && (
+            <RuntimeTerminalTab
+              terminalId={activeTab.terminalId}
+              sendInput={sendInput}
+              resize={resize}
+              onData={onData}
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </TerminalTabsProvider>
   );
 }
 
@@ -417,11 +535,22 @@ function TabTrigger({
       <LayoutGridIcon className="size-3 shrink-0" />
     ) : tab.type === "session" ? (
       <MessageSquareIcon className="size-3 shrink-0" />
+    ) : tab.type === "filesystem" ? (
+      <FolderOpenIcon className="size-3 shrink-0" />
+    ) : tab.type === "terminal" ? (
+      <TerminalSquareIcon className="size-3 shrink-0" />
     ) : (
       <FileCode2Icon className="size-3 shrink-0" />
     );
 
-  const label = tab.type === "new-tab" ? "New Tab" : tab.type === "session" ? tab.label : tab.label;
+  const label =
+    tab.type === "new-tab"
+      ? "New Tab"
+      : tab.type === "filesystem"
+        ? "Files"
+        : tab.type === "terminal"
+          ? "Terminal"
+          : tab.label;
 
   return (
     <div

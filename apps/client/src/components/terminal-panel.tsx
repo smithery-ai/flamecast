@@ -126,7 +126,7 @@ export function TerminalPanel({
   );
 }
 
-function XTermView({
+export function XTermView({
   terminalId,
   initialOutput,
   sendInput,

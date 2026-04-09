@@ -141,6 +141,8 @@ export interface WsChannelTerminalCreateAction {
   action: "terminal.create";
   /** Optional session ID — if provided, terminal opens in that session's workspace. */
   sessionId?: string;
+  /** Optional working directory — used when no sessionId is provided. */
+  cwd?: string;
   /** Shell command to run (defaults to /bin/sh). */
   data?: string;
   cols?: number;

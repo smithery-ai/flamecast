@@ -39,6 +39,7 @@ import {
   SettingsIcon,
   SquareIcon,
   TerminalIcon,
+  TerminalSquareIcon,
   Trash2Icon,
 } from "lucide-react";
 import { useState } from "react";
@@ -47,6 +48,7 @@ import { useBackendUrl } from "@/lib/backend-url-context";
 import { isDeveloperPreview } from "@/lib/developer-preview";
 import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 import type { Session } from "@flamecast/protocol/session";
+import { useTerminalTabs } from "@/lib/terminal-tabs-context";
 
 export function SessionsSidebar() {
   const { activeRuntimeTypeName, activeRuntimeInstanceName, activeSessionId } = useRouterState({
@@ -85,6 +87,8 @@ export function SessionsSidebar() {
   const { data: sessions, isLoading: isSessionsLoading } = useSessions();
   const activeSessions = sessions?.filter((s) => s.status === "active") ?? [];
   const previousSessions = sessions?.filter((s) => s.status === "killed") ?? [];
+  const { terminalTabs, activeTerminalTabId, focusTerminalTab, closeTerminalTab } =
+    useTerminalTabs();
 
   return (
     <Sidebar>
@@ -148,6 +152,52 @@ export function SessionsSidebar() {
                     />
                   ))
                 )}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {terminalTabs.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Terminals</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {terminalTabs.map((term) => (
+                  <SidebarMenuItem key={term.id}>
+                    <SidebarMenuButton
+                      className="h-auto items-start py-1.5"
+                      isActive={activeTerminalTabId === term.id}
+                      onClick={() => focusTerminalTab(term.id)}
+                    >
+                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <TerminalSquareIcon className="size-3 shrink-0 text-muted-foreground" />
+                          <span className="truncate text-xs font-medium leading-tight">
+                            Terminal
+                          </span>
+                        </div>
+                        {term.cwd && (
+                          <div className="flex min-w-0 items-center gap-1 text-[10px] leading-tight text-muted-foreground">
+                            <FolderIcon className="size-2.5 shrink-0" />
+                            <span className="truncate">{shortenPath(term.cwd)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </SidebarMenuButton>
+                    <SidebarMenuAction
+                      showOnHover
+                      title="Close terminal"
+                      className="z-10 !top-1/2 right-1 !-translate-y-1/2 size-7 cursor-pointer rounded-md hover:bg-muted"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        closeTerminalTab(term.id);
+                      }}
+                    >
+                      <Trash2Icon className="size-3.5 shrink-0" />
+                    </SidebarMenuAction>
+                  </SidebarMenuItem>
+                ))}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

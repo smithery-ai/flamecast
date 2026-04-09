@@ -1,13 +1,12 @@
 import {
   useSessionState,
   useRuntimeFileSystem,
-  useTerminal,
   useRuntimeWebSocket,
   useFlamecastClient,
   useIsMobile,
 } from "@flamecast/ui";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,10 +16,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { RuntimeFileTree } from "@/components/runtime-file-tree";
 import { RuntimeFileTab } from "@/components/runtime-file-tab";
-import { TerminalPanel } from "@/components/terminal-panel";
 import { Streamdown } from "streamdown";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
-import { ChevronDownIcon, LoaderCircleIcon, GripHorizontalIcon } from "lucide-react";
+import { ChevronDownIcon, LoaderCircleIcon } from "lucide-react";
 import { SlashCommandInput } from "@/components/slash-command-input";
 
 export function RuntimeSessionTab({
@@ -30,6 +28,7 @@ export function RuntimeSessionTab({
   cwd,
   initialPrompt,
   onOpenFileTab,
+  onOpenTerminal,
 }: {
   sessionId: string;
   instanceName: string;
@@ -38,6 +37,7 @@ export function RuntimeSessionTab({
   cwd?: string;
   initialPrompt?: string;
   onOpenFileTab?: (filePath: string) => void;
+  onOpenTerminal?: (terminalCwd: string) => void;
 }) {
   const client = useFlamecastClient();
 
@@ -74,12 +74,6 @@ export function RuntimeSessionTab({
     showAllFiles,
     path: fsPath,
   });
-
-  // Session-scoped terminal (shares the runtime WebSocket)
-  const { terminals, sendInput, resize, onData, createTerminal, killTerminal } = useTerminal(
-    ws,
-    runtimeWebsocketUrl,
-  );
 
   // Inline file preview for files opened from session file tree
   const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);
@@ -132,17 +126,7 @@ export function RuntimeSessionTab({
       onShowAllFilesChange={setShowAllFiles}
       onFileSelect={handleFileSelect}
       onNavigate={setFsPath}
-    />
-  );
-
-  const terminalContent = (
-    <TerminalPanel
-      terminals={terminals}
-      sendInput={sendInput}
-      resize={resize}
-      onData={onData}
-      onCreateTerminal={() => createTerminal()}
-      onRemoveTerminal={killTerminal}
+      onOpenTerminal={onOpenTerminal}
     />
   );
 
@@ -170,7 +154,6 @@ export function RuntimeSessionTab({
     return (
       <MobileSessionLayout
         filesystemContent={filesystemContent}
-        terminalContent={terminalContent}
         fetchCommands={fetchCommands}
         prompt={prompt}
         isProcessing={isProcessing}
@@ -196,9 +179,9 @@ export function RuntimeSessionTab({
 
       <ResizableHandle />
 
-      {/* Right: Filesystem + Terminal (session-scoped) */}
+      {/* Right: Filesystem */}
       <ResizablePanel defaultSize={35} minSize={20}>
-        <VerticalSplitPanel topContent={filesystemContent} bottomContent={terminalContent} />
+        <div className="flex h-full flex-col border-l overflow-hidden">{filesystemContent}</div>
       </ResizablePanel>
     </ResizablePanelGroup>
   );
@@ -252,7 +235,6 @@ function FilesystemSkeleton() {
  */
 function MobileSessionLayout({
   filesystemContent,
-  terminalContent,
   fetchCommands,
   prompt,
   isProcessing,
@@ -267,7 +249,6 @@ function MobileSessionLayout({
   session,
 }: {
   filesystemContent: ReactNode;
-  terminalContent: ReactNode;
   fetchCommands: () => Promise<{ name: string; description: string }[]>;
   prompt: (text: string) => void;
   isProcessing: boolean;
@@ -315,9 +296,6 @@ function MobileSessionLayout({
           </TabsTrigger>
           <TabsTrigger value="files" className="text-xs px-2 py-0.5">
             Files
-          </TabsTrigger>
-          <TabsTrigger value="terminal" className="text-xs px-2 py-0.5">
-            Terminal
           </TabsTrigger>
         </TabsList>
       </div>
@@ -460,10 +438,6 @@ function MobileSessionLayout({
 
       <TabsContent value="files" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
         {filesystemContent}
-      </TabsContent>
-
-      <TabsContent value="terminal" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
-        {terminalContent}
       </TabsContent>
 
       <div className="flex shrink-0 items-center gap-2 border-t px-3 py-2">
@@ -732,69 +706,5 @@ function ScrollToBottomFab() {
     >
       <ChevronDownIcon />
     </Button>
-  );
-}
-
-// ─── Vertical Split Panel ────────────────────────────────────────────────────
-
-function VerticalSplitPanel({
-  topContent,
-  bottomContent,
-  defaultTopPercent = 55,
-}: {
-  topContent: ReactNode;
-  bottomContent: ReactNode;
-  defaultTopPercent?: number;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [topPercent, setTopPercent] = useState(defaultTopPercent);
-  const draggingRef = useRef(false);
-
-  const handleMouseDown = useCallback((e: ReactMouseEvent) => {
-    e.preventDefault();
-    draggingRef.current = true;
-
-    const onMouseMove = (ev: globalThis.MouseEvent) => {
-      if (!draggingRef.current || !containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const y = ev.clientY - rect.top;
-      const pct = Math.min(Math.max((y / rect.height) * 100, 15), 85);
-      setTopPercent(pct);
-      window.dispatchEvent(new Event("resize"));
-    };
-
-    const onMouseUp = () => {
-      draggingRef.current = false;
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      window.dispatchEvent(new Event("resize"));
-    };
-
-    document.body.style.cursor = "row-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
-  }, []);
-
-  return (
-    <div ref={containerRef} className="flex h-full flex-col border-l overflow-hidden">
-      {/* Top section */}
-      <div className="flex min-h-0 flex-col overflow-hidden" style={{ height: `${topPercent}%` }}>
-        {topContent}
-      </div>
-
-      {/* Drag handle */}
-      <div
-        className="flex h-2 shrink-0 cursor-row-resize items-center justify-center border-y bg-muted/30 hover:bg-muted/60 transition-colors"
-        onMouseDown={handleMouseDown}
-      >
-        <GripHorizontalIcon className="size-3 text-muted-foreground" />
-      </div>
-
-      {/* Bottom section */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{bottomContent}</div>
-    </div>
   );
 }

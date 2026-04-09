@@ -22,7 +22,11 @@ type TerminalDataListener = (data: string) => void;
  * instance level. The hook subscribes to the "terminals" channel on the
  * shared runtime WebSocket.
  */
-export function useTerminal(ws: RuntimeWebSocketHandle, websocketUrl?: string) {
+export function useTerminal(
+  ws: RuntimeWebSocketHandle,
+  websocketUrl?: string,
+  options?: { autoCreate?: { sessionId?: string; cwd?: string } },
+) {
   const [terminals, setTerminals] = useState<TerminalSession[]>([]);
   const listenersRef = useRef<Map<string, Set<TerminalDataListener>>>(new Map());
   const queuedMessagesRef = useRef<WsChannelControlMessage[]>([]);
@@ -49,6 +53,15 @@ export function useTerminal(ws: RuntimeWebSocketHandle, websocketUrl?: string) {
           wsSend(pending);
         }
         queuedMessagesRef.current = [];
+        // Auto-create a terminal on subscribe if requested
+        if (options?.autoCreate) {
+          const createMsg: WsChannelControlMessage = {
+            action: "terminal.create",
+            sessionId: options.autoCreate.sessionId,
+            cwd: options.autoCreate.cwd,
+          };
+          wsSend(createMsg);
+        }
         return;
       }
 
@@ -88,7 +101,7 @@ export function useTerminal(ws: RuntimeWebSocketHandle, websocketUrl?: string) {
       subscribedRef.current = false;
       unsubscribe();
     };
-  }, [websocketUrl, subscribe, wsSend]);
+  }, [websocketUrl, subscribe, wsSend, options?.autoCreate?.sessionId, options?.autoCreate?.cwd]);
 
   const sendOrQueue = useCallback(
     (message: WsChannelControlMessage) => {
@@ -139,10 +152,12 @@ export function useTerminal(ws: RuntimeWebSocketHandle, websocketUrl?: string) {
   }, []);
 
   const createTerminal = useCallback(
-    (command?: string) => {
+    (opts?: { command?: string; sessionId?: string; cwd?: string }) => {
       const msg: WsChannelControlMessage = {
         action: "terminal.create",
-        data: command,
+        data: opts?.command,
+        sessionId: opts?.sessionId,
+        cwd: opts?.cwd,
       };
       sendOrQueue(msg);
     },
