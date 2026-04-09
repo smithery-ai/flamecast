@@ -1,6 +1,8 @@
+import React from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   useRuntimes,
+  useSessions,
   useStartRuntime,
   useStopRuntime,
   usePauseRuntime,
@@ -25,6 +27,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import {
   CheckIcon,
   LoaderCircleIcon,
+  MessageSquareIcon,
   PauseIcon,
   PlayIcon,
   PlusIcon,
@@ -39,6 +42,7 @@ import { toast } from "sonner";
 import { useBackendUrl } from "@/lib/backend-url-context";
 import { isDeveloperPreview } from "@/lib/developer-preview";
 import type { RuntimeInfo } from "@flamecast/protocol/runtime";
+import type { Session } from "@flamecast/protocol/session";
 
 export function SessionsSidebar() {
   const { activeRuntimeTypeName, activeRuntimeInstanceName } = useRouterState({
@@ -57,6 +61,8 @@ export function SessionsSidebar() {
     },
   });
   const { data: runtimes, isLoading: isRuntimesLoading } = useRuntimes();
+  const { data: sessions } = useSessions();
+  const activeSessions = sessions?.filter((s) => s.status === "active") ?? [];
 
   return (
     <Sidebar>
@@ -109,6 +115,7 @@ export function SessionsSidebar() {
                       runtime={rt}
                       activeTypeName={activeRuntimeTypeName}
                       activeInstanceName={activeRuntimeInstanceName}
+                      sessions={activeSessions}
                     />
                   ))
                 )}
@@ -128,10 +135,12 @@ function RuntimeTypeItem({
   runtime,
   activeTypeName,
   activeInstanceName,
+  sessions,
 }: {
   runtime: RuntimeInfo;
   activeTypeName?: string;
   activeInstanceName?: string;
+  sessions: Session[];
 }) {
   const navigate = useNavigate();
   const [newInstanceName, setNewInstanceName] = useState("");
@@ -179,11 +188,12 @@ function RuntimeTypeItem({
 
   const isActiveType = activeTypeName === runtime.typeName;
 
-  const navigateToRuntime = (typeName: string, instanceName?: string) => {
+  const navigateToRuntime = (typeName: string, instanceName?: string, sessionId?: string) => {
     if (instanceName) {
       void navigate({
         to: "/runtimes/$typeName/$instanceName",
         params: { typeName, instanceName },
+        search: sessionId ? { sessionId } : {},
       });
     } else {
       void navigate({
@@ -194,15 +204,30 @@ function RuntimeTypeItem({
   };
 
   if (runtime.onlyOne) {
+    const instanceName = runtime.instances[0]?.name ?? runtime.typeName;
+    const runtimeSessions = sessions.filter((s) => s.runtime === instanceName);
     return (
-      <SidebarMenuItem>
-        <SidebarMenuButton
-          isActive={isActiveType}
-          onClick={() => navigateToRuntime(runtime.typeName)}
-        >
-          <span className="truncate font-medium">{runtime.typeName}</span>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
+      <>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            isActive={isActiveType}
+            onClick={() => navigateToRuntime(runtime.typeName)}
+          >
+            <span className="truncate font-medium">{runtime.typeName}</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        {runtimeSessions.map((session) => (
+          <SidebarMenuItem key={session.id}>
+            <SidebarMenuButton
+              className="pl-6 text-xs"
+              onClick={() => navigateToRuntime(runtime.typeName, instanceName, session.id)}
+            >
+              <MessageSquareIcon className="size-3 shrink-0 text-muted-foreground" />
+              <span className="truncate">{session.agentName}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ))}
+      </>
     );
   }
 
@@ -276,111 +301,125 @@ function RuntimeTypeItem({
       {runtime.instances.map((instance) => {
         const isThisPending = pendingInstance === instance.name && isBusy;
         const isDeleting = isThisPending && deleteMutation.isPending;
+        const instanceSessions = sessions.filter((s) => s.runtime === instance.name);
         return (
-          <SidebarMenuItem key={instance.name}>
-            <SidebarMenuButton
-              className="pl-6 text-sm"
-              isActive={isActiveType && activeInstanceName === instance.name}
-              onClick={() => navigateToRuntime(runtime.typeName, instance.name)}
-              disabled={isDeleting}
-            >
-              <span className={cn("truncate", isDeleting && "opacity-50")}>{instance.name}</span>
-              {isDeleting ? (
-                <span className="ml-auto shrink-0 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none bg-red-500/15 text-red-700 dark:text-red-400">
-                  <LoaderCircleIcon className="size-3 animate-spin" />
-                  deleting
+          <React.Fragment key={instance.name}>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className="pl-6 text-sm"
+                isActive={isActiveType && activeInstanceName === instance.name}
+                onClick={() => navigateToRuntime(runtime.typeName, instance.name)}
+                disabled={isDeleting}
+              >
+                <span className={cn("truncate", isDeleting && "opacity-50")}>{instance.name}</span>
+                {isDeleting ? (
+                  <span className="ml-auto shrink-0 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none bg-red-500/15 text-red-700 dark:text-red-400">
+                    <LoaderCircleIcon className="size-3 animate-spin" />
+                    deleting
+                  </span>
+                ) : (
+                  <span
+                    className={cn(
+                      "ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none",
+                      instance.status === "running"
+                        ? "bg-green-500/15 text-green-700 dark:text-green-400"
+                        : instance.status === "paused"
+                          ? "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400"
+                          : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {instance.status}
+                  </span>
+                )}
+              </SidebarMenuButton>
+              {isDeleting ? null : instance.status === "running" ? (
+                <span className="absolute right-0.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100">
+                  <button
+                    type="button"
+                    title="Pause instance"
+                    disabled={isBusy}
+                    className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      pauseMutation.mutate(instance.name);
+                    }}
+                  >
+                    {isThisPending && pauseMutation.isPending ? (
+                      <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
+                    ) : (
+                      <PauseIcon className="size-3.5 shrink-0" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    title="Stop instance"
+                    disabled={isBusy}
+                    className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      stopMutation.mutate(instance.name);
+                    }}
+                  >
+                    {isThisPending && stopMutation.isPending ? (
+                      <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
+                    ) : (
+                      <SquareIcon className="size-3.5 shrink-0" />
+                    )}
+                  </button>
                 </span>
               ) : (
-                <span
-                  className={cn(
-                    "ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none",
-                    instance.status === "running"
-                      ? "bg-green-500/15 text-green-700 dark:text-green-400"
-                      : instance.status === "paused"
-                        ? "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400"
-                        : "bg-muted text-muted-foreground",
-                  )}
-                >
-                  {instance.status}
+                <span className="absolute right-0.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100">
+                  <button
+                    type="button"
+                    title="Resume instance"
+                    disabled={isBusy}
+                    className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      startMutation.mutate({ typeName: runtime.typeName, name: instance.name });
+                    }}
+                  >
+                    {isThisPending && startMutation.isPending ? (
+                      <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
+                    ) : (
+                      <PlayIcon className="size-3.5 shrink-0" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    title="Delete instance"
+                    disabled={isBusy}
+                    className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      deleteMutation.mutate(instance.name);
+                    }}
+                  >
+                    {isThisPending && deleteMutation.isPending ? (
+                      <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
+                    ) : (
+                      <Trash2Icon className="size-3.5 shrink-0" />
+                    )}
+                  </button>
                 </span>
               )}
-            </SidebarMenuButton>
-            {isDeleting ? null : instance.status === "running" ? (
-              <span className="absolute right-0.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100">
-                <button
-                  type="button"
-                  title="Pause instance"
-                  disabled={isBusy}
-                  className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    pauseMutation.mutate(instance.name);
-                  }}
+            </SidebarMenuItem>
+            {instanceSessions.map((session) => (
+              <SidebarMenuItem key={session.id}>
+                <SidebarMenuButton
+                  className="pl-10 text-xs"
+                  onClick={() => navigateToRuntime(runtime.typeName, instance.name, session.id)}
                 >
-                  {isThisPending && pauseMutation.isPending ? (
-                    <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
-                  ) : (
-                    <PauseIcon className="size-3.5 shrink-0" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  title="Stop instance"
-                  disabled={isBusy}
-                  className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    stopMutation.mutate(instance.name);
-                  }}
-                >
-                  {isThisPending && stopMutation.isPending ? (
-                    <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
-                  ) : (
-                    <SquareIcon className="size-3.5 shrink-0" />
-                  )}
-                </button>
-              </span>
-            ) : (
-              <span className="absolute right-0.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100">
-                <button
-                  type="button"
-                  title="Resume instance"
-                  disabled={isBusy}
-                  className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    startMutation.mutate({ typeName: runtime.typeName, name: instance.name });
-                  }}
-                >
-                  {isThisPending && startMutation.isPending ? (
-                    <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
-                  ) : (
-                    <PlayIcon className="size-3.5 shrink-0" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  title="Delete instance"
-                  disabled={isBusy}
-                  className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    deleteMutation.mutate(instance.name);
-                  }}
-                >
-                  {isThisPending && deleteMutation.isPending ? (
-                    <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin" />
-                  ) : (
-                    <Trash2Icon className="size-3.5 shrink-0" />
-                  )}
-                </button>
-              </span>
-            )}
-          </SidebarMenuItem>
+                  <MessageSquareIcon className="size-3 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{session.agentName}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </React.Fragment>
         );
       })}
     </>

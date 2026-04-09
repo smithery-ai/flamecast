@@ -29,6 +29,9 @@ import type { RuntimeInfo, RuntimeInstance } from "@flamecast/protocol/runtime";
 
 export const Route = createFileRoute("/runtimes/$typeName/$instanceName")({
   component: RuntimeInstancePage,
+  validateSearch: (search: Record<string, unknown>) => ({
+    sessionId: typeof search.sessionId === "string" ? search.sessionId : undefined,
+  }),
 });
 
 // ─── Tab Types ───────────────────────────────────────────────────────────────
@@ -51,6 +54,7 @@ function fileNameFromPath(path: string) {
 
 function RuntimeInstancePage() {
   const { typeName, instanceName } = Route.useParams();
+  const { sessionId: searchSessionId } = Route.useSearch();
   const { data: runtimes } = useRuntimes();
 
   const runtimeInfo = runtimes?.find((rt) => rt.typeName === typeName);
@@ -77,7 +81,7 @@ function RuntimeInstancePage() {
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-      <RuntimeDetailPanel runtimeInfo={runtimeInfo} instance={instance} />
+      <RuntimeDetailPanel runtimeInfo={runtimeInfo} instance={instance} focusSessionId={searchSessionId} />
     </div>
   );
 }
@@ -87,9 +91,11 @@ function RuntimeInstancePage() {
 function RuntimeDetailPanel({
   runtimeInfo,
   instance,
+  focusSessionId,
 }: {
   runtimeInfo: RuntimeInfo;
   instance: RuntimeInstance;
+  focusSessionId?: string;
 }) {
   const client = useFlamecastClient();
   const isRunning = instance.status === "running";
@@ -115,8 +121,20 @@ function RuntimeDetailPanel({
       label: s.agentName,
     }));
     setTabs(sessionTabs);
-    setActiveTabId(sessionTabs[0].id);
-  }, [sessions, instance.name]);
+    const focusTab = focusSessionId
+      ? sessionTabs.find((t) => t.type === "session" && t.sessionId === focusSessionId)
+      : undefined;
+    setActiveTabId((focusTab ?? sessionTabs[0]).id);
+  }, [sessions, instance.name, focusSessionId]);
+
+  // When focusSessionId changes after hydration, switch to that tab
+  useEffect(() => {
+    if (!focusSessionId || !hydratedRef.current) return;
+    const existing = tabs.find((t) => t.type === "session" && t.sessionId === focusSessionId);
+    if (existing) {
+      setActiveTabId(existing.id);
+    }
+  }, [focusSessionId, tabs]);
 
   const navigate = useNavigate();
   const terminateMutation = useTerminateSession();
