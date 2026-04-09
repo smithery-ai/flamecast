@@ -50,14 +50,9 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
   const response = await fetch(targetUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      text: prompt,
-      // null agentTemplateId = use the instance's default agent
-      agentTemplateId: null,
-      runtime: "",
-      agent: "",
-      directory: null,
-    }),
+    // Omitted runtime/agent/agentTemplateId — server resolves defaults
+    // (first runtime + first matching agent template, same as landing page)
+    body: JSON.stringify({ text: prompt }),
   });
 
   if (!response.ok) {
