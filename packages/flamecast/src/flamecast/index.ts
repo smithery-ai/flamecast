@@ -214,6 +214,19 @@ export class Flamecast<
   }
 
   /**
+   * Return the WebSocket URL of the first runtime that exposes one.
+   * Used by `listen()` to proxy WebSocket upgrade requests to the session-host.
+   * @internal
+   */
+  getWebsocketTarget(): string | undefined {
+    for (const runtime of Object.values(this.runtimesMap)) {
+      const url = runtime.getWebsocketUrl?.("");
+      if (url) return url;
+    }
+    return undefined;
+  }
+
+  /**
    * Graceful close — tears down in-process resources (webhook retries, event
    * bus) without terminating running sessions or disposing runtimes.
    *

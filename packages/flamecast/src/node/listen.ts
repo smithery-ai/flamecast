@@ -9,6 +9,9 @@ import { serve as honoServe } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { AddressInfo } from "node:net";
+import { createConnection } from "node:net";
+import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
 import type { Flamecast } from "../flamecast/index.js";
 
 export type ListenOptions = {
@@ -61,6 +64,41 @@ export function listen(
   }
 
   const server = honoServe({ fetch: fetchFn, port: options.port }, listeningListener);
+
+  // Proxy WebSocket upgrades to the session-host so clients can connect
+  // through the API server rather than directly to the runtime port.
+  server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    const wsUrl = flamecast.getWebsocketTarget();
+    if (!wsUrl) {
+      socket.destroy();
+      return;
+    }
+
+    const target = new URL(wsUrl);
+    const upstream = createConnection(
+      { host: target.hostname, port: Number(target.port) },
+      () => {
+        const path = req.url ?? "/";
+        const headers = [`GET ${path} HTTP/1.1`];
+        for (let i = 0; i < req.rawHeaders.length; i += 2) {
+          const key = req.rawHeaders[i];
+          if (key.toLowerCase() === "host") {
+            headers.push(`Host: ${target.host}`);
+          } else {
+            headers.push(`${key}: ${req.rawHeaders[i + 1]}`);
+          }
+        }
+        upstream.write(headers.join("\r\n") + "\r\n\r\n");
+        if (head.length > 0) upstream.write(head);
+
+        upstream.pipe(socket);
+        socket.pipe(upstream);
+      },
+    );
+
+    upstream.on("error", () => socket.destroy());
+    socket.on("error", () => upstream.destroy());
+  });
 
   // Recover previously-active sessions so the HTTP control plane can resume
   // proxying requests after a server restart. Runtime WebSockets are direct,
