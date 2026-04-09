@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   WsChannelControlMessage,
-  WsChannelServerMessage,
 } from "@flamecast/protocol/ws/channels";
 import {
-  dismissSessionTerminal,
-  loadDismissedSessionTerminals,
+  dismissRuntimeTerminal,
+  loadDismissedRuntimeTerminals,
   reduceRuntimeTerminalSessions,
   type RuntimeTerminalSession,
 } from "../lib/runtime-terminal-state.js";
@@ -15,31 +14,33 @@ export type TerminalSession = RuntimeTerminalSession;
 type TerminalDataListener = (data: string) => void;
 
 /**
- * Hook that manages session-scoped terminal sessions.
+ * Hook that manages terminal sessions scoped to this component instance.
  *
- * Terminals are scoped to the given agent session. The hook subscribes to the
- * `session:<sessionId>:terminal` channel on the runtime-host WebSocket so each
- * session only sees its own terminals.
+ * Instead of subscribing to the runtime-wide "terminals" channel (which would
+ * leak terminals across sessions), the hook:
+ *   1. Sends `terminal.create` and waits for a direct `terminal.created`
+ *      response containing the assigned `terminalId`.
+ *   2. Subscribes to `terminals:<terminalId>` for each terminal it owns.
+ *
+ * This ensures each session tab only sees the terminals it created.
  */
-export function useTerminal(websocketUrl?: string, sessionId?: string) {
+export function useTerminal(websocketUrl?: string) {
   const [terminals, setTerminals] = useState<TerminalSession[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const listenersRef = useRef<Map<string, Set<TerminalDataListener>>>(new Map());
   const queuedMessagesRef = useRef<WsChannelControlMessage[]>([]);
-  const subscribedRef = useRef(false);
+  const connectedRef = useRef(false);
+  const ownedTerminalIdsRef = useRef<Set<string>>(new Set());
   const dismissedTerminalIdsRef = useRef<Set<string>>(new Set());
-
-  // The channel to subscribe to — session-scoped when sessionId is available,
-  // otherwise falls back to the legacy runtime-level "terminals" channel.
-  const channel = sessionId ? `session:${sessionId}:terminal` : "terminals";
 
   useEffect(() => {
     let disposed = false;
     setTerminals([]);
     listenersRef.current = new Map();
     queuedMessagesRef.current = [];
-    subscribedRef.current = false;
-    dismissedTerminalIdsRef.current = loadDismissedSessionTerminals(sessionId);
+    connectedRef.current = false;
+    ownedTerminalIdsRef.current = new Set();
+    dismissedTerminalIdsRef.current = loadDismissedRuntimeTerminals(websocketUrl);
 
     if (!websocketUrl)
       return () => {
@@ -52,23 +53,39 @@ export function useTerminal(websocketUrl?: string, sessionId?: string) {
     ws.onmessage = (event) => {
       if (disposed) return;
       try {
-        const message: WsChannelServerMessage = JSON.parse(String(event.data));
+        const message = JSON.parse(String(event.data));
 
         if (message.type === "connected") {
-          const subscribeMsg: WsChannelControlMessage = {
-            action: "subscribe",
-            channel,
-          };
-          ws.send(JSON.stringify(subscribeMsg));
-          return;
-        }
-
-        if (message.type === "subscribed" && message.channel === channel) {
-          subscribedRef.current = true;
+          connectedRef.current = true;
+          // Flush queued control messages (terminal.create, input, resize, etc.)
           for (const pending of queuedMessagesRef.current) {
             ws.send(JSON.stringify(pending));
           }
           queuedMessagesRef.current = [];
+          return;
+        }
+
+        // Direct response from the server after terminal.create — tells us the
+        // assigned terminalId so we can subscribe to its channel.
+        if (message.type === "terminal.created") {
+          const terminalId = message.terminalId;
+          if (typeof terminalId === "string") {
+            ownedTerminalIdsRef.current.add(terminalId);
+            // Subscribe to terminal-specific channel (replay from seq 0 to
+            // catch the terminal.started event that may already be published).
+            ws.send(
+              JSON.stringify({
+                action: "subscribe",
+                channel: `terminals:${terminalId}`,
+                since: 0,
+              }),
+            );
+          }
+          return;
+        }
+
+        // Channel subscription acknowledgments — no action needed.
+        if (message.type === "subscribed" || message.type === "unsubscribed") {
           return;
         }
 
@@ -77,6 +94,9 @@ export function useTerminal(websocketUrl?: string, sessionId?: string) {
         const { type: eventType, data } = message.event;
         const terminalId = typeof data.terminalId === "string" ? data.terminalId : undefined;
         if (!terminalId) return;
+
+        // Only process events for terminals this hook instance owns.
+        if (!ownedTerminalIdsRef.current.has(terminalId)) return;
 
         if (eventType === "terminal.data") {
           const chunk = typeof data.data === "string" ? data.data : "";
@@ -108,7 +128,7 @@ export function useTerminal(websocketUrl?: string, sessionId?: string) {
     };
 
     ws.onclose = () => {
-      subscribedRef.current = false;
+      connectedRef.current = false;
       if (wsRef.current === ws) wsRef.current = null;
     };
 
@@ -117,12 +137,12 @@ export function useTerminal(websocketUrl?: string, sessionId?: string) {
       wsRef.current = null;
       ws.close();
     };
-  }, [websocketUrl, channel, sessionId]);
+  }, [websocketUrl]);
 
   const sendOrQueue = useCallback((message: WsChannelControlMessage) => {
     const ws = wsRef.current;
     if (!ws) return;
-    if (ws.readyState !== WebSocket.OPEN || !subscribedRef.current) {
+    if (ws.readyState !== WebSocket.OPEN || !connectedRef.current) {
       queuedMessagesRef.current.push(message);
       return;
     }
@@ -170,18 +190,18 @@ export function useTerminal(websocketUrl?: string, sessionId?: string) {
     (command?: string) => {
       const msg: WsChannelControlMessage = {
         action: "terminal.create",
-        sessionId,
         data: command,
       };
       sendOrQueue(msg);
     },
-    [sendOrQueue, sessionId],
+    [sendOrQueue],
   );
 
   const killTerminal = useCallback(
     (terminalId: string) => {
+      ownedTerminalIdsRef.current.delete(terminalId);
       dismissedTerminalIdsRef.current.add(terminalId);
-      dismissSessionTerminal(sessionId, terminalId);
+      dismissRuntimeTerminal(websocketUrl, terminalId);
       const msg: WsChannelControlMessage = {
         action: "terminal.kill",
         terminalId,
@@ -189,7 +209,7 @@ export function useTerminal(websocketUrl?: string, sessionId?: string) {
       sendOrQueue(msg);
       setTerminals((prev) => prev.filter((t) => t.terminalId !== terminalId));
     },
-    [sendOrQueue, sessionId],
+    [sendOrQueue, websocketUrl],
   );
 
   const activeTerminal = useMemo(() => {

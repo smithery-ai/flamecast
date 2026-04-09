@@ -315,28 +315,14 @@ func generateClientID(n int) string {
 	return "ws-" + string(rune('0'+n/100%10)) + string(rune('0'+n/10%10)) + string(rune('0'+n%10))
 }
 
-// PublishTerminalEvent broadcasts a terminal event. When sessionID is non-empty
-// the event is routed to session-scoped channels (session:<id>:terminal); when
-// empty it falls back to the runtime-level "terminals" channel.
-func (h *Hub) PublishTerminalEvent(sessionID string, eventType string, data map[string]any, timestamp string) int64 {
+// PublishTerminalEvent broadcasts a runtime-level terminal event to clients
+// subscribed to "terminals" or "terminals:{terminalId}".
+func (h *Hub) PublishTerminalEvent(eventType string, data map[string]any, timestamp string) int64 {
 	terminalID, _ := data["terminalId"].(string)
 
-	var channels []string
-	if sessionID != "" {
-		// Session-scoped terminal channels (mirrors eventToChannels)
-		if terminalID != "" {
-			channels = append(channels, "session:"+sessionID+":terminal:"+terminalID)
-		}
-		channels = append(channels, "session:"+sessionID+":terminal")
-		channels = append(channels, "session:"+sessionID)
-		channels = append(channels, "agent:"+sessionID) // 1:1 model
-		channels = append(channels, "agents")
-	} else {
-		// Runtime-level (no session)
-		if terminalID != "" {
-			channels = append(channels, "terminals:"+terminalID)
-		}
-		channels = append(channels, "terminals")
+	channels := []string{"terminals"}
+	if terminalID != "" {
+		channels = append([]string{"terminals:" + terminalID}, channels...)
 	}
 
 	primaryChannel := channels[0]
@@ -352,31 +338,21 @@ func (h *Hub) PublishTerminalEvent(sessionID string, eventType string, data map[
 			"timestamp": timestamp,
 		},
 	}
-	if sessionID != "" {
-		msg["sessionId"] = sessionID
-		msg["agentId"] = sessionID
-	}
 	raw, _ := json.Marshal(msg)
 
 	evt := ChannelEvent{
-		Seq:       seq,
-		SessionID: sessionID,
-		AgentID:   sessionID,
-		Channel:   primaryChannel,
-		Channels:  channels,
-		Raw:       raw,
+		Seq:      seq,
+		Channel:  primaryChannel,
+		Channels: channels,
+		Raw:      raw,
 	}
 
-	// Store in the appropriate event log
-	logKey := "__terminals__"
-	if sessionID != "" {
-		logKey = sessionID
-	}
+	// Store in a "terminals" event log
 	h.mu.Lock()
-	log := h.eventLogs[logKey]
+	log := h.eventLogs["__terminals__"]
 	if log == nil {
 		log = &eventLog{cap: defaultEventLogCap}
-		h.eventLogs[logKey] = log
+		h.eventLogs["__terminals__"] = log
 	}
 	if len(log.events) >= log.cap {
 		drop := log.cap / 10

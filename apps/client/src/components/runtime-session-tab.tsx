@@ -71,9 +71,10 @@ export function RuntimeSessionTab({
     path: fsPath,
   });
 
-  // Session-scoped terminal (connects to the runtime instance, scoped to this session)
+  // Terminal panel — each tab instance tracks its own terminals via terminal-ID
+  // subscriptions, so tabs don't leak terminals into each other.
   const { terminals, sendInput, resize, onData, createTerminal, killTerminal } =
-    useTerminal(runtimeWebsocketUrl, sessionId);
+    useTerminal(runtimeWebsocketUrl);
 
   // Inline file preview for files opened from session file tree
   const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);
