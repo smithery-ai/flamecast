@@ -20,6 +20,7 @@ import {
   FolderOpenIcon,
   GitBranchIcon,
   RotateCcwIcon,
+  ShieldCheckIcon,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -40,6 +41,7 @@ function SettingsPage() {
         </div>
 
         <BackendUrlSection />
+        <PermissionsSection />
         <DefaultAgentConfigSection />
       </div>
     </div>
@@ -101,6 +103,44 @@ function BackendUrlSection() {
             </Button>
           )}
         </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Permissions ──────────────────────────────────────────────────────────────
+
+function PermissionsSection() {
+  const { config, updateConfig } = useDefaultAgentConfig();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Permissions</CardTitle>
+        <CardDescription>
+          Control how agent permission requests are handled.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2">
+              <ShieldCheckIcon className="size-4 text-muted-foreground" />
+              <Label htmlFor="auto-approve" className="text-sm font-medium">
+                Auto-approve permissions
+              </Label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Automatically approve all agent permission requests (file edits, command execution,
+              etc.) without prompting. Use with caution.
+            </p>
+          </div>
+          <Switch
+            id="auto-approve"
+            checked={config.autoApprovePermissions}
+            onCheckedChange={(checked) => updateConfig({ autoApprovePermissions: !!checked })}
+          />
+        </div>
       </CardContent>
     </Card>
   );
