@@ -501,11 +501,6 @@ function TerminalsSidebarSection({
                       </span>
                     )}
                   </div>
-                  {term.command && (
-                    <div className="flex min-w-0 items-center gap-1 text-[10px] leading-tight text-muted-foreground">
-                      <span className="truncate">{term.command}</span>
-                    </div>
-                  )}
                 </div>
               </SidebarMenuButton>
               <SidebarMenuAction
@@ -516,6 +511,13 @@ function TerminalsSidebarSection({
                   e.preventDefault();
                   e.stopPropagation();
                   killTerminal(term.terminalId);
+                  if (activeTerminalId === term.terminalId) {
+                    void navigate({
+                      to: "/runtimes/$typeName/$instanceName",
+                      params: { typeName, instanceName },
+                      search: {},
+                    });
+                  }
                 }}
               >
                 <Trash2Icon className="size-3.5 shrink-0" />
