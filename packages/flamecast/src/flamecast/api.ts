@@ -657,8 +657,23 @@ export function createApi(flamecast: FlamecastApi) {
             }
           }
 
+          // Auto-create a session when none is provided (mirrors landing page behavior)
+          let sessionId: string | null = body.sessionId ?? null;
+          if (!sessionId && agentTemplateId) {
+            const reqUrl = new URL(c.req.url);
+            const callbackUrl = `${reqUrl.protocol}//${reqUrl.host}/api`;
+            const session = await flamecast.createSession(
+              {
+                agentTemplateId,
+                cwd: body.directory ?? undefined,
+              },
+              { callbackUrl },
+            );
+            sessionId = session.id;
+          }
+
           const message = await flamecast.enqueueMessage({
-            sessionId: body.sessionId ?? null,
+            sessionId,
             text: body.text,
             runtime,
             agent,
