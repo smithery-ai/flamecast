@@ -101,12 +101,19 @@ export function useRuntimeWebSocket(websocketUrl?: string): RuntimeWebSocketHand
         if (disposed || wsRef.current !== ws) return;
 
         const rawMessage = String(event.data);
-        if (!rememberWsMessage(seenMessagesRef.current, rawMessage)) {
-          return;
-        }
 
         try {
           const message: WsChannelServerMessage = JSON.parse(rawMessage);
+
+          // Only deduplicate `event` messages (replay protection on reconnect).
+          // Protocol messages (connected, subscribed, pong, etc.) must always be
+          // processed — they are idempotent and may recur legitimately after
+          // reconnections or React Strict Mode effect re-runs.
+          if (message.type === "event") {
+            if (!rememberWsMessage(seenMessagesRef.current, rawMessage)) {
+              return;
+            }
+          }
 
           // On the "connected" handshake, (re-)subscribe all registered channels.
           if (message.type === "connected") {
