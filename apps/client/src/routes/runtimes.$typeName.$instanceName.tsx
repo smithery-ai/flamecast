@@ -157,7 +157,6 @@ function RuntimeDetailPanel({
     };
     setTabs((prev) => [...prev, tab]);
     setActiveTabId(tab.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusSessionId, sessions]);
 
   // Close tabs whose sessions are no longer active (e.g. terminated from sidebar)
