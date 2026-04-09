@@ -110,6 +110,14 @@ export function SessionsSidebar() {
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
+                  <Link to="/settings">
+                    <SettingsIcon className="size-4" />
+                    Settings
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
                   <Link to="/agents">
                     <TerminalIcon className="size-4" />
                     Agents
