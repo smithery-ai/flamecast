@@ -43,6 +43,8 @@ export async function handleEmail(message: ForwardableEmailMessage, env: Env): P
   // Enqueue to the linked Flamecast instance's message queue
   const targetUrl = `https://${domain}.flamecast.app/api/message-queue`;
 
+  console.log(`Enqueuing email from ${from} to ${targetUrl} with subject "${subject}", body "${body}", and prompt "${prompt}"`);
+
   const response = await fetch(targetUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
