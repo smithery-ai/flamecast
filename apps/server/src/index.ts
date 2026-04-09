@@ -25,13 +25,15 @@ const flamecast = new Flamecast({
   storage: await createPsqlStorage(url ? { url } : undefined),
   runtimes: {
     local: new NodeRuntime({ cwd: homedir() }),
-    ...(USE_NONLOCAL_RUNTIMES ? {
-      ...(agentJsRuntime ? { agentjs: agentJsRuntime } : {}),
-      docker: new DockerRuntime(),
-      ...(e2bApiKey
-        ? { e2b: new E2BRuntime({ apiKey: e2bApiKey, template: "flamecast-node22" }) }
-        : {}),
-    } : {}),
+    ...(USE_NONLOCAL_RUNTIMES
+      ? {
+          ...(agentJsRuntime ? { agentjs: agentJsRuntime } : {}),
+          docker: new DockerRuntime(),
+          ...(e2bApiKey
+            ? { e2b: new E2BRuntime({ apiKey: e2bApiKey, template: "flamecast-node22" }) }
+            : {}),
+        }
+      : {}),
   },
   agentTemplates: createAgentTemplates({
     dockerEnabled: USE_NONLOCAL_RUNTIMES,
