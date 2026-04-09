@@ -296,11 +296,10 @@ async function runServer(flags: UpFlags): Promise<number> {
 
   const storageOptions = resolveStorageFlags(flags);
   const isLocalDb = storageOptions.url === undefined;
-  const freshInstall = isLocalDb && !existsSync(join(process.cwd(), ".flamecast"));
   const bundle = await createDatabase(storageOptions);
 
   try {
-    if (freshInstall) {
+    if (isLocalDb) {
       await migrateDatabase(bundle);
     } else {
       await assertDatabaseReady(bundle);
