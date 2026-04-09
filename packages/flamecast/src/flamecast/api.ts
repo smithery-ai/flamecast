@@ -22,6 +22,8 @@ export type FlamecastApi = Pick<
   | "fetchSessionFilePreview"
   | "fetchSessionFileSystem"
   | "getSession"
+  | "getSessionAutoApprove"
+  | "setSessionAutoApprove"
   | "handleSessionEvent"
   | "listAgentTemplates"
   | "listRuntimes"
@@ -437,6 +439,22 @@ export function createApi(flamecast: FlamecastApi) {
           const msg = toErrorMessage(error);
           const status = msg.includes("not found") ? 404 : 500;
           return c.json({ error: msg }, status);
+        }
+      })
+      .get("/agents/:agentId/settings", (c) => {
+        const agentId = c.req.param("agentId");
+        return c.json({ autoApprovePermissions: flamecast.getSessionAutoApprove(agentId) });
+      })
+      .patch("/agents/:agentId/settings", async (c) => {
+        try {
+          const agentId = c.req.param("agentId");
+          const body = await c.req.json();
+          if (typeof body?.autoApprovePermissions === "boolean") {
+            flamecast.setSessionAutoApprove(agentId, body.autoApprovePermissions);
+          }
+          return c.json({ autoApprovePermissions: flamecast.getSessionAutoApprove(agentId) });
+        } catch (error) {
+          return c.json({ error: toErrorMessage(error) }, 400);
         }
       })
       .delete("/agents/:agentId", async (c) => {
