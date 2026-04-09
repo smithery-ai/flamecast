@@ -10,6 +10,8 @@ import {
   useRuntimeFileSystem,
   useTerminateSession,
   useMessageQueue,
+  useRuntimeWebSocket,
+  useTerminal,
 } from "@flamecast/ui";
 import { cn } from "@/lib/utils";
 import {
@@ -51,43 +53,82 @@ import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 import type { Session } from "@flamecast/protocol/session";
 
 export function SessionsSidebar() {
-  const { activeRuntimeTypeName, activeRuntimeInstanceName, activeSessionId } = useRouterState({
-    select: (s) => {
-      const runtimeMatch = s.matches.find(
-        (m) =>
-          m.routeId === "/runtimes/$typeName/$instanceName" || m.routeId === "/runtimes/$typeName",
-      );
-      const instanceMatch = s.matches.find(
-        (m) => m.routeId === "/runtimes/$typeName/$instanceName",
-      );
-      const search = instanceMatch?.search;
-      const sessionId =
-        typeof search === "object" &&
-        search !== null &&
-        "sessionId" in search &&
-        typeof search.sessionId === "string"
-          ? search.sessionId
-          : undefined;
+  const { activeRuntimeTypeName, activeRuntimeInstanceName, activeSessionId, activeTerminalId } =
+    useRouterState({
+      select: (s) => {
+        const runtimeMatch = s.matches.find(
+          (m) =>
+            m.routeId === "/runtimes/$typeName/$instanceName" ||
+            m.routeId === "/runtimes/$typeName",
+        );
+        const instanceMatch = s.matches.find(
+          (m) => m.routeId === "/runtimes/$typeName/$instanceName",
+        );
+        const search = instanceMatch?.search;
+        const sessionId =
+          typeof search === "object" &&
+          search !== null &&
+          "sessionId" in search &&
+          typeof search.sessionId === "string"
+            ? search.sessionId
+            : undefined;
 
-      // Also detect previous session view route
-      const sessionViewMatch = s.matches.find((m) => m.routeId === "/sessions/$sessionId");
-      const viewingSessionId =
-        typeof sessionViewMatch?.params.sessionId === "string"
-          ? sessionViewMatch.params.sessionId
-          : undefined;
+        const terminalId =
+          typeof search === "object" &&
+          search !== null &&
+          "terminalId" in search &&
+          typeof search.terminalId === "string"
+            ? search.terminalId
+            : undefined;
 
-      return {
-        activeRuntimeTypeName: runtimeMatch?.params.typeName,
-        activeRuntimeInstanceName: instanceMatch?.params.instanceName,
-        activeSessionId: sessionId ?? viewingSessionId,
-      };
-    },
-  });
+        // Also detect previous session view route
+        const sessionViewMatch = s.matches.find((m) => m.routeId === "/sessions/$sessionId");
+        const viewingSessionId =
+          typeof sessionViewMatch?.params.sessionId === "string"
+            ? sessionViewMatch.params.sessionId
+            : undefined;
+
+        return {
+          activeRuntimeTypeName: runtimeMatch?.params.typeName,
+          activeRuntimeInstanceName: instanceMatch?.params.instanceName,
+          activeSessionId: sessionId ?? viewingSessionId,
+          activeTerminalId: terminalId,
+        };
+      },
+    });
   const { data: runtimes, isLoading: isRuntimesLoading } = useRuntimes();
   const { data: sessions, isLoading: isSessionsLoading } = useSessions();
   const activeSessions = sessions?.filter((s) => s.status === "active") ?? [];
   const previousSessions = sessions?.filter((s) => s.status === "killed") ?? [];
   const { data: queue = [] } = useMessageQueue();
+
+  // Running runtime instances for terminal sidebar sections.
+  // For onlyOne runtimes, the instance name equals the type name and may or
+  // may not appear in rt.instances — include it if any instance is running OR
+  // if the runtime has a websocket-capable instance.
+  const runningInstances =
+    runtimes?.flatMap((rt) => {
+      const running = rt.instances
+        .filter((i) => i.status === "running")
+        .map((i) => ({
+          typeName: rt.typeName,
+          instanceName: i.name,
+          websocketUrl: i.websocketUrl,
+        }));
+      // For onlyOne runtimes with no explicit running instances, check if
+      // there's any instance at all (it auto-starts).
+      if (rt.onlyOne && running.length === 0 && rt.instances.length > 0) {
+        const inst = rt.instances[0];
+        if (inst.websocketUrl) {
+          running.push({
+            typeName: rt.typeName,
+            instanceName: inst.name,
+            websocketUrl: inst.websocketUrl,
+          });
+        }
+      }
+      return running;
+    }) ?? [];
 
   return (
     <Sidebar>
@@ -168,6 +209,18 @@ export function SessionsSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         )}
+
+        {runningInstances.map((item) => (
+          <TerminalsSidebarSection
+            key={item.instanceName}
+            typeName={item.typeName}
+            instanceName={item.instanceName}
+            websocketUrl={item.websocketUrl}
+            activeTerminalId={
+              activeRuntimeInstanceName === item.instanceName ? activeTerminalId : undefined
+            }
+          />
+        ))}
 
         {previousSessions.length > 0 && (
           <SidebarGroup>
@@ -347,6 +400,130 @@ function PreviousSessionItem({ session, isActive }: { session: Session; isActive
         </div>
       </SidebarMenuButton>
     </SidebarMenuItem>
+  );
+}
+
+/**
+ * Per-instance sidebar section that lists individual terminal sessions.
+ * Each instance uses its own useTerminal hook to track live terminals.
+ */
+function TerminalsSidebarSection({
+  typeName,
+  instanceName,
+  websocketUrl,
+  activeTerminalId,
+}: {
+  typeName: string;
+  instanceName: string;
+  websocketUrl?: string;
+  activeTerminalId?: string;
+}) {
+  const navigate = useNavigate();
+  const ws = useRuntimeWebSocket(websocketUrl);
+  const { terminals, createTerminal, killTerminal } = useTerminal(ws, websocketUrl);
+
+  // After creating a terminal, auto-navigate to it once it appears
+  const [pendingCreate, setPendingCreate] = useState(false);
+  const prevTerminalIdsRef = React.useRef(new Set(terminals.map((t) => t.terminalId)));
+
+  React.useEffect(() => {
+    if (!pendingCreate) {
+      prevTerminalIdsRef.current = new Set(terminals.map((t) => t.terminalId));
+      return;
+    }
+    const newTerminal = terminals.find((t) => !prevTerminalIdsRef.current.has(t.terminalId));
+    if (newTerminal) {
+      setPendingCreate(false);
+      prevTerminalIdsRef.current = new Set(terminals.map((t) => t.terminalId));
+      void navigate({
+        to: "/runtimes/$typeName/$instanceName",
+        params: { typeName, instanceName },
+        search: { terminalId: newTerminal.terminalId },
+      });
+    }
+  }, [terminals, pendingCreate, navigate, typeName, instanceName]);
+
+  const handleCreate = () => {
+    setPendingCreate(true);
+    createTerminal();
+  };
+
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel className="flex items-center justify-between pr-1">
+        Terminals
+        <button
+          type="button"
+          className="flex size-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer"
+          onClick={handleCreate}
+          title="New terminal"
+        >
+          <PlusIcon className="size-3.5" />
+        </button>
+      </SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {pendingCreate && terminals.length === 0 && (
+            <SidebarMenuItem>
+              <SidebarMenuButton className="h-auto items-start py-1.5" disabled>
+                <div className="flex items-center gap-1.5">
+                  <LoaderCircleIcon className="size-3 shrink-0 animate-spin text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Starting terminal...</span>
+                </div>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
+          {terminals.map((term, i) => (
+            <SidebarMenuItem key={term.terminalId}>
+              <SidebarMenuButton
+                className="h-auto items-start py-1.5"
+                isActive={activeTerminalId === term.terminalId}
+                onClick={() => {
+                  void navigate({
+                    to: "/runtimes/$typeName/$instanceName",
+                    params: { typeName, instanceName },
+                    search: { terminalId: term.terminalId },
+                  });
+                }}
+              >
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <TerminalIcon className="size-3 shrink-0" />
+                    <span className="truncate text-xs font-medium leading-tight">
+                      Terminal {i + 1}
+                    </span>
+                    {term.exitCode !== null && (
+                      <span className="text-[10px] text-muted-foreground">
+                        (exit {term.exitCode})
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </SidebarMenuButton>
+              <SidebarMenuAction
+                showOnHover
+                title="Remove terminal"
+                className="z-10 !top-1/2 right-1 !-translate-y-1/2 size-7 cursor-pointer rounded-md hover:bg-muted"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  killTerminal(term.terminalId);
+                  if (activeTerminalId === term.terminalId) {
+                    void navigate({
+                      to: "/runtimes/$typeName/$instanceName",
+                      params: { typeName, instanceName },
+                      search: {},
+                    });
+                  }
+                }}
+              >
+                <Trash2Icon className="size-3.5 shrink-0" />
+              </SidebarMenuAction>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
   );
 }
 
