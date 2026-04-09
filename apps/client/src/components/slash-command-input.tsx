@@ -135,21 +135,36 @@ function EnterToSendPlugin({
   comboboxOpenRef: React.RefObject<boolean>;
 }) {
   const [editor] = useLexicalComposerContext();
+  const lastEnterRef = useRef(0);
 
   useEffect(() => {
     return editor.registerCommand(
       KEY_ENTER_COMMAND,
       (event) => {
-        // Shift+Enter inserts a newline (handled by Lexical default)
-        if (event?.shiftKey) return false;
         // Let the combobox handle Enter for item selection
         if (comboboxOpenRef.current) return false;
-        event?.preventDefault();
-        const text = editor.getEditorState().read(() => $getRoot().getTextContent());
-        if (!text.trim()) return true;
-        onSend(text);
-        editor.dispatchCommand(CLEAR_EDITOR_COMMAND, undefined);
-        return true;
+
+        const now = Date.now();
+        const timeSinceLastEnter = now - lastEnterRef.current;
+        lastEnterRef.current = now;
+
+        // Double-Enter (two presses within 500ms) → send message
+        if (timeSinceLastEnter < 500) {
+          event?.preventDefault();
+          // Read text, trim trailing newlines from the first Enter
+          const text = editor
+            .getEditorState()
+            .read(() => $getRoot().getTextContent())
+            .replace(/\n+$/, "");
+          if (!text.trim()) return true;
+          onSend(text);
+          editor.dispatchCommand(CLEAR_EDITOR_COMMAND, undefined);
+          lastEnterRef.current = 0;
+          return true;
+        }
+
+        // Single Enter → insert newline (let Lexical handle it)
+        return false;
       },
       COMMAND_PRIORITY_NORMAL,
     );
