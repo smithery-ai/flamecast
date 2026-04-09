@@ -1,6 +1,5 @@
-import { useTerminal } from "@flamecast/ui";
+import { useTerminal, useRuntimeWebSocket } from "@flamecast/ui";
 import { XTermView } from "@/components/terminal-panel";
-import { useEffect, useRef } from "react";
 import { LoaderCircleIcon } from "lucide-react";
 
 export function RuntimeTerminalTab({
@@ -10,16 +9,10 @@ export function RuntimeTerminalTab({
   runtimeWebsocketUrl?: string;
   cwd?: string;
 }) {
-  const { terminals, sendInput, resize, onData, createTerminal } = useTerminal(runtimeWebsocketUrl);
-
-  // Auto-create a single terminal on mount
-  const createdRef = useRef(false);
-  useEffect(() => {
-    if (!createdRef.current) {
-      createdRef.current = true;
-      createTerminal({ cwd });
-    }
-  }, [createTerminal, cwd]);
+  const ws = useRuntimeWebSocket(runtimeWebsocketUrl);
+  const { terminals, sendInput, resize, onData } = useTerminal(ws, runtimeWebsocketUrl, {
+    autoCreate: { cwd },
+  });
 
   const terminal = terminals[0];
 
