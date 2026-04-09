@@ -31,6 +31,30 @@ export function GitBadges({ branch, origin }: { branch?: string; origin?: string
   return null;
 }
 
+/**
+ * Compact inline git info for sidebar: GitHub icon + org/repo as plain text,
+ * with an optional branch badge next to it.
+ */
+export function GitInfoInline({ branch, origin }: { branch?: string; origin?: string }) {
+  const github = origin ? parseGitHubOrigin(origin) : null;
+
+  if (github) {
+    return (
+      <span className="flex min-w-0 items-center gap-1">
+        <GitHubIcon className="size-2.5 shrink-0 opacity-60" />
+        <span className="truncate">{github}</span>
+        {branch && (
+          <span className="inline-flex shrink-0 items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+            {branch}
+          </span>
+        )}
+      </span>
+    );
+  }
+
+  return null;
+}
+
 function parseGitHubOrigin(origin: string): string | null {
   // Handle SSH: git@github.com:org/repo.git
   const sshMatch = origin.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);

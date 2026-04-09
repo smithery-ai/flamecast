@@ -81,6 +81,7 @@ export function RuntimeNewTab({
       agentTemplateId: selectedTemplate.id,
       runtimeInstance,
       cwd,
+      agentName: selectedTemplate.name,
     });
   }, [
     createMutation,

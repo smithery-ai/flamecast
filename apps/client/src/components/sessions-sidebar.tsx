@@ -25,7 +25,7 @@ import {
   SidebarMenuSkeleton,
 } from "@/components/ui/sidebar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { GitBadges } from "@/components/git-badges";
+import { GitBadges, GitInfoInline } from "@/components/git-badges";
 import {
   CheckIcon,
   FolderIcon,
@@ -198,6 +198,7 @@ function SessionItem({
 }) {
   const navigate = useNavigate();
   const target = resolveRuntimeTypeName(session, runtimes);
+  const isPending = !session.spawn.command;
 
   const title = session.title || session.agentName;
   const cwd = session.cwd;
@@ -218,12 +219,17 @@ function SessionItem({
         className="h-auto items-start py-1.5"
         isActive={isActive}
         onClick={handleClick}
-        disabled={!target}
+        disabled={!target && !isPending}
       >
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="truncate text-xs font-medium leading-tight">{title}</span>
+          <div className="flex items-center gap-1.5">
+            {isPending && (
+              <LoaderCircleIcon className="size-3 shrink-0 animate-spin text-muted-foreground" />
+            )}
+            <span className="truncate text-xs font-medium leading-tight">{title}</span>
+          </div>
           <div className="flex min-w-0 items-center gap-1.5 text-[10px] leading-tight text-muted-foreground">
-            {target ? (
+            {!isPending && target ? (
               <SessionGitOrCwd instanceName={target.instanceName} cwd={cwd} cwdShort={cwdShort} />
             ) : cwdShort ? (
               <span className="flex min-w-0 items-center gap-1">
@@ -269,12 +275,7 @@ function SessionGitOrCwd({
   if (git) {
     const isGitHub = git.origin?.includes("github.com");
     if (isGitHub) {
-      // GitHub: show GitHub pill + branch badge
-      return (
-        <span className="flex min-w-0 items-center gap-1">
-          <GitBadges origin={git.origin} branch={git.branch} />
-        </span>
-      );
+      return <GitInfoInline origin={git.origin} branch={git.branch} />;
     }
     // Non-GitHub git: git icon + filepath + branch badge
     return (
