@@ -22,9 +22,7 @@ export function ConnectionOverlay() {
           <WifiOffIcon className="size-8 text-destructive" />
           <div className="flex flex-col items-center gap-1">
             <p className="text-sm font-medium">Unable to connect to backend</p>
-            <p className="text-xs text-muted-foreground">
-              Retrying automatically...
-            </p>
+            <p className="text-xs text-muted-foreground">Retrying automatically...</p>
           </div>
         </>
       )}
