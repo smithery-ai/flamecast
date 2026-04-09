@@ -37,12 +37,14 @@ interface SlashCommand {
 // Combobox components
 // ---------------------------------------------------------------------------
 
+// oxlint-disable-next-line no-explicit-any -- ref can be HTMLUListElement or HTMLDivElement
 const Combobox = forwardRef<any, BeautifulMentionsComboboxProps>(
   function Combobox({ loading, itemType, ...props }, ref) {
     // Trigger mode: the plugin shows available triggers (e.g. "/") before
     // one is typed. Render an invisible container so the plugin's refs stay
     // intact but nothing is visible to the user.
     if (itemType === "trigger" && !loading) {
+      // oxlint-disable-next-line no-unused-vars -- destructure children out to discard them
       const { children: _triggerChildren, ...triggerRest } = props;
       return <ul ref={ref} {...triggerRest} style={{ display: "none" }} />;
     }
@@ -220,7 +222,7 @@ export function SlashCommandInput({
               }
             />
           }
-          ErrorBoundary={LexicalErrorBoundary as any}
+          ErrorBoundary={LexicalErrorBoundary}
         />
         <BeautifulMentionsPlugin
           triggers={["/"]}
