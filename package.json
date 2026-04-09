@@ -25,7 +25,8 @@
     "clean": "git clean -ffdX",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "ci:publish": "turbo run build && pnpm publish -r"
+    "ci:publish": "turbo run build && pnpm publish -r",
+    "co": "sh -c 'git checkout \"$1\" && git pull && rm -rf apps/server/.flamecast/ && cd apps/server && pnpm flamecast db migrate && cd ../.. && pnpm dev' --"
   },
   "devDependencies": {
     "@changesets/cli": "^2.30.0",
