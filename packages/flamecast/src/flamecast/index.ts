@@ -1103,6 +1103,30 @@ export class Flamecast<
             agentId: msg.agentId ?? resolveAgentId(msg.sessionId),
             event: msg.event,
           });
+
+          // Auto-approve permission requests when the per-session or global setting is enabled.
+          if (
+            msg.event?.type === "permission_request" &&
+            (this._sessionAutoApprove.get(sessionId) || this._settings.autoApprovePermissions)
+          ) {
+            const data = msg.event.data;
+            const requestId = typeof data?.requestId === "string" ? data.requestId : undefined;
+            const options = Array.isArray(data?.options) ? data.options : [];
+            const approveOpt = options.find(
+              (o: Record<string, unknown>) =>
+                typeof o.kind === "string" && o.kind.startsWith("allow"),
+            );
+            if (requestId && approveOpt) {
+              ws.send(
+                JSON.stringify({
+                  action: "permission.respond",
+                  sessionId,
+                  requestId,
+                  body: { optionId: approveOpt.optionId },
+                }),
+              );
+            }
+          }
         } catch {
           // Ignore malformed messages.
         }
