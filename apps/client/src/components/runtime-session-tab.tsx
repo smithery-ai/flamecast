@@ -8,11 +8,13 @@ import {
 } from "@flamecast/ui";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { RuntimeFileTree } from "@/components/runtime-file-tree";
@@ -20,7 +22,12 @@ import { RuntimeFileTab } from "@/components/runtime-file-tab";
 import { TerminalPanel } from "@/components/terminal-panel";
 import { Streamdown } from "streamdown";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
-import { ChevronDownIcon, LoaderCircleIcon, GripHorizontalIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  LoaderCircleIcon,
+  GripHorizontalIcon,
+  ShieldCheckIcon,
+} from "lucide-react";
 import { SlashCommandInput } from "@/components/slash-command-input";
 
 export function RuntimeSessionTab({
@@ -152,6 +159,7 @@ export function RuntimeSessionTab({
     <ChatConnecting />
   ) : (
     <SessionConversation
+      sessionId={sessionId}
       fetchCommands={fetchCommands}
       prompt={prompt}
       logs={logs}
@@ -169,6 +177,7 @@ export function RuntimeSessionTab({
   if (isMobile) {
     return (
       <MobileSessionLayout
+        sessionId={sessionId}
         filesystemContent={filesystemContent}
         terminalContent={terminalContent}
         fetchCommands={fetchCommands}
@@ -251,6 +260,7 @@ function FilesystemSkeleton() {
  * instead of as resizable side panels.
  */
 function MobileSessionLayout({
+  sessionId,
   filesystemContent,
   terminalContent,
   fetchCommands,
@@ -266,6 +276,7 @@ function MobileSessionLayout({
   isLoading,
   session,
 }: {
+  sessionId: string;
   filesystemContent: ReactNode;
   terminalContent: ReactNode;
   fetchCommands: () => Promise<{ name: string; description: string }[]>;
@@ -289,6 +300,7 @@ function MobileSessionLayout({
   if (previewFilePath) {
     return (
       <SessionConversation
+        sessionId={sessionId}
         fetchCommands={fetchCommands}
         prompt={prompt}
         logs={logs}
@@ -305,7 +317,7 @@ function MobileSessionLayout({
 
   return (
     <Tabs defaultValue="markdown" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center border-b px-3 py-2">
+      <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
         <TabsList className="h-7">
           <TabsTrigger value="markdown" className="text-xs px-2 py-0.5">
             Markdown
@@ -320,6 +332,7 @@ function MobileSessionLayout({
             Terminal
           </TabsTrigger>
         </TabsList>
+        <AutoApproveToggle sessionId={sessionId} />
       </div>
 
       <TabsContent value="markdown" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -487,6 +500,7 @@ function MobileSessionLayout({
 // ─── Conversation Panel ───────────────────────────────────────────────────────
 
 function SessionConversation({
+  sessionId,
   fetchCommands,
   prompt,
   logs,
@@ -498,6 +512,7 @@ function SessionConversation({
   onClosePreview,
   loadPreview,
 }: {
+  sessionId: string;
   fetchCommands: () => Promise<{ name: string; description: string }[]>;
   prompt: (text: string) => void;
   logs: ReturnType<typeof useSessionState>["logs"];
@@ -527,7 +542,7 @@ function SessionConversation({
 
   return (
     <Tabs defaultValue="markdown" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center border-b px-3 py-2">
+      <div className="flex shrink-0 items-center justify-between border-b px-3 py-2">
         <TabsList className="h-7">
           <TabsTrigger value="markdown" className="text-xs px-2 py-0.5">
             Markdown
@@ -536,6 +551,7 @@ function SessionConversation({
             Traces
           </TabsTrigger>
         </TabsList>
+        <AutoApproveToggle sessionId={sessionId} />
       </div>
 
       <TabsContent value="markdown" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -689,6 +705,45 @@ function SessionConversation({
         />
       </div>
     </Tabs>
+  );
+}
+
+// ─── Auto-Approve Toggle ────────────────────────────────────────────────────
+
+function AutoApproveToggle({ sessionId }: { sessionId: string }) {
+  const client = useFlamecastClient();
+  const queryClient = useQueryClient();
+
+  const { data: settings } = useQuery({
+    queryKey: ["session-settings", sessionId],
+    queryFn: () => client.fetchSessionSettings(sessionId),
+  });
+
+  const mutation = useMutation({
+    mutationFn: (patch: { autoApprovePermissions: boolean }) =>
+      client.updateSessionSettings(sessionId, patch),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["session-settings", sessionId], updated);
+    },
+  });
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <ShieldCheckIcon className="size-3.5 text-muted-foreground" />
+      <label
+        htmlFor={`auto-approve-${sessionId}`}
+        className="text-xs text-muted-foreground cursor-pointer select-none"
+      >
+        Auto-approve
+      </label>
+      <Switch
+        id={`auto-approve-${sessionId}`}
+        size="sm"
+        checked={settings?.autoApprovePermissions ?? false}
+        disabled={mutation.isPending}
+        onCheckedChange={(checked) => mutation.mutate({ autoApprovePermissions: !!checked })}
+      />
+    </div>
   );
 }
 

@@ -78,7 +78,15 @@ export type FlamecastSettings = {
   autoApprovePermissions: boolean;
 };
 
+export type SessionSettings = {
+  autoApprovePermissions: boolean;
+};
+
 const FlamecastSettingsSchema = z.object({
+  autoApprovePermissions: z.boolean(),
+});
+
+const SessionSettingsSchema = z.object({
   autoApprovePermissions: z.boolean(),
 });
 
@@ -117,6 +125,10 @@ export type FlamecastClient = {
     requestId: string,
     body: { optionId: string } | { outcome: "cancelled" },
   ): Promise<Record<string, unknown>>;
+
+  // Per-session settings
+  fetchSessionSettings(id: string): Promise<SessionSettings>;
+  updateSessionSettings(id: string, patch: Partial<SessionSettings>): Promise<SessionSettings>;
 
   // Queue management
   fetchQueue(id: string): Promise<PromptQueueState>;
@@ -274,6 +286,22 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
         throw new Error(`Permission resolve failed (${response.status})`);
       }
       return response.json();
+    },
+
+    // -- Per-session settings --
+
+    async fetchSessionSettings(id) {
+      const response = await rpc.agents[":agentId"].settings.$get({
+        param: { agentId: id },
+      });
+      return parseOkJson(response, SessionSettingsSchema, "Failed to fetch session settings");
+    },
+    async updateSessionSettings(id, patch) {
+      const response = await rpc.agents[":agentId"].settings.$patch({
+        param: { agentId: id },
+        json: patch,
+      });
+      return parseOkJson(response, SessionSettingsSchema, "Failed to update session settings");
     },
 
     // -- Queue management --

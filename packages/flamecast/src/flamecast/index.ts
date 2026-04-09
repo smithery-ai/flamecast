@@ -210,6 +210,9 @@ export class Flamecast<
   /** Server-side settings (mutable, not persisted across restarts). */
   private _settings: FlamecastSettings = { autoApprovePermissions: false };
 
+  /** Per-session auto-approve overrides (sessionId → boolean). */
+  private readonly _sessionAutoApprove = new Map<string, boolean>();
+
   private storage: FlamecastStorage | null = null;
   private readyPromise: Promise<void> | null = null;
   private recoveryPromise: Promise<void> | null = null;
@@ -314,6 +317,18 @@ export class Flamecast<
   updateSettings(patch: Partial<FlamecastSettings>): FlamecastSettings {
     this._settings = { ...this._settings, ...patch };
     return { ...this._settings };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Per-session settings
+  // ---------------------------------------------------------------------------
+
+  getSessionAutoApprove(sessionId: string): boolean {
+    return this._sessionAutoApprove.get(sessionId) ?? false;
+  }
+
+  setSessionAutoApprove(sessionId: string, value: boolean): void {
+    this._sessionAutoApprove.set(sessionId, value);
   }
 
   // ---------------------------------------------------------------------------
@@ -796,6 +811,7 @@ export class Flamecast<
 
     // Close the event tap before clearing history so no more events arrive.
     this.closeEventTap(id);
+    this._sessionAutoApprove.delete(id);
 
     // Emit lifecycle event for in-process subscribers such as SSE streams.
     this.eventBus.emitSessionTerminated({
@@ -995,8 +1011,8 @@ export class Flamecast<
       options: Array<{ optionId: string; name: string; kind: string }>;
     },
   ): Promise<PermissionResponse | undefined> {
-    // Auto-approve if the server-side setting is enabled.
-    if (this._settings.autoApprovePermissions) {
+    // Auto-approve if the per-session or global setting is enabled.
+    if (this._sessionAutoApprove.get(sessionId) || this._settings.autoApprovePermissions) {
       const approveOpt = event.options.find((o) => o.kind.startsWith("allow"));
       if (approveOpt) return { optionId: approveOpt.optionId };
     }
