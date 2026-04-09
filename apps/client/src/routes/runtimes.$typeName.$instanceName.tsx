@@ -130,27 +130,33 @@ function RuntimeDetailPanel({
     setActiveTabId((focusTab ?? sessionTabs[0]).id);
   }, [sessions, instance.name, focusSessionId]);
 
-  // When focusSessionId changes after hydration, switch to that tab or re-open it
+  // When focusSessionId changes after hydration, switch to that tab or re-open it.
+  // Deliberately excludes `tabs` from deps — we read current tabs via setTabs callback
+  // to avoid re-running when closeTab updates the tab list.
   useEffect(() => {
     if (!focusSessionId || !hydratedRef.current) return;
-    const existing = tabs.find((t) => t.type === "session" && t.sessionId === focusSessionId);
-    if (existing) {
-      setActiveTabId(existing.id);
-      return;
-    }
-    // Tab was closed — re-open it if the session is still active
-    const session = sessions?.find((s) => s.id === focusSessionId && s.status === "active");
-    if (session) {
+
+    setTabs((prev) => {
+      const existing = prev.find((t) => t.type === "session" && t.sessionId === focusSessionId);
+      if (existing) {
+        setActiveTabId(existing.id);
+        return prev;
+      }
+      // Tab was closed — re-open it if the session is still active
+      const session = sessions?.find((s) => s.id === focusSessionId && s.status === "active");
+      if (!session) return prev;
+
       const tab: Tab = {
         id: makeTabId(),
         type: "session",
         sessionId: session.id,
         label: session.agentName,
       };
-      setTabs((prev) => [...prev, tab]);
       setActiveTabId(tab.id);
-    }
-  }, [focusSessionId, tabs, sessions]);
+      return [...prev, tab];
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusSessionId, sessions]);
 
   const navigate = useNavigate();
 
