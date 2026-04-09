@@ -65,16 +65,25 @@ export function SessionsSidebar() {
         typeof search.sessionId === "string"
           ? search.sessionId
           : undefined;
+
+      // Also detect previous session view route
+      const sessionViewMatch = s.matches.find((m) => m.routeId === "/sessions/$sessionId");
+      const viewingSessionId =
+        typeof sessionViewMatch?.params.sessionId === "string"
+          ? sessionViewMatch.params.sessionId
+          : undefined;
+
       return {
         activeRuntimeTypeName: runtimeMatch?.params.typeName,
         activeRuntimeInstanceName: instanceMatch?.params.instanceName,
-        activeSessionId: sessionId,
+        activeSessionId: sessionId ?? viewingSessionId,
       };
     },
   });
   const { data: runtimes, isLoading: isRuntimesLoading } = useRuntimes();
   const { data: sessions, isLoading: isSessionsLoading } = useSessions();
   const activeSessions = sessions?.filter((s) => s.status === "active") ?? [];
+  const previousSessions = sessions?.filter((s) => s.status === "killed") ?? [];
 
   return (
     <Sidebar>
@@ -130,6 +139,23 @@ export function SessionsSidebar() {
                     />
                   ))
                 )}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {previousSessions.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Previous Sessions</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {previousSessions.map((session) => (
+                  <PreviousSessionItem
+                    key={session.id}
+                    session={session}
+                    isActive={activeSessionId === session.id}
+                  />
+                ))}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -238,6 +264,44 @@ function SessionItem({
               </span>
             ) : null}
           </div>
+        </div>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
+function PreviousSessionItem({ session, isActive }: { session: Session; isActive: boolean }) {
+  const navigate = useNavigate();
+
+  const title = session.title || "(empty session)";
+  const endedAt = session.lastUpdatedAt
+    ? new Date(session.lastUpdatedAt).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      })
+    : undefined;
+
+  const handleClick = () => {
+    void navigate({
+      to: "/sessions/$sessionId",
+      params: { sessionId: session.id },
+    });
+  };
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        className="h-auto items-start py-1.5"
+        isActive={isActive}
+        onClick={handleClick}
+      >
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="truncate text-xs font-medium leading-tight text-muted-foreground">
+            {title}
+          </span>
+          {endedAt && (
+            <span className="text-[10px] leading-tight text-muted-foreground/70">{endedAt}</span>
+          )}
         </div>
       </SidebarMenuButton>
     </SidebarMenuItem>

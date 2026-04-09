@@ -19,10 +19,12 @@ function RootLayout() {
         (m) => m.routeId === "/runtimes/$typeName/$instanceName",
       );
       const isAgents = state.matches.some((m) => m.routeId === "/agents");
+      const sessionMatch = state.matches.find((m) => m.routeId === "/sessions/$sessionId");
       return {
         runtimeTypeName: runtimeMatch?.params.typeName,
         runtimeInstanceName: instanceMatch?.params.instanceName,
         isAgents,
+        isSessionView: !!sessionMatch,
       };
     },
   });
@@ -62,16 +64,27 @@ function Breadcrumbs({
   runtimeTypeName,
   runtimeInstanceName,
   isAgents,
+  isSessionView,
 }: {
   runtimeTypeName?: string;
   runtimeInstanceName?: string;
   isAgents: boolean;
+  isSessionView: boolean;
 }) {
   if (isAgents) {
     return (
       <>
         <BreadcrumbSeparator />
         <span className="font-medium">Agents</span>
+      </>
+    );
+  }
+
+  if (isSessionView) {
+    return (
+      <>
+        <BreadcrumbSeparator />
+        <span className="font-medium">Previous Session</span>
       </>
     );
   }
