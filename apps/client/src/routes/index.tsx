@@ -24,6 +24,7 @@ import { ChevronDownIcon, FolderOpenIcon, LoaderCircleIcon, PlusIcon } from "luc
 import { toast } from "sonner";
 import { useCallback, useState } from "react";
 import { useEnqueueMessage } from "@flamecast/ui";
+import flamecastMascots from "@/assets/flamecast_mascots.webp";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -166,6 +167,11 @@ function DeveloperHomePage() {
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col items-center justify-center gap-8 px-1">
       <div className="text-center">
+        <img
+          src={flamecastMascots}
+          alt="Flamecast mascots"
+          className="mx-auto mb-6 w-full max-w-md"
+        />
         <h1 className="text-3xl font-bold tracking-tight">Flamecast</h1>
         <p className="mt-2 text-sm text-muted-foreground">What would you like to work on?</p>
       </div>
