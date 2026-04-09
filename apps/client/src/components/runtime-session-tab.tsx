@@ -37,7 +37,6 @@ export function RuntimeSessionTab({
   runtimeWebsocketUrl,
   cwd,
   initialPrompt,
-  onOpenFileTab,
 }: {
   sessionId: string;
   instanceName: string;
@@ -45,7 +44,6 @@ export function RuntimeSessionTab({
   /** Initial working directory — used to load the file tree immediately. */
   cwd?: string;
   initialPrompt?: string;
-  onOpenFileTab?: (filePath: string) => void;
 }) {
   const client = useFlamecastClient();
 
@@ -112,16 +110,9 @@ export function RuntimeSessionTab({
     [client, sessionId],
   );
 
-  const handleFileSelect = useCallback(
-    (filePath: string) => {
-      if (onOpenFileTab) {
-        onOpenFileTab(filePath);
-      } else {
-        setPreviewFilePath(filePath);
-      }
-    },
-    [onOpenFileTab],
-  );
+  const handleFileSelect = useCallback((filePath: string) => {
+    setPreviewFilePath(filePath);
+  }, []);
 
   const sentInitialPrompt = useRef(false);
   useEffect(() => {
