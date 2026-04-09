@@ -17,6 +17,8 @@ import type {
 } from "lexical-beautiful-mentions";
 import {
   $getRoot,
+  $getSelection,
+  $isRangeSelection,
   KEY_ENTER_COMMAND,
   COMMAND_PRIORITY_NORMAL,
   CLEAR_EDITOR_COMMAND,
@@ -163,8 +165,16 @@ function EnterToSendPlugin({
           return true;
         }
 
-        // Single Enter → insert newline (let Lexical handle it)
-        return false;
+        // Single Enter → insert double newline (two paragraph breaks)
+        event?.preventDefault();
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            selection.insertParagraph();
+            selection.insertParagraph();
+          }
+        });
+        return true;
       },
       COMMAND_PRIORITY_NORMAL,
     );
