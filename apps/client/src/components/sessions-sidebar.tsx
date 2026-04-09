@@ -25,7 +25,7 @@ import {
   SidebarMenuSkeleton,
 } from "@/components/ui/sidebar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { GitBadges, GitInfoInline } from "@/components/git-badges";
+import { GitBadges } from "@/components/git-badges";
 import {
   CheckIcon,
   FolderIcon,
@@ -228,7 +228,7 @@ function SessionItem({
             )}
             <span className="truncate text-xs font-medium leading-tight">{title}</span>
           </div>
-          <div className="flex min-w-0 items-center gap-1.5 text-[10px] leading-tight text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-1 text-[10px] leading-tight text-muted-foreground">
             {target ? (
               <SessionGitOrCwd instanceName={target.instanceName} cwd={cwd} cwdShort={cwdShort} />
             ) : cwdShort ? (
@@ -237,8 +237,6 @@ function SessionItem({
                 <span className="truncate">{cwdShort}</span>
               </span>
             ) : null}
-            {cwdShort && <span className="shrink-0 opacity-40">·</span>}
-            <span className="shrink-0 truncate">{session.agentName}</span>
           </div>
         </div>
       </SidebarMenuButton>
@@ -273,16 +271,11 @@ function SessionGitOrCwd({
   const git = gitEntry?.git;
 
   if (git) {
-    const isGitHub = git.origin?.includes("github.com");
-    if (isGitHub) {
-      return <GitInfoInline origin={git.origin} branch={git.branch} />;
-    }
-    // Non-GitHub git: git icon + filepath + branch badge
     return (
       <span className="flex min-w-0 items-center gap-1">
         <GitBranchIcon className="size-2.5 shrink-0" />
         {cwdShort && <span className="truncate">{cwdShort}</span>}
-        <GitBadges branch={git.branch} />
+        <GitBadges branch={git.branch} origin={git.origin} />
       </span>
     );
   }
