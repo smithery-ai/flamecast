@@ -4,8 +4,8 @@ import type {
   WsChannelServerMessage,
 } from "@flamecast/protocol/ws/channels";
 import {
-  dismissRuntimeTerminal,
-  loadDismissedRuntimeTerminals,
+  dismissSessionTerminal,
+  loadDismissedSessionTerminals,
   reduceRuntimeTerminalSessions,
   type RuntimeTerminalSession,
 } from "../lib/runtime-terminal-state.js";
@@ -15,13 +15,13 @@ export type TerminalSession = RuntimeTerminalSession;
 type TerminalDataListener = (data: string) => void;
 
 /**
- * Hook that manages runtime-level terminal sessions.
+ * Hook that manages session-scoped terminal sessions.
  *
- * Terminals are independent of agent sessions — they live at the runtime
- * instance level. The hook subscribes to the "terminals" channel on the
- * runtime-host WebSocket.
+ * Terminals are scoped to the given agent session. The hook subscribes to the
+ * `session:<sessionId>:terminal` channel on the runtime-host WebSocket so each
+ * session only sees its own terminals.
  */
-export function useTerminal(websocketUrl?: string) {
+export function useTerminal(websocketUrl?: string, sessionId?: string) {
   const [terminals, setTerminals] = useState<TerminalSession[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const listenersRef = useRef<Map<string, Set<TerminalDataListener>>>(new Map());
@@ -29,13 +29,17 @@ export function useTerminal(websocketUrl?: string) {
   const subscribedRef = useRef(false);
   const dismissedTerminalIdsRef = useRef<Set<string>>(new Set());
 
+  // The channel to subscribe to — session-scoped when sessionId is available,
+  // otherwise falls back to the legacy runtime-level "terminals" channel.
+  const channel = sessionId ? `session:${sessionId}:terminal` : "terminals";
+
   useEffect(() => {
     let disposed = false;
     setTerminals([]);
     listenersRef.current = new Map();
     queuedMessagesRef.current = [];
     subscribedRef.current = false;
-    dismissedTerminalIdsRef.current = loadDismissedRuntimeTerminals(websocketUrl);
+    dismissedTerminalIdsRef.current = loadDismissedSessionTerminals(sessionId);
 
     if (!websocketUrl)
       return () => {
@@ -53,13 +57,13 @@ export function useTerminal(websocketUrl?: string) {
         if (message.type === "connected") {
           const subscribeMsg: WsChannelControlMessage = {
             action: "subscribe",
-            channel: "terminals",
+            channel,
           };
           ws.send(JSON.stringify(subscribeMsg));
           return;
         }
 
-        if (message.type === "subscribed" && message.channel === "terminals") {
+        if (message.type === "subscribed" && message.channel === channel) {
           subscribedRef.current = true;
           for (const pending of queuedMessagesRef.current) {
             ws.send(JSON.stringify(pending));
@@ -113,7 +117,7 @@ export function useTerminal(websocketUrl?: string) {
       wsRef.current = null;
       ws.close();
     };
-  }, [websocketUrl]);
+  }, [websocketUrl, channel, sessionId]);
 
   const sendOrQueue = useCallback((message: WsChannelControlMessage) => {
     const ws = wsRef.current;
@@ -166,17 +170,18 @@ export function useTerminal(websocketUrl?: string) {
     (command?: string) => {
       const msg: WsChannelControlMessage = {
         action: "terminal.create",
+        sessionId,
         data: command,
       };
       sendOrQueue(msg);
     },
-    [sendOrQueue],
+    [sendOrQueue, sessionId],
   );
 
   const killTerminal = useCallback(
     (terminalId: string) => {
       dismissedTerminalIdsRef.current.add(terminalId);
-      dismissRuntimeTerminal(websocketUrl, terminalId);
+      dismissSessionTerminal(sessionId, terminalId);
       const msg: WsChannelControlMessage = {
         action: "terminal.kill",
         terminalId,
@@ -184,7 +189,7 @@ export function useTerminal(websocketUrl?: string) {
       sendOrQueue(msg);
       setTerminals((prev) => prev.filter((t) => t.terminalId !== terminalId));
     },
-    [sendOrQueue, websocketUrl],
+    [sendOrQueue, sessionId],
   );
 
   const activeTerminal = useMemo(() => {

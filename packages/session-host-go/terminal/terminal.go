@@ -13,18 +13,20 @@ import (
 const defaultOutputBufSize = 100 * 1024 // 100KB ring buffer per terminal
 
 // OutputHandler is called whenever a terminal produces output.
-type OutputHandler func(terminalID string, data []byte)
+// sessionID is the session that owns this terminal (empty for runtime-level terminals).
+type OutputHandler func(terminalID string, sessionID string, data []byte)
 
 // Terminal represents a single PTY-backed terminal session.
 type Terminal struct {
-	mu       sync.Mutex
-	ID       string
-	Command  string
-	cmd      *exec.Cmd
-	ptmx     *os.File
-	output   *ringBuffer
-	exitCode *int // nil while running
-	exitCh   chan struct{}
+	mu        sync.Mutex
+	ID        string
+	SessionID string // owning session (empty for runtime-level terminals)
+	Command   string
+	cmd       *exec.Cmd
+	ptmx      *os.File
+	output    *ringBuffer
+	exitCode  *int // nil while running
+	exitCh    chan struct{}
 }
 
 // Registry manages a set of terminals scoped to a session.
@@ -44,8 +46,9 @@ func NewRegistry(onOutput OutputHandler) *Registry {
 }
 
 // Create spawns a new PTY-backed terminal. The command is run in the given
-// working directory with the supplied environment. Returns the terminal ID.
-func (r *Registry) Create(id, command string, args []string, cwd string, env []string, cols, rows uint16) (*Terminal, error) {
+// working directory with the supplied environment. sessionID associates the
+// terminal with an agent session (pass "" for runtime-level terminals).
+func (r *Registry) Create(id, command string, args []string, cwd string, env []string, cols, rows uint16, sessionID string) (*Terminal, error) {
 	cmd := exec.Command(command, args...)
 	cmd.Dir = cwd
 	if len(env) > 0 {
@@ -66,12 +69,13 @@ func (r *Registry) Create(id, command string, args []string, cwd string, env []s
 	}
 
 	t := &Terminal{
-		ID:      id,
-		Command: command,
-		cmd:     cmd,
-		ptmx:    ptmx,
-		output:  newRingBuffer(defaultOutputBufSize),
-		exitCh:  make(chan struct{}),
+		ID:        id,
+		SessionID: sessionID,
+		Command:   command,
+		cmd:       cmd,
+		ptmx:      ptmx,
+		output:    newRingBuffer(defaultOutputBufSize),
+		exitCh:    make(chan struct{}),
 	}
 
 	r.mu.Lock()
@@ -92,7 +96,7 @@ func (r *Registry) Create(id, command string, args []string, cwd string, env []s
 				t.mu.Unlock()
 
 				if r.onOutput != nil {
-					r.onOutput(id, chunk)
+					r.onOutput(id, t.SessionID, chunk)
 				}
 			}
 			if err != nil {
@@ -230,6 +234,9 @@ func (r *Registry) List() []map[string]any {
 		info := map[string]any{
 			"terminalId": t.ID,
 			"command":    t.Command,
+		}
+		if t.SessionID != "" {
+			info["sessionId"] = t.SessionID
 		}
 		if t.exitCode != nil {
 			info["exitCode"] = *t.exitCode

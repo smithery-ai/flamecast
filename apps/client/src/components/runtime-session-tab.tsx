@@ -71,9 +71,9 @@ export function RuntimeSessionTab({
     path: fsPath,
   });
 
-  // Session-scoped terminal (connects to the runtime instance — works immediately)
+  // Session-scoped terminal (connects to the runtime instance, scoped to this session)
   const { terminals, sendInput, resize, onData, createTerminal, killTerminal } =
-    useTerminal(runtimeWebsocketUrl);
+    useTerminal(runtimeWebsocketUrl, sessionId);
 
   // Inline file preview for files opened from session file tree
   const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);

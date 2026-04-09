@@ -141,7 +141,7 @@ func newClientHandler(hub *ws.Hub, sessionID, workspace string) *clientHandler {
 		workspace:           workspace,
 		permissionResolvers: make(map[string]chan json.RawMessage),
 	}
-	h.terminals = terminal.NewRegistry(func(terminalID string, data []byte) {
+	h.terminals = terminal.NewRegistry(func(terminalID string, _ string, data []byte) {
 		h.emitEvent("terminal.data", map[string]any{
 			"terminalId": terminalID,
 			"data":       string(data),
@@ -335,7 +335,7 @@ func (h *clientHandler) TerminalCreate(params json.RawMessage) (json.RawMessage,
 	}
 
 	termID := "term-" + generateUUID()
-	t, err := h.terminals.Create(termID, command, req.Args, h.workspace, nil, req.Cols, req.Rows)
+	t, err := h.terminals.Create(termID, command, req.Args, h.workspace, nil, req.Cols, req.Rows, h.sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("terminal create: %w", err)
 	}
@@ -776,27 +776,28 @@ func handleChannelControl(clientID string, raw json.RawMessage, registry *sessio
 			command = "/bin/sh"
 		}
 		cwd, _ := os.Getwd()
+		sessionID := msg.SessionID
 		// Use session workspace if available
-		if msg.SessionID != "" {
-			if sess := registry.get(msg.SessionID); sess != nil && sess.workspace != "" {
+		if sessionID != "" {
+			if sess := registry.get(sessionID); sess != nil && sess.workspace != "" {
 				cwd = sess.workspace
 			}
 		}
 		termID := "term-" + generateUUID()
-		t, err := runtimeTerminals.Create(termID, command, nil, cwd, nil, msg.Cols, msg.Rows)
+		t, err := runtimeTerminals.Create(termID, command, nil, cwd, nil, msg.Cols, msg.Rows, sessionID)
 		if err != nil {
 			hub.SendTo(clientID, map[string]any{"type": "error", "message": "terminal.create: " + err.Error()})
 			return
 		}
 		now := time.Now().UTC().Format(time.RFC3339Nano)
-		hub.PublishTerminalEvent("terminal.started", map[string]any{
+		hub.PublishTerminalEvent(sessionID, "terminal.started", map[string]any{
 			"terminalId": t.ID,
 			"command":    command,
 		}, now)
 		go func() {
 			exitCode, _ := runtimeTerminals.WaitForExit(termID)
 			now := time.Now().UTC().Format(time.RFC3339Nano)
-			hub.PublishTerminalEvent("terminal.exit", map[string]any{
+			hub.PublishTerminalEvent(sessionID, "terminal.exit", map[string]any{
 				"terminalId": termID,
 				"exitCode":   exitCode,
 			}, now)
@@ -979,10 +980,10 @@ func main() {
 	hub := ws.NewHub()
 	registry := newSessionRegistry()
 
-	// Runtime-level terminal registry (not tied to any session)
-	runtimeTerminals := terminal.NewRegistry(func(terminalID string, data []byte) {
+	// Terminal registry — terminals may be scoped to a session or runtime-level.
+	runtimeTerminals := terminal.NewRegistry(func(terminalID string, sessionID string, data []byte) {
 		now := time.Now().UTC().Format(time.RFC3339Nano)
-		hub.PublishTerminalEvent("terminal.data", map[string]any{
+		hub.PublishTerminalEvent(sessionID, "terminal.data", map[string]any{
 			"terminalId": terminalID,
 			"data":       string(data),
 		}, now)

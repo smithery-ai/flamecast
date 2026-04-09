@@ -17,6 +17,7 @@ type TerminalEventInput = {
 };
 
 const STORAGE_KEY_PREFIX = "flamecast:dismissed-runtime-terminals:";
+const SESSION_STORAGE_KEY_PREFIX = "flamecast:dismissed-session-terminals:";
 
 function getStorage(): Storage | null {
   if (typeof window === "undefined") return null;
@@ -25,6 +26,10 @@ function getStorage(): Storage | null {
 
 function getStorageKey(websocketUrl: string): string {
   return `${STORAGE_KEY_PREFIX}${websocketUrl}`;
+}
+
+function getSessionStorageKey(sessionId: string): string {
+  return `${SESSION_STORAGE_KEY_PREFIX}${sessionId}`;
 }
 
 export function loadDismissedRuntimeTerminals(websocketUrl?: string): Set<string> {
@@ -51,6 +56,32 @@ export function dismissRuntimeTerminal(websocketUrl: string | undefined, termina
   const next = loadDismissedRuntimeTerminals(websocketUrl);
   next.add(terminalId);
   storage.setItem(getStorageKey(websocketUrl), JSON.stringify([...next]));
+}
+
+export function loadDismissedSessionTerminals(sessionId?: string): Set<string> {
+  if (!sessionId) return new Set();
+  const storage = getStorage();
+  if (!storage) return new Set();
+
+  try {
+    const raw = storage.getItem(getSessionStorageKey(sessionId));
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((value): value is string => typeof value === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+export function dismissSessionTerminal(sessionId: string | undefined, terminalId: string): void {
+  if (!sessionId) return;
+  const storage = getStorage();
+  if (!storage) return;
+
+  const next = loadDismissedSessionTerminals(sessionId);
+  next.add(terminalId);
+  storage.setItem(getSessionStorageKey(sessionId), JSON.stringify([...next]));
 }
 
 export function reduceRuntimeTerminalSessions(
