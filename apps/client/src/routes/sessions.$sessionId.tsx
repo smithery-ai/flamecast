@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useSession, sessionLogsToSegments } from "@flamecast/ui";
+import { useFlamecastClient, sessionLogsToSegments } from "@flamecast/ui";
+import { useQuery } from "@tanstack/react-query";
 import { Fragment, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -16,7 +17,14 @@ export const Route = createFileRoute("/sessions/$sessionId")({
 
 function PreviousSessionPage() {
   const { sessionId } = Route.useParams();
-  const { data: session, isLoading } = useSession(sessionId);
+  const client = useFlamecastClient();
+
+  // Use a dedicated query key so we don't serve stale cached data from when
+  // the session was still active (useSession has staleTime: Infinity).
+  const { data: session, isLoading } = useQuery({
+    queryKey: ["previous-session", sessionId],
+    queryFn: () => client.fetchSession(sessionId),
+  });
 
   const logs = useMemo(() => session?.logs ?? [], [session?.logs]);
   const markdownSegments = useMemo(() => sessionLogsToSegments(logs), [logs]);
