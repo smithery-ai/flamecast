@@ -4,6 +4,7 @@ import {
   closeSessionSocket,
   openSessionSocket,
   promptSession,
+  subscribeToSession,
   startSession,
   terminateSession,
 } from "./session-host.js";
@@ -27,10 +28,13 @@ describe("agent.js example", () => {
     const session = await startSession(local.baseUrl, sessionId);
     cleanup.push(() => terminateSession(local.baseUrl, sessionId));
     const ws = await openSessionSocket(session.websocketUrl);
+    await subscribeToSession(ws, sessionId);
     cleanup.push(() => closeSessionSocket(ws));
 
-    const first = await promptSession(ws, "Increment the counter and return it.");
-    const second = await promptSession(ws, "Increment the counter again and return it.");
+    expect(session.websocketUrl).toBe(local.baseUrl.replace(/^http/, "ws"));
+
+    const first = await promptSession(ws, sessionId, "Increment the counter and return it.");
+    const second = await promptSession(ws, sessionId, "Increment the counter again and return it.");
 
     expect(first).toEqual({ counter: 1 });
     expect(second).toEqual({ counter: 2 });
@@ -46,10 +50,12 @@ describe("agent.js example", () => {
     const session = await startSession(local.baseUrl, sessionId);
     cleanup.push(() => terminateSession(local.baseUrl, sessionId));
     const ws = await openSessionSocket(session.websocketUrl);
+    await subscribeToSession(ws, sessionId);
     cleanup.push(() => closeSessionSocket(ws));
 
     const result = await promptSession(
       ws,
+      sessionId,
       "Use node:fs to write a tmp file and return its contents.",
     );
 
@@ -69,17 +75,27 @@ describe("agent.js example", () => {
     const session = await startSession(local.baseUrl, sessionId);
     cleanup.push(() => terminateSession(local.baseUrl, sessionId));
     const first = await openSessionSocket(session.websocketUrl);
+    await subscribeToSession(first, sessionId);
     cleanup.push(() => closeSessionSocket(first));
 
-    const firstResult = await promptSession(first, "Increment the counter and return it.");
+    const firstResult = await promptSession(
+      first,
+      sessionId,
+      "Increment the counter and return it.",
+    );
     expect(firstResult).toEqual({ counter: 1 });
 
     await closeSessionSocket(first);
 
     const second = await openSessionSocket(session.websocketUrl);
+    await subscribeToSession(second, sessionId);
     cleanup.push(() => closeSessionSocket(second));
 
-    const secondResult = await promptSession(second, "Increment the counter again and return it.");
+    const secondResult = await promptSession(
+      second,
+      sessionId,
+      "Increment the counter again and return it.",
+    );
 
     expect(secondResult).toEqual({ counter: 2 });
   });

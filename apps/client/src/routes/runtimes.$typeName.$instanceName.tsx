@@ -209,7 +209,7 @@ function RuntimeDetailPanel({
     <RuntimeSessionTab
       sessionId={activeSession.id}
       instanceName={instance.name}
-      sessionWebsocketUrl={activeSession.websocketUrl ?? instance.websocketUrl}
+      runtimeWebsocketUrl={instance.websocketUrl}
       cwd={activeSession.cwd}
     />
   );

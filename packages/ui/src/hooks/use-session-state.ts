@@ -5,11 +5,11 @@ import type { PermissionRequestEvent } from "@flamecast/protocol/session-host";
 import { useSession } from "./use-session.js";
 import { useFlamecastSession } from "./use-flamecast-session.js";
 import { sessionLogsToSegments } from "../lib/logs-markdown.js";
+import type { RuntimeWebSocketHandle } from "./use-runtime-websocket.js";
 
-export function useSessionState(sessionId: string, websocketUrl?: string) {
+export function useSessionState(sessionId: string, ws: RuntimeWebSocketHandle) {
   const sessionQuery = useSession(sessionId);
   const session = sessionQuery.data;
-  const resolvedWebsocketUrl = session?.websocketUrl ?? websocketUrl;
 
   const {
     events: wsEvents,
@@ -21,7 +21,7 @@ export function useSessionState(sessionId: string, websocketUrl?: string) {
     requestFsSnapshot,
     cancel,
     terminate,
-  } = useFlamecastSession(sessionId, resolvedWebsocketUrl);
+  } = useFlamecastSession(sessionId, ws, !!session?.websocketUrl);
 
   // Merge: use WS events if available, fall back to REST logs
   const logs: SessionLog[] = useMemo(() => {

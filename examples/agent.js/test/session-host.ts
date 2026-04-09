@@ -55,6 +55,56 @@ export async function openSessionSocket(url: string): Promise<WebSocket> {
   return ws;
 }
 
+export async function subscribeToSession(ws: WebSocket, sessionId: string) {
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error(`Timed out subscribing to session channel: ${sessionId}`)),
+      10_000,
+    );
+
+    const cleanupListeners = () => {
+      clearTimeout(timeout);
+      ws.off("message", onMessage);
+      ws.off("error", onError);
+      ws.off("close", onClose);
+    };
+
+    const onError = (error: Error) => {
+      cleanupListeners();
+      reject(error);
+    };
+
+    const onClose = () => {
+      cleanupListeners();
+      reject(new Error("Session WebSocket closed before subscription completed"));
+    };
+
+    const onMessage = (data: WebSocket.RawData) => {
+      const message = JSON.parse(String(data));
+
+      if (message.type === "connected" && typeof message.connectionId === "string") {
+        ws.send(JSON.stringify({ action: "subscribe", channel: `session:${sessionId}` }));
+        return;
+      }
+
+      if (message.type === "subscribed" && message.channel === `session:${sessionId}`) {
+        cleanupListeners();
+        resolve();
+        return;
+      }
+
+      if (message.type === "error") {
+        cleanupListeners();
+        reject(new Error(message.message));
+      }
+    };
+
+    ws.on("message", onMessage);
+    ws.once("error", onError);
+    ws.once("close", onClose);
+  });
+}
+
 export async function closeSessionSocket(ws: WebSocket) {
   if (ws.readyState === WebSocket.CLOSED) {
     return;
@@ -75,7 +125,11 @@ export async function closeSessionSocket(ws: WebSocket) {
   });
 }
 
-export async function promptSession(ws: WebSocket, text: string): Promise<unknown> {
+export async function promptSession(
+  ws: WebSocket,
+  sessionId: string,
+  text: string,
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let completedResult: unknown;
     const timeout = setTimeout(() => {
@@ -109,7 +163,12 @@ export async function promptSession(ws: WebSocket, text: string): Promise<unknow
         return;
       }
 
-      if (message.type !== "event" || message.event?.type !== "rpc") {
+      const channel = typeof message.channel === "string" ? message.channel : "";
+      if (
+        message.type !== "event" ||
+        message.event?.type !== "rpc" ||
+        (channel !== `session:${sessionId}` && !channel.startsWith(`session:${sessionId}:`))
+      ) {
         return;
       }
 
@@ -132,6 +191,6 @@ export async function promptSession(ws: WebSocket, text: string): Promise<unknow
     ws.on("message", onMessage);
     ws.once("error", onError);
     ws.once("close", onClose);
-    ws.send(JSON.stringify({ action: "prompt", text }));
+    ws.send(JSON.stringify({ action: "prompt", sessionId, text }));
   });
 }

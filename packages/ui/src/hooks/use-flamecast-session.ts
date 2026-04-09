@@ -1,160 +1,89 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { WsChannelServerMessage } from "@flamecast/protocol/ws/channels";
 import type { SessionLog, PermissionResponseBody } from "@flamecast/sdk/session";
 import { useFlamecastClient } from "../provider.js";
-import { createWsMessageDedupeState, rememberWsMessage } from "../lib/ws-message-dedupe.js";
-import {
-  detectSessionWebSocketProtocol,
-  toNormalizedSessionLogMessage,
-  toWireSessionControlMessage,
-  type SessionControlMessage,
-  type SessionWebSocketProtocol,
-} from "../lib/session-websocket-protocol.js";
-import type { ConnectionState } from "./use-runtime-websocket.js";
+import type { RuntimeWebSocketHandle } from "./use-runtime-websocket.js";
 
 export type { ConnectionState } from "./use-runtime-websocket.js";
 
-export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
+function toSessionLog(message: WsChannelServerMessage): SessionLog | null {
+  if (message.type === "error") {
+    return {
+      type: "error",
+      data: { message: message.message },
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  if (message.type !== "event") return null;
+
+  return {
+    type: message.event.type,
+    data: message.event.data,
+    timestamp: message.event.timestamp,
+  };
+}
+
+/**
+ * Subscribes to a session channel on a shared runtime WebSocket.
+ *
+ * @param sessionId  The session to subscribe to.
+ * @param ws         A shared {@link RuntimeWebSocketHandle} (from `useRuntimeWebSocket`).
+ * @param ready      Whether the session is ready (i.e. has a websocketUrl from the REST API).
+ */
+export function useFlamecastSession(sessionId: string, ws: RuntimeWebSocketHandle, ready: boolean) {
   const client = useFlamecastClient();
   const [events, setEvents] = useState<SessionLog[]>([]);
-  const [connectionState, setConnectionState] = useState<ConnectionState>(
-    websocketUrl ? "connecting" : "disconnected",
-  );
-
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectAttemptsRef = useRef(0);
+  /** Track the last seq we've seen for replay-on-reconnect. */
   const lastSeqRef = useRef(0);
-  const seenMessagesRef = useRef(createWsMessageDedupeState());
-  const protocolRef = useRef<SessionWebSocketProtocol>({ kind: "unknown" });
+
+  // Destructure stable method refs so effects don't depend on the whole handle.
+  const { subscribe, send: wsSend } = ws;
 
   useEffect(() => {
-    let disposed = false;
-    reconnectAttemptsRef.current = 0;
-    lastSeqRef.current = 0;
-    seenMessagesRef.current = createWsMessageDedupeState();
-    protocolRef.current = { kind: "unknown" };
     setEvents([]);
+    lastSeqRef.current = 0;
 
-    if (!websocketUrl) {
-      setConnectionState("disconnected");
-      return () => {
-        disposed = true;
-      };
-    }
+    if (!ready) return;
 
-    const clearReconnectTimer = () => {
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-    };
+    const channel = `session:${sessionId}`;
 
-    const subscribeToSession = (ws: WebSocket) => {
-      const since = lastSeqRef.current;
-      const message = {
-        action: "subscribe",
-        channel: `session:${sessionId}`,
-        ...(since ? { since } : {}),
-      };
-      ws.send(JSON.stringify(message));
-    };
-
-    const openWebSocket = () => {
-      if (disposed) return;
-      setConnectionState(reconnectAttemptsRef.current === 0 ? "connecting" : "reconnecting");
-
-      const ws = new WebSocket(websocketUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        if (disposed || wsRef.current !== ws) return;
-        reconnectAttemptsRef.current = 0;
-        setConnectionState("connected");
-      };
-
-      ws.onmessage = (event) => {
-        if (disposed || wsRef.current !== ws) return;
-
-        const rawMessage = String(event.data);
-
-        try {
-          const message: unknown = JSON.parse(rawMessage);
-
-          if (
-            typeof message === "object" &&
-            message !== null &&
-            "type" in message &&
-            message.type === "event"
-          ) {
-            if (!rememberWsMessage(seenMessagesRef.current, rawMessage)) {
-              return;
-            }
-          }
-
-          const protocol = detectSessionWebSocketProtocol(message);
-          if (protocol) {
-            protocolRef.current = protocol;
-            if (protocol.kind === "channel") {
-              subscribeToSession(ws);
-            }
-            return;
-          }
-
-          const normalized = toNormalizedSessionLogMessage(message, sessionId, protocolRef.current);
-          if (!normalized) return;
-
-          if (normalized.seq && normalized.seq > lastSeqRef.current) {
-            lastSeqRef.current = normalized.seq;
-          }
-
-          setEvents((current) => [...current, normalized.log]);
-        } catch {
-          // Ignore malformed messages from the runtime host.
-        }
-      };
-
-      ws.onclose = () => {
-        const wasCurrent = wsRef.current === ws;
-        if (wasCurrent) {
-          wsRef.current = null;
-        }
-
-        if (disposed || !wasCurrent) return;
-
-        reconnectAttemptsRef.current++;
-        if (reconnectAttemptsRef.current > 5) {
-          setConnectionState("disconnected");
+    const unsubscribe = subscribe(
+      channel,
+      (message: WsChannelServerMessage) => {
+        // Skip protocol-level messages that aren't session events.
+        if (
+          message.type === "subscribed" ||
+          message.type === "unsubscribed" ||
+          message.type === "pong"
+        ) {
           return;
         }
 
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current - 1), 16_000);
-        reconnectTimerRef.current = setTimeout(() => {
-          reconnectTimerRef.current = null;
-          openWebSocket();
-        }, delay);
-      };
-    };
+        // Track sequence numbers for replay on reconnect.
+        if (message.type === "event" && message.seq > lastSeqRef.current) {
+          lastSeqRef.current = message.seq;
+        }
 
-    openWebSocket();
+        const log = toSessionLog(message);
+        if (log) {
+          setEvents((current) => [...current, log]);
+        }
+      },
+      { getSince: () => lastSeqRef.current },
+    );
 
-    return () => {
-      disposed = true;
-      clearReconnectTimer();
-      const ws = wsRef.current;
-      wsRef.current = null;
-      if (ws) {
-        ws.close();
-      }
-    };
-  }, [sessionId, websocketUrl]);
+    return unsubscribe;
+  }, [sessionId, ready, subscribe]);
 
-  const send = useCallback((message: SessionControlMessage) => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const payload = toWireSessionControlMessage(message, protocolRef.current);
-    if (!payload) return;
-    ws.send(JSON.stringify(payload));
-  }, []);
+  const connectionState = ready ? ws.connectionState : "disconnected";
+
+  const send = useCallback(
+    (message: Parameters<RuntimeWebSocketHandle["send"]>[0]) => {
+      wsSend(message);
+    },
+    [wsSend],
+  );
 
   const prompt = useCallback(
     (text: string) => {
@@ -199,6 +128,7 @@ export function useFlamecastSession(sessionId: string, websocketUrl?: string) {
     events,
     connectionState,
     isConnected: connectionState === "connected",
+    send,
     prompt,
     respondToPermission,
     cancel,
