@@ -17,6 +17,7 @@ import type { FlamecastStorage, StoredSession } from "./storage.js";
 import { SessionService } from "./session-service.js";
 import { WebhookDeliveryEngine } from "./events/webhooks.js";
 import { EventBus } from "./events/bus.js";
+import { SessionEventPersistence } from "./events/session-event-persistence.js";
 import { resolveAgentId } from "./events/channels.js";
 import type {
   SessionCallbackEvent,
@@ -91,6 +92,7 @@ export type {
   StoredSession,
 } from "./storage.js";
 export { NodeRuntime } from "./runtime-node.js";
+export { SessionEventPersistence } from "./events/session-event-persistence.js";
 
 // ---------------------------------------------------------------------------
 // Event handler context types
@@ -165,6 +167,12 @@ export type FlamecastOptions<
   callbackUrl?: string;
   /** Global webhooks delivered for all sessions. Merged with per-session webhooks at creation time. */
   webhooks?: Omit<WebhookConfig, "id">[];
+  /**
+   * Directory for persisting session event logs as NDJSON files.
+   * Each session writes to `<sessionsDir>/<sessionId>.jsonl`.
+   * Defaults to `<cwd>/.flamecast/sessions`.
+   */
+  sessionsDir?: string;
 } & FlamecastEventHandlers<R>;
 
 export class Flamecast<
@@ -179,8 +187,14 @@ export class Flamecast<
   private readonly webhookEngine = new WebhookDeliveryEngine();
   private readonly webhookAbortControllers = new Map<string, AbortController>();
 
+  /** Active WebSocket taps that mirror runtime events into the EventBus. */
+  private readonly eventTaps = new Map<string, WebSocket>();
+
   /** Event bus for lifecycle events and session history. */
   readonly eventBus = new EventBus();
+
+  /** Persistent session event log (NDJSON files). */
+  private readonly eventPersistence: SessionEventPersistence;
 
   /** Registered event handlers. */
   readonly handlers: Readonly<FlamecastEventHandlers<R>>;
@@ -197,6 +211,9 @@ export class Flamecast<
     this.initialAgentTemplates = opts.agentTemplates;
     this.callbackUrl = opts.callbackUrl;
     this.globalWebhooks = opts.webhooks ?? [];
+    this.eventPersistence = new SessionEventPersistence(
+      opts.sessionsDir ?? `${process.cwd()}/.flamecast/sessions`,
+    );
     this.runtimesMap = opts.runtimes;
     this.sessionService = new SessionService(opts.runtimes);
     this.app = createServerApp(this);
@@ -213,6 +230,18 @@ export class Flamecast<
       const text = this.extractPromptText(event);
       if (text) {
         void this.maybeSetSessionTitle(sessionId, text);
+      }
+    });
+
+    // Persist every event to disk as NDJSON.
+    this.eventBus.onEvent((channelEvent) => {
+      try {
+        this.eventPersistence.appendEvent(channelEvent);
+      } catch (err) {
+        console.warn(
+          `[Flamecast] Failed to persist event for session "${channelEvent.sessionId}":`,
+          err instanceof Error ? err.message : err,
+        );
       }
     });
   }
@@ -243,6 +272,7 @@ export class Flamecast<
    * stay alive and will be recovered via `recoverSessions()` on the next start.
    */
   async close(): Promise<void> {
+    for (const [id] of this.eventTaps) this.closeEventTap(id);
     for (const ac of this.webhookAbortControllers.values()) ac.abort();
     this.webhookAbortControllers.clear();
     this.webhookEngine.clear();
@@ -532,17 +562,19 @@ export class Flamecast<
       agentId: resolveAgentId(sessionId),
     });
 
+    // Open a WebSocket tap to capture runtime events for persistence.
+    const wsUrl = this.sessionService.getWebsocketUrl(sessionId);
+    if (wsUrl) {
+      this.openEventTap(sessionId, wsUrl);
+    }
+
     return this.snapshotSession(sessionId);
   }
 
   async listSessions(): Promise<Session[]> {
     await this.ensureReady();
     const allMetas = await this.requireStorage().listAllSessions();
-    const activeMetas = allMetas.filter((meta) => meta.status === "active");
-    const sessions = await Promise.all(
-      activeMetas.map((meta) => this.snapshotSession(meta.id, { readOnly: true })),
-    );
-    return sessions.filter((session) => session.status === "active");
+    return Promise.all(allMetas.map((meta) => this.snapshotSession(meta.id, { readOnly: true })));
   }
 
   async getSession(
@@ -733,6 +765,9 @@ export class Flamecast<
     const sessionCtx = await this.buildSessionContext(id);
 
     await this.sessionService.terminateSession(this.requireStorage(), id);
+
+    // Close the event tap before clearing history so no more events arrive.
+    this.closeEventTap(id);
 
     // Emit lifecycle event for in-process subscribers such as SSE streams.
     this.eventBus.emitSessionTerminated({
@@ -989,6 +1024,65 @@ export class Flamecast<
     };
   }
 
+  /**
+   * Open a WebSocket connection to the runtime and subscribe to a session's
+   * channel. All events are pushed into the EventBus so they're persisted to
+   * disk via the NDJSON listener and available for history replay.
+   */
+  private openEventTap(sessionId: string, websocketUrl: string): void {
+    if (this.eventTaps.has(sessionId)) return;
+    if (typeof globalThis.WebSocket === "undefined") return;
+
+    try {
+      const ws = new WebSocket(websocketUrl);
+      this.eventTaps.set(sessionId, ws);
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(String(event.data));
+
+          // Wait for the "connected" handshake before subscribing.
+          if (msg.type === "connected") {
+            ws.send(JSON.stringify({ action: "subscribe", channel: `session:${sessionId}` }));
+            return;
+          }
+
+          if (msg.type !== "event" || !msg.sessionId) return;
+          this.eventBus.pushEvent({
+            sessionId: msg.sessionId,
+            agentId: msg.agentId ?? resolveAgentId(msg.sessionId),
+            event: msg.event,
+          });
+        } catch {
+          // Ignore malformed messages.
+        }
+      };
+
+      ws.onclose = () => {
+        this.eventTaps.delete(sessionId);
+      };
+
+      ws.onerror = () => {
+        // Will trigger onclose.
+      };
+    } catch {
+      // WebSocket construction failed — skip tap for this session.
+    }
+  }
+
+  /** Tear down the event tap for a session. */
+  private closeEventTap(sessionId: string): void {
+    const ws = this.eventTaps.get(sessionId);
+    if (ws) {
+      try {
+        ws.close();
+      } catch {
+        /* ignore */
+      }
+      this.eventTaps.delete(sessionId);
+    }
+  }
+
   private async loadStoredSession(sessionId: string): Promise<StoredSession | null> {
     return this.requireStorage().getStoredSession(sessionId);
   }
@@ -1092,6 +1186,7 @@ export class Flamecast<
             sessionId: session.meta.id,
             websocketUrl: session.runtimeInfo.websocketUrl,
           });
+          this.openEventTap(session.meta.id, session.runtimeInfo.websocketUrl);
           console.log(`[Flamecast] Recovered session "${session.meta.id}"`);
         } else {
           await storage.finalizeSession(session.meta.id, "terminated");
@@ -1200,13 +1295,21 @@ export class Flamecast<
           .catch(() => null)
       : null;
 
-    const logs: SessionLog[] = opts.includeLogs
-      ? this.eventBus.getHistory(id).map(({ event }) => ({
+    const logs: SessionLog[] = [];
+    if (opts.includeLogs) {
+      // Try in-memory history first; fall back to persisted NDJSON for terminated sessions.
+      let history = this.eventBus.getHistory(id);
+      if (history.length === 0) {
+        history = this.eventPersistence.readEvents(id);
+      }
+      for (const { event } of history) {
+        logs.push({
           type: event.type,
           data: structuredClone(event.data),
           timestamp: event.timestamp,
-        }))
-      : [];
+        });
+      }
+    }
 
     const fileSystem =
       opts.includeFileSystem && this.sessionService.hasSession(id)
@@ -1244,13 +1347,16 @@ export class Flamecast<
     };
   }
 
-  /** Extract the first user prompt text from the in-memory event history. */
+  /** Extract the first user prompt text from event history (in-memory, then disk). */
   private deriveSessionTitle(sessionId: string): string | undefined {
     const truncate = (text: string) => (text.length > 120 ? text.slice(0, 120) + "..." : text);
     const isRecord = (v: unknown): v is Record<string, unknown> =>
       typeof v === "object" && v !== null;
 
-    const history = this.eventBus.getHistory(sessionId);
+    let history = this.eventBus.getHistory(sessionId);
+    if (history.length === 0) {
+      history = this.eventPersistence.readEvents(sessionId);
+    }
     for (const { event } of history) {
       if (event.type === "prompt_sent" && isRecord(event.data)) {
         const { text } = event.data;

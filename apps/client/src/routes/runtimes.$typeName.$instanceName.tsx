@@ -353,7 +353,7 @@ function RuntimeDetailPanel({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* Tab bar */}
       <div className="flex shrink-0 items-center gap-0 border-b bg-muted/30 px-1">
-        <div className="flex min-w-0 flex-1 items-center overflow-x-auto">
+        <div className="flex min-w-0 items-center overflow-x-auto">
           {tabs.map((tab) => (
             <TabTrigger
               key={tab.id}
@@ -363,15 +363,15 @@ function RuntimeDetailPanel({
               onClose={() => closeTab(tab.id)}
             />
           ))}
-          <button
-            type="button"
-            className="flex shrink-0 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ml-2"
-            onClick={addNewTab}
-            title="New tab"
-          >
-            <PlusIcon className="size-3.5" />
-          </button>
         </div>
+        <button
+          type="button"
+          className="flex shrink-0 items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ml-1"
+          onClick={addNewTab}
+          title="New tab"
+        >
+          <PlusIcon className="size-3.5" />
+        </button>
       </div>
 
       {/* Tab content */}
@@ -427,7 +427,7 @@ function TabTrigger({
   return (
     <div
       className={cn(
-        "group/tab flex w-36 shrink-0 items-center gap-1.5 border-b-2 px-3 py-3 text-xs transition-colors cursor-pointer select-none flex justify-between",
+        "group/tab flex w-36 shrink-0 items-center justify-between gap-1.5 border-b-2 px-3 py-3 text-xs transition-colors cursor-pointer select-none",
         isActive
           ? "border-primary bg-background text-foreground"
           : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
@@ -436,9 +436,9 @@ function TabTrigger({
       role="tab"
       aria-selected={isActive}
     >
-      <div className="flex items-center gap-1.5">
+      <div className="flex min-w-0 items-center gap-1.5">
         {icon}
-        <span className="max-w-32 truncate">{label}</span>
+        <span className="truncate">{label}</span>
       </div>
       <button
         type="button"
