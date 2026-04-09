@@ -4,6 +4,7 @@ import type { Runtime } from "@flamecast/protocol/runtime";
 import { createTestStorage } from "../fixtures/test-helpers.js";
 
 const noopRuntime: Runtime = {
+  async autoStart() { throw new Error("not supported"); },
   async fetchSession() {
     return new Response("not implemented", { status: 501 });
   },

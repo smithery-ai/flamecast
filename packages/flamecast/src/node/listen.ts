@@ -97,6 +97,12 @@ export function listen(
     socket.on("error", () => upstream.destroy());
   });
 
+  // Auto-start the first available runtime so it is ready before the first session.
+  void flamecast.autoStart().catch(() => {
+    // All runtimes rejected — no auto-startable runtime registered. This is
+    // expected when only Docker/E2B runtimes are configured.
+  });
+
   // Recover previously-active sessions so the HTTP control plane can resume
   // proxying requests after a server restart. Runtime WebSockets are direct,
   // so there is no in-process bridge to re-establish here.

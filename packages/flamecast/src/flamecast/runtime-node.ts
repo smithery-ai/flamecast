@@ -149,6 +149,10 @@ export class NodeRuntime implements Runtime {
     return this.getDefaultCwd();
   }
 
+  async autoStart(): Promise<void> {
+    await this.ensureRunning();
+  }
+
   async start(_instanceId: string): Promise<void> {
     await this.ensureRunning();
   }

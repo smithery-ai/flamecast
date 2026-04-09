@@ -1140,6 +1140,24 @@ export class Flamecast<
   }
 
   /**
+   * Race all registered runtimes to auto-start, returning the name of the
+   * first runtime that succeeds. Runtimes that don't support auto-start
+   * will throw internally and are ignored. If no runtime auto-starts
+   * successfully, the returned promise rejects.
+   */
+  async autoStart(): Promise<string> {
+    const entries = Object.entries(this.runtimesMap);
+    const attempts = entries.map(async ([name, runtime]) => {
+      await runtime.autoStart();
+      return name;
+    });
+
+    // Promise.any resolves with the first fulfilled promise.
+    // If all reject, it throws an AggregateError.
+    return Promise.any(attempts);
+  }
+
+  /**
    * Recover active sessions from storage after a server restart.
    *
    * For each session that was marked "active" in the database, attempts to

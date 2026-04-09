@@ -341,6 +341,9 @@ async function runServer(flags: UpFlags): Promise<number> {
     // Server is listening — tell the parent immediately
     if (process.send) process.send({ type: "ready" });
 
+    // Auto-start the runtime so the session-host binary is ready.
+    flamecast.autoStart().catch(() => {});
+
     // Proxy WebSocket upgrades to the session-host so they work through the tunnel.
     server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
       const wsUrl = runtime.getWebsocketUrl();

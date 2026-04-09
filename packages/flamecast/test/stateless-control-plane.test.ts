@@ -15,6 +15,7 @@ function createRecoverableRuntime(): Runtime & {
   return {
     reconnectCalls,
     promptBodies,
+    async autoStart() { throw new Error("not supported"); },
     async fetchSession(sessionId, request) {
       const path = new URL(request.url).pathname;
 

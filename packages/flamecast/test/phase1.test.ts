@@ -19,6 +19,7 @@ function createMockRuntime(): Runtime {
   const sessions = new Map<string, { hostUrl: string; websocketUrl: string }>();
 
   return {
+    async autoStart() { throw new Error("not supported"); },
     async fetchSession(sessionId: string, request: Request): Promise<Response> {
       const url = new URL(request.url);
       const path = url.pathname;

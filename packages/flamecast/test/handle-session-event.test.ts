@@ -15,6 +15,7 @@ import type { PermissionRequestContext } from "../src/flamecast/index.js";
 
 function createMockRuntime(): Runtime {
   return {
+    async autoStart() { throw new Error("not supported"); },
     async fetchSession(sessionId: string, request: Request): Promise<Response> {
       const url = new URL(request.url);
       if (url.pathname.endsWith("/start") && request.method === "POST") {

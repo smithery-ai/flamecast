@@ -11,6 +11,14 @@ export interface Runtime<TConfig extends Record<string, unknown> = {}> {
   readonly onlyOne?: boolean;
   fetchSession(sessionId: string, request: Request): Promise<Response>;
   /**
+   * Eagerly start the runtime so it is ready before the first session.
+   *
+   * Runtimes that support auto-start (e.g. NodeRuntime) should spawn their
+   * backing process/container here. Runtimes that don't support it should
+   * throw an error.
+   */
+  autoStart(): Promise<void>;
+  /**
    * Proxy an instance-scoped request directly to the runtime instance.
    *
    * This is intended for runtime-level surfaces such as filesystem browsing

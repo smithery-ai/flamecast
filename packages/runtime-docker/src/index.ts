@@ -293,6 +293,10 @@ export class DockerRuntime implements Runtime {
   // Instance lifecycle
   // ---------------------------------------------------------------------------
 
+  async autoStart(): Promise<void> {
+    throw new Error("DockerRuntime does not support auto-start");
+  }
+
   async start(instanceId: string): Promise<void> {
     const existing = await this.resolveInstanceContainer(instanceId);
     if (existing) {

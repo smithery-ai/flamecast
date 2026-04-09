@@ -210,6 +210,10 @@ export class E2BRuntime implements Runtime {
   // Instance lifecycle
   // ---------------------------------------------------------------------------
 
+  async autoStart(): Promise<void> {
+    throw new Error("E2BRuntime does not support auto-start");
+  }
+
   async start(instanceId: string): Promise<void> {
     console.log(`[E2BRuntime] start("${instanceId}") called`);
     const existing = await this.resolveInstanceSandbox(instanceId);

@@ -73,6 +73,10 @@ export class InProcessSessionHost implements Runtime {
   // Runtime interface
   // -------------------------------------------------------------------------
 
+  async autoStart(): Promise<void> {
+    throw new Error("InProcessSessionHost does not support auto-start");
+  }
+
   async fetchSession(sessionId: string, request: Request): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;

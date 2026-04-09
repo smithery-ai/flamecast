@@ -9,12 +9,79 @@ vi.mock("@flamecast/protocol/verify", () => ({
 
 const { Flamecast } = await import("../src/flamecast/index.js");
 
+describe("Flamecast.autoStart", () => {
+  it("resolves with the name of the first runtime that auto-starts", async () => {
+    const runtime: Runtime = {
+      onlyOne: true,
+      async autoStart() { /* succeeds */ },
+      async fetchSession(): Promise<Response> {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    };
+
+    const flamecast = new Flamecast({
+      storage: await createTestStorage(),
+      runtimes: { local: runtime },
+    });
+
+    const name = await flamecast.autoStart();
+    expect(name).toBe("local");
+  });
+
+  it("skips runtimes that throw and resolves with the one that succeeds", async () => {
+    const failing: Runtime = {
+      onlyOne: false,
+      async autoStart() { throw new Error("not supported"); },
+      async fetchSession(): Promise<Response> {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      },
+    };
+
+    const succeeding: Runtime = {
+      onlyOne: true,
+      async autoStart() { /* succeeds */ },
+      async fetchSession(): Promise<Response> {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      },
+    };
+
+    const flamecast = new Flamecast({
+      storage: await createTestStorage(),
+      runtimes: { docker: failing, local: succeeding },
+    });
+
+    const name = await flamecast.autoStart();
+    expect(name).toBe("local");
+  });
+
+  it("rejects when all runtimes throw", async () => {
+    const runtime: Runtime = {
+      onlyOne: true,
+      async autoStart() { throw new Error("not supported"); },
+      async fetchSession(): Promise<Response> {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      },
+    };
+
+    const flamecast = new Flamecast({
+      storage: await createTestStorage(),
+      runtimes: { docker: runtime },
+    });
+
+    await expect(flamecast.autoStart()).rejects.toThrow();
+  });
+});
+
 describe("Flamecast.startRuntime", () => {
   it("returns websocket metadata after the runtime starts", async () => {
     let started = false;
 
     const runtime: Runtime = {
       onlyOne: true,
+      async autoStart() { throw new Error("not supported"); },
       async fetchSession(): Promise<Response> {
         return new Response(JSON.stringify({ ok: true }), {
           status: 200,
@@ -120,6 +187,7 @@ describe("Flamecast.startRuntime", () => {
 
     const runtime: Runtime = {
       onlyOne: true,
+      async autoStart() { throw new Error("not supported"); },
       async fetchSession(): Promise<Response> {
         return new Response(JSON.stringify({ ok: true }), {
           status: 200,

@@ -245,6 +245,7 @@ describe("workspace cwd propagation", () => {
     let capturedWorkspace: string | undefined;
 
     const spyRuntime: Runtime = {
+      async autoStart() { throw new Error("not supported"); },
       async fetchSession(_sessionId: string, request: Request): Promise<Response> {
         const url = new URL(request.url);
         if (url.pathname.endsWith("/start") && request.method === "POST") {
@@ -294,6 +295,7 @@ describe("workspace cwd propagation", () => {
     let capturedWorkspace: string | undefined;
 
     const spyRuntime: Runtime = {
+      async autoStart() { throw new Error("not supported"); },
       async fetchSession(_sessionId: string, request: Request): Promise<Response> {
         const url = new URL(request.url);
         if (url.pathname.endsWith("/start") && request.method === "POST") {

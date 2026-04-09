@@ -9,6 +9,7 @@ function createMockRuntime(): Runtime & {
   const calls: Array<{ sessionId: string; method: string }> = [];
   return {
     calls,
+    async autoStart() { throw new Error("not supported"); },
     async fetchSession(sessionId, request) {
       const url = new URL(request.url);
       calls.push({ sessionId, method: url.pathname });

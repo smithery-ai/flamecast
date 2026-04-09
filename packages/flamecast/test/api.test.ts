@@ -8,6 +8,7 @@ import { createClient, createTestStorage } from "./fixtures/test-helpers.js";
 function createMockRuntime(storage: FlamecastStorage): Runtime {
   const sessions = new Set<string>();
   return {
+    async autoStart() { throw new Error("not supported"); },
     async fetchSession(sessionId: string, request: Request): Promise<Response> {
       const url = new URL(request.url);
       if (url.pathname.endsWith("/start") && request.method === "POST") {

@@ -22,6 +22,9 @@ function createMockRuntime() {
   let promptHandler: ((body: Record<string, unknown>) => Response) | null = null;
 
   const runtime: Runtime = {
+    async autoStart() {
+      throw new Error("Mock runtime does not support auto-start");
+    },
     async fetchSession(sessionId: string, request: Request): Promise<Response> {
       const url = new URL(request.url);
 
