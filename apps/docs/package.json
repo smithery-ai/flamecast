@@ -5,7 +5,6 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "mint dev --port 6969 --no-open"
   },
   "keywords": [],
   "author": "",
