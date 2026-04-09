@@ -1202,6 +1202,9 @@ export class Flamecast<
           )
         : null;
 
+    // Derive a human-readable title from the first user prompt in event history.
+    const title = meta.title ?? this.deriveSessionTitle(id);
+
     return {
       id: meta.id,
       agentName: meta.agentName,
@@ -1223,7 +1226,48 @@ export class Flamecast<
       promptQueue,
       websocketUrl,
       runtime: meta.runtime,
+      cwd: meta.cwd,
+      title,
     };
+  }
+
+  /** Extract the first user prompt text from the in-memory event history. */
+  private deriveSessionTitle(sessionId: string): string | undefined {
+    const truncate = (text: string) => (text.length > 120 ? text.slice(0, 120) + "..." : text);
+    const isRecord = (v: unknown): v is Record<string, unknown> =>
+      typeof v === "object" && v !== null;
+
+    const history = this.eventBus.getHistory(sessionId);
+    for (const { event } of history) {
+      if (event.type === "prompt_sent" && isRecord(event.data)) {
+        const { text } = event.data;
+        if (typeof text === "string" && text.length > 0) {
+          return truncate(text);
+        }
+      }
+      if (event.type === "rpc" && isRecord(event.data)) {
+        const d = event.data;
+        if (
+          d.method === "session/prompt" &&
+          d.direction === "client_to_agent" &&
+          d.phase === "request" &&
+          isRecord(d.payload) &&
+          Array.isArray(d.payload.prompt)
+        ) {
+          for (const item of d.payload.prompt) {
+            if (
+              isRecord(item) &&
+              item.type === "text" &&
+              typeof item.text === "string" &&
+              item.text.length > 0
+            ) {
+              return truncate(item.text);
+            }
+          }
+        }
+      }
+    }
+    return undefined;
   }
 
   private async proxyRuntimeInstanceRequest(

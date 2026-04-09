@@ -22,6 +22,7 @@ function rowToMeta(row: typeof sessions.$inferSelect | undefined): SessionMeta |
     status,
     pendingPermission: row.pendingPermission,
     runtime: row.runtime ?? undefined,
+    cwd: row.cwd ?? undefined,
   };
 }
 
@@ -193,6 +194,7 @@ export function createStorageFromDb(db: PsqlAppDb): FlamecastStorage {
         runtimeName: runtimeInfo?.runtimeName ?? null,
         runtimeMeta: runtimeInfo?.runtimeMeta ?? null,
         runtime: meta.runtime ?? null,
+        cwd: meta.cwd ?? null,
         webhooks,
       });
     },

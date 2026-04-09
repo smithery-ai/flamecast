@@ -21,6 +21,7 @@ export const sessions = flamecastSchema.table("sessions", {
   runtimeName: text("runtime_name"),
   runtimeMeta: jsonb("runtime_meta").$type<Record<string, unknown> | null>(),
   runtime: text("runtime"),
+  cwd: text("cwd"),
   webhooks: jsonb("webhooks").$type<WebhookConfig[] | null>(),
 });
 

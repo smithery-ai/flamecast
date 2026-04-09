@@ -57,6 +57,13 @@
       "when": 1774817000000,
       "tag": "0007_runtime_instance_websocket_url",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1775724669964,
+      "tag": "0008_bumpy_violations",
+      "breakpoints": true
     }
   ]
 }

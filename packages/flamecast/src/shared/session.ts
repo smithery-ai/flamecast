@@ -180,6 +180,8 @@ export const SessionSchema = z.object({
   promptQueue: PromptQueueStateSchema.nullable(),
   websocketUrl: z.string().optional(),
   runtime: z.string().optional(),
+  cwd: z.string().optional(),
+  title: z.string().optional(),
 }) satisfies z.ZodType<Session>;
 
 export type { CreateSessionBody } from "@flamecast/protocol/session";

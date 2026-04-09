@@ -81,7 +81,11 @@ function RuntimeInstancePage() {
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-      <RuntimeDetailPanel runtimeInfo={runtimeInfo} instance={instance} focusSessionId={searchSessionId} />
+      <RuntimeDetailPanel
+        runtimeInfo={runtimeInfo}
+        instance={instance}
+        focusSessionId={searchSessionId}
+      />
     </div>
   );
 }

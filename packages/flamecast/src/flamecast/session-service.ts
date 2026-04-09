@@ -99,6 +99,7 @@ export class SessionService {
           status: "active",
           pendingPermission: null,
           runtime: opts.runtimeInstance ?? providerName,
+          cwd: opts.cwd,
         },
         runtimeInfo,
         opts.webhooks ?? [],
