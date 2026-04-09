@@ -1,5 +1,12 @@
 # @flamecast/ui
 
+## 3.0.0
+
+### Patch Changes
+
+- Updated dependencies [c3dde4d]
+  - @flamecast/sdk@0.3.0
+
 ## 2.0.1
 
 ### Patch Changes
