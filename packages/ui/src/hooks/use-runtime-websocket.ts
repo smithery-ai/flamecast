@@ -122,12 +122,15 @@ export function useRuntimeWebSocket(websocketUrl?: string): RuntimeWebSocketHand
           }
 
           // Route channel-tagged messages to the appropriate handlers.
+          // The server uses prefix matching (subscription "terminals" matches
+          // event channel "terminals:term-123"), so we mirror that here.
           const channel = getMessageChannel(message);
           if (channel) {
-            const sub = channelSubsRef.current.get(channel);
-            if (sub) {
-              for (const handler of sub.handlers) {
-                handler(message);
+            for (const [subChannel, sub] of channelSubsRef.current) {
+              if (channelMatches(subChannel, channel)) {
+                for (const handler of sub.handlers) {
+                  handler(message);
+                }
               }
             }
           }
@@ -225,6 +228,14 @@ export function useRuntimeWebSocket(websocketUrl?: string): RuntimeWebSocketHand
     () => ({ connectionState, subscribe, send }),
     [connectionState, subscribe, send],
   );
+}
+
+/**
+ * Mirrors the Go server's `channelMatches` — a subscription to "terminals"
+ * matches event channels "terminals" (exact) and "terminals:term-123" (prefix).
+ */
+function channelMatches(subscription: string, eventChannel: string): boolean {
+  return subscription === eventChannel || eventChannel.startsWith(subscription + ":");
 }
 
 function getMessageChannel(message: WsChannelServerMessage): string | undefined {
