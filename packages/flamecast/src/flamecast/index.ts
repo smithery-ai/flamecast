@@ -574,9 +574,7 @@ export class Flamecast<
   async listSessions(): Promise<Session[]> {
     await this.ensureReady();
     const allMetas = await this.requireStorage().listAllSessions();
-    return Promise.all(
-      allMetas.map((meta) => this.snapshotSession(meta.id, { readOnly: true })),
-    );
+    return Promise.all(allMetas.map((meta) => this.snapshotSession(meta.id, { readOnly: true })));
   }
 
   async getSession(
@@ -1045,9 +1043,7 @@ export class Flamecast<
 
           // Wait for the "connected" handshake before subscribing.
           if (msg.type === "connected") {
-            ws.send(
-              JSON.stringify({ action: "subscribe", channel: `session:${sessionId}` }),
-            );
+            ws.send(JSON.stringify({ action: "subscribe", channel: `session:${sessionId}` }));
             return;
           }
 
@@ -1078,7 +1074,11 @@ export class Flamecast<
   private closeEventTap(sessionId: string): void {
     const ws = this.eventTaps.get(sessionId);
     if (ws) {
-      try { ws.close(); } catch { /* ignore */ }
+      try {
+        ws.close();
+      } catch {
+        /* ignore */
+      }
       this.eventTaps.delete(sessionId);
     }
   }

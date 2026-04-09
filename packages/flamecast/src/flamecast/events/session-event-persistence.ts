@@ -39,6 +39,7 @@ export class SessionEventPersistence {
     for (const line of content.split("\n")) {
       if (!line.trim()) continue;
       try {
+        // oxlint-disable-next-line no-type-assertion/no-type-assertion -- JSON from our own persistence format
         events.push(JSON.parse(line) as ChannelEvent);
       } catch {
         // Skip malformed lines

@@ -69,7 +69,9 @@ export function SessionsSidebar() {
       // Also detect previous session view route
       const sessionViewMatch = s.matches.find((m) => m.routeId === "/sessions/$sessionId");
       const viewingSessionId =
-        sessionViewMatch?.params.sessionId as string | undefined;
+        typeof sessionViewMatch?.params.sessionId === "string"
+          ? sessionViewMatch.params.sessionId
+          : undefined;
 
       return {
         activeRuntimeTypeName: runtimeMatch?.params.typeName,
@@ -268,13 +270,7 @@ function SessionItem({
   );
 }
 
-function PreviousSessionItem({
-  session,
-  isActive,
-}: {
-  session: Session;
-  isActive: boolean;
-}) {
+function PreviousSessionItem({ session, isActive }: { session: Session; isActive: boolean }) {
   const navigate = useNavigate();
 
   const title = session.title || "(empty session)";
@@ -304,9 +300,7 @@ function PreviousSessionItem({
             {title}
           </span>
           {endedAt && (
-            <span className="text-[10px] leading-tight text-muted-foreground/70">
-              {endedAt}
-            </span>
+            <span className="text-[10px] leading-tight text-muted-foreground/70">{endedAt}</span>
           )}
         </div>
       </SidebarMenuButton>
