@@ -9,6 +9,7 @@ import {
   reduceRuntimeTerminalSessions,
   type RuntimeTerminalSession,
 } from "../lib/runtime-terminal-state.js";
+import type { RuntimeWebSocketHandle } from "./use-runtime-websocket.js";
 
 export type TerminalSession = RuntimeTerminalSession;
 
@@ -19,111 +20,83 @@ type TerminalDataListener = (data: string) => void;
  *
  * Terminals are independent of agent sessions — they live at the runtime
  * instance level. The hook subscribes to the "terminals" channel on the
- * runtime-host WebSocket.
+ * shared runtime WebSocket.
  */
-export function useTerminal(websocketUrl?: string) {
+export function useTerminal(ws: RuntimeWebSocketHandle, websocketUrl?: string) {
   const [terminals, setTerminals] = useState<TerminalSession[]>([]);
-  const wsRef = useRef<WebSocket | null>(null);
   const listenersRef = useRef<Map<string, Set<TerminalDataListener>>>(new Map());
   const queuedMessagesRef = useRef<WsChannelControlMessage[]>([]);
   const subscribedRef = useRef(false);
   const dismissedTerminalIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    let disposed = false;
     setTerminals([]);
     listenersRef.current = new Map();
     queuedMessagesRef.current = [];
     subscribedRef.current = false;
     dismissedTerminalIdsRef.current = loadDismissedRuntimeTerminals(websocketUrl);
 
-    if (!websocketUrl)
-      return () => {
-        disposed = true;
-      };
+    if (!websocketUrl) return;
 
-    const ws = new WebSocket(websocketUrl);
-    wsRef.current = ws;
-
-    ws.onmessage = (event) => {
-      if (disposed) return;
-      try {
-        const message: WsChannelServerMessage = JSON.parse(String(event.data));
-
-        if (message.type === "connected") {
-          const subscribeMsg: WsChannelControlMessage = {
-            action: "subscribe",
-            channel: "terminals",
-          };
-          ws.send(JSON.stringify(subscribeMsg));
-          return;
+    const unsubscribe = ws.subscribe("terminals", (message: WsChannelServerMessage) => {
+      if (message.type === "subscribed" && message.channel === "terminals") {
+        subscribedRef.current = true;
+        // Flush queued messages now that we're subscribed.
+        for (const pending of queuedMessagesRef.current) {
+          ws.send(pending);
         }
-
-        if (message.type === "subscribed" && message.channel === "terminals") {
-          subscribedRef.current = true;
-          for (const pending of queuedMessagesRef.current) {
-            ws.send(JSON.stringify(pending));
-          }
-          queuedMessagesRef.current = [];
-          return;
-        }
-
-        if (message.type !== "event") return;
-
-        const { type: eventType, data } = message.event;
-        const terminalId = typeof data.terminalId === "string" ? data.terminalId : undefined;
-        if (!terminalId) return;
-
-        if (eventType === "terminal.data") {
-          const chunk = typeof data.data === "string" ? data.data : "";
-          const listeners = listenersRef.current.get(terminalId);
-          if (listeners && !dismissedTerminalIdsRef.current.has(terminalId)) {
-            for (const fn of listeners) {
-              fn(chunk);
-            }
-          }
-        }
-
-        setTerminals((prev) =>
-          reduceRuntimeTerminalSessions(
-            prev,
-            {
-              eventType,
-              terminalId,
-              timestamp: message.event.timestamp,
-              command: typeof data.command === "string" ? data.command : undefined,
-              data: typeof data.data === "string" ? data.data : undefined,
-              exitCode: typeof data.exitCode === "number" ? data.exitCode : undefined,
-            },
-            dismissedTerminalIdsRef.current,
-          ),
-        );
-      } catch {
-        // Ignore malformed messages
+        queuedMessagesRef.current = [];
+        return;
       }
-    };
 
-    ws.onclose = () => {
-      subscribedRef.current = false;
-      if (wsRef.current === ws) wsRef.current = null;
-    };
+      if (message.type !== "event") return;
+
+      const { type: eventType, data } = message.event;
+      const terminalId = typeof data.terminalId === "string" ? data.terminalId : undefined;
+      if (!terminalId) return;
+
+      if (eventType === "terminal.data") {
+        const chunk = typeof data.data === "string" ? data.data : "";
+        const listeners = listenersRef.current.get(terminalId);
+        if (listeners && !dismissedTerminalIdsRef.current.has(terminalId)) {
+          for (const fn of listeners) {
+            fn(chunk);
+          }
+        }
+      }
+
+      setTerminals((prev) =>
+        reduceRuntimeTerminalSessions(
+          prev,
+          {
+            eventType,
+            terminalId,
+            timestamp: message.event.timestamp,
+            command: typeof data.command === "string" ? data.command : undefined,
+            data: typeof data.data === "string" ? data.data : undefined,
+            exitCode: typeof data.exitCode === "number" ? data.exitCode : undefined,
+          },
+          dismissedTerminalIdsRef.current,
+        ),
+      );
+    });
 
     return () => {
-      disposed = true;
-      wsRef.current = null;
-      ws.close();
+      subscribedRef.current = false;
+      unsubscribe();
     };
-  }, [websocketUrl]);
+  }, [websocketUrl, ws]);
 
-  const sendOrQueue = useCallback((message: WsChannelControlMessage) => {
-    const ws = wsRef.current;
-    if (!ws) return;
-    if (ws.readyState !== WebSocket.OPEN || !subscribedRef.current) {
-      queuedMessagesRef.current.push(message);
-      return;
-    }
-    ws.send(JSON.stringify(message));
-  }, []);
+  const sendOrQueue = useCallback(
+    (message: WsChannelControlMessage) => {
+      if (!subscribedRef.current) {
+        queuedMessagesRef.current.push(message);
+        return;
+      }
+      ws.send(message);
+    },
+    [ws],
+  );
 
   const sendInput = useCallback(
     (terminalId: string, data: string) => {

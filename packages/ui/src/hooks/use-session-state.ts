@@ -5,10 +5,9 @@ import type { PermissionRequestEvent } from "@flamecast/protocol/session-host";
 import { useSession } from "./use-session.js";
 import { useFlamecastSession } from "./use-flamecast-session.js";
 import { sessionLogsToSegments } from "../lib/logs-markdown.js";
+import type { RuntimeWebSocketHandle } from "./use-runtime-websocket.js";
 
-export function useSessionState(sessionId: string, opts?: { showAllFiles?: boolean }) {
-  const [showAllFiles, setShowAllFiles] = useState(opts?.showAllFiles ?? false);
-
+export function useSessionState(sessionId: string, ws: RuntimeWebSocketHandle) {
   const sessionQuery = useSession(sessionId);
   const session = sessionQuery.data;
 
@@ -22,7 +21,7 @@ export function useSessionState(sessionId: string, opts?: { showAllFiles?: boole
     requestFsSnapshot,
     cancel,
     terminate,
-  } = useFlamecastSession(sessionId, session?.websocketUrl);
+  } = useFlamecastSession(sessionId, ws, !!session?.websocketUrl);
 
   // Merge: use WS events if available, fall back to REST logs
   const logs: SessionLog[] = useMemo(() => {
@@ -61,6 +60,7 @@ export function useSessionState(sessionId: string, opts?: { showAllFiles?: boole
 
   // Filesystem state — only track workspace root, entries come from the runtime API
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
+  const [showAllFiles, setShowAllFiles] = useState(false);
 
   useEffect(() => {
     if (!session?.fileSystem) return;
