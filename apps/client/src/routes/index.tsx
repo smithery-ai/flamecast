@@ -358,7 +358,10 @@ function DeveloperHomePage() {
               <DropdownMenuContent align="start">
                 {matchingSessions.map((s) => (
                   <DropdownMenuItem key={s.id} onSelect={() => setSelectedSessionId(s.id)}>
-                    ...{s.id.slice(-8)}
+                    <span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px] leading-none text-muted-foreground">
+                      {s.id.slice(-5)}
+                    </span>
+                    {s.title || s.agentName}
                   </DropdownMenuItem>
                 ))}
                 <DropdownMenuSeparator />

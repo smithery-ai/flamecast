@@ -262,6 +262,9 @@ function SessionItem({
             {isPending && (
               <LoaderCircleIcon className="size-3 shrink-0 animate-spin text-muted-foreground" />
             )}
+            <span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px] leading-none text-muted-foreground">
+              {session.id.slice(-5)}
+            </span>
             <span className="truncate text-xs font-medium leading-tight">{title}</span>
           </div>
           <div className="flex min-w-0 items-center gap-1 text-[10px] leading-tight text-muted-foreground">
@@ -322,8 +325,11 @@ function PreviousSessionItem({ session, isActive }: { session: Session; isActive
         onClick={handleClick}
       >
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="truncate text-xs font-medium leading-tight text-muted-foreground">
-            {title}
+          <span className="flex items-center gap-1.5 text-xs font-medium leading-tight text-muted-foreground">
+            <span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px] leading-none">
+              {session.id.slice(-5)}
+            </span>
+            <span className="truncate">{title}</span>
           </span>
           {endedAt && (
             <span className="text-[10px] leading-tight text-muted-foreground/70">{endedAt}</span>
