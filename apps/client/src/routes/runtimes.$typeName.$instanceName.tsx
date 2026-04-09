@@ -109,6 +109,8 @@ function RuntimeDetailPanel({
   const [tabs, setTabs] = useState<Tab[]>([initialTab.current]);
   const [activeTabId, setActiveTabId] = useState(initialTab.current.id);
   const hydratedRef = useRef(false);
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
 
   useEffect(() => {
     if (hydratedRef.current || !sessions) return;
@@ -131,30 +133,30 @@ function RuntimeDetailPanel({
   }, [sessions, instance.name, focusSessionId]);
 
   // When focusSessionId changes after hydration, switch to that tab or re-open it.
-  // Deliberately excludes `tabs` from deps — we read current tabs via setTabs callback
-  // to avoid re-running when closeTab updates the tab list.
+  // Reads current tabs via ref to avoid re-running when closeTab updates the tab list.
   useEffect(() => {
     if (!focusSessionId || !hydratedRef.current) return;
 
-    setTabs((prev) => {
-      const existing = prev.find((t) => t.type === "session" && t.sessionId === focusSessionId);
-      if (existing) {
-        setActiveTabId(existing.id);
-        return prev;
-      }
-      // Tab was closed — re-open it if the session is still active
-      const session = sessions?.find((s) => s.id === focusSessionId && s.status === "active");
-      if (!session) return prev;
+    const existing = tabsRef.current.find(
+      (t) => t.type === "session" && t.sessionId === focusSessionId,
+    );
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
 
-      const tab: Tab = {
-        id: makeTabId(),
-        type: "session",
-        sessionId: session.id,
-        label: session.agentName,
-      };
-      setActiveTabId(tab.id);
-      return [...prev, tab];
-    });
+    // Tab was closed — re-open it if the session is still active
+    const session = sessions?.find((s) => s.id === focusSessionId && s.status === "active");
+    if (!session) return;
+
+    const tab: Tab = {
+      id: makeTabId(),
+      type: "session",
+      sessionId: session.id,
+      label: session.agentName,
+    };
+    setTabs((prev) => [...prev, tab]);
+    setActiveTabId(tab.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusSessionId, sessions]);
 
