@@ -7,6 +7,7 @@ import { resolveApiBaseUrl } from "./lib/api-base-url";
 import { BackendUrlProvider, useBackendUrl } from "./lib/backend-url-context";
 import { DefaultAgentConfigProvider } from "./lib/default-agent-config-context";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ConnectionOverlay } from "@/components/connection-overlay";
 import "./globals.css";
 
 const router = createRouter({ routeTree });
@@ -24,6 +25,7 @@ function App() {
   return (
     <FlamecastProvider key={backendUrl} baseUrl={backendUrl}>
       <TooltipProvider>
+        <ConnectionOverlay />
         <RouterProvider router={router} />
       </TooltipProvider>
     </FlamecastProvider>
