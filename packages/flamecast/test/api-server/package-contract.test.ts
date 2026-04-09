@@ -20,7 +20,7 @@ describe("package contract", () => {
     expect(packageJson.name).toBe("@flamecast/sdk");
     expect(packageJson.main).toBe("./dist/index.js");
     expect(packageJson.types).toBe("./dist/index.d.ts");
-    expect(packageJson.files).toEqual(["dist"]);
+    expect(packageJson.files).toEqual(["dist", "src/client"]);
     expect(packageJson.exports["."]).toEqual({
       types: "./dist/index.d.ts",
       import: "./dist/index.js",
@@ -28,6 +28,10 @@ describe("package contract", () => {
     expect(packageJson.exports["./api"]).toEqual({
       types: "./dist/flamecast/api.d.ts",
       import: "./dist/flamecast/api.js",
+    });
+    expect(packageJson.exports["./client"]).toEqual({
+      types: "./src/client/api.ts",
+      import: "./src/client/api.ts",
     });
     // Internal sub-paths removed — types live in @flamecast/protocol,
     // user-facing types re-exported from the main entrypoint

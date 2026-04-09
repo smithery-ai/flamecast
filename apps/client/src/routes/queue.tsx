@@ -104,7 +104,7 @@ function QueuePage() {
 
   return (
     <div className="mx-auto min-h-0 w-full max-w-3xl flex-1 overflow-y-auto px-1">
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-8 py-6">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Message queue</h1>
           <p className="mt-1 text-sm text-muted-foreground">
