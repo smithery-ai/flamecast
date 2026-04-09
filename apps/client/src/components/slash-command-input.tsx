@@ -37,30 +37,39 @@ interface SlashCommand {
 // Combobox components
 // ---------------------------------------------------------------------------
 
-const Combobox = forwardRef<HTMLUListElement, BeautifulMentionsComboboxProps>(
+const Combobox = forwardRef<HTMLDivElement, BeautifulMentionsComboboxProps>(
   function Combobox({ loading, itemType, children, ...props }, ref) {
+    if (itemType === "trigger") {
+      return <div ref={ref} className="hidden" {...props} />;
+    }
+    if (loading) {
+      return (
+        <div
+          ref={ref}
+          className="w-full rounded-md border bg-popover p-3 text-sm text-popover-foreground shadow-md"
+        >
+          <span className="animate-pulse text-muted-foreground">Loading commands…</span>
+        </div>
+      );
+    }
     const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
+    if (!hasChildren) {
+      return (
+        <div
+          ref={ref}
+          className="w-full rounded-md border bg-popover p-3 text-sm text-muted-foreground shadow-md"
+        >
+          No commands available
+        </div>
+      );
+    }
     return (
       <ul
         ref={ref}
         {...props}
-        className={cn(
-          "w-full max-h-[300px] overflow-y-auto overscroll-contain rounded-md border bg-popover p-1 text-popover-foreground shadow-md",
-          itemType === "trigger" && "hidden",
-        )}
-      >
-        {children}
-        {loading && itemType === "value" && (
-          <li className="px-2 py-1.5 text-xs text-muted-foreground animate-pulse">
-            Loading commands…
-          </li>
-        )}
-        {!loading && !hasChildren && itemType === "value" && (
-          <li className="px-2 py-1.5 text-xs text-muted-foreground">
-            No commands available
-          </li>
-        )}
-      </ul>
+        style={{ scrollbarWidth: "none" }}
+        className="w-full max-h-[300px] list-none overflow-y-scroll overscroll-contain rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+      />
     );
   },
 );
