@@ -11,11 +11,7 @@ export type {
 export type {
   FileSystemEntry,
   PermissionRequestEvent,
-  FilesystemSnapshotEvent,
-  FilePreviewEvent,
   PermissionRespondAction,
-  FsSnapshotAction,
-  FilePreviewAction,
   SessionHostStartRequest,
   SessionHostStartResponse,
   SessionHostHealthResponse,

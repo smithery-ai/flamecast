@@ -45,14 +45,6 @@ const TERMINAL_EVENT_TYPES = new Set([
 
 const QUEUE_EVENT_TYPES = new Set(["queue.updated", "queue.paused", "queue.resumed"]);
 
-const FS_EVENT_TYPES = new Set([
-  "filesystem.changed",
-  "filesystem.snapshot",
-  "file.preview",
-  "fs.read_text_file",
-  "fs.write_text_file",
-]);
-
 function isTerminalEvent(event: ChannelEvent): boolean {
   // Direct terminal events
   if (TERMINAL_EVENT_TYPES.has(event.event.type)) return true;
@@ -69,15 +61,6 @@ function isQueueEvent(event: ChannelEvent): boolean {
   if (event.event.type === "rpc") {
     const method = event.event.data.method;
     if (typeof method === "string" && QUEUE_EVENT_TYPES.has(method)) return true;
-  }
-  return false;
-}
-
-function isFsEvent(event: ChannelEvent): boolean {
-  if (FS_EVENT_TYPES.has(event.event.type)) return true;
-  if (event.event.type === "rpc") {
-    const method = event.event.data.method;
-    if (typeof method === "string" && FS_EVENT_TYPES.has(method)) return true;
   }
   return false;
 }
@@ -112,11 +95,6 @@ export function eventToChannels(event: ChannelEvent): string[] {
     channels.push(`session:${sessionId}:queue`);
   }
 
-  if (isFsEvent(event)) {
-    channels.push(`session:${sessionId}:fs`);
-    channels.push(`agent:${agentId}:fs`);
-  }
-
   // --- Session level ---
   channels.push(`session:${sessionId}`);
 
@@ -139,10 +117,6 @@ export function isTerminalChannelEvent(event: ChannelEvent): boolean {
 
 export function isQueueChannelEvent(event: ChannelEvent): boolean {
   return isQueueEvent(event);
-}
-
-export function isFsChannelEvent(event: ChannelEvent): boolean {
-  return isFsEvent(event);
 }
 
 /**
