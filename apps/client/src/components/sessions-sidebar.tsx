@@ -53,52 +53,49 @@ import type { RuntimeInfo } from "@flamecast/protocol/runtime";
 import type { Session } from "@flamecast/protocol/session";
 
 export function SessionsSidebar() {
-  const {
-    activeRuntimeTypeName,
-    activeRuntimeInstanceName,
-    activeSessionId,
-    activeTerminalId,
-  } = useRouterState({
-    select: (s) => {
-      const runtimeMatch = s.matches.find(
-        (m) =>
-          m.routeId === "/runtimes/$typeName/$instanceName" || m.routeId === "/runtimes/$typeName",
-      );
-      const instanceMatch = s.matches.find(
-        (m) => m.routeId === "/runtimes/$typeName/$instanceName",
-      );
-      const search = instanceMatch?.search;
-      const sessionId =
-        typeof search === "object" &&
-        search !== null &&
-        "sessionId" in search &&
-        typeof search.sessionId === "string"
-          ? search.sessionId
-          : undefined;
+  const { activeRuntimeTypeName, activeRuntimeInstanceName, activeSessionId, activeTerminalId } =
+    useRouterState({
+      select: (s) => {
+        const runtimeMatch = s.matches.find(
+          (m) =>
+            m.routeId === "/runtimes/$typeName/$instanceName" ||
+            m.routeId === "/runtimes/$typeName",
+        );
+        const instanceMatch = s.matches.find(
+          (m) => m.routeId === "/runtimes/$typeName/$instanceName",
+        );
+        const search = instanceMatch?.search;
+        const sessionId =
+          typeof search === "object" &&
+          search !== null &&
+          "sessionId" in search &&
+          typeof search.sessionId === "string"
+            ? search.sessionId
+            : undefined;
 
-      const terminalId =
-        typeof search === "object" &&
-        search !== null &&
-        "terminalId" in search &&
-        typeof search.terminalId === "string"
-          ? search.terminalId
-          : undefined;
+        const terminalId =
+          typeof search === "object" &&
+          search !== null &&
+          "terminalId" in search &&
+          typeof search.terminalId === "string"
+            ? search.terminalId
+            : undefined;
 
-      // Also detect previous session view route
-      const sessionViewMatch = s.matches.find((m) => m.routeId === "/sessions/$sessionId");
-      const viewingSessionId =
-        typeof sessionViewMatch?.params.sessionId === "string"
-          ? sessionViewMatch.params.sessionId
-          : undefined;
+        // Also detect previous session view route
+        const sessionViewMatch = s.matches.find((m) => m.routeId === "/sessions/$sessionId");
+        const viewingSessionId =
+          typeof sessionViewMatch?.params.sessionId === "string"
+            ? sessionViewMatch.params.sessionId
+            : undefined;
 
-      return {
-        activeRuntimeTypeName: runtimeMatch?.params.typeName,
-        activeRuntimeInstanceName: instanceMatch?.params.instanceName,
-        activeSessionId: sessionId ?? viewingSessionId,
-        activeTerminalId: terminalId,
-      };
-    },
-  });
+        return {
+          activeRuntimeTypeName: runtimeMatch?.params.typeName,
+          activeRuntimeInstanceName: instanceMatch?.params.instanceName,
+          activeSessionId: sessionId ?? viewingSessionId,
+          activeTerminalId: terminalId,
+        };
+      },
+    });
   const { data: runtimes, isLoading: isRuntimesLoading } = useRuntimes();
   const { data: sessions, isLoading: isSessionsLoading } = useSessions();
   const activeSessions = sessions?.filter((s) => s.status === "active") ?? [];

@@ -20,11 +20,7 @@ import { RuntimeFileTree } from "@/components/runtime-file-tree";
 import { RuntimeFileTab } from "@/components/runtime-file-tab";
 import { Streamdown } from "streamdown";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
-import {
-  ChevronDownIcon,
-  LoaderCircleIcon,
-  ShieldCheckIcon,
-} from "lucide-react";
+import { ChevronDownIcon, LoaderCircleIcon, ShieldCheckIcon } from "lucide-react";
 import { SlashCommandInput } from "@/components/slash-command-input";
 import { useEnqueueMessage } from "@flamecast/ui";
 
@@ -193,9 +189,7 @@ export function RuntimeSessionTab({
 
       {/* Right: Filesystem */}
       <ResizablePanel defaultSize={35} minSize={20}>
-        <div className="flex h-full flex-col border-l overflow-hidden">
-          {filesystemContent}
-        </div>
+        <div className="flex h-full flex-col border-l overflow-hidden">{filesystemContent}</div>
       </ResizablePanel>
     </ResizablePanelGroup>
   );
@@ -785,4 +779,3 @@ function ScrollToBottomFab() {
     </Button>
   );
 }
-

@@ -82,10 +82,7 @@ function RuntimeDetailPanel({
 
   // Runtime-level WebSocket + terminal state
   const ws = useRuntimeWebSocket(instance.websocketUrl);
-  const { terminals, sendInput, resize, onData, createTerminal, killTerminal } = useTerminal(
-    ws,
-    instance.websocketUrl,
-  );
+  const { terminals, sendInput, resize, onData } = useTerminal(ws, instance.websocketUrl);
 
   // Find active sessions for this runtime instance
   const instanceSessions =
