@@ -160,6 +160,34 @@ function RuntimeDetailPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusSessionId, sessions]);
 
+  // Close tabs whose sessions are no longer active (e.g. terminated from sidebar)
+  useEffect(() => {
+    if (!hydratedRef.current || !sessions) return;
+    const deadTabIds = tabsRef.current
+      .filter(
+        (t) =>
+          t.type === "session" &&
+          !sessions.some((s) => s.id === t.sessionId && s.status === "active"),
+      )
+      .map((t) => t.id);
+    if (deadTabIds.length === 0) return;
+
+    setTabs((prev) => {
+      const next = prev.filter((t) => !deadTabIds.includes(t.id));
+      if (next.length === 0) {
+        const newTab: Tab = { id: makeTabId(), type: "new-tab" };
+        setActiveTabId(newTab.id);
+        return [newTab];
+      }
+      return next;
+    });
+    setActiveTabId((prevId) => {
+      if (!deadTabIds.includes(prevId)) return prevId;
+      const remaining = tabsRef.current.filter((t) => !deadTabIds.includes(t.id));
+      return remaining.length > 0 ? remaining[0].id : prevId;
+    });
+  }, [sessions]);
+
   const navigate = useNavigate();
 
   // Keep the URL's sessionId search param in sync with the active tab.
