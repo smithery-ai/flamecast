@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useAgentTemplates, useRuntimes, useRuntimeFileSystem } from "@flamecast/ui";
+import { useAgentTemplates, useRuntimes, useRuntimeFileSystem, useFlamecastClient } from "@flamecast/ui";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useBackendUrl } from "@/lib/backend-url-context";
 import { useDefaultAgentConfig } from "@/lib/default-agent-config-context";
 import { DirectoryPicker } from "@/components/directory-picker";
@@ -111,14 +112,28 @@ function BackendUrlSection() {
 // ─── Permissions ──────────────────────────────────────────────────────────────
 
 function PermissionsSection() {
-  const { config, updateConfig } = useDefaultAgentConfig();
+  const client = useFlamecastClient();
+  const queryClient = useQueryClient();
+
+  const { data: settings } = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => client.fetchSettings(),
+  });
+
+  const mutation = useMutation({
+    mutationFn: (patch: { autoApprovePermissions: boolean }) => client.updateSettings(patch),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["settings"], updated);
+    },
+    onError: (err) => toast.error("Failed to update setting", { description: String(err.message) }),
+  });
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Permissions</CardTitle>
         <CardDescription>
-          Control how agent permission requests are handled.
+          Control how agent permission requests are handled server-side.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -137,8 +152,11 @@ function PermissionsSection() {
           </div>
           <Switch
             id="auto-approve"
-            checked={config.autoApprovePermissions}
-            onCheckedChange={(checked) => updateConfig({ autoApprovePermissions: !!checked })}
+            checked={settings?.autoApprovePermissions ?? false}
+            disabled={mutation.isPending}
+            onCheckedChange={(checked) =>
+              mutation.mutate({ autoApprovePermissions: !!checked })
+            }
           />
         </div>
       </CardContent>
@@ -161,18 +179,26 @@ function DefaultAgentConfigSection() {
     runtimes?.[0]?.typeName ??
     "default";
 
+  // Fetch the runtime's home directory as the default
+  const { data: homeFsData } = useRuntimeFileSystem(firstRunningInstance);
+  const runtimeHomeDir = homeFsData?.root ?? "";
+
+  // Effective values: use config if set, otherwise computed defaults
+  const effectiveTemplateId = config.agentTemplateId || templates?.[0]?.id || "";
+  const effectiveDirectory = config.defaultDirectory || runtimeHomeDir;
+
   // Directory picker state
   const [dirPickerOpen, setDirPickerOpen] = useState(false);
 
-  // Git detection for the configured directory
+  // Git detection for the effective directory
   const { data: cwdFsData } = useRuntimeFileSystem(firstRunningInstance, {
-    enabled: !!config.defaultDirectory,
-    path: config.defaultDirectory || undefined,
+    enabled: !!effectiveDirectory,
+    path: effectiveDirectory || undefined,
   });
   const isGitDirectory = !!cwdFsData?.gitPath;
 
-  // Find the selected template name for display
-  const selectedTemplate = templates?.find((t) => t.id === config.agentTemplateId);
+  // Find the selected template for display
+  const selectedTemplate = templates?.find((t) => t.id === effectiveTemplateId);
 
   return (
     <Card>
@@ -188,7 +214,7 @@ function DefaultAgentConfigSection() {
           <div className="flex flex-col gap-2">
             <Label>Agent Template</Label>
             <Select
-              value={config.agentTemplateId}
+              value={effectiveTemplateId}
               onValueChange={(value) => updateConfig({ agentTemplateId: value })}
             >
               <SelectTrigger>
@@ -224,11 +250,11 @@ function DefaultAgentConfigSection() {
             <Label>Default Directory</Label>
             <div className="flex items-center gap-2">
               <Input
-                value={config.defaultDirectory}
+                value={effectiveDirectory}
                 onChange={(e) =>
                   updateConfig({ defaultDirectory: e.target.value, createWorktree: false })
                 }
-                placeholder="/home/user/projects/my-repo"
+                placeholder={runtimeHomeDir || "/home/user"}
                 className="flex-1 font-mono text-xs"
               />
               <Button
@@ -246,7 +272,7 @@ function DefaultAgentConfigSection() {
               open={dirPickerOpen}
               onOpenChange={setDirPickerOpen}
               onSelect={(path) => updateConfig({ defaultDirectory: path, createWorktree: false })}
-              initialPath={config.defaultDirectory || undefined}
+              initialPath={effectiveDirectory || undefined}
             />
           </div>
 

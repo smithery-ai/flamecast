@@ -6,7 +6,6 @@ import {
   useFlamecastClient,
   useIsMobile,
 } from "@flamecast/ui";
-import { useDefaultAgentConfig } from "@/lib/default-agent-config-context";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -100,18 +99,6 @@ export function RuntimeSessionTab({
     },
     [onOpenFileTab],
   );
-
-  // Auto-approve permissions when the setting is enabled
-  const { config: appConfig } = useDefaultAgentConfig();
-  useEffect(() => {
-    if (!appConfig.autoApprovePermissions) return;
-    for (const pending of pendingPermissions) {
-      const allowOpt = pending.options.find((o) => o.kind.startsWith("allow"));
-      if (allowOpt) {
-        respondToPermission(pending.requestId, { optionId: allowOpt.optionId });
-      }
-    }
-  }, [appConfig.autoApprovePermissions, pendingPermissions, respondToPermission]);
 
   const sentInitialPrompt = useRef(false);
   useEffect(() => {

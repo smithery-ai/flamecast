@@ -154,6 +154,14 @@ export interface FlamecastEventHandlers<
 }
 
 // ---------------------------------------------------------------------------
+// Server-side settings
+// ---------------------------------------------------------------------------
+
+export interface FlamecastSettings {
+  autoApprovePermissions: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // FlamecastOptions & Flamecast class
 // ---------------------------------------------------------------------------
 
@@ -198,6 +206,9 @@ export class Flamecast<
 
   /** Registered event handlers. */
   readonly handlers: Readonly<FlamecastEventHandlers<R>>;
+
+  /** Server-side settings (mutable, not persisted across restarts). */
+  private _settings: FlamecastSettings = { autoApprovePermissions: false };
 
   private storage: FlamecastStorage | null = null;
   private readyPromise: Promise<void> | null = null;
@@ -291,6 +302,23 @@ export class Flamecast<
       await runtime.dispose?.();
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Settings
+  // ---------------------------------------------------------------------------
+
+  get settings(): FlamecastSettings {
+    return { ...this._settings };
+  }
+
+  updateSettings(patch: Partial<FlamecastSettings>): FlamecastSettings {
+    this._settings = { ...this._settings, ...patch };
+    return { ...this._settings };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agent templates
+  // ---------------------------------------------------------------------------
 
   async listAgentTemplates(): Promise<AgentTemplate[]> {
     await this.ensureReady();
@@ -967,6 +995,12 @@ export class Flamecast<
       options: Array<{ optionId: string; name: string; kind: string }>;
     },
   ): Promise<PermissionResponse | undefined> {
+    // Auto-approve if the server-side setting is enabled.
+    if (this._settings.autoApprovePermissions) {
+      const approveOpt = event.options.find((o) => o.kind.startsWith("allow"));
+      if (approveOpt) return { optionId: approveOpt.optionId };
+    }
+
     if (!this.handlers.onPermissionRequest) return undefined;
 
     const sessionCtx = await this.buildSessionContext(sessionId);

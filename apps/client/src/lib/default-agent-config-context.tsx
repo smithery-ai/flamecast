@@ -6,7 +6,6 @@ export interface DefaultAgentConfig {
   agentTemplateId: string;
   defaultDirectory: string;
   createWorktree: boolean;
-  autoApprovePermissions: boolean;
 }
 
 interface DefaultAgentConfigContextValue {
@@ -21,7 +20,6 @@ const initialConfig: DefaultAgentConfig = {
   agentTemplateId: "",
   defaultDirectory: "",
   createWorktree: false,
-  autoApprovePermissions: false,
 };
 
 export function DefaultAgentConfigProvider({ children }: { children: React.ReactNode }) {

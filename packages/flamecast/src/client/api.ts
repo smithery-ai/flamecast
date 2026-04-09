@@ -74,8 +74,16 @@ export type UpdateAgentTemplateBody = {
   env?: Record<string, string>;
 };
 
+export type FlamecastSettings = {
+  autoApprovePermissions: boolean;
+};
+
 export type FlamecastClient = {
   rpc: FlamecastRpcClient;
+
+  // Settings
+  fetchSettings(): Promise<FlamecastSettings>;
+  updateSettings(patch: Partial<FlamecastSettings>): Promise<FlamecastSettings>;
 
   // Agent templates
   fetchAgentTemplates(): Promise<AgentTemplate[]>;
@@ -166,6 +174,19 @@ export function createFlamecastClient(options: FlamecastClientOptions): Flamecas
 
   return {
     rpc,
+
+    // -- Settings --
+
+    async fetchSettings() {
+      const response = await rpc.settings.$get();
+      await assertOk(response, "Failed to fetch settings");
+      return response.json() as Promise<FlamecastSettings>;
+    },
+    async updateSettings(patch) {
+      const response = await rpc.settings.$patch({ json: patch });
+      await assertOk(response, "Failed to update settings");
+      return response.json() as Promise<FlamecastSettings>;
+    },
 
     // -- Agent templates --
 
