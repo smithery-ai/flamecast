@@ -26,6 +26,7 @@ import {
 } from "@flamecast/storage-psql";
 import { Flamecast, NodeRuntime } from "@flamecast/sdk";
 import { spawnCloudflared, ensureCloudflared } from "../lib/cloudflared.js";
+import { resolvePublicApiUrl } from "../lib/public-api-url.js";
 import type { UpFlags } from "../types.js";
 
 const FLAMECAST_HOME = join(homedir(), ".flamecast");
@@ -320,9 +321,7 @@ async function runServer(flags: UpFlags): Promise<number> {
     const wrapper = new Hono();
     wrapper.use("*", cors());
     wrapper.get("/", (c: { req: { raw: Request }; redirect: (url: string) => Response }) => {
-      const reqUrl = new URL(c.req.raw.url);
-      const proto = c.req.raw.headers.get("x-forwarded-proto") ?? reqUrl.protocol.replace(":", "");
-      const backendUrl = `${proto}://${reqUrl.host}/api`;
+      const backendUrl = resolvePublicApiUrl(c.req.raw);
       return c.redirect(`https://flamecast.dev?backendUrl=${encodeURIComponent(backendUrl)}`);
     });
     wrapper.all("*", (c: { req: { raw: Request } }) => flamecast.app.fetch(c.req.raw));
