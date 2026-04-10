@@ -1,0 +1,6 @@
+.context
+.git
+.turbo
+coverage
+dist
+node_modules
