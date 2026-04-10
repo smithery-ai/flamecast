@@ -102,8 +102,7 @@ export async function configureTunnelIngress(
     body: JSON.stringify({
       config: {
         ingress: [
-          // Avoid localhost resolution quirks when cloudflared runs in containers.
-          { hostname, service: `http://127.0.0.1:${port}` },
+          { hostname, service: `http://localhost:${port}` },
           { service: "http_status:404" },
         ],
       },
