@@ -459,6 +459,18 @@ describe("API server surface", () => {
     ]);
   });
 
+  it("preserves local runtime websocket URLs when the client is local", async () => {
+    const flamecast = createFlamecastStub({
+      listRuntimes: vi.fn(async () => [sampleRuntimeInfo]),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("http://127.0.0.1:3001/api/runtimes");
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual([sampleRuntimeInfo]);
+  });
+
   it("rewrites runtime websocket URLs when starting a runtime", async () => {
     const flamecast = createFlamecastStub({
       startRuntime: vi.fn(async () => sampleRuntimeInstance),
@@ -474,6 +486,20 @@ describe("API server surface", () => {
       ...sampleRuntimeInstance,
       websocketUrl: "wss://app.flamecast.dev:9999/",
     });
+  });
+
+  it("preserves local runtime websocket URLs when starting a local runtime", async () => {
+    const flamecast = createFlamecastStub({
+      startRuntime: vi.fn(async () => sampleRuntimeInstance),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("http://127.0.0.1:3001/api/runtimes/default/start", {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(201);
+    expect(await readJson(response)).toEqual(sampleRuntimeInstance);
   });
 
   it("returns a runtime filesystem snapshot through Flamecast", async () => {
