@@ -8,6 +8,10 @@
   "durable_objects": {
     "bindings": [
       {
+        "name": "AcpRuntimeHubAgent",
+        "class_name": "AcpRuntimeHubAgent",
+      },
+      {
         "name": "AcpSessionAgent",
         "class_name": "AcpSessionAgent",
       },
@@ -17,6 +21,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["AcpSessionAgent"],
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["AcpRuntimeHubAgent"],
     },
   ],
   "worker_loaders": [{ "binding": "LOADER" }],

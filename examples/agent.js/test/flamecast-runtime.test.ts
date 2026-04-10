@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { Flamecast, NodeRuntime } from "../../../packages/flamecast/src/flamecast/index.ts";
 import { createTestStorage } from "../../../packages/flamecast/test/fixtures/test-helpers.js";
-import { openSessionSocket, promptSession, readJson } from "./session-host.js";
+import { openSessionSocket, promptSession, readJson, subscribeToSession } from "./session-host.js";
 import { startExampleWorker } from "./wrangler.js";
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -60,9 +60,11 @@ describe("agent.js runtime", () => {
     expect(firstSession.agentName).toBe("Agent.js remote");
     expect(firstSession.websocketUrl).toBeTruthy();
     expect(secondSession.websocketUrl).toBeTruthy();
+    expect(firstSession.websocketUrl).toBe(secondSession.websocketUrl);
     expect(firstSession.id).not.toBe(secondSession.id);
 
     const firstWs = await openSessionSocket(firstSession.websocketUrl);
+    await subscribeToSession(firstWs, firstSession.id);
     cleanup.push(
       () =>
         new Promise((resolve) => {
@@ -71,6 +73,7 @@ describe("agent.js runtime", () => {
         }),
     );
     const secondWs = await openSessionSocket(secondSession.websocketUrl);
+    await subscribeToSession(secondWs, secondSession.id);
     cleanup.push(
       () =>
         new Promise((resolve) => {
@@ -79,9 +82,21 @@ describe("agent.js runtime", () => {
         }),
     );
 
-    const first = await promptSession(firstWs, "Increment the counter and return it.");
-    const second = await promptSession(firstWs, "Increment the counter again and return it.");
-    const isolated = await promptSession(secondWs, "Increment the counter and return it.");
+    const first = await promptSession(
+      firstWs,
+      firstSession.id,
+      "Increment the counter and return it.",
+    );
+    const second = await promptSession(
+      firstWs,
+      firstSession.id,
+      "Increment the counter again and return it.",
+    );
+    const isolated = await promptSession(
+      secondWs,
+      secondSession.id,
+      "Increment the counter and return it.",
+    );
 
     expect(first).toEqual({ counter: 1 });
     expect(second).toEqual({ counter: 2 });

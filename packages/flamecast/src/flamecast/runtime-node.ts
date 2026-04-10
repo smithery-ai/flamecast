@@ -306,9 +306,11 @@ export class NodeRuntime implements Runtime {
     // For /start responses, inject the runtime-host URLs (shared across all sessions)
     if (originalUrl.pathname.endsWith("/start") && request.method === "POST" && resp.ok) {
       const body = await resp.json();
-      const runtimeUrl = new URL(baseUrl);
-      body.hostUrl = runtimeUrl.toString().replace(/\/$/, "");
-      body.websocketUrl = runtimeUrl.toString().replace(/^http/, "ws").replace(/\/$/, "");
+      if (!body.hostUrl || !body.websocketUrl) {
+        const runtimeUrl = new URL(baseUrl);
+        body.hostUrl = runtimeUrl.toString().replace(/\/$/, "");
+        body.websocketUrl = runtimeUrl.toString().replace(/^http/, "ws").replace(/\/$/, "");
+      }
       return new Response(JSON.stringify(body), {
         status: resp.status,
         headers: resp.headers,

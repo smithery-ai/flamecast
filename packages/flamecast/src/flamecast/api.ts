@@ -70,6 +70,10 @@ function toErrorStatus(error: unknown): ApiErrorStatus | null {
   return null;
 }
 
+function isLocalHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
 /** Return true for errors that indicate a client-side problem (bad input). */
 function isClientError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -93,24 +97,22 @@ export function createApi(flamecast: FlamecastApi) {
     if (!websocketUrl) return undefined;
 
     const candidate = new URL(websocketUrl);
-    if (
-      candidate.hostname !== "localhost" &&
-      candidate.hostname !== "127.0.0.1" &&
-      candidate.hostname !== "[::1]"
-    ) {
+    if (!isLocalHostname(candidate.hostname)) {
       return websocketUrl;
     }
 
     const request = new URL(requestUrl);
+    if (isLocalHostname(request.hostname)) {
+      return websocketUrl;
+    }
+
     candidate.hostname = request.hostname;
-    candidate.port = request.port;
+    if (request.port) {
+      candidate.port = request.port;
+    }
     // Non-localhost hosts are behind TLS (e.g. Cloudflare tunnel), so always use wss.
     // Localhost may be plain HTTP, so check the request protocol.
-    const isSecure =
-      request.protocol === "https:" ||
-      (request.hostname !== "localhost" &&
-        request.hostname !== "127.0.0.1" &&
-        request.hostname !== "[::1]");
+    const isSecure = request.protocol === "https:" || !isLocalHostname(request.hostname);
     candidate.protocol = isSecure ? "wss:" : "ws:";
     return candidate.toString();
   };
