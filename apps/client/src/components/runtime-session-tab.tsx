@@ -40,6 +40,7 @@ export function RuntimeSessionTab({
 }) {
   const client = useFlamecastClient();
 
+  // Single multiplexed WebSocket for the entire runtime instance.
   const ws = useRuntimeWebSocket(runtimeWebsocketUrl);
 
   const fetchCommands = useCallback(

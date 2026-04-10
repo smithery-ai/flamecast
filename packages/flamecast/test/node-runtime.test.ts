@@ -105,6 +105,34 @@ describe("NodeRuntime", () => {
     expect(await response.json()).toEqual(upstreamBody);
   });
 
+  it("injects runtime URLs when the upstream /start response omits them", async () => {
+    const upstreamBody = {
+      acpSessionId: "abc",
+    };
+    const { url, server } = await startMockServer(() => ({
+      status: 200,
+      body: JSON.stringify(upstreamBody),
+    }));
+    serverToCleanup = server;
+
+    const runtime = new NodeRuntime(url);
+    const response = await runtime.fetchSession(
+      "abc",
+      new Request("http://host/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: "echo", args: ["hi"], workspace: "." }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ...upstreamBody,
+      hostUrl: url,
+      websocketUrl: url.replace(/^http/, "ws"),
+    });
+  });
+
   it("propagates error status codes from upstream", async () => {
     const { url, server } = await startMockServer(() => ({
       status: 500,

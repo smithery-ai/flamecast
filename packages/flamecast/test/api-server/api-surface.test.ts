@@ -73,7 +73,6 @@ const sampleQueuedMessage: QueuedMessage = {
   createdAt: "2026-03-21T00:00:00.000Z",
   sentAt: null,
 };
-
 function createFlamecastStub(overrides: Partial<FlamecastApi> = {}): FlamecastApi {
   return {
     eventBus: new EventBus(),
@@ -239,7 +238,7 @@ describe("API server surface", () => {
     expect(await readJson(response)).toEqual(sampleSession);
   });
 
-  it("preserves the runtime websocket port for relative agent requests", async () => {
+  it("preserves local session websocket URLs for local agent requests", async () => {
     const session = {
       ...sampleSession,
       websocketUrl: "ws://localhost:9999/sessions/session-1",
@@ -250,6 +249,53 @@ describe("API server surface", () => {
     const app = createServerApp(flamecast);
 
     const response = await app.request("/api/agents", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        agentTemplateId: sampleAgentTemplate.id,
+      } satisfies CreateSessionBody),
+    });
+
+    expect(response.status).toBe(201);
+    expect(await readJson(response)).toEqual(session);
+  });
+
+  it("rewrites local session websocket URLs for remote agent requests", async () => {
+    const session = {
+      ...sampleSession,
+      websocketUrl: "ws://localhost:9999/sessions/session-1",
+    } satisfies Session;
+    const flamecast = createFlamecastStub({
+      createSession: vi.fn(async () => session),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("https://app.flamecast.dev/api/agents", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        agentTemplateId: sampleAgentTemplate.id,
+      } satisfies CreateSessionBody),
+    });
+
+    expect(response.status).toBe(201);
+    expect(await readJson(response)).toEqual({
+      ...session,
+      websocketUrl: "wss://app.flamecast.dev:9999/sessions/session-1",
+    });
+  });
+
+  it("preserves remote session websocket URLs for agent requests", async () => {
+    const session = {
+      ...sampleSession,
+      websocketUrl: "wss://agentjs.example/sessions/session-1",
+    } satisfies Session;
+    const flamecast = createFlamecastStub({
+      createSession: vi.fn(async () => session),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("https://app.flamecast.dev/api/agents", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -502,6 +548,24 @@ describe("API server surface", () => {
     expect(await readJson(response)).toEqual(sampleRuntimeInstance);
   });
 
+  it("preserves remote runtime websocket URLs when starting a runtime", async () => {
+    const runtimeInstance = {
+      ...sampleRuntimeInstance,
+      websocketUrl: "wss://agentjs.example/runtime",
+    } satisfies RuntimeInstance;
+    const flamecast = createFlamecastStub({
+      startRuntime: vi.fn(async () => runtimeInstance),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("https://app.flamecast.dev/api/runtimes/default/start", {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(201);
+    expect(await readJson(response)).toEqual(runtimeInstance);
+  });
+
   it("returns a runtime filesystem snapshot through Flamecast", async () => {
     const flamecast = createFlamecastStub();
     const app = createServerApp(flamecast);
@@ -533,6 +597,93 @@ describe("API server surface", () => {
     expect(response.status).toBe(409);
     expect(await readJson(response)).toEqual({
       error: 'Runtime instance "default" is not running',
+    });
+  });
+
+  it("lists queued messages", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/message-queue");
+
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual([sampleQueuedMessage]);
+  });
+
+  it("creates an agentjs session before enqueueing an implicit prompt", async () => {
+    const queuedMessage = { ...sampleQueuedMessage, runtime: "agentjs", agent: "Agent.js" };
+    const flamecast = createFlamecastStub({
+      listRuntimes: vi.fn(async () => [
+        { typeName: "agentjs", onlyOne: true, instances: [] },
+        sampleRuntimeInfo,
+      ]),
+      listAgentTemplates: vi.fn(async () => [
+        {
+          ...sampleAgentTemplate,
+          id: "agentjs-template",
+          name: "Agent.js",
+          runtime: { provider: "agentjs" },
+        },
+        sampleAgentTemplate,
+      ]),
+      createSession: vi.fn(async () => sampleSession),
+      enqueueMessage: vi.fn(async () => queuedMessage),
+    });
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("https://app.flamecast.dev/api/message-queue", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "hello", directory: "/tmp/flamecast" }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(await readJson(response)).toEqual(queuedMessage);
+    expect(flamecast.createSession).toHaveBeenCalledWith(
+      {
+        agentTemplateId: "agentjs-template",
+        cwd: "/tmp/flamecast",
+      },
+      { callbackUrl: "https://app.flamecast.dev/api" },
+    );
+    expect(flamecast.enqueueMessage).toHaveBeenCalledWith({
+      sessionId: sampleSession.id,
+      text: "hello",
+      runtime: "agentjs",
+      agent: "Agent.js",
+      agentTemplateId: "agentjs-template",
+      directory: "/tmp/flamecast",
+    });
+  });
+
+  it("enqueueing against an existing session skips agentjs runtime lookup", async () => {
+    const flamecast = createFlamecastStub();
+    const app = createServerApp(flamecast);
+
+    const response = await app.request("/api/message-queue", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: sampleSession.id,
+        text: "hello",
+        runtime: "agentjs",
+        agent: "Agent.js",
+        agentTemplateId: "agentjs-template",
+        directory: "/tmp/flamecast",
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(flamecast.listRuntimes).not.toHaveBeenCalled();
+    expect(flamecast.listAgentTemplates).not.toHaveBeenCalled();
+    expect(flamecast.createSession).not.toHaveBeenCalled();
+    expect(flamecast.enqueueMessage).toHaveBeenCalledWith({
+      sessionId: sampleSession.id,
+      text: "hello",
+      runtime: "agentjs",
+      agent: "Agent.js",
+      agentTemplateId: "agentjs-template",
+      directory: "/tmp/flamecast",
     });
   });
 
@@ -668,123 +819,5 @@ describe("API server surface", () => {
     });
 
     expect(response.status).toBe(200);
-  });
-
-  it("lists queued messages", async () => {
-    const flamecast = createFlamecastStub();
-    const app = createServerApp(flamecast);
-
-    const response = await app.request("/api/message-queue");
-
-    expect(response.status).toBe(200);
-    expect(await readJson(response)).toEqual([sampleQueuedMessage]);
-  });
-
-  it("auto-selects a runtime/template and creates a session for queued messages", async () => {
-    const queuedMessage = { ...sampleQueuedMessage, runtime: "agentjs", agent: "Agent.js" };
-    const flamecast = createFlamecastStub({
-      listRuntimes: vi.fn(async () => [
-        { typeName: "agentjs", onlyOne: true, instances: [] },
-        sampleRuntimeInfo,
-      ]),
-      listAgentTemplates: vi.fn(async () => [
-        {
-          ...sampleAgentTemplate,
-          id: "agentjs-template",
-          name: "Agent.js",
-          runtime: { provider: "agentjs" },
-        },
-        sampleAgentTemplate,
-      ]),
-      createSession: vi.fn(async () => sampleSession),
-      enqueueMessage: vi.fn(async () => queuedMessage),
-    });
-    const app = createServerApp(flamecast);
-
-    const response = await app.request("https://app.flamecast.dev/api/message-queue", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: "hello", directory: "/tmp/flamecast" }),
-    });
-
-    expect(response.status).toBe(201);
-    expect(await readJson(response)).toEqual(queuedMessage);
-    expect(flamecast.createSession).toHaveBeenCalledWith(
-      {
-        agentTemplateId: "agentjs-template",
-        cwd: "/tmp/flamecast",
-      },
-      { callbackUrl: "https://app.flamecast.dev/api" },
-    );
-    expect(flamecast.enqueueMessage).toHaveBeenCalledWith({
-      sessionId: sampleSession.id,
-      text: "hello",
-      runtime: "agentjs",
-      agent: "Agent.js",
-      agentTemplateId: "agentjs-template",
-      directory: "/tmp/flamecast",
-    });
-  });
-
-  it("falls back to the first template when the runtime has no matching agent", async () => {
-    const flamecast = createFlamecastStub({
-      listRuntimes: vi.fn(async () => [{ typeName: "agentjs", onlyOne: true, instances: [] }]),
-      createSession: vi.fn(async () => sampleSession),
-    });
-    const app = createServerApp(flamecast);
-
-    const response = await app.request("/api/message-queue", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: "hello" }),
-    });
-
-    expect(response.status).toBe(201);
-    expect(flamecast.createSession).toHaveBeenCalledWith(
-      {
-        agentTemplateId: sampleAgentTemplate.id,
-        cwd: undefined,
-      },
-      { callbackUrl: "http://localhost/api" },
-    );
-    expect(flamecast.enqueueMessage).toHaveBeenCalledWith({
-      sessionId: sampleSession.id,
-      text: "hello",
-      runtime: "agentjs",
-      agent: sampleAgentTemplate.name,
-      agentTemplateId: sampleAgentTemplate.id,
-      directory: null,
-    });
-  });
-
-  it("uses explicit queued message values without creating a session", async () => {
-    const flamecast = createFlamecastStub();
-    const app = createServerApp(flamecast);
-
-    const response = await app.request("/api/message-queue", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        sessionId: sampleSession.id,
-        text: "hello",
-        runtime: "default",
-        agent: sampleAgentTemplate.name,
-        agentTemplateId: sampleAgentTemplate.id,
-        directory: "/tmp/flamecast",
-      }),
-    });
-
-    expect(response.status).toBe(201);
-    expect(flamecast.listRuntimes).not.toHaveBeenCalled();
-    expect(flamecast.listAgentTemplates).not.toHaveBeenCalled();
-    expect(flamecast.createSession).not.toHaveBeenCalled();
-    expect(flamecast.enqueueMessage).toHaveBeenCalledWith({
-      sessionId: sampleSession.id,
-      text: "hello",
-      runtime: "default",
-      agent: sampleAgentTemplate.name,
-      agentTemplateId: sampleAgentTemplate.id,
-      directory: "/tmp/flamecast",
-    });
   });
 });
