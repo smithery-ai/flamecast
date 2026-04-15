@@ -1,8 +1,5 @@
 {
   "$schema": "https://unpkg.com/knip@6.0.1/schema-jsonc.json",
-  "ignoreIssues": {
-    "apps/client/src/components/ui/**/*.tsx": ["exports"]
-  },
   "workspaces": {
     "packages/flamecast": {
       "entry": [
@@ -14,45 +11,6 @@
         "test/**/*.test.ts"
       ],
       "ignoreBinaries": ["knip", "vitest"]
-    },
-    "examples/agent.js": {
-      "entry": ["src/**/*.ts", "test/**/*.test.ts"],
-      "ignoreFiles": [".wrangler/**"],
-      "ignoreBinaries": ["tsc", "vitest", "wrangler"]
-    },
-    "apps/server": {
-      "entry": ["src/**/*.ts", "agent.ts", "test/**/*.test.ts"],
-      "ignoreBinaries": ["drizzle-kit", "tsx", "vitest"]
-    },
-    "apps/client": {
-      "entry": [
-        "src/main.tsx",
-        "src/routes/**/*.tsx",
-        "src/hooks/*.ts",
-        "src/components/*.tsx",
-        "src/lib/flamecast-connection.ts",
-        "src/lib/flamecast-context.ts",
-        "src/lib/channel-subscription.ts"
-      ],
-      "ignoreUnresolved": ["./routeTree.gen"],
-      "ignoreFiles": [
-        "src/components/ui/{accordion,alert-dialog,alert,aspect-ratio,avatar,breadcrumb,button-group,calendar,carousel,chart,checkbox,collapsible,combobox,command,context-menu,direction,drawer,dropdown-menu,empty,field,hover-card,input-group,input-otp,item,kbd,menubar,native-select,navigation-menu,pagination,popover,progress,radio-group,resizable,scroll-area,select,slider,sonner,spinner,table,textarea,toggle-group,toggle}.tsx"
-      ],
-      "ignoreDependencies": [
-        "@base-ui/react",
-        "@tanstack/router-generator",
-        "cmdk",
-        "date-fns",
-        "embla-carousel-react",
-        "hono",
-        "input-otp",
-        "next-themes",
-        "react-day-picker",
-        "react-resizable-panels",
-        "recharts",
-        "sonner",
-        "vaul"
-      ]
     }
   }
 }
