@@ -106,4 +106,3 @@ export async function getCwd(sessionId: string): Promise<string> {
 export async function resizeWindow(sessionId: string, cols: number, rows: number): Promise<void> {
   await exec("tmux", ["resize-window", "-t", sessionId, "-x", String(cols), "-y", String(rows)]);
 }
-
