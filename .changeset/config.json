@@ -9,10 +9,6 @@
   "updateInternalDependencies": "patch",
   "ignore": [
     "@flamecast/bridge",
-    "@flamecast/agent-js",
-    "@flamecast/example-*",
-    "flamecast-client",
-    "flamecast-server",
     "docs"
   ]
 }
