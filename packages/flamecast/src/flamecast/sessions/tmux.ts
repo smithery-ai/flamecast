@@ -3,6 +3,18 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 
+export async function checkTmux(): Promise<void> {
+  try {
+    await exec("tmux", ["-V"]);
+  } catch {
+    throw new Error(
+      "tmux is required but not found in $PATH. Install it:\n" +
+        "  macOS:  brew install tmux\n" +
+        "  Linux:  apt install tmux",
+    );
+  }
+}
+
 export async function newSession(sessionId: string, cwd: string, shell: string): Promise<void> {
   await exec("tmux", ["new-session", "-d", "-s", sessionId, "-c", cwd, shell]);
 }
@@ -63,7 +75,7 @@ export async function listFcSessions(): Promise<
   }
 }
 
-async function getPanePid(sessionId: string): Promise<number | null> {
+export async function getPanePid(sessionId: string): Promise<number | null> {
   try {
     const { stdout } = await exec("tmux", ["list-panes", "-t", sessionId, "-F", "#{pane_pid}"]);
     const pid = parseInt(stdout.trim(), 10);
@@ -89,5 +101,9 @@ export async function getCwd(sessionId: string): Promise<string> {
   } catch {
     return process.cwd();
   }
+}
+
+export async function resizeWindow(sessionId: string, cols: number, rows: number): Promise<void> {
+  await exec("tmux", ["resize-window", "-t", sessionId, "-x", String(cols), "-y", String(rows)]);
 }
 
