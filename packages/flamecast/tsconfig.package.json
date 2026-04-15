@@ -7,8 +7,5 @@
     "rootDir": "./src",
     "outDir": "./dist"
   },
-  "include": [
-    "src/index.ts",
-    "src/flamecast/**/*.ts"
-  ]
+  "include": ["src/index.ts", "src/flamecast/**/*.ts"]
 }

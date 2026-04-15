@@ -6,6 +6,7 @@ Flamecast has two components:
 2. **Machine Gateway** -- a hosted service at `*.flamecast.app` that registers machines, manages auth, and proxies requests through Cloudflare tunnels to the local Flamecast agent.
 
 ---
+
 ---
 
 ## Part 1: Flamecast CLI (Local Agent)
@@ -69,15 +70,15 @@ Port forwarding proxy. Forwards any HTTP request or websocket connection to `loc
 
 Every MCP tool is also exposed as a REST endpoint. The REST API and MCP tools share the same underlying handlers -- the REST routes are a thin HTTP wrapper over the same logic.
 
-| Method | Path | MCP Tool | Description |
-|--------|------|----------|-------------|
-| `POST` | `/api/sessions` | `sessions.create` | Create a new terminal session |
-| `GET` | `/api/sessions` | `sessions.list` | List all sessions |
-| `GET` | `/api/sessions/:id` | `sessions.get` | Get session output and status |
-| `DELETE` | `/api/sessions/:id` | `sessions.close` | Kill a session |
-| `POST` | `/api/sessions/:id/exec` | `sessions.exec` | Run a command synchronously |
-| `POST` | `/api/sessions/:id/exec/async` | `sessions.exec_async` | Run a command without waiting |
-| `POST` | `/api/sessions/:id/input` | `sessions.input` | Send keystrokes / control sequences |
+| Method   | Path                           | MCP Tool              | Description                         |
+| -------- | ------------------------------ | --------------------- | ----------------------------------- |
+| `POST`   | `/api/sessions`                | `sessions.create`     | Create a new terminal session       |
+| `GET`    | `/api/sessions`                | `sessions.list`       | List all sessions                   |
+| `GET`    | `/api/sessions/:id`            | `sessions.get`        | Get session output and status       |
+| `DELETE` | `/api/sessions/:id`            | `sessions.close`      | Kill a session                      |
+| `POST`   | `/api/sessions/:id/exec`       | `sessions.exec`       | Run a command synchronously         |
+| `POST`   | `/api/sessions/:id/exec/async` | `sessions.exec_async` | Run a command without waiting       |
+| `POST`   | `/api/sessions/:id/input`      | `sessions.input`      | Send keystrokes / control sequences |
 
 For `sessions.exec` and `sessions.exec_async`, if no `:id` is provided, use `POST /api/sessions/exec` which auto-creates a session (matching the MCP behavior when `sessionId` is null).
 
@@ -101,6 +102,7 @@ Spawn a new tmux session.
 | `timeout` | number or null | `300` | Seconds of inactivity before auto-kill. `0` or `null` for never. |
 
 **Returns:**
+
 ```json
 {
   "sessionId": "fc_a1b2c3",
@@ -122,11 +124,12 @@ Execute a command synchronously in a session. Blocks until the command completes
 **Params:**
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `command` | string | *required* | Command to execute |
+| `command` | string | _required_ | Command to execute |
 | `sessionId` | string or null | null | Session to run in. If null, auto-creates a new session. |
 | `timeout` | number | `30` | Max seconds to wait for completion |
 
 **Returns:**
+
 ```json
 {
   "sessionId": "fc_a1b2c3",
@@ -136,6 +139,7 @@ Execute a command synchronously in a session. Blocks until the command completes
 ```
 
 **Implementation:**
+
 1. Write command to tmux pane via `tmux send-keys`
 2. Append a sentinel: `; echo __FC_DONE_${?}__`
 3. Poll `tmux capture-pane` for the sentinel
@@ -151,10 +155,11 @@ Execute a command without waiting for completion. For long-running processes lik
 **Params:**
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `command` | string | *required* | Command to execute |
+| `command` | string | _required_ | Command to execute |
 | `sessionId` | string or null | null | Session to run in. If null, auto-creates a new session. |
 
 **Returns:**
+
 ```json
 {
   "sessionId": "fc_a1b2c3",
@@ -173,13 +178,14 @@ Send keystrokes or control sequences to an interactive program (vim, REPLs, prom
 **Params:**
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `sessionId` | string | *required* | Target session |
+| `sessionId` | string | _required_ | Target session |
 | `text` | string or null | null | Literal text to type |
 | `keys` | string[] or null | null | Special keys to send after text |
 
 **Supported keys:** `enter`, `tab`, `escape`, `space`, `backspace`, `delete`, `up`, `down`, `left`, `right`, `ctrl+a` through `ctrl+z`, `ctrl+c`, `ctrl+d`, `ctrl+\`
 
 **Returns:**
+
 ```json
 {
   "sessionId": "fc_a1b2c3",
@@ -188,6 +194,7 @@ Send keystrokes or control sequences to an interactive program (vim, REPLs, prom
 ```
 
 **Implementation:**
+
 - `text`: `tmux send-keys -l "<text>"` (the `-l` flag sends literal characters)
 - `keys`: map to tmux key names and send via `tmux send-keys`. E.g., `ctrl+c` -> `tmux send-keys C-c`, `enter` -> `tmux send-keys Enter`
 - If both `text` and `keys` are provided, send text first, then keys
@@ -201,11 +208,12 @@ Read output from a session's buffer.
 **Params:**
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `sessionId` | string | *required* | Target session |
+| `sessionId` | string | _required_ | Target session |
 | `tail` | number or null | null | Return only the last N lines |
 | `since` | number or null | null | Return output since this byte offset (for incremental reads) |
 
 **Returns:**
+
 ```json
 {
   "sessionId": "fc_a1b2c3",
@@ -222,6 +230,7 @@ Read output from a session's buffer.
 **`status` values:** `running`, `exited`, `expired` (timed out), `closed` (manually closed)
 
 **Implementation:**
+
 - `tmux capture-pane -p -t fc_<id> -S -<tail>` for tail reads
 - Maintain an in-memory ring buffer (10,000 lines or 1MB cap) per session fed by `tmux pipe-pane` for offset-based reads
 - `cwd`: read from `/proc/<pid>/cwd` (Linux) or `lsof -p <pid>` (macOS)
@@ -235,6 +244,7 @@ List all active and recently-closed sessions.
 **Params:** none
 
 **Returns:**
+
 ```json
 {
   "sessions": [
@@ -263,9 +273,10 @@ Kill a session and clean up.
 **Params:**
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `sessionId` | string | *required* | Session to close |
+| `sessionId` | string | _required_ | Session to close |
 
 **Returns:**
+
 ```json
 {
   "sessionId": "fc_a1b2c3",
@@ -275,6 +286,7 @@ Kill a session and clean up.
 ```
 
 **Implementation:**
+
 1. Capture final pane output via `tmux capture-pane`
 2. `tmux kill-session -t fc_<id>`
 3. Clean up in-memory state
@@ -295,6 +307,7 @@ Flamecast acts as a reverse proxy to any port on the host machine. This enables 
 `/port/:port/*` is a catch-all proxy on the Flamecast HTTP server. It handles both HTTP and websocket upgrades.
 
 **HTTP requests:**
+
 ```
 GET /port/5173/index.html
   -> proxy to http://localhost:5173/index.html
@@ -302,6 +315,7 @@ GET /port/5173/index.html
 ```
 
 **Websocket connections:**
+
 ```
 WS /port/9222/devtools/browser/abc123
   -> upgrade to websocket
@@ -310,6 +324,7 @@ WS /port/9222/devtools/browser/abc123
 ```
 
 **Implementation:**
+
 - Use `http-proxy` or Hono's built-in proxy capabilities
 - Strip `/port/:port` prefix before forwarding (so `/port/5173/api/users` -> `localhost:5173/api/users`)
 - Forward all request headers, including `Host` (rewritten to `localhost:<port>`)
@@ -319,6 +334,7 @@ WS /port/9222/devtools/browser/abc123
 - No body parsing, no content modification -- pure passthrough
 
 **Security:**
+
 - Port forwarding is auth-gated the same as all other endpoints (Bearer token locally, gateway auth remotely)
 - When accessed via Machine Gateway, the `ports` scope is required on the access token (see updated scopes below)
 - Only `localhost` / `127.0.0.1` is proxied to -- never external hosts
@@ -336,6 +352,7 @@ Client -> https://anirudh.flamecast.app/port/5173/api/users
 ```
 
 For websockets (e.g., CDP):
+
 ```
 Client -> wss://anirudh.flamecast.app/port/9222/devtools/browser/abc123
   -> Gateway authenticates (requires "ports" scope)
@@ -432,11 +449,11 @@ To fully deregister and release the name, use `npx flamecast down --deregister`,
 
 #### Options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--port` | `3000` | Port to listen on |
-| `--no-auth` | false | Disable auth token (local-only mode only) |
-| `--ports` | all | Comma-separated allowlist of ports for forwarding (e.g., `--ports 3000,5173,9222`) |
+| Flag        | Default | Description                                                                        |
+| ----------- | ------- | ---------------------------------------------------------------------------------- |
+| `--port`    | `3000`  | Port to listen on                                                                  |
+| `--no-auth` | false   | Disable auth token (local-only mode only)                                          |
+| `--ports`   | all     | Comma-separated allowlist of ports for forwarding (e.g., `--ports 3000,5173,9222`) |
 
 ---
 
@@ -465,6 +482,7 @@ On first run, generate a random auth token and store it at `~/.flamecast/token`.
 No native Node addons. Pure JavaScript/TypeScript.
 
 ---
+
 ---
 
 ## Part 2: Machine Gateway (Hosted Service)
@@ -517,11 +535,13 @@ sequenceDiagram
 Start device registration flow. Called by `npx flamecast up`.
 
 Request:
+
 ```json
 { "name": "anirudh" }
 ```
 
 Response:
+
 ```json
 {
   "deviceCode": "ABCD-1234",
@@ -539,16 +559,19 @@ Returns 409 if name is already taken.
 Poll for registration approval.
 
 Request:
+
 ```json
 { "deviceCode": "ABCD-1234" }
 ```
 
 Response (pending):
+
 ```json
 { "status": "pending" }
 ```
 
 Response (approved):
+
 ```json
 {
   "status": "approved",
@@ -573,11 +596,13 @@ Deregister a machine. Called by `npx flamecast down --deregister`. Requires `mac
 Sent every 30s by the CLI. Updates `last_seen_at`. Gateway marks machines as offline if no heartbeat for 90s.
 
 Request:
+
 ```json
 { "machineSecret": "fc_sec_<random>" }
 ```
 
 Response:
+
 ```json
 { "status": "ok" }
 ```
@@ -591,6 +616,7 @@ Response:
 Create an access token for a machine. This is what end users (or AI agents) use to authenticate requests to `anirudh.flamecast.app`.
 
 Request:
+
 ```json
 {
   "label": "claude-desktop",
@@ -600,6 +626,7 @@ Request:
 ```
 
 Response:
+
 ```json
 {
   "token": "fc_ak_<random>",
@@ -610,6 +637,7 @@ Response:
 ```
 
 **Scopes:**
+
 - `mcp` -- access to `POST /mcp` and REST API endpoints
 - `terminal` -- access to `WS /sessions/:id/stream`
 - `ports` -- access to `/port/:port/*` (HTTP and websocket forwarding)
@@ -628,7 +656,7 @@ Revoke a token.
 
 ---
 
-#### Proxy (wildcard *.flamecast.app)
+#### Proxy (wildcard \*.flamecast.app)
 
 All requests to `<n>.flamecast.app/*` are handled by the proxy:
 
@@ -653,12 +681,12 @@ import { pgTable, text, timestamp, pgEnum } from "drizzle-orm/pg-core";
 export const machineStatusEnum = pgEnum("machine_status", ["online", "offline"]);
 
 export const machines = pgTable("machines", {
-  id: text("id").primaryKey(),                            // "mach_abc123"
-  ownerId: text("owner_id").notNull(),                    // FK to your existing users table
-  name: text("name").notNull().unique(),                  // "anirudh" (the subdomain)
-  machineSecret: text("machine_secret").notNull(),        // hashed, for CLI auth
-  tunnelId: text("tunnel_id"),                            // Cloudflare tunnel ID
-  tunnelToken: text("tunnel_token"),                      // encrypted, for starting cloudflared
+  id: text("id").primaryKey(), // "mach_abc123"
+  ownerId: text("owner_id").notNull(), // FK to your existing users table
+  name: text("name").notNull().unique(), // "anirudh" (the subdomain)
+  machineSecret: text("machine_secret").notNull(), // hashed, for CLI auth
+  tunnelId: text("tunnel_id"), // Cloudflare tunnel ID
+  tunnelToken: text("tunnel_token"), // encrypted, for starting cloudflared
   status: machineStatusEnum("status").notNull().default("offline"),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -668,12 +696,12 @@ export const machines = pgTable("machines", {
 
 ```typescript
 export const machineAccessTokens = pgTable("machine_access_tokens", {
-  id: text("id").primaryKey(),                            // "fc_atok_abc123"
+  id: text("id").primaryKey(), // "fc_atok_abc123"
   machineId: text("machine_id")
     .notNull()
     .references(() => machines.id, { onDelete: "cascade" }),
-  tokenHash: text("token_hash").notNull(),                // hashed token
-  label: text("label"),                                   // "claude-desktop"
+  tokenHash: text("token_hash").notNull(), // hashed token
+  label: text("label"), // "claude-desktop"
   scopes: text("scopes").array().notNull().default(["mcp", "terminal", "ports"]),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -688,11 +716,11 @@ export const registrationStatusEnum = pgEnum("registration_status", [
 ]);
 
 export const machineRegistrations = pgTable("machine_registrations", {
-  deviceCode: text("device_code").primaryKey(),           // "ABCD-1234"
-  name: text("name").notNull(),                           // requested machine name
-  ownerId: text("owner_id"),                              // set when user approves
+  deviceCode: text("device_code").primaryKey(), // "ABCD-1234"
+  name: text("name").notNull(), // requested machine name
+  ownerId: text("owner_id"), // set when user approves
   status: registrationStatusEnum("status").notNull().default("pending"),
-  machineId: text("machine_id"),                          // set on approval
+  machineId: text("machine_id"), // set on approval
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -756,6 +784,7 @@ sequenceDiagram
 - **Hosting:** wherever your existing infra runs
 
 ---
+
 ---
 
 ## Out of Scope for MVP
