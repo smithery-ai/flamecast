@@ -9,21 +9,34 @@ import { sessionRoutes } from "./routes/sessions.js";
 const pkgPath = resolve(dirname(fileURLToPath(import.meta.url)), "../../package.json");
 const pkg: { version: string } = JSON.parse(readFileSync(pkgPath, "utf-8"));
 
+function createApp(sessions: SessionManager) {
+  const app = new OpenAPIHono();
+
+  app.onError((err, c) => {
+    return c.json({ error: err.message }, 500);
+  });
+
+  const routes = app
+    .get("/", (c) => c.json({ name: "flamecast", status: "ok" }))
+    .route("/api", sessionRoutes(sessions));
+
+  app.doc("/openapi.json", {
+    openapi: "3.1.0",
+    info: { title: "Flamecast", version: pkg.version },
+  });
+  app.get("/api/ui", swaggerUI({ url: "/openapi.json" }));
+
+  return routes;
+}
+
+export type AppType = ReturnType<typeof createApp>;
+
 export class Flamecast {
-  readonly app: OpenAPIHono;
+  readonly app: AppType;
   readonly sessions: SessionManager;
 
   constructor() {
     this.sessions = new SessionManager();
-    this.app = new OpenAPIHono();
-
-    this.app.get("/", (c) => c.json({ name: "flamecast", status: "ok" }));
-    this.app.route("/api", sessionRoutes(this.sessions));
-
-    this.app.doc("/openapi.json", {
-      openapi: "3.1.0",
-      info: { title: "Flamecast", version: pkg.version },
-    });
-    this.app.get("/api/ui", swaggerUI({ url: "/openapi.json" }));
+    this.app = createApp(this.sessions);
   }
 }

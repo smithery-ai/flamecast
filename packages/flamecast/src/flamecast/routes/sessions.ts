@@ -248,7 +248,7 @@ function parseIntQuery(value: string | undefined): number | null {
   return Number.isNaN(n) ? null : n;
 }
 
-export function sessionRoutes(sessions: SessionManager): OpenAPIHono {
+export function sessionRoutes(sessions: SessionManager) {
   const app = new OpenAPIHono({
     defaultHook: (result, c) => {
       if (!result.success) {
@@ -264,80 +264,73 @@ export function sessionRoutes(sessions: SessionManager): OpenAPIHono {
     return c.json({ error: err.message }, 500);
   });
 
-  app.openapi(createSession, async (c) => {
-    const body = c.req.valid("json");
-    const result = await sessions.create(body);
-    return c.json(result, 201);
-  });
-
-  app.openapi(listSessions, async (c) => {
-    const result = await sessions.list();
-    return c.json(result, 200);
-  });
-
-  app.openapi(getSession, async (c) => {
-    const { id } = c.req.valid("param");
-    const query = c.req.valid("query");
-    const result = await sessions.get({
-      sessionId: id,
-      tail: parseIntQuery(query.tail),
-      since: parseIntQuery(query.since),
+  return app
+    .openapi(createSession, async (c) => {
+      const body = c.req.valid("json");
+      const result = await sessions.create(body);
+      return c.json(result, 201);
+    })
+    .openapi(listSessions, async (c) => {
+      const result = await sessions.list();
+      return c.json(result, 200);
+    })
+    .openapi(getSession, async (c) => {
+      const { id } = c.req.valid("param");
+      const query = c.req.valid("query");
+      const result = await sessions.get({
+        sessionId: id,
+        tail: parseIntQuery(query.tail),
+        since: parseIntQuery(query.since),
+      });
+      return c.json(result, 200);
+    })
+    .openapi(closeSession, async (c) => {
+      const { id } = c.req.valid("param");
+      const result = await sessions.close({ sessionId: id });
+      return c.json(result, 200);
+    })
+    .openapi(execInSession, async (c) => {
+      const { id } = c.req.valid("param");
+      const body = c.req.valid("json");
+      const result = await sessions.exec({
+        command: body.command,
+        sessionId: id,
+        timeout: body.timeout,
+      });
+      return c.json(result, 200);
+    })
+    .openapi(execAutoCreate, async (c) => {
+      const body = c.req.valid("json");
+      const result = await sessions.exec({
+        command: body.command,
+        timeout: body.timeout,
+      });
+      return c.json(result, 200);
+    })
+    .openapi(execAsyncInSession, async (c) => {
+      const { id } = c.req.valid("param");
+      const body = c.req.valid("json");
+      const result = await sessions.execAsync({
+        command: body.command,
+        sessionId: id,
+      });
+      return c.json(result, 200);
+    })
+    .openapi(execAsyncAutoCreate, async (c) => {
+      const body = c.req.valid("json");
+      const result = await sessions.execAsync({ command: body.command });
+      return c.json(result, 200);
+    })
+    .openapi(sendInput, async (c) => {
+      const { id } = c.req.valid("param");
+      const body = c.req.valid("json");
+      const result = await sessions.input({
+        sessionId: id,
+        text: body.text,
+        keys: body.keys,
+      });
+      return c.json(result, 200);
     });
-    return c.json(result, 200);
-  });
-
-  app.openapi(closeSession, async (c) => {
-    const { id } = c.req.valid("param");
-    const result = await sessions.close({ sessionId: id });
-    return c.json(result, 200);
-  });
-
-  app.openapi(execInSession, async (c) => {
-    const { id } = c.req.valid("param");
-    const body = c.req.valid("json");
-    const result = await sessions.exec({
-      command: body.command,
-      sessionId: id,
-      timeout: body.timeout,
-    });
-    return c.json(result, 200);
-  });
-
-  app.openapi(execAutoCreate, async (c) => {
-    const body = c.req.valid("json");
-    const result = await sessions.exec({
-      command: body.command,
-      timeout: body.timeout,
-    });
-    return c.json(result, 200);
-  });
-
-  app.openapi(execAsyncInSession, async (c) => {
-    const { id } = c.req.valid("param");
-    const body = c.req.valid("json");
-    const result = await sessions.execAsync({
-      command: body.command,
-      sessionId: id,
-    });
-    return c.json(result, 200);
-  });
-
-  app.openapi(execAsyncAutoCreate, async (c) => {
-    const body = c.req.valid("json");
-    const result = await sessions.execAsync({ command: body.command });
-    return c.json(result, 200);
-  });
-
-  app.openapi(sendInput, async (c) => {
-    const { id } = c.req.valid("param");
-    const body = c.req.valid("json");
-    const result = await sessions.input({
-      sessionId: id,
-      text: body.text,
-      keys: body.keys,
-    });
-    return c.json(result, 200);
-  });
-
-  return app;
 }
+
+export type SessionRoutes = ReturnType<typeof sessionRoutes>;
