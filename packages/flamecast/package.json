@@ -2,8 +2,7 @@
   "name": "@flamecast/sdk",
   "version": "0.3.0",
   "files": [
-    "dist",
-    "src/client"
+    "dist"
   ],
   "type": "module",
   "main": "./dist/index.js",
@@ -13,22 +12,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./edge": {
-      "types": "./dist/edge.d.ts",
-      "import": "./dist/edge.js"
-    },
-    "./api": {
-      "types": "./dist/flamecast/api.d.ts",
-      "import": "./dist/flamecast/api.js"
-    },
-    "./client": {
-      "types": "./src/client/api.ts",
-      "import": "./src/client/api.ts"
-    },
-    "./session": {
-      "types": "./dist/shared/session.d.ts",
-      "import": "./dist/shared/session.js"
-    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -36,24 +19,9 @@
   },
   "scripts": {
     "build": "pnpm run build:package",
-    "build:package": "tsc -p tsconfig.package.json && cp src/flamecast/agent.ts dist/flamecast/agent.ts",
-    "test": "vitest run --config vitest.integration.config.ts",
-    "test:api:coverage": "vitest run --coverage --config vitest.integration.config.ts"
+    "build:package": "tsc -p tsconfig.package.json"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.16.1",
-    "@flamecast/protocol": "workspace:*",
-    "@hono/node-server": "^1.19.11",
-    "@hono/zod-validator": "^0.7.6",
-    "hono": "^4.12.8",
-    "zod": "^4.3.6"
-  },
-  "devDependencies": {
-    "@vitest/coverage-v8": "^4.1.0",
-    "knip": "^6.0.1",
-    "vitest": "^4.1.0"
-  },
-  "optionalDependencies": {
-    "@flamecast/session-host-go": "workspace:*"
+    "hono": "^4.12.8"
   }
 }

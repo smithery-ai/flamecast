@@ -63,6 +63,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@flamecast/sdk':
+        specifier: workspace:*
+        version: link:../flamecast
       '@hono/node-server':
         specifier: ^1.19.11
         version: 1.19.11(hono@4.12.9)
@@ -76,38 +79,9 @@ importers:
 
   packages/flamecast:
     dependencies:
-      '@agentclientprotocol/sdk':
-        specifier: ^0.16.1
-        version: 0.16.1(zod@4.3.6)
-      '@flamecast/protocol':
-        specifier: workspace:*
-        version: link:../protocol
-      '@hono/node-server':
-        specifier: ^1.19.11
-        version: 1.19.11(hono@4.12.8)
-      '@hono/zod-validator':
-        specifier: ^0.7.6
-        version: 0.7.6(hono@4.12.8)(zod@4.3.6)
       hono:
         specifier: ^4.12.8
         version: 4.12.8
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@vitest/coverage-v8':
-        specifier: ^4.1.0
-        version: 4.1.0(vitest@4.1.0(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@20.19.37)(msw@2.12.14(@types/node@20.19.37)(typescript@5.9.3))(vite@8.0.1(@types/node@20.19.37)(esbuild@0.27.4)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2)))
-      knip:
-        specifier: ^6.0.1
-        version: 6.0.1
-      vitest:
-        specifier: ^4.1.0
-        version: 4.1.0(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@20.19.37)(msw@2.12.14(@types/node@20.19.37)(typescript@5.9.3))(vite@8.0.1(@types/node@20.19.37)(esbuild@0.27.4)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))
-    optionalDependencies:
-      '@flamecast/session-host-go':
-        specifier: workspace:*
-        version: link:../session-host-go
 
   packages/protocol:
     dependencies:
@@ -120,11 +94,6 @@ importers:
         version: 5.9.3
 
 packages:
-
-  '@agentclientprotocol/sdk@0.16.1':
-    resolution: {integrity: sha512-1ad+Sc/0sCtZGHthxxvgEUo5Wsbw16I+aF+YwdiLnPwkZG8KAGUEAPK6LM6Pf69lCyJPt1Aomk1d+8oE3C4ZEw==}
-    peerDependencies:
-      zod: ^3.25.0 || ^4.0.0
 
   '@alcalzone/ansi-tokenize@0.2.5':
     resolution: {integrity: sha512-3NX/MpTdroi0aKz134A6RC2Gb2iXVECN4QaAXnvCIxxIm3C3AVB1mkUe8NaaiyvOpDfsrqWhYtj+Q6a62RrTsw==}
@@ -632,12 +601,6 @@ packages:
     engines: {node: '>=18.14.1'}
     peerDependencies:
       hono: ^4
-
-  '@hono/zod-validator@0.7.6':
-    resolution: {integrity: sha512-Io1B6d011Gj1KknV4rXYz4le5+5EubcWEU/speUjuw9XMMIaP3n78yXLhjd2A3PXaXaUwEAluOiAyLqhBEJgsw==}
-    peerDependencies:
-      hono: '>=3.9.0'
-      zod: ^3.25.0 || ^4.0.0
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -5722,10 +5685,6 @@ packages:
 
 snapshots:
 
-  '@agentclientprotocol/sdk@0.16.1(zod@4.3.6)':
-    dependencies:
-      zod: 4.3.6
-
   '@alcalzone/ansi-tokenize@0.2.5':
     dependencies:
       ansi-styles: 6.2.3
@@ -6161,18 +6120,9 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
-  '@hono/node-server@1.19.11(hono@4.12.8)':
-    dependencies:
-      hono: 4.12.8
-
   '@hono/node-server@1.19.11(hono@4.12.9)':
     dependencies:
       hono: 4.12.9
-
-  '@hono/zod-validator@0.7.6(hono@4.12.8)(zod@4.3.6)':
-    dependencies:
-      hono: 4.12.8
-      zod: 4.3.6
 
   '@img/colour@1.1.0': {}
 

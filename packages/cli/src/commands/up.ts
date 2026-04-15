@@ -11,8 +11,9 @@ import {
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
-import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { Hono } from "hono";
+import { Flamecast } from "@flamecast/sdk";
 import { spawnCloudflared, ensureCloudflared } from "../lib/cloudflared.js";
 import type { UpFlags } from "../types.js";
 
@@ -52,6 +53,8 @@ function isFlamecastProcess(pid: number): boolean {
     return false;
   }
 
+  // The process exists, but verify it's actually a flamecast daemon
+  // (PIDs get recycled by the OS, so the PID could belong to an unrelated process)
   try {
     const cmd =
       platform() === "darwin"
@@ -60,11 +63,13 @@ function isFlamecastProcess(pid: number): boolean {
     const output = execSync(cmd, { timeout: 2000 }).toString();
     return output.includes("flamecast");
   } catch {
+    // If we can't inspect the process, assume it's not ours
     return false;
   }
 }
 
 export async function runUp(flags: UpFlags): Promise<number> {
+  // If we're the daemon child, run the server directly
   if (process.env.__FLAMECAST_DAEMON === "1") {
     return runServer(flags);
   }
@@ -75,6 +80,7 @@ export async function runUp(flags: UpFlags): Promise<number> {
 async function daemonize(flags: UpFlags): Promise<number> {
   mkdirSync(FLAMECAST_HOME, { recursive: true });
 
+  // Check if already running
   if (existsSync(PID_FILE)) {
     const pid = parseInt(readFileSync(PID_FILE, "utf8").trim(), 10);
     if (isFlamecastProcess(pid)) {
@@ -82,15 +88,19 @@ async function daemonize(flags: UpFlags): Promise<number> {
       console.log(`Logs: ${LOG_FILE}`);
       return 1;
     }
+    // Stale PID file
     unlinkSync(PID_FILE);
   }
 
+  // If --name is set, ensure cloudflared is installed before spawning the daemon
   if (flags.name && !(await ensureCloudflared())) {
     flags = { ...flags, name: undefined };
   }
 
+  // Wipe log file on restart
   const logFd = openSync(LOG_FILE, "w");
 
+  // Reconstruct args for the child
   const childArgs = [process.argv[1], "up"];
   if (flags.name) childArgs.push("--name", flags.name);
   if (flags.port) childArgs.push("--port", String(flags.port));
@@ -114,6 +124,7 @@ async function daemonize(flags: UpFlags): Promise<number> {
     | { type: "error"; error: string }
     | { type: "tunnel"; domain?: string; error?: string };
 
+  // Helper: wait for the next IPC message or child exit
   function waitForMessage(
     timeoutMs: number,
   ): Promise<IpcMsg | { type: "exit"; code: number | null } | { type: "timeout" }> {
@@ -142,6 +153,7 @@ async function daemonize(flags: UpFlags): Promise<number> {
     });
   }
 
+  // Phase 1: wait for server to be ready
   const first = await waitForMessage(30_000);
 
   if (first.type === "error") {
@@ -163,11 +175,13 @@ async function daemonize(flags: UpFlags): Promise<number> {
     return 1;
   }
 
+  // Server is up — write PID file so `flamecast down` works
   writeFileSync(PID_FILE, String(child.pid));
 
   const port = flags.port ?? 3000;
   console.log(`Logs: ${LOG_FILE}`);
 
+  // Phase 2: if --name was given, wait for tunnel result
   let tunnelDomain: string | undefined;
   if (flags.name) {
     console.log("Connecting tunnel...");
@@ -201,12 +215,15 @@ async function runServer(flags: UpFlags): Promise<number> {
   const port = flags.port ?? 3000;
 
   try {
-    const app = new Hono();
-    app.use("*", cors());
-    app.get("/", (c) => c.json({ name: "flamecast", status: "ok" }));
+    const flamecast = new Flamecast();
+
+    // Wrap with CORS
+    const wrapper = new Hono();
+    wrapper.use("*", cors());
+    wrapper.all("*", (c) => flamecast.app.fetch(c.req.raw));
 
     const server = await new Promise<ReturnType<typeof serve>>((resolve, reject) => {
-      const s = serve({ fetch: app.fetch, port }, () => {
+      const s = serve({ fetch: wrapper.fetch, port }, () => {
         resolve(s);
       });
       s.on("error", (err: NodeJS.ErrnoException) => {
@@ -215,9 +232,10 @@ async function runServer(flags: UpFlags): Promise<number> {
     });
     console.log(`Flamecast running on http://localhost:${port}`);
 
+    // Server is listening — tell the parent immediately
     if (process.send) process.send({ type: "ready" });
 
-    // If --name is provided, connect tunnel via bridge
+    // If --name is provided and cloudflared is available, connect tunnel
     let cloudflaredProcess: import("node:child_process").ChildProcess | null = null;
     if (flags.name) {
       if (!(await ensureCloudflared())) {
@@ -264,6 +282,7 @@ async function runServer(flags: UpFlags): Promise<number> {
           exitCode = 1;
           console.error(error instanceof Error ? error.message : String(error));
         } finally {
+          // Clean up PID file on graceful shutdown
           try {
             unlinkSync(PID_FILE);
           } catch {

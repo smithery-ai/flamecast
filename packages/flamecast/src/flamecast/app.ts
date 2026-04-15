@@ -1,8 +1,7 @@
 import { Hono } from "hono";
-import { createApi, type FlamecastApi } from "./api.js";
 
-export function createServerApp(flamecast: FlamecastApi) {
+export function createServerApp() {
   const app = new Hono();
-  app.route("/api", createApi(flamecast));
+  app.get("/api/health", (c) => c.json({ status: "ok" }));
   return app;
 }
