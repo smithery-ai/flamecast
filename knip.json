@@ -7,6 +7,7 @@
         "src/client/api.ts",
         "src/flamecast/agent.ts",
         "src/flamecast/index.ts",
+        "src/flamecast/sessions/tmux.ts",
         "src/index.ts",
         "test/**/*.test.ts"
       ],
