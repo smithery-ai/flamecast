@@ -57,7 +57,11 @@ const ExecAsyncResponse = z
 const InputBody = z
   .object({
     text: z.string().nullable().optional().openapi({ example: "hello" }),
-    keys: z.array(z.string()).nullable().optional().openapi({ example: ["enter"] }),
+    keys: z
+      .array(z.string())
+      .nullable()
+      .optional()
+      .openapi({ example: ["enter"] }),
   })
   .openapi("InputBody");
 
@@ -123,8 +127,14 @@ const createSession = createRoute({
   summary: "Create a new terminal session",
   request: { body: { content: { "application/json": { schema: CreateBody } } } },
   responses: {
-    201: { content: { "application/json": { schema: CreateResponse } }, description: "Session created" },
-    500: { content: { "application/json": { schema: ErrorResponse } }, description: "Server error" },
+    201: {
+      content: { "application/json": { schema: CreateResponse } },
+      description: "Session created",
+    },
+    500: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Server error",
+    },
   },
 });
 
@@ -151,8 +161,14 @@ const getSession = createRoute({
     }),
   },
   responses: {
-    200: { content: { "application/json": { schema: GetResponse } }, description: "Session details" },
-    404: { content: { "application/json": { schema: ErrorResponse } }, description: "Session not found" },
+    200: {
+      content: { "application/json": { schema: GetResponse } },
+      description: "Session details",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Session not found",
+    },
   },
 });
 
@@ -163,8 +179,14 @@ const closeSession = createRoute({
   summary: "Kill a session",
   request: { params: SessionIdParam },
   responses: {
-    200: { content: { "application/json": { schema: CloseResponse } }, description: "Session closed" },
-    404: { content: { "application/json": { schema: ErrorResponse } }, description: "Session not found" },
+    200: {
+      content: { "application/json": { schema: CloseResponse } },
+      description: "Session closed",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Session not found",
+    },
   },
 });
 
@@ -178,9 +200,18 @@ const execInSession = createRoute({
     body: { content: { "application/json": { schema: ExecBody } } },
   },
   responses: {
-    200: { content: { "application/json": { schema: ExecResponse } }, description: "Command output" },
-    404: { content: { "application/json": { schema: ErrorResponse } }, description: "Session not found" },
-    409: { content: { "application/json": { schema: ErrorResponse } }, description: "Session not running" },
+    200: {
+      content: { "application/json": { schema: ExecResponse } },
+      description: "Command output",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Session not found",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Session not running",
+    },
   },
 });
 
@@ -191,8 +222,14 @@ const execAutoCreate = createRoute({
   summary: "Auto-create a session and run a command synchronously",
   request: { body: { content: { "application/json": { schema: ExecBody } } } },
   responses: {
-    200: { content: { "application/json": { schema: ExecResponse } }, description: "Command output" },
-    500: { content: { "application/json": { schema: ErrorResponse } }, description: "Server error" },
+    200: {
+      content: { "application/json": { schema: ExecResponse } },
+      description: "Command output",
+    },
+    500: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Server error",
+    },
   },
 });
 
@@ -206,9 +243,18 @@ const execAsyncInSession = createRoute({
     body: { content: { "application/json": { schema: ExecAsyncBody } } },
   },
   responses: {
-    200: { content: { "application/json": { schema: ExecAsyncResponse } }, description: "Command started" },
-    404: { content: { "application/json": { schema: ErrorResponse } }, description: "Session not found" },
-    409: { content: { "application/json": { schema: ErrorResponse } }, description: "Session not running" },
+    200: {
+      content: { "application/json": { schema: ExecAsyncResponse } },
+      description: "Command started",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Session not found",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Session not running",
+    },
   },
 });
 
@@ -219,8 +265,14 @@ const execAsyncAutoCreate = createRoute({
   summary: "Auto-create a session and run a command without waiting",
   request: { body: { content: { "application/json": { schema: ExecAsyncBody } } } },
   responses: {
-    200: { content: { "application/json": { schema: ExecAsyncResponse } }, description: "Command started" },
-    500: { content: { "application/json": { schema: ErrorResponse } }, description: "Server error" },
+    200: {
+      content: { "application/json": { schema: ExecAsyncResponse } },
+      description: "Command started",
+    },
+    500: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Server error",
+    },
   },
 });
 
@@ -235,8 +287,14 @@ const sendInput = createRoute({
   },
   responses: {
     200: { content: { "application/json": { schema: InputResponse } }, description: "Input sent" },
-    404: { content: { "application/json": { schema: ErrorResponse } }, description: "Session not found" },
-    409: { content: { "application/json": { schema: ErrorResponse } }, description: "Session not running" },
+    404: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Session not found",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Session not running",
+    },
   },
 });
 
@@ -332,5 +390,3 @@ export function sessionRoutes(sessions: SessionManager) {
       return c.json(result, 200);
     });
 }
-
-export type SessionRoutes = ReturnType<typeof sessionRoutes>;

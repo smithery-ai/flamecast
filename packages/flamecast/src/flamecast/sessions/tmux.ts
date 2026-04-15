@@ -3,32 +3,8 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 
-export async function checkTmux(): Promise<void> {
-  try {
-    await exec("tmux", ["-V"]);
-  } catch {
-    throw new Error(
-      "tmux is required but not found in $PATH. Install it:\n" +
-        "  macOS:  brew install tmux\n" +
-        "  Linux:  apt install tmux",
-    );
-  }
-}
-
-export async function newSession(
-  sessionId: string,
-  cwd: string,
-  shell: string,
-): Promise<void> {
-  await exec("tmux", [
-    "new-session",
-    "-d",
-    "-s",
-    sessionId,
-    "-c",
-    cwd,
-    shell,
-  ]);
+export async function newSession(sessionId: string, cwd: string, shell: string): Promise<void> {
+  await exec("tmux", ["new-session", "-d", "-s", sessionId, "-c", cwd, shell]);
 }
 
 export async function hasSession(sessionId: string): Promise<boolean> {
@@ -44,10 +20,7 @@ export async function killSession(sessionId: string): Promise<void> {
   await exec("tmux", ["kill-session", "-t", sessionId]);
 }
 
-export async function capturePane(
-  sessionId: string,
-  tail?: number,
-): Promise<string> {
+export async function capturePane(sessionId: string, tail?: number): Promise<string> {
   const args = ["capture-pane", "-p", "-t", sessionId];
   if (tail != null) {
     args.push("-S", `-${tail}`);
@@ -56,11 +29,7 @@ export async function capturePane(
   return stdout;
 }
 
-export async function sendKeys(
-  sessionId: string,
-  keys: string,
-  literal = false,
-): Promise<void> {
+export async function sendKeys(sessionId: string, keys: string, literal = false): Promise<void> {
   const args = ["send-keys", "-t", sessionId];
   if (literal) args.push("-l");
   args.push(keys);
@@ -94,15 +63,9 @@ export async function listFcSessions(): Promise<
   }
 }
 
-export async function getPanePid(sessionId: string): Promise<number | null> {
+async function getPanePid(sessionId: string): Promise<number | null> {
   try {
-    const { stdout } = await exec("tmux", [
-      "list-panes",
-      "-t",
-      sessionId,
-      "-F",
-      "#{pane_pid}",
-    ]);
+    const { stdout } = await exec("tmux", ["list-panes", "-t", sessionId, "-F", "#{pane_pid}"]);
     const pid = parseInt(stdout.trim(), 10);
     return Number.isNaN(pid) ? null : pid;
   } catch {
@@ -116,14 +79,7 @@ export async function getCwd(sessionId: string): Promise<string> {
 
   try {
     if (process.platform === "darwin") {
-      const { stdout } = await exec("lsof", [
-        "-a",
-        "-p",
-        String(pid),
-        "-d",
-        "cwd",
-        "-Fn",
-      ]);
+      const { stdout } = await exec("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]);
       const line = stdout.split("\n").find((l) => l.startsWith("n"));
       return line ? line.slice(1) : process.cwd();
     }
@@ -135,18 +91,3 @@ export async function getCwd(sessionId: string): Promise<string> {
   }
 }
 
-export async function resizeWindow(
-  sessionId: string,
-  cols: number,
-  rows: number,
-): Promise<void> {
-  await exec("tmux", [
-    "resize-window",
-    "-t",
-    sessionId,
-    "-x",
-    String(cols),
-    "-y",
-    String(rows),
-  ]);
-}
