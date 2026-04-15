@@ -25,9 +25,6 @@
     },
     "knip": {
       "outputs": []
-    },
-    "psql:generate": {
-      "cache": false
     }
   }
 }
