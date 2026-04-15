@@ -3,48 +3,28 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "turbo run dev --filter='!./examples/*'",
-    "dev:all": "turbo run dev",
-    "dev:client": "turbo run dev --filter=flamecast-client",
-    "dev:server": "turbo run dev --filter=flamecast-server",
+    "dev": "turbo run dev",
     "build": "turbo run build",
     "start": "pnpm dev",
-    "knip": "knip --config knip.json --workspace packages/flamecast --workspace examples/agent.js --workspace apps/server --workspace apps/client --no-config-hints",
+    "knip": "knip --config knip.json --workspace packages/flamecast --no-config-hints",
     "ci:lint": "pnpm lint && pnpm format:check",
     "lint": "oxlint --config .oxlintrc.json --deny-warnings .",
     "lint:fix": "oxlint --config .oxlintrc.json --fix --fix-suggestions --deny-warnings .",
     "format": "oxfmt --config .oxfmtrc.json --write .",
     "format:check": "oxfmt --config .oxfmtrc.json --check .",
     "fmt": "pnpm lint:fix && pnpm format",
-    "psql:generate": "turbo run psql:generate --filter=flamecast-server",
     "test": "turbo run test",
-    "test:api": "turbo run test --filter=@flamecast/sdk",
-    "test:api:coverage": "turbo run test:api:coverage --filter=@flamecast/sdk",
-    "test:server": "pnpm --filter flamecast-server test",
-    "check": "pnpm ci:lint && pnpm build && pnpm test:api:coverage && pnpm test:server && pnpm knip",
+    "check": "pnpm ci:lint && pnpm build && pnpm test && pnpm knip",
     "clean": "git clean -ffdX",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "ci:publish": "turbo run build && pnpm publish -r",
-    "co": "sh -c 'git checkout \"$1\" && git pull && rm -rf apps/server/.flamecast/ && cd apps/server && pnpm flamecast db migrate && cd ../.. && pnpm dev' --"
-  },
-  "dependencies": {
-    "@lexical/react": "^0.42.0",
-    "lexical": "^0.42.0",
-    "lexical-beautiful-mentions": "^0.1.48"
+    "co": "sh -c 'git checkout \"$1\" && git pull && pnpm dev' --"
   },
   "devDependencies": {
     "@changesets/cli": "^2.30.0",
-    "@cloudflare/vite-plugin": "^1.30.0",
-    "@libsql/client": "^0.17.2",
-    "@tanstack/router-devtools": "^1.166.9",
-    "@tanstack/router-plugin": "^1.166.14",
     "@types/node": "^20.11.17",
-    "@types/pg": "^8.18.0",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
     "@vitest/coverage-v8": "^4.1.0",
-    "drizzle-kit": "^0.31.8",
     "eslint-plugin-no-type-assertion": "^1.3.0",
     "knip": "^6.0.1",
     "oxfmt": "^0.41.0",
@@ -55,15 +35,5 @@
     "vitest": "^4.1.0"
   },
   "packageManager": "pnpm@10.26.2",
-  "pnpm": {
-    "packageExtensions": {
-      "eslint-plugin-no-type-assertion@*": {
-        "peerDependenciesMeta": {
-          "eslint": {
-            "optional": true
-          }
-        }
-      }
-    }
-  }
+  "pnpm": {}
 }

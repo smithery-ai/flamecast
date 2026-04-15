@@ -11,68 +11,11 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Docs",
         "groups": [
           {
             "group": "Getting started",
-            "pages": ["index", "quickstart"]
-          },
-          {
-            "group": "Use cases",
-            "pages": [
-              "guides/local-agents",
-              "guides/cloud-agents",
-              "guides/build-your-own-agent",
-              "guides/subagents",
-              "guides/slackbot",
-              "guides/custom-ui"
-            ]
-          },
-          {
-            "group": "Going deeper",
-            "pages": [
-              "guides/principles",
-              "guides/architecture",
-              "guides/configuration",
-              "guides/storage",
-              "guides/development"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "API reference",
-        "groups": [
-          {
-            "group": "REST API",
-            "pages": ["api-reference/introduction", "api-reference/endpoints"]
-          },
-          {
-            "group": "WebSocket",
-            "pages": ["api-reference/websocket"]
-          },
-          {
-            "group": "Client SDK",
-            "pages": ["api-reference/client-sdk"]
-          }
-        ]
-      },
-      {
-        "tab": "RFCs",
-        "groups": [
-          {
-            "group": "Proposals",
-            "pages": [
-              "rfcs/unified-runtime",
-              "rfcs/webhooks",
-              "rfcs/setup-scripts",
-              "rfcs/dockerfile-validation",
-              "rfcs/prebuilt-images",
-              "rfcs/queue-management",
-              "rfcs/terminal-sessions",
-              "rfcs/multi-session-websocket",
-              "rfcs/runtime-lifecycle"
-            ]
+            "pages": ["index"]
           }
         ]
       }
@@ -83,11 +26,6 @@
           "anchor": "GitHub",
           "href": "https://github.com/anthropics/flamecast",
           "icon": "github"
-        },
-        {
-          "anchor": "ACP spec",
-          "href": "https://agentclientprotocol.com",
-          "icon": "book-open-cover"
         }
       ]
     }

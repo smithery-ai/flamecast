@@ -5,15 +5,7 @@
     "moduleResolution": "NodeNext",
     "declaration": true,
     "rootDir": "./src",
-    "outDir": "./dist",
-    "jsx": "react-jsx"
+    "outDir": "./dist"
   },
-  "include": [
-    "src/index.ts",
-    "src/edge.ts",
-    "src/worker.ts",
-    "src/node/**/*.ts",
-    "src/flamecast/**/*.ts",
-    "src/shared/**/*.ts"
-  ]
+  "include": ["src/index.ts", "src/flamecast/**/*.ts"]
 }

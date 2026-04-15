@@ -9,15 +9,17 @@
   ],
   "type": "module",
   "scripts": {
+    "dev": "__FLAMECAST_DAEMON=1 tsx watch src/cli.ts up",
     "build": "tsc",
     "build:package": "tsc",
     "start": "node dist/cli.js"
   },
   "dependencies": {
     "@flamecast/sdk": "workspace:*",
-    "@flamecast/storage-psql": "workspace:*",
     "@hono/node-server": "^1.19.11",
-    "drizzle-kit": "^0.31.10",
     "hono": "^4.12.9"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.1"
   }
 }

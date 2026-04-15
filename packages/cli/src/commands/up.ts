@@ -4,51 +4,25 @@ import {
   mkdirSync,
   readFileSync,
   writeFileSync,
-  chmodSync,
   openSync,
   closeSync,
   unlinkSync,
 } from "node:fs";
-import { homedir, platform, arch } from "node:os";
+import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { serve } from "@hono/node-server";
-import { Hono } from "hono";
 import { cors } from "hono/cors";
-import type { IncomingMessage } from "node:http";
-import { createConnection } from "node:net";
-import type { Duplex } from "node:stream";
-import {
-  assertDatabaseReady,
-  createDatabase,
-  createStorageFromDb,
-  defaultAgentTemplates,
-  migrateDatabase,
-} from "@flamecast/storage-psql";
-import { Flamecast, NodeRuntime } from "@flamecast/sdk";
+import { Hono } from "hono";
+import { Flamecast } from "@flamecast/sdk";
 import { spawnCloudflared, ensureCloudflared } from "../lib/cloudflared.js";
 import type { UpFlags } from "../types.js";
 
 const FLAMECAST_HOME = join(homedir(), ".flamecast");
-const SESSION_HOST_BIN_DIR = join(FLAMECAST_HOME, "bin");
 const LOG_FILE = join(FLAMECAST_HOME, "flamecast.log");
 const PID_FILE = join(FLAMECAST_HOME, "daemon.pid");
 const DEFAULT_BRIDGE_URL = "https://flamecast-bridge.smithery.workers.dev";
 
 export { LOG_FILE, PID_FILE, isFlamecastProcess };
-
-function resolveStorageFlags(flags: UpFlags): { url?: string; dataDir?: string } {
-  const url = flags.url ?? process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
-  const dataDir = flags.dataDir;
-
-  if (url && dataDir) {
-    throw new Error('Pass either "--url" or "--data-dir", not both.');
-  }
-
-  return {
-    ...(url ? { url } : {}),
-    ...(dataDir ? { dataDir } : {}),
-  };
-}
 
 async function provisionTunnel(
   bridgeUrl: string,
@@ -70,48 +44,6 @@ async function provisionTunnel(
 
   const result: { tunnelToken: string; domain: string } = await response.json();
   return result;
-}
-
-function resolveNativeBinary(): string | null {
-  if (process.env.SESSION_HOST_BINARY) {
-    const p = process.env.SESSION_HOST_BINARY;
-    if (!existsSync(p)) {
-      throw new Error(`SESSION_HOST_BINARY points to "${p}" which does not exist`);
-    }
-    return p;
-  }
-  const binaryPath = join(SESSION_HOST_BIN_DIR, "session-host-native");
-  if (existsSync(binaryPath)) return binaryPath;
-  return null;
-}
-
-async function ensureSessionHost(): Promise<void> {
-  if (resolveNativeBinary()) return;
-
-  const os = platform();
-  const cpu = arch();
-
-  const goArch = cpu === "x64" ? "amd64" : cpu;
-  if ((os !== "darwin" && os !== "linux") || (goArch !== "amd64" && goArch !== "arm64")) {
-    throw new Error(`Unsupported platform: ${os}/${cpu}`);
-  }
-  const binaryName = `session-host-${os}-${goArch}`;
-
-  const url = `https://github.com/smithery-ai/flamecast/releases/download/session-host-latest/${binaryName}`;
-  console.log(`Downloading session-host for ${os}/${cpu}...`);
-
-  mkdirSync(SESSION_HOST_BIN_DIR, { recursive: true });
-
-  const response = await fetch(url, { redirect: "follow" });
-  if (!response.ok) {
-    throw new Error(`Failed to download session-host: ${response.status} from ${url}`);
-  }
-
-  const buffer = Buffer.from(await response.arrayBuffer());
-  const outputPath = join(SESSION_HOST_BIN_DIR, "session-host-native");
-  writeFileSync(outputPath, buffer);
-  chmodSync(outputPath, 0o755);
-  console.log("Downloaded session-host binary.");
 }
 
 function isFlamecastProcess(pid: number): boolean {
@@ -171,8 +103,6 @@ async function daemonize(flags: UpFlags): Promise<number> {
   // Reconstruct args for the child
   const childArgs = [process.argv[1], "up"];
   if (flags.name) childArgs.push("--name", flags.name);
-  if (flags.url) childArgs.push("--url", flags.url);
-  if (flags.dataDir) childArgs.push("--data-dir", flags.dataDir);
   if (flags.port) childArgs.push("--port", String(flags.port));
 
   const child = spawn(process.execPath, childArgs, {
@@ -248,7 +178,7 @@ async function daemonize(flags: UpFlags): Promise<number> {
   // Server is up — write PID file so `flamecast down` works
   writeFileSync(PID_FILE, String(child.pid));
 
-  const port = flags.port ?? 3001;
+  const port = flags.port ?? 3000;
   console.log(`Logs: ${LOG_FILE}`);
 
   // Phase 2: if --name was given, wait for tunnel result
@@ -282,50 +212,15 @@ async function daemonize(flags: UpFlags): Promise<number> {
 }
 
 async function runServer(flags: UpFlags): Promise<number> {
-  const port = flags.port ?? 3001;
+  const port = flags.port ?? 3000;
 
   try {
-    await ensureSessionHost();
-  } catch (error) {
-    const msg = `Failed to ensure session-host: ${error instanceof Error ? error.message : String(error)}`;
-    console.error(msg);
-    console.error(`View logs: ${LOG_FILE}`);
-    if (process.send) process.send({ type: "error", error: msg });
-    return 1;
-  }
+    const flamecast = new Flamecast();
 
-  const storageOptions = resolveStorageFlags(flags);
-  const isLocalDb = storageOptions.url === undefined;
-  const bundle = await createDatabase(storageOptions);
-
-  try {
-    if (isLocalDb) {
-      await migrateDatabase(bundle);
-    } else {
-      await assertDatabaseReady(bundle);
-    }
-
-    const storage = createStorageFromDb(bundle.db);
-    if (storageOptions.url === undefined) {
-      await storage.seedAgentTemplates(defaultAgentTemplates);
-    }
-
-    const runtime = new NodeRuntime();
-    const flamecast = new Flamecast({
-      storage,
-      runtimes: { default: runtime },
-    });
-
-    // Wrap with CORS and root redirect
+    // Wrap with CORS
     const wrapper = new Hono();
     wrapper.use("*", cors());
-    wrapper.get("/", (c: { req: { raw: Request }; redirect: (url: string) => Response }) => {
-      const reqUrl = new URL(c.req.raw.url);
-      const proto = c.req.raw.headers.get("x-forwarded-proto") ?? reqUrl.protocol.replace(":", "");
-      const backendUrl = `${proto}://${reqUrl.host}/api`;
-      return c.redirect(`https://flamecast.dev?backendUrl=${encodeURIComponent(backendUrl)}`);
-    });
-    wrapper.all("*", (c: { req: { raw: Request } }) => flamecast.app.fetch(c.req.raw));
+    wrapper.all("*", (c) => flamecast.app.fetch(c.req.raw));
 
     const server = await new Promise<ReturnType<typeof serve>>((resolve, reject) => {
       const s = serve({ fetch: wrapper.fetch, port }, () => {
@@ -336,44 +231,9 @@ async function runServer(flags: UpFlags): Promise<number> {
       });
     });
     console.log(`Flamecast running on http://localhost:${port}`);
-    console.log(`API: http://localhost:${port}/api`);
 
     // Server is listening — tell the parent immediately
     if (process.send) process.send({ type: "ready" });
-
-    // Proxy WebSocket upgrades to the session-host so they work through the tunnel.
-    server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-      const wsUrl = runtime.getWebsocketUrl();
-      if (!wsUrl) {
-        socket.destroy();
-        return;
-      }
-
-      const target = new URL(wsUrl);
-      const upstream = createConnection(
-        { host: target.hostname, port: Number(target.port) },
-        () => {
-          const path = req.url ?? "/";
-          const headers = [`GET ${path} HTTP/1.1`];
-          for (let i = 0; i < req.rawHeaders.length; i += 2) {
-            const key = req.rawHeaders[i];
-            if (key.toLowerCase() === "host") {
-              headers.push(`Host: ${target.host}`);
-            } else {
-              headers.push(`${key}: ${req.rawHeaders[i + 1]}`);
-            }
-          }
-          upstream.write(headers.join("\r\n") + "\r\n\r\n");
-          if (head.length > 0) upstream.write(head);
-
-          upstream.pipe(socket);
-          socket.pipe(upstream);
-        },
-      );
-
-      upstream.on("error", () => socket.destroy());
-      socket.on("error", () => upstream.destroy());
-    });
 
     // If --name is provided and cloudflared is available, connect tunnel
     let cloudflaredProcess: import("node:child_process").ChildProcess | null = null;
@@ -413,7 +273,6 @@ async function runServer(flags: UpFlags): Promise<number> {
               // already dead
             }
           }
-          await flamecast.shutdown();
           await new Promise<void>((closeResolve) => {
             server.close(() => {
               closeResolve();
@@ -429,7 +288,6 @@ async function runServer(flags: UpFlags): Promise<number> {
           } catch {
             // ignore
           }
-          await bundle.close().catch(() => {});
           resolve(exitCode);
         }
       }
@@ -442,7 +300,6 @@ async function runServer(flags: UpFlags): Promise<number> {
       });
     });
   } catch (error) {
-    await bundle.close().catch(() => {});
     const msg = error instanceof Error ? error.message : String(error);
     if (process.send) process.send({ type: "error", error: msg });
     throw error;

@@ -1,40 +1,31 @@
 import { runUp } from "./commands/up.js";
 import { runDown } from "./commands/down.js";
 import { runStatus } from "./commands/status.js";
-import { runDbStatus, runDbMigrate, runDbStudio, type DbFlags } from "./commands/db.js";
 import type { UpFlags } from "./types.js";
 
 type Command =
   | { kind: "help" }
   | { kind: "up"; flags: UpFlags }
   | { kind: "down" }
-  | { kind: "status" }
-  | { kind: "db-status"; flags: DbFlags }
-  | { kind: "db-migrate"; flags: DbFlags }
-  | { kind: "db-studio"; flags: DbFlags };
+  | { kind: "status" };
 
 function printHelp(): void {
   console.log(`Usage:
-  flamecast up [--name <name>] [--url <postgres-url>] [--data-dir <path>] [--port <port>]
+  flamecast up [--name <name>] [--port <port>]
   flamecast down
   flamecast status
-  flamecast db status [--url <postgres-url>] [--data-dir <path>] [--json]
-  flamecast db migrate [--url <postgres-url>] [--data-dir <path>]
-  flamecast db studio [--url <postgres-url>] [--data-dir <path>] [--host <host>] [--port <port>]
 
 Commands:
-  up                   Start Flamecast as a background daemon
+  up                   Start Flamecast server
   down                 Stop the running daemon
   status               Show whether Flamecast is running
 
 Options:
   --name <name>        Expose as name.flamecast.app (requires cloudflared)
-                       Emails to name@flamecast.app will create new sessions
+  --port <port>        Port to listen on (default: 3000)
 
 Environment:
-  DATABASE_URL or POSTGRES_URL         Postgres connection string
-  FLAMECAST_PGLITE_DIR                 Override the default PGLite data directory
-  FLAMECAST_PORT or PORT               Default serve port (3001)
+  FLAMECAST_PORT or PORT               Default serve port (3000)
   FLAMECAST_BRIDGE_URL                 Override bridge URL
 `);
 }
@@ -46,44 +37,6 @@ function parsePort(value: string | undefined, fallback: number): number {
     throw new Error(`Invalid port "${value}"`);
   }
   return parsed;
-}
-
-function parseDbFlags(args: string[]): DbFlags {
-  const flags: DbFlags = {};
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-
-    if (!arg.startsWith("--")) {
-      throw new Error(`Unexpected argument "${arg}"`);
-    }
-
-    if (arg === "--json") {
-      flags.json = true;
-      continue;
-    }
-
-    const value = args[index + 1];
-    if (!value || value.startsWith("--")) {
-      throw new Error(`Missing value for "${arg}"`);
-    }
-
-    if (arg === "--url") {
-      flags.url = value;
-    } else if (arg === "--data-dir") {
-      flags.dataDir = value;
-    } else if (arg === "--host") {
-      flags.host = value;
-    } else if (arg === "--port") {
-      flags.port = value;
-    } else {
-      throw new Error(`Unknown flag "${arg}"`);
-    }
-
-    index += 1;
-  }
-
-  return flags;
 }
 
 function parseUpFlags(args: string[]): UpFlags {
@@ -103,12 +56,8 @@ function parseUpFlags(args: string[]): UpFlags {
 
     if (arg === "--name") {
       flags.name = value;
-    } else if (arg === "--url") {
-      flags.url = value;
-    } else if (arg === "--data-dir") {
-      flags.dataDir = value;
     } else if (arg === "--port") {
-      flags.port = parsePort(value, 3001);
+      flags.port = parsePort(value, 3000);
     } else {
       throw new Error(`Unknown flag "${arg}"`);
     }
@@ -145,26 +94,6 @@ export function parseCliArgs(argv: string[]): Command {
     return { kind: "status" };
   }
 
-  if (first === "db") {
-    if (!second) {
-      throw new Error('Missing db subcommand. Expected "status", "migrate", or "studio".');
-    }
-
-    if (second === "status") {
-      return { kind: "db-status", flags: parseDbFlags(rest) };
-    }
-
-    if (second === "migrate") {
-      return { kind: "db-migrate", flags: parseDbFlags(rest) };
-    }
-
-    if (second === "studio") {
-      return { kind: "db-studio", flags: parseDbFlags(rest) };
-    }
-
-    throw new Error(`Unknown db subcommand "${second}"`);
-  }
-
   throw new Error(`Unknown command "${first}"`);
 }
 
@@ -184,17 +113,5 @@ export async function runCli(argv: string[]): Promise<number> {
     return runDown();
   }
 
-  if (command.kind === "status") {
-    return runStatus();
-  }
-
-  if (command.kind === "db-status") {
-    return runDbStatus(command.flags);
-  }
-
-  if (command.kind === "db-migrate") {
-    return runDbMigrate(command.flags);
-  }
-
-  return runDbStudio(command.flags);
+  return runStatus();
 }

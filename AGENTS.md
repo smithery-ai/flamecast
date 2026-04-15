@@ -7,15 +7,6 @@
 - If a `knip` finding is intentional, document why or update `knip` configuration instead of silently ignoring it.
 - Ensure the PR passes all checks before requesting review or merging.
 
-## Session-host Go Binary
-
-The `packages/session-host-go/` binary is critical infrastructure — it runs inside every Docker and E2B sandbox to manage agent process lifecycle. When modifying it:
-
-- **Always build for `GOARCH=amd64`** — E2B sandboxes are x86_64 regardless of host architecture.
-- **Update the rolling release** after building: `gh release delete session-host-latest -y && gh release create session-host-latest dist/session-host-amd64 --title "session-host (latest)" --prerelease`
-- The `@flamecast/runtime-e2b` package downloads this binary into sandboxes at runtime. If the binary is missing or incompatible, agent creation will fail with `exit status 2`.
-- Test E2B changes end-to-end (not just locally) since the binary resolution path differs between Node.js and bundled environments (Cloudflare Workers, Vercel Edge).
-
 ## Code Quality
 
 - Prefer static top-level imports in source files. Do not use function-scoped dynamic imports for internal modules unless there is a clear runtime reason such as optional dependencies, code splitting, or cycle avoidance.
