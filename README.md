@@ -1,5 +1,7 @@
 # Flamecast
 
+![Flamecast demo](demo.gif)
+
 > **Early alpha** — APIs and features may change without notice.
 
 Flamecast lets you access your computer from anywhere through a web browser.
@@ -7,10 +9,10 @@ Flamecast lets you access your computer from anywhere through a web browser.
 ## Quick start
 
 ```bash
-npx flamecast@latest up --name yourname
+npx flamecast@latest up
 ```
 
-Then open **yourname.flamecast.app** in any browser.
+Then open [flamecast-frontend.vercel.app](https://flamecast-frontend.vercel.app) in your browser to pick your session and interact with the terminal.
 
 `flamecast up` stays attached to your terminal. Press `Ctrl+C` to stop it, or run `npx flamecast down` from another shell.
 
