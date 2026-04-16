@@ -99,7 +99,13 @@ async function runServer(flags: UpFlags): Promise<number> {
     writeFileSync(PID_FILE, String(process.pid));
     wrotePidFile = true;
     console.log(`Flamecast is running on port ${port}`);
-    console.log(`Go to https://flamecast.dev to interact with it.`);
+    if (port === 6769) {
+      console.log(`Go to https://flamecast.sh to interact with it.`);
+    } else {
+      console.log(
+        "Note: You are using a custom port; if you run on the default port 6769, you can interact with Flamecast at https://flamecast.sh",
+      );
+    }
 
     let cloudflaredProcess: ChildProcess | null = null;
     if (flags.name) {
