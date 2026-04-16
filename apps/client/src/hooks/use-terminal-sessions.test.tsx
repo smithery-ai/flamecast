@@ -54,11 +54,7 @@ function createDeferred() {
 
 type HookState = ReturnType<typeof useTerminalSessions>;
 
-function Probe({
-  onState,
-}: {
-  onState: (state: HookState) => void;
-}) {
+function Probe({ onState }: { onState: (state: HookState) => void }) {
   const state = useTerminalSessions();
 
   useEffect(() => {

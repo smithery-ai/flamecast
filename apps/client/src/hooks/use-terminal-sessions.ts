@@ -81,10 +81,7 @@ export function useTerminalSessions() {
         pendingCreatedSessionIdRef.current = null;
         return;
       }
-      if (
-        activeSessionId !== null &&
-        pendingCreatedSessionIdRef.current === activeSessionId
-      ) {
+      if (activeSessionId !== null && pendingCreatedSessionIdRef.current === activeSessionId) {
         return;
       }
       if (!activeSessionId || !hasActiveSession) {
