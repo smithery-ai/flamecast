@@ -3,6 +3,7 @@ export type { AppType, WebSocketServerOptions } from "./flamecast/index.js";
 export { StreamManager } from "./flamecast/stream-manager.js";
 export { FlamecastClient } from "./flamecast/client.js";
 export { SessionManager, SessionError } from "./flamecast/sessions/session-manager.js";
+export { createMcpServer, createMcpHandler } from "./flamecast/mcp.js";
 export type {
   Session,
   SessionStatus,
