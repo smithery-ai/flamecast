@@ -27,14 +27,6 @@ async function tmuxAvailable(): Promise<boolean> {
   }
 }
 
-/** Narrow the union returned by `res.json()` — assert the response was a success. */
-function assertOk<S, E>(data: S | E, res: Response): S {
-  if (res.status >= 400) {
-    throw new Error(`Expected success, got ${res.status}: ${JSON.stringify(data)}`);
-  }
-  return data as S;
-}
-
 describe("Sessions REST API (integration)", async () => {
   const hasTmux = await tmuxAvailable();
   if (!hasTmux) {
@@ -50,13 +42,12 @@ describe("Sessions REST API (integration)", async () => {
     createdSessionIds.push(id);
   }
 
-  async function createAndTrack(body: { cwd?: string; shell?: string; timeout?: number | null } = {}) {
+  async function createAndTrack(
+    body: { cwd?: string; shell?: string; timeout?: number | null } = {},
+  ) {
     const res = await client.api.sessions.$post({ json: body });
-    const raw = await res.json();
-    const data = assertOk<
-      { sessionId: string; streamUrl: string; cwd: string; shell: string; timeout: number | null },
-      { error: string }
-    >(raw, res);
+    const data = await res.json();
+    if ("error" in data) throw new Error(`Create failed: ${data.error}`);
     track(data.sessionId);
     return { res, data };
   }
@@ -144,13 +135,14 @@ describe("Sessions REST API (integration)", async () => {
       expect(ids).toContain(s1.sessionId);
       expect(ids).toContain(s2.sessionId);
 
-      const session = data.sessions.find((s) => s.sessionId === s1.sessionId)!;
-      expect(session.status).toBe("running");
-      expect(session.cwd).toEqual(expect.any(String));
-      expect(session.shell).toEqual(expect.any(String));
-      expect(session.created).toEqual(expect.any(String));
-      expect(session.lastActivity).toEqual(expect.any(String));
-      expect(session.streamUrl).toEqual(expect.any(String));
+      const session = data.sessions.find((s) => s.sessionId === s1.sessionId);
+      expect(session).toBeDefined();
+      expect(session?.status).toBe("running");
+      expect(session?.cwd).toEqual(expect.any(String));
+      expect(session?.shell).toEqual(expect.any(String));
+      expect(session?.created).toEqual(expect.any(String));
+      expect(session?.lastActivity).toEqual(expect.any(String));
+      expect(session?.streamUrl).toEqual(expect.any(String));
     });
   });
 
@@ -164,13 +156,10 @@ describe("Sessions REST API (integration)", async () => {
         param: { id: created.sessionId },
         query: {},
       });
-      const raw = await res.json();
-      const data = assertOk<
-        { sessionId: string; output: string; lineCount: number; byteOffset: number; status: string; exitCode: number | null; cwd: string; streamUrl: string },
-        { error: string }
-      >(raw, res);
+      const data = await res.json();
 
       expect(res.status).toBe(200);
+      if ("error" in data) throw new Error(`Unexpected error: ${data.error}`);
       expect(data.sessionId).toBe(created.sessionId);
       expect(data.status).toBe("running");
       expect(data.output).toEqual(expect.any(String));
@@ -199,13 +188,10 @@ describe("Sessions REST API (integration)", async () => {
       const res = await client.api.sessions[":id"].$delete({
         param: { id: created.sessionId },
       });
-      const raw = await res.json();
-      const data = assertOk<
-        { sessionId: string; finalOutput: string; status: "closed" },
-        { error: string }
-      >(raw, res);
+      const data = await res.json();
 
       expect(res.status).toBe(200);
+      if ("error" in data) throw new Error(`Unexpected error: ${data.error}`);
       expect(data.sessionId).toBe(created.sessionId);
       expect(data.status).toBe("closed");
       expect(data.finalOutput).toEqual(expect.any(String));
@@ -229,13 +215,10 @@ describe("Sessions REST API (integration)", async () => {
         param: { id: created.sessionId },
         json: { command: "echo hello-integration-test" },
       });
-      const raw = await res.json();
-      const data = assertOk<
-        { sessionId: string; output: string; exitCode: number | null },
-        { error: string }
-      >(raw, res);
+      const data = await res.json();
 
       expect(res.status).toBe(200);
+      if ("error" in data) throw new Error(`Unexpected error: ${data.error}`);
       expect(data.sessionId).toBe(created.sessionId);
       expect(data.output).toEqual(expect.stringContaining("hello-integration-test"));
       expect(data.exitCode).toBe(0);
@@ -248,13 +231,10 @@ describe("Sessions REST API (integration)", async () => {
         param: { id: created.sessionId },
         json: { command: "false" },
       });
-      const raw = await res.json();
-      const data = assertOk<
-        { sessionId: string; output: string; exitCode: number | null },
-        { error: string }
-      >(raw, res);
+      const data = await res.json();
 
       expect(res.status).toBe(200);
+      if ("error" in data) throw new Error(`Unexpected error: ${data.error}`);
       expect(data.exitCode).toBe(1);
     });
 
@@ -285,13 +265,10 @@ describe("Sessions REST API (integration)", async () => {
       const res = await client.api.sessions.exec.$post({
         json: { command: "echo auto-create-test" },
       });
-      const raw = await res.json();
-      const data = assertOk<
-        { sessionId: string; output: string; exitCode: number | null },
-        { error: string }
-      >(raw, res);
+      const data = await res.json();
 
       expect(res.status).toBe(200);
+      if ("error" in data) throw new Error(`Unexpected error: ${data.error}`);
       expect(data.sessionId).toMatch(/^fc_[0-9a-f]{8}$/);
       expect(data.output).toEqual(expect.stringContaining("auto-create-test"));
       expect(data.exitCode).toBe(0);
@@ -310,13 +287,10 @@ describe("Sessions REST API (integration)", async () => {
         param: { id: created.sessionId },
         json: { command: "echo async-test" },
       });
-      const raw = await res.json();
-      const data = assertOk<
-        { sessionId: string; status: "running" },
-        { error: string }
-      >(raw, res);
+      const data = await res.json();
 
       expect(res.status).toBe(200);
+      if ("error" in data) throw new Error(`Unexpected error: ${data.error}`);
       expect(data.sessionId).toBe(created.sessionId);
       expect(data.status).toBe("running");
     });
@@ -348,13 +322,10 @@ describe("Sessions REST API (integration)", async () => {
       const res = await client.api.sessions.exec.async.$post({
         json: { command: "echo auto-async-test" },
       });
-      const raw = await res.json();
-      const data = assertOk<
-        { sessionId: string; status: "running" },
-        { error: string }
-      >(raw, res);
+      const data = await res.json();
 
       expect(res.status).toBe(200);
+      if ("error" in data) throw new Error(`Unexpected error: ${data.error}`);
       expect(data.sessionId).toMatch(/^fc_[0-9a-f]{8}$/);
       expect(data.status).toBe("running");
 
@@ -372,13 +343,10 @@ describe("Sessions REST API (integration)", async () => {
         param: { id: created.sessionId },
         json: { text: "echo input-test" },
       });
-      const raw = await res.json();
-      const data = assertOk<
-        { sessionId: string; sent: boolean },
-        { error: string }
-      >(raw, res);
+      const data = await res.json();
 
       expect(res.status).toBe(200);
+      if ("error" in data) throw new Error(`Unexpected error: ${data.error}`);
       expect(data.sessionId).toBe(created.sessionId);
       expect(data.sent).toBe(true);
     });
@@ -390,13 +358,10 @@ describe("Sessions REST API (integration)", async () => {
         param: { id: created.sessionId },
         json: { keys: ["enter"] },
       });
-      const raw = await res.json();
-      const data = assertOk<
-        { sessionId: string; sent: boolean },
-        { error: string }
-      >(raw, res);
+      const data = await res.json();
 
       expect(res.status).toBe(200);
+      if ("error" in data) throw new Error(`Unexpected error: ${data.error}`);
       expect(data.sent).toBe(true);
     });
 
@@ -433,10 +398,8 @@ describe("Sessions REST API (integration)", async () => {
         param: { id: created.sessionId },
         json: { command: "echo lifecycle-test-output" },
       });
-      const execData = assertOk<
-        { sessionId: string; output: string; exitCode: number | null },
-        { error: string }
-      >(await execRes.json(), execRes);
+      const execData = await execRes.json();
+      if ("error" in execData) throw new Error(`Unexpected error: ${execData.error}`);
       expect(execData.exitCode).toBe(0);
       expect(execData.output).toEqual(expect.stringContaining("lifecycle-test-output"));
 
@@ -445,20 +408,16 @@ describe("Sessions REST API (integration)", async () => {
         param: { id: created.sessionId },
         query: {},
       });
-      const getData = assertOk<
-        { sessionId: string; status: string },
-        { error: string }
-      >(await getRes.json(), getRes);
+      const getData = await getRes.json();
+      if ("error" in getData) throw new Error(`Unexpected error: ${getData.error}`);
       expect(getData.status).toBe("running");
 
       // 4. Close
       const closeRes = await client.api.sessions[":id"].$delete({
         param: { id: created.sessionId },
       });
-      const closeData = assertOk<
-        { sessionId: string; finalOutput: string; status: "closed" },
-        { error: string }
-      >(await closeRes.json(), closeRes);
+      const closeData = await closeRes.json();
+      if ("error" in closeData) throw new Error(`Unexpected error: ${closeData.error}`);
       expect(closeData.status).toBe("closed");
       expect(closeData.finalOutput).toEqual(expect.any(String));
 
@@ -478,7 +437,7 @@ describe("Sessions REST API (integration)", async () => {
       const listData1 = await listRes1.json();
       const found1 = listData1.sessions.find((s) => s.sessionId === created.sessionId);
       expect(found1).toBeDefined();
-      expect(found1!.status).toBe("running");
+      expect(found1?.status).toBe("running");
 
       // Close it
       await client.api.sessions[":id"].$delete({ param: { id: created.sessionId } });
@@ -488,7 +447,7 @@ describe("Sessions REST API (integration)", async () => {
       const listData2 = await listRes2.json();
       const found2 = listData2.sessions.find((s) => s.sessionId === created.sessionId);
       expect(found2).toBeDefined();
-      expect(found2!.status).toBe("closed");
+      expect(found2?.status).toBe("closed");
     });
   });
 
