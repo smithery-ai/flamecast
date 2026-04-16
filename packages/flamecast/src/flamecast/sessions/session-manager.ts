@@ -43,7 +43,10 @@ function stripCommandEcho(output: string, baseline: string, issuedCommand: strin
     if (baselineLine && outputLines[lineIndex].startsWith(baselineLine)) {
       const echoedCommand = outputLines[lineIndex].slice(baselineLine.length).trimStart();
       if (echoedCommand === issuedCommand) {
-        return outputLines.slice(lineIndex + 1).join("\n").trimEnd();
+        return outputLines
+          .slice(lineIndex + 1)
+          .join("\n")
+          .trimEnd();
       }
     }
 
