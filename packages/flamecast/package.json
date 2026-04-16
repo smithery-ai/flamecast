@@ -24,9 +24,15 @@
     "test:watch": "vitest --config vitest.integration.config.ts"
   },
   "dependencies": {
+    "@hono/mcp": "^0.2.5",
     "@hono/swagger-ui": "^0.6.1",
     "@hono/zod-openapi": "^1.3.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "hono": "^4.12.8",
+    "ws": "^8.18.0",
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.0"
   }
 }

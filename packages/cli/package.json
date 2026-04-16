@@ -9,15 +9,17 @@
   ],
   "type": "module",
   "scripts": {
-    "dev": "__FLAMECAST_DAEMON=1 tsx watch src/cli.ts up --name flamecast-agent",
+    "dev": "tsx watch src/cli.ts up --name flamecast-agent",
     "build": "tsc",
     "build:package": "tsc",
-    "start": "node dist/cli.js"
+    "start": "node dist/cli.js",
+    "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
     "@flamecast/sdk": "workspace:*",
     "@hono/node-server": "^1.19.11",
-    "hono": "^4.12.9"
+    "hono": "^4.12.9",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "tsx": "^4.7.1"

@@ -16,8 +16,8 @@ function printHelp(): void {
   flamecast status
 
 Commands:
-  up                   Start Flamecast server
-  down                 Stop the running daemon
+  up                   Start Flamecast in the foreground
+  down                 Stop the running Flamecast process
   status               Show whether Flamecast is running
 
 Options:
