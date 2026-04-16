@@ -1,13 +1,13 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
-import { ArrowLeft, Workflow } from 'lucide-react'
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { ArrowLeft, Workflow } from "lucide-react";
 
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-export const Route = createFileRoute('/about')({
+export const Route = createFileRoute("/about")({
   component: AboutPage,
-})
+});
 
 function AboutPage() {
   return (
@@ -17,20 +17,16 @@ function AboutPage() {
           <Badge variant="outline" className="w-fit">
             client refactor
           </Badge>
-          <CardTitle className="text-3xl">
-            This app is now a typed Flamecast dashboard.
-          </CardTitle>
+          <CardTitle className="text-3xl">This app is now a typed Flamecast dashboard.</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 text-sm text-muted-foreground">
           <p>
-            The starter marketing UI was replaced with shadcn-style components,
-            TanStack Query request orchestration, and Hono RPC calls that come
-            directly from `packages/flamecast`.
+            The starter marketing UI was replaced with shadcn-style components, TanStack Query
+            request orchestration, and Hono RPC calls that come directly from `packages/flamecast`.
           </p>
           <p>
-            The home page exercises the live session list, detail view, command
-            execution, manual input, and close flows without any ad hoc `fetch`
-            wrappers.
+            The home page exercises the live session list, detail view, command execution, manual
+            input, and close flows without any ad hoc `fetch` wrappers.
           </p>
           <div>
             <Button asChild>
@@ -47,5 +43,5 @@ function AboutPage() {
         </CardContent>
       </Card>
     </main>
-  )
+  );
 }

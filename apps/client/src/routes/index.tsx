@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react'
-import { useEffect, useState } from 'react'
-import { createFileRoute, Link } from '@tanstack/react-router'
+import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   Activity,
   Blocks,
@@ -11,24 +11,18 @@ import {
   Send,
   Sparkles,
   Terminal,
-} from 'lucide-react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+} from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Textarea } from '@/components/ui/textarea'
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import {
   FlamecastApiError,
   closeSession,
@@ -38,135 +32,135 @@ import {
   sendInput,
   sessionDetailsQueryOptions,
   sessionsQueryOptions,
-} from '@/lib/flamecast-api'
+} from "@/lib/flamecast-api";
 
-export const Route = createFileRoute('/')({ component: App })
+export const Route = createFileRoute("/")({ component: App });
 
-type Tone = 'default' | 'destructive' | 'outline' | 'secondary'
+type Tone = "default" | "destructive" | "outline" | "secondary";
 
 function formatWhen(value: string) {
-  return new Date(value).toLocaleString()
+  return new Date(value).toLocaleString();
 }
 
 function parseOptionalNumber(value: string) {
   if (!value.trim()) {
-    return undefined
+    return undefined;
   }
 
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : undefined
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function parseKeys(value: string) {
   const keys = value
-    .split(',')
+    .split(",")
     .map((entry) => entry.trim())
-    .filter(Boolean)
+    .filter(Boolean);
 
-  return keys.length > 0 ? keys : undefined
+  return keys.length > 0 ? keys : undefined;
 }
 
 function statusVariant(status: string): Tone {
-  if (status === 'running') {
-    return 'secondary'
+  if (status === "running") {
+    return "secondary";
   }
 
-  if (status === 'exited' || status === 'expired') {
-    return 'outline'
+  if (status === "exited" || status === "expired") {
+    return "outline";
   }
 
-  return 'destructive'
+  return "destructive";
 }
 
 function errorMessage(error: Error | null) {
   if (!error) {
-    return null
+    return null;
   }
 
   if (error instanceof FlamecastApiError) {
-    return error.message
+    return error.message;
   }
 
-  return 'The request failed before the response could be parsed.'
+  return "The request failed before the response could be parsed.";
 }
 
 function App() {
-  const queryClient = useQueryClient()
-  const sessionsQuery = useQuery(sessionsQueryOptions)
-  const sessions = sessionsQuery.data?.sessions ?? []
+  const queryClient = useQueryClient();
+  const sessionsQuery = useQuery(sessionsQueryOptions);
+  const sessions = sessionsQuery.data?.sessions ?? [];
 
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
-  const [cwd, setCwd] = useState('')
-  const [shell, setShell] = useState('')
-  const [createTimeout, setCreateTimeout] = useState('300')
-  const [command, setCommand] = useState('pwd')
-  const [commandTimeout, setCommandTimeout] = useState('30')
-  const [inputText, setInputText] = useState('')
-  const [inputKeys, setInputKeys] = useState('enter')
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [cwd, setCwd] = useState("");
+  const [shell, setShell] = useState("");
+  const [createTimeout, setCreateTimeout] = useState("300");
+  const [command, setCommand] = useState("pwd");
+  const [commandTimeout, setCommandTimeout] = useState("30");
+  const [inputText, setInputText] = useState("");
+  const [inputKeys, setInputKeys] = useState("enter");
 
   useEffect(() => {
     if (sessions.length === 0) {
       if (selectedSessionId !== null) {
-        setSelectedSessionId(null)
+        setSelectedSessionId(null);
       }
-      return
+      return;
     }
 
     if (selectedSessionId && sessions.some((session) => session.sessionId === selectedSessionId)) {
-      return
+      return;
     }
 
-    setSelectedSessionId(sessions[0].sessionId)
-  }, [selectedSessionId, sessions])
+    setSelectedSessionId(sessions[0].sessionId);
+  }, [selectedSessionId, sessions]);
 
   const detailQuery = useQuery({
-    ...sessionDetailsQueryOptions(selectedSessionId ?? 'pending'),
+    ...sessionDetailsQueryOptions(selectedSessionId ?? "pending"),
     enabled: selectedSessionId !== null,
-  })
+  });
 
   const createMutation = useMutation({
     mutationFn: createSession,
     onSuccess: (data) => {
-      setSelectedSessionId(data.sessionId)
-      setCwd('')
-      setShell('')
-      void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+      setSelectedSessionId(data.sessionId);
+      setCwd("");
+      setShell("");
+      void queryClient.invalidateQueries({ queryKey: ["sessions"] });
     },
-  })
+  });
 
   const runCommandMutation = useMutation({
     mutationFn: runCommand,
     onSuccess: (data) => {
-      setSelectedSessionId(data.sessionId)
-      void queryClient.invalidateQueries({ queryKey: ['sessions'] })
-      void queryClient.invalidateQueries({ queryKey: ['sessions', data.sessionId] })
+      setSelectedSessionId(data.sessionId);
+      void queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      void queryClient.invalidateQueries({ queryKey: ["sessions", data.sessionId] });
     },
-  })
+  });
 
   const sendInputMutation = useMutation({
     mutationFn: sendInput,
     onSuccess: (_, variables) => {
-      setInputText('')
-      void queryClient.invalidateQueries({ queryKey: ['sessions', variables.sessionId] })
+      setInputText("");
+      void queryClient.invalidateQueries({ queryKey: ["sessions", variables.sessionId] });
     },
-  })
+  });
 
   const closeMutation = useMutation({
     mutationFn: closeSession,
     onSuccess: (data) => {
       if (selectedSessionId === data.sessionId) {
-        setSelectedSessionId(null)
+        setSelectedSessionId(null);
       }
-      void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+      void queryClient.invalidateQueries({ queryKey: ["sessions"] });
     },
-  })
+  });
 
-  const detail = detailQuery.data
-  const runningCount = sessions.filter((session) => session.status === 'running').length
+  const detail = detailQuery.data;
+  const runningCount = sessions.filter((session) => session.status === "running").length;
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-6">
-      <section className='flex flex-col gap-6'>
+      <section className="flex flex-col gap-6">
         <div className="space-y-4">
           <Badge variant="outline">shadcn ui + tanstack query + hono rpc</Badge>
           <div className="space-y-2">
@@ -174,17 +168,16 @@ function App() {
               Flamecast control surface
             </h1>
             <p className="max-w-2xl text-sm text-muted-foreground sm:text-base">
-              This client talks directly to `packages/flamecast` through typed
-              Hono RPC and every request path is rendered with explicit loading,
-              empty, success, or error states.
+              This client talks directly to `packages/flamecast` through typed Hono RPC and every
+              request path is rendered with explicit loading, empty, success, or error states.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
             <Button
               onClick={() => {
-                void sessionsQuery.refetch()
+                void sessionsQuery.refetch();
                 if (selectedSessionId) {
-                  void detailQuery.refetch()
+                  void detailQuery.refetch();
                 }
               }}
             >
@@ -198,7 +191,6 @@ function App() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
-   
           <MetricCard
             icon={Blocks}
             label="Sessions"
@@ -226,9 +218,7 @@ function App() {
           <Card>
             <CardHeader>
               <CardTitle>Create a session</CardTitle>
-              <CardDescription>
-                Blank fields fall back to the server defaults.
-              </CardDescription>
+              <CardDescription>Blank fields fall back to the server defaults.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4">
               <Field label="Working directory">
@@ -260,7 +250,7 @@ function App() {
                     cwd: cwd.trim() || undefined,
                     shell: shell.trim() || undefined,
                     timeout: parseOptionalNumber(createTimeout),
-                  })
+                  });
                 }}
                 disabled={createMutation.isPending}
               >
@@ -298,7 +288,7 @@ function App() {
                 size="sm"
                 variant="outline"
                 onClick={() => {
-                  void sessionsQuery.refetch()
+                  void sessionsQuery.refetch();
                 }}
               >
                 <RefreshCcw className="size-4" />
@@ -321,14 +311,12 @@ function App() {
                 />
               ) : null}
 
-              {!sessionsQuery.isPending &&
-              !sessionsQuery.isError &&
-              sessions.length === 0 ? (
+              {!sessionsQuery.isPending && !sessionsQuery.isError && sessions.length === 0 ? (
                 <Alert>
                   <AlertTitle>No sessions yet</AlertTitle>
                   <AlertDescription>
-                    Create a new tmux-backed session or run a command to let
-                    the server auto-create one.
+                    Create a new tmux-backed session or run a command to let the server auto-create
+                    one.
                   </AlertDescription>
                 </Alert>
               ) : null}
@@ -349,7 +337,7 @@ function App() {
                             <Badge
                               variant={
                                 selectedSessionId === session.sessionId
-                                  ? 'default'
+                                  ? "default"
                                   : statusVariant(session.status)
                               }
                             >
@@ -377,8 +365,7 @@ function App() {
               <div className="space-y-1">
                 <CardTitle>Session detail</CardTitle>
                 <CardDescription>
-                  Typed `GET /api/sessions/:id` output with live status and
-                  terminal buffer.
+                  Typed `GET /api/sessions/:id` output with live status and terminal buffer.
                 </CardDescription>
               </div>
               {selectedSessionId ? (
@@ -386,7 +373,7 @@ function App() {
                   size="sm"
                   variant="outline"
                   onClick={() => {
-                    void detailQuery.refetch()
+                    void detailQuery.refetch();
                   }}
                 >
                   <RefreshCcw className="size-4" />
@@ -421,11 +408,7 @@ function App() {
               {detail ? (
                 <>
                   <div className="grid gap-3 md:grid-cols-3">
-                    <DetailStat
-                      label="Session"
-                      value={detail.sessionId}
-                      variant="outline"
-                    />
+                    <DetailStat label="Session" value={detail.sessionId} variant="outline" />
                     <DetailStat
                       label="Status"
                       value={detail.status}
@@ -433,8 +416,8 @@ function App() {
                     />
                     <DetailStat
                       label="Exit code"
-                      value={detail.exitCode === null ? 'pending' : String(detail.exitCode)}
-                      variant={detail.exitCode === 0 ? 'secondary' : 'outline'}
+                      value={detail.exitCode === null ? "pending" : String(detail.exitCode)}
+                      variant={detail.exitCode === 0 ? "secondary" : "outline"}
                     />
                   </div>
 
@@ -455,7 +438,7 @@ function App() {
                     </div>
                     <ScrollArea className="h-80 rounded-md border bg-muted/50 p-4">
                       <pre className="text-xs leading-6 whitespace-pre-wrap">
-                        {detail.output || 'No output captured yet.'}
+                        {detail.output || "No output captured yet."}
                       </pre>
                     </ScrollArea>
                   </div>
@@ -468,16 +451,13 @@ function App() {
             <CardHeader>
               <CardTitle>Run a command</CardTitle>
               <CardDescription>
-                Uses the selected session when possible and auto-creates one
-                otherwise through typed RPC.
+                Uses the selected session when possible and auto-creates one otherwise through typed
+                RPC.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4">
               <Field label="Command">
-                <Textarea
-                  value={command}
-                  onChange={(event) => setCommand(event.target.value)}
-                />
+                <Textarea value={command} onChange={(event) => setCommand(event.target.value)} />
               </Field>
               <Field label="Timeout in seconds" className="sm:max-w-48">
                 <Input
@@ -494,7 +474,7 @@ function App() {
                     command: command.trim(),
                     sessionId: selectedSessionId,
                     timeout: parseOptionalNumber(commandTimeout),
-                  })
+                  });
                 }}
               >
                 {runCommandMutation.isPending ? (
@@ -522,16 +502,14 @@ function App() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-medium">Command result</span>
                     <Badge
-                      variant={
-                        runCommandMutation.data.exitCode === 0 ? 'secondary' : 'outline'
-                      }
+                      variant={runCommandMutation.data.exitCode === 0 ? "secondary" : "outline"}
                     >
-                      exit {runCommandMutation.data.exitCode ?? 'pending'}
+                      exit {runCommandMutation.data.exitCode ?? "pending"}
                     </Badge>
                   </div>
                   <ScrollArea className="h-48 rounded-md border bg-muted p-4">
                     <pre className="text-xs leading-6 whitespace-pre-wrap">
-                      {runCommandMutation.data.output || 'Command returned no output.'}
+                      {runCommandMutation.data.output || "Command returned no output."}
                     </pre>
                   </ScrollArea>
                 </div>
@@ -542,9 +520,7 @@ function App() {
           <Card>
             <CardHeader>
               <CardTitle>Send input or close</CardTitle>
-              <CardDescription>
-                Manual keystrokes stay behind query mutations too.
-              </CardDescription>
+              <CardDescription>Manual keystrokes stay behind query mutations too.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4">
               <Field label="Text input">
@@ -572,14 +548,14 @@ function App() {
                   }
                   onClick={() => {
                     if (!selectedSessionId) {
-                      return
+                      return;
                     }
 
                     void sendInputMutation.mutate({
                       keys: parseKeys(inputKeys),
                       sessionId: selectedSessionId,
                       text: inputText.trim() || undefined,
-                    })
+                    });
                   }}
                 >
                   {sendInputMutation.isPending ? (
@@ -600,10 +576,10 @@ function App() {
                   disabled={closeMutation.isPending || !selectedSessionId}
                   onClick={() => {
                     if (!selectedSessionId) {
-                      return
+                      return;
                     }
 
-                    void closeMutation.mutate(selectedSessionId)
+                    void closeMutation.mutate(selectedSessionId);
                   }}
                 >
                   {closeMutation.isPending ? (
@@ -647,7 +623,7 @@ function App() {
         </div>
       </div>
     </main>
-  )
+  );
 }
 
 function MetricCard({
@@ -657,11 +633,11 @@ function MetricCard({
   caption,
   mono = false,
 }: {
-  caption: string
-  icon: typeof Activity
-  label: string
-  mono?: boolean
-  value: string
+  caption: string;
+  icon: typeof Activity;
+  label: string;
+  mono?: boolean;
+  value: string;
 }) {
   return (
     <Card>
@@ -670,42 +646,28 @@ function MetricCard({
           <Icon className="size-5" />
         </div>
         <div className="min-w-0">
-          <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">
-            {label}
-          </p>
-          <p
-            className={mono ? 'truncate font-mono text-sm font-medium' : 'text-3xl font-semibold'}
-          >
+          <p className="text-muted-foreground text-xs uppercase tracking-[0.2em]">{label}</p>
+          <p className={mono ? "truncate font-mono text-sm font-medium" : "text-3xl font-semibold"}>
             {value}
           </p>
           <p className="text-muted-foreground text-sm">{caption}</p>
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }
 
-function DetailStat({
-  label,
-  value,
-  variant,
-}: {
-  label: string
-  value: string
-  variant: Tone
-}) {
+function DetailStat({ label, value, variant }: { label: string; value: string; variant: Tone }) {
   return (
     <div className="rounded-lg border bg-muted/50 p-4">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-muted-foreground text-xs uppercase tracking-[0.2em]">
-          {label}
-        </span>
+        <span className="text-muted-foreground text-xs uppercase tracking-[0.2em]">{label}</span>
         <Badge variant={variant}>{value}</Badge>
       </div>
       <Separator />
       <p className="mt-3 text-sm font-medium">{value}</p>
     </div>
-  )
+  );
 }
 
 function Field({
@@ -713,25 +675,19 @@ function Field({
   className,
   label,
 }: {
-  children: ReactNode
-  className?: string
-  label: string
+  children: ReactNode;
+  className?: string;
+  label: string;
 }) {
   return (
-    <div className={className ? `grid gap-2 ${className}` : 'grid gap-2'}>
+    <div className={className ? `grid gap-2 ${className}` : "grid gap-2"}>
       <span className="text-sm font-medium">{label}</span>
       {children}
     </div>
-  )
+  );
 }
 
-function InlineError({
-  title,
-  description,
-}: {
-  description: string | null
-  title: string
-}) {
+function InlineError({ title, description }: { description: string | null; title: string }) {
   return (
     <Alert variant="destructive">
       <CircleAlert className="size-4" />
@@ -740,5 +696,5 @@ function InlineError({
         <AlertDescription>{description}</AlertDescription>
       </div>
     </Alert>
-  )
+  );
 }
