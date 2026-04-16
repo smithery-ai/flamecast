@@ -67,12 +67,12 @@ describe("parseCliArgs", () => {
 describe("waitForProcessExit", () => {
   it("waits until a process exits after SIGTERM", async () => {
     const child = await spawnReadyProcess(
-      "process.stdout.write('ready\\n'); process.on('SIGTERM', () => setTimeout(() => process.exit(0), 150)); setInterval(() => {}, 1000);",
+      "process.on('SIGTERM', () => setTimeout(() => process.exit(0), 150)); setInterval(() => {}, 1000); process.stdout.write('ready\\n');",
     );
     const pid = getPid(child);
+    const startedAt = Date.now();
     process.kill(pid, "SIGTERM");
 
-    const startedAt = Date.now();
     const exited = await waitForProcessExit(pid, 2_000, 20);
 
     expect(exited).toBe(true);

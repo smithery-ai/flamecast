@@ -1,17 +1,28 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { SidebarInset, SidebarTrigger } from "#/components/ui/sidebar";
 import { TerminalSidebar } from "#/components/terminal-sidebar";
 import { writeTerminalData } from "#/lib/terminal-stream";
-import { API_BASE } from "#/lib/api";
+import { API_BASE, fetchSessions } from "#/lib/api";
 
 export const Route = createFileRoute("/")({ component: HomePage });
 
 function HomePage() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const { isError } = useQuery({
+    queryKey: ["terminals"],
+    queryFn: fetchSessions,
+    refetchInterval: 5000,
+    retry: false,
+  });
+
+  if (isError) {
+    return <ConnectionError />;
+  }
 
   return (
     <>
@@ -36,6 +47,22 @@ function HomePage() {
         )}
       </SidebarInset>
     </>
+  );
+}
+
+function ConnectionError() {
+  return (
+    <div className="flex h-dvh flex-1 items-center justify-center p-6">
+      <div className="max-w-md space-y-3 text-center">
+        <h1 className="text-lg font-semibold">Can't connect to Flamecast</h1>
+        <p className="text-sm text-muted-foreground">
+          No Flamecast instance is running at <code>{API_BASE}</code>. Start one by running:
+        </p>
+        <pre className="rounded-md bg-muted px-3 py-2 text-left text-sm">
+          <code>npx flamecast@latest up</code>
+        </pre>
+      </div>
+    </div>
   );
 }
 

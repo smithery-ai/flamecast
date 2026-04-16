@@ -22,10 +22,10 @@ Commands:
 
 Options:
   --name <name>        Expose as name.flamecast.app (requires cloudflared)
-  --port <port>        Port to listen on (default: 3000)
+  --port <port>        Port to listen on (default: 6769)
 
 Environment:
-  FLAMECAST_PORT or PORT               Default serve port (3000)
+  FLAMECAST_PORT or PORT               Default serve port (6769)
   FLAMECAST_BRIDGE_URL                 Override bridge URL
 `);
 }
@@ -57,7 +57,7 @@ function parseUpFlags(args: string[]): UpFlags {
     if (arg === "--name") {
       flags.name = value;
     } else if (arg === "--port") {
-      flags.port = parsePort(value, 3000);
+      flags.port = parsePort(value, 6769);
     } else {
       throw new Error(`Unknown flag "${arg}"`);
     }

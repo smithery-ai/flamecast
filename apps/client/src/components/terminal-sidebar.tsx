@@ -31,6 +31,7 @@ export function TerminalSidebar({
     queryKey: ["terminals"],
     queryFn: fetchSessions,
     refetchInterval: 5000,
+    retry: false,
   });
 
   const createMutation = useMutation({
