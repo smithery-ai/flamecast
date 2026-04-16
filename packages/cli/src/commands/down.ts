@@ -1,5 +1,9 @@
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
-import { PID_FILE, isFlamecastProcess } from "./up.js";
+import { deleteMachineCredentials, readMachineCredentials } from "../lib/credentials.js";
+import { deregisterMachine, getMachinesApiUrl } from "../lib/machines-api.js";
+import { getFlamecastPaths } from "../lib/paths.js";
+import type { DownFlags } from "../types.js";
+import { isFlamecastProcess } from "./up.js";
 
 function isProcessAlive(pid: number): boolean {
   try {
@@ -21,7 +25,7 @@ function getErrorCode(error: unknown): string | undefined {
 
 export async function waitForProcessExit(
   pid: number,
-  timeoutMs = 10_000,
+  timeoutMs = 15_000,
   pollMs = 100,
 ): Promise<boolean> {
   const startedAt = Date.now();
@@ -38,54 +42,81 @@ export async function waitForProcessExit(
   return true;
 }
 
-export async function runDown(): Promise<number> {
-  if (!existsSync(PID_FILE)) {
+export async function runDown(flags: DownFlags): Promise<number> {
+  const { pidFile, logFile } = getFlamecastPaths();
+  let handledRunningProcess = false;
+
+  if (existsSync(pidFile)) {
+    const pid = parseInt(readFileSync(pidFile, "utf8").trim(), 10);
+
+    if (!isFlamecastProcess(pid)) {
+      try {
+        unlinkSync(pidFile);
+      } catch {
+        // ignore
+      }
+
+      if (!flags.deregister) {
+        console.log("Flamecast is not running (stale PID file removed).");
+        return 1;
+      }
+    } else {
+      let alreadyStopped = false;
+      try {
+        console.log(`Stopping Flamecast (PID ${pid})...`);
+        process.kill(pid, "SIGTERM");
+      } catch (error) {
+        if (getErrorCode(error) === "ESRCH") {
+          console.log(`Process ${pid} not found (already stopped).`);
+          alreadyStopped = true;
+        } else {
+          console.error(error instanceof Error ? error.message : String(error));
+          return 1;
+        }
+      }
+
+      if (!alreadyStopped) {
+        const exited = await waitForProcessExit(pid);
+        if (!exited) {
+          console.log(`Timed out waiting for Flamecast (PID ${pid}) to stop.`);
+          return 1;
+        }
+      }
+
+      try {
+        unlinkSync(pidFile);
+      } catch {
+        // ignore
+      }
+
+      handledRunningProcess = true;
+      if (!alreadyStopped) {
+        console.log(`Stopped Flamecast (PID ${pid})`);
+      }
+    }
+  } else if (!flags.deregister) {
     console.log("Flamecast is not running.");
     return 1;
   }
 
-  const pid = parseInt(readFileSync(PID_FILE, "utf8").trim(), 10);
-
-  if (!isFlamecastProcess(pid)) {
-    try {
-      unlinkSync(PID_FILE);
-    } catch {
-      // ignore
-    }
-    console.log("Flamecast is not running (stale PID file removed).");
-    return 1;
-  }
-
-  let alreadyStopped = false;
-  try {
-    console.log(`Stopping Flamecast (PID ${pid})...`);
-    process.kill(pid, "SIGTERM");
-  } catch (error) {
-    if (getErrorCode(error) === "ESRCH") {
-      console.log(`Process ${pid} not found (already stopped).`);
-      alreadyStopped = true;
+  if (flags.deregister) {
+    const credentials = readMachineCredentials();
+    if (!credentials) {
+      if (!handledRunningProcess) {
+        console.log("No saved machine registration.");
+        return 1;
+      }
     } else {
-      console.error(error instanceof Error ? error.message : String(error));
-      return 1;
+      await deregisterMachine(
+        getMachinesApiUrl(),
+        credentials.machineId,
+        credentials.machineSecret,
+      );
+      deleteMachineCredentials();
+      console.log(`Deregistered ${credentials.subdomain}`);
     }
   }
 
-  if (!alreadyStopped) {
-    const exited = await waitForProcessExit(pid);
-    if (!exited) {
-      console.log(`Timed out waiting for Flamecast (PID ${pid}) to stop.`);
-      return 1;
-    }
-  }
-
-  try {
-    unlinkSync(PID_FILE);
-  } catch {
-    // ignore
-  }
-
-  if (!alreadyStopped) {
-    console.log(`Stopped Flamecast (PID ${pid})`);
-  }
-  return 0;
+  console.log(`Logs: ${logFile}`);
+  return handledRunningProcess || flags.deregister ? 0 : 1;
 }

@@ -54,12 +54,16 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs([])).toEqual({ kind: "up", flags: {} });
   });
 
-  it("parses the foreground lifecycle commands", () => {
+  it("parses foreground lifecycle commands", () => {
     expect(parseCliArgs(["up", "--name", "demo", "--port", "4312"])).toEqual({
       kind: "up",
       flags: { name: "demo", port: 4312 },
     });
-    expect(parseCliArgs(["down"])).toEqual({ kind: "down" });
+    expect(parseCliArgs(["down"])).toEqual({ kind: "down", flags: {} });
+    expect(parseCliArgs(["down", "--deregister"])).toEqual({
+      kind: "down",
+      flags: { deregister: true },
+    });
     expect(parseCliArgs(["status"])).toEqual({ kind: "status" });
   });
 });

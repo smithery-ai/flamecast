@@ -9,7 +9,7 @@
   ],
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/cli.ts up --name flamecast-agent",
+    "dev": "FLAMECAST_MACHINES_API_URL=http://localhost:8788 __FLAMECAST_DAEMON=1 tsx watch src/cli.ts up --name flamecast-agent",
     "build": "tsc",
     "build:package": "tsc",
     "start": "node dist/cli.js",
