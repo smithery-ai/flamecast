@@ -1,4 +1,4 @@
-export const API_BASE = "http://localhost:6769";
+import { API_BASE } from "#/lib/app-info";
 
 export interface TerminalSession {
   sessionId: string;

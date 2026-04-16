@@ -99,7 +99,7 @@ async function runServer(flags: UpFlags): Promise<number> {
     writeFileSync(PID_FILE, String(process.pid));
     wrotePidFile = true;
     console.log(`Flamecast is running on port ${port}`);
-    console.log(`Go to https://flamecast-frontend.vercel.app to interact with it.`);
+    console.log(`Go to https://flamecast.dev to interact with it.`);
 
     let cloudflaredProcess: ChildProcess | null = null;
     if (flags.name) {

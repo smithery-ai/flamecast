@@ -1,24 +1,31 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import { CircleAlertIcon } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { SidebarInset, SidebarTrigger } from "#/components/ui/sidebar";
 import { TerminalSidebar } from "#/components/terminal-sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "#/components/ui/tooltip";
+import { useTerminalSessions } from "#/hooks/use-terminal-sessions";
+import { API_BASE, API_DISPLAY, SOURCE_URL } from "#/lib/app-info";
 import { writeTerminalData } from "#/lib/terminal-stream";
-import { API_BASE, fetchSessions } from "#/lib/api";
 
 export const Route = createFileRoute("/")({ component: HomePage });
 
 function HomePage() {
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const { isError } = useQuery({
-    queryKey: ["terminals"],
-    queryFn: fetchSessions,
-    refetchInterval: 5000,
-    retry: false,
-  });
+  const {
+    activeSessionId,
+    createSession,
+    deleteSession,
+    deletingSessionId,
+    emptyStateMessage,
+    isCreatingSession,
+    isError,
+    isLoadingSessions,
+    sessions,
+    selectSession,
+  } = useTerminalSessions();
 
   if (isError) {
     return <ConnectionError />;
@@ -28,8 +35,14 @@ function HomePage() {
     <>
       <TerminalSidebar
         activeSessionId={activeSessionId}
-        onSelectSession={setActiveSessionId}
-        onNewSession={setActiveSessionId}
+        deletingSessionId={deletingSessionId}
+        emptyStateMessage={emptyStateMessage}
+        isCreatingSession={isCreatingSession}
+        isLoadingSessions={isLoadingSessions}
+        onCreateSession={createSession}
+        onDeleteSession={deleteSession}
+        onSelectSession={selectSession}
+        sessions={sessions}
       />
       <SidebarInset className="flex h-dvh flex-col overflow-hidden">
         <header className="flex h-10 shrink-0 items-center gap-2 border-b px-2">
@@ -37,12 +50,38 @@ function HomePage() {
           {activeSessionId && (
             <span className="text-xs text-muted-foreground">{activeSessionId}</span>
           )}
+          <div className="ml-auto hidden items-center gap-2 text-right text-xs text-muted-foreground md:flex">
+            <span className="inline-flex items-center gap-1.5">
+              <code>{API_DISPLAY}</code>
+              <Tooltip>
+                <TooltipTrigger
+                  aria-label="Localhost info"
+                  className="rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden"
+                >
+                  <CircleAlertIcon className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  this is a static site running fully locally managing connections to localhost
+                </TooltipContent>
+              </Tooltip>
+            </span>
+            <a
+              className="font-medium text-foreground underline underline-offset-4"
+              href={SOURCE_URL}
+              rel="noreferrer"
+              target="_blank"
+            >
+              GitHub
+            </a>
+          </div>
         </header>
         {activeSessionId ? (
           <TerminalView key={activeSessionId} sessionId={activeSessionId} />
         ) : (
-          <div className="flex flex-1 items-center justify-center text-muted-foreground">
-            Select or create a session
+          <div className="flex flex-1 items-center justify-center p-6 text-muted-foreground">
+            <div className="space-y-2 text-center">
+              <p>{emptyStateMessage ?? "Select or create a terminal"}</p>
+            </div>
           </div>
         )}
       </SidebarInset>
@@ -56,11 +95,22 @@ function ConnectionError() {
       <div className="max-w-md space-y-3 text-center">
         <h1 className="text-lg font-semibold">Can't connect to Flamecast</h1>
         <p className="text-sm text-muted-foreground">
-          No Flamecast instance is running at <code>{API_BASE}</code>. Start one by running:
+          Flamecast is not reachable at <code>{API_BASE}</code>. Start one by running:
         </p>
         <pre className="rounded-md bg-muted px-3 py-2 text-left text-sm">
           <code>npx flamecast@latest up</code>
         </pre>
+        <p className="text-xs text-muted-foreground">
+          Source:{" "}
+          <a
+            className="font-medium text-foreground underline underline-offset-4"
+            href={SOURCE_URL}
+            rel="noreferrer"
+            target="_blank"
+          >
+            github.com/smithery-ai/flamecast
+          </a>
+        </p>
       </div>
     </div>
   );
