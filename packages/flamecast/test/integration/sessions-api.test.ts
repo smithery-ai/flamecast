@@ -91,7 +91,7 @@ describe("Sessions REST API (integration)", async () => {
     });
 
     it("creates a session with custom timeout", async () => {
-      const { res, data } = await createAndTrack({ timeout: 60 });
+      const { res, data } = await createAndTrack({ timeout: 60 }) as { res: Response, data: CreateSessionResponse };
 
       expect(res.status).toBe(201);
       expect(data.timeout).toBe(60);
