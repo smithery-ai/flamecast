@@ -17,8 +17,6 @@ export interface CreateParams {
   cwd?: string;
   shell?: string;
   timeout?: number | null;
-  cols?: number;
-  rows?: number;
 }
 
 export interface CreateResult {

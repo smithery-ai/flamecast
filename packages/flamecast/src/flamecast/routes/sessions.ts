@@ -13,8 +13,6 @@ const CreateBody = z
     cwd: z.string().optional().openapi({ example: "/home/user" }),
     shell: z.string().optional().openapi({ example: "/bin/bash" }),
     timeout: z.number().nullable().optional().openapi({ example: 300 }),
-    cols: z.number().int().positive().optional().openapi({ example: 120 }),
-    rows: z.number().int().positive().optional().openapi({ example: 40 }),
   })
   .openapi("CreateSessionBody");
 

@@ -17,8 +17,7 @@
   "dependencies": {
     "@flamecast/sdk": "workspace:*",
     "@hono/node-server": "^1.19.11",
-    "hono": "^4.12.9",
-    "ws": "^8.18.0"
+    "hono": "^4.12.9"
   },
   "devDependencies": {
     "tsx": "^4.7.1"

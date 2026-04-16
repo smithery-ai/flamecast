@@ -15,19 +15,8 @@ export async function checkTmux(): Promise<void> {
   }
 }
 
-export async function newSession(
-  sessionId: string,
-  cwd: string,
-  shell: string,
-  cols?: number,
-  rows?: number,
-): Promise<void> {
-  const args = ["new-session", "-d", "-s", sessionId, "-c", cwd];
-  if (cols != null && rows != null) {
-    args.push("-x", String(cols), "-y", String(rows));
-  }
-  args.push(shell);
-  await exec("tmux", args);
+export async function newSession(sessionId: string, cwd: string, shell: string): Promise<void> {
+  await exec("tmux", ["new-session", "-d", "-s", sessionId, "-c", cwd, shell]);
 }
 
 export async function hasSession(sessionId: string): Promise<boolean> {
@@ -116,21 +105,4 @@ export async function getCwd(sessionId: string): Promise<string> {
 
 export async function resizeWindow(sessionId: string, cols: number, rows: number): Promise<void> {
   await exec("tmux", ["resize-window", "-t", sessionId, "-x", String(cols), "-y", String(rows)]);
-}
-
-export async function getWindowSize(sessionId: string): Promise<{ cols: number; rows: number }> {
-  const { stdout } = await exec("tmux", [
-    "display-message",
-    "-p",
-    "-t",
-    sessionId,
-    "#{window_width} #{window_height}",
-  ]);
-  const [colsText, rowsText] = stdout.trim().split(" ");
-  const cols = parseInt(colsText, 10);
-  const rows = parseInt(rowsText, 10);
-  if (Number.isNaN(cols) || Number.isNaN(rows)) {
-    throw new Error(`Failed to parse tmux window size: ${stdout}`);
-  }
-  return { cols, rows };
 }

@@ -5,8 +5,6 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { swaggerUI } from "@hono/swagger-ui";
 import { SessionManager } from "./sessions/session-manager.js";
 import { sessionRoutes } from "./routes/sessions.js";
-import { StreamManager } from "./stream-manager.js";
-import { attachWebSocketServer, type WebSocketServerOptions } from "./ws.js";
 import { createMcpHandler } from "./mcp.js";
 
 const pkgPath = resolve(dirname(fileURLToPath(import.meta.url)), "../../package.json");
@@ -36,21 +34,13 @@ function createApp(sessions: SessionManager) {
 }
 
 export type AppType = ReturnType<typeof createApp>;
-export type { WebSocketServerOptions } from "./ws.js";
 
 export class Flamecast {
   readonly app: AppType;
   readonly sessions: SessionManager;
-  readonly streams: StreamManager;
 
   constructor() {
     this.sessions = new SessionManager();
-    this.streams = new StreamManager();
     this.app = createApp(this.sessions);
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  attachWebSockets(httpServer: any, options?: WebSocketServerOptions): void {
-    attachWebSocketServer(httpServer, this.streams, this.sessions, options);
   }
 }

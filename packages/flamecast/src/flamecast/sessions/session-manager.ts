@@ -66,7 +66,7 @@ export class SessionManager {
     const shell = params.shell ?? process.env.SHELL ?? "/bin/bash";
     const timeout = params.timeout === undefined ? DEFAULT_TIMEOUT : params.timeout;
 
-    await tmux.newSession(sessionId, cwd, shell, params.cols, params.rows);
+    await tmux.newSession(sessionId, cwd, shell);
 
     const session: Session = {
       sessionId,
