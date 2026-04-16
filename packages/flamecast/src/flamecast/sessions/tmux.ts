@@ -3,6 +3,12 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 
+export interface PaneSnapshot {
+  output: string;
+  cursorX: number;
+  cursorY: number;
+}
+
 export async function checkTmux(): Promise<void> {
   try {
     await exec("tmux", ["-V"]);
@@ -50,6 +56,22 @@ export async function capturePane(sessionId: string, tail?: number): Promise<str
   }
   const { stdout } = await exec("tmux", args);
   return stdout;
+}
+
+export async function captureTerminalSnapshot(sessionId: string): Promise<PaneSnapshot> {
+  const [{ stdout: output }, { stdout: cursorStdout }] = await Promise.all([
+    exec("tmux", ["capture-pane", "-e", "-p", "-t", sessionId]),
+    exec("tmux", ["display-message", "-p", "-t", sessionId, "#{cursor_x} #{cursor_y}"]),
+  ]);
+
+  const [cursorXText, cursorYText] = cursorStdout.trim().split(" ");
+  const cursorX = parseInt(cursorXText, 10);
+  const cursorY = parseInt(cursorYText, 10);
+  if (Number.isNaN(cursorX) || Number.isNaN(cursorY)) {
+    throw new Error(`Failed to parse tmux cursor position: ${cursorStdout}`);
+  }
+
+  return { output, cursorX, cursorY };
 }
 
 export async function sendKeys(sessionId: string, keys: string, literal = false): Promise<void> {
