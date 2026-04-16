@@ -1,10 +1,79 @@
-import { Hono } from "hono";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
 
-export function portRoutes(allowedPorts?: number[]) {
-  const app = new Hono();
+// --- schemas ---
 
-  const handler = async (c: Context) => {
+const PortParam = z.object({
+  port: z
+    .string()
+    .regex(/^[0-9]+$/)
+    .openapi({ param: { name: "port", in: "path" }, example: "5173" }),
+});
+
+const ErrorResponse = z
+  .object({
+    error: z.string(),
+  })
+  .openapi("PortProxyError");
+
+// --- route definitions ---
+
+const proxyWithPath = createRoute({
+  method: "get",
+  path: "/{port}/*",
+  tags: ["Port Forwarding"],
+  summary: "Proxy HTTP requests to localhost:<port>",
+  description:
+    "Forwards any HTTP request to the specified port on localhost. " +
+    "Strips the /port/:port prefix before forwarding. " +
+    "Response body, status, and headers are passed through from the target service. " +
+    "All HTTP methods are supported (GET is shown for documentation purposes).",
+  request: { params: PortParam },
+  responses: {
+    200: { description: "Proxied response from the target service (schema varies)" },
+    400: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Invalid port number",
+    },
+    403: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Port not in allowed list",
+    },
+    502: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Target port is not reachable",
+    },
+  },
+});
+
+const proxyWithoutPath = createRoute({
+  method: "get",
+  path: "/{port}",
+  tags: ["Port Forwarding"],
+  summary: "Proxy HTTP requests to localhost:<port> (root path)",
+  description: "Same as /{port}/* but for requests to the root path of the target service.",
+  request: { params: PortParam },
+  responses: {
+    200: { description: "Proxied response from the target service (schema varies)" },
+    400: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Invalid port number",
+    },
+    403: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Port not in allowed list",
+    },
+    502: {
+      content: { "application/json": { schema: ErrorResponse } },
+      description: "Target port is not reachable",
+    },
+  },
+});
+
+// --- handler ---
+
+function proxyHandler(allowedPorts?: number[]) {
+  return async (c: Context) => {
     const portStr = c.req.param("port") ?? "";
     const port = parseInt(portStr, 10);
 
@@ -50,9 +119,24 @@ export function portRoutes(allowedPorts?: number[]) {
       return c.json({ error: `Port ${port} is not reachable` }, 502);
     }
   };
+}
 
-  app.all("/:port{[0-9]+}/*", handler);
-  app.all("/:port{[0-9]+}", handler);
+// --- app ---
+
+export function portRoutes(allowedPorts?: number[]) {
+  const app = new OpenAPIHono();
+
+  const handler = proxyHandler(allowedPorts);
+
+  // Register OpenAPI docs (GET only, but handler accepts all methods)
+  app.openapi(proxyWithPath, (c) => handler(c));
+  app.openapi(proxyWithoutPath, (c) => handler(c));
+
+  // Register all other HTTP methods (not in OpenAPI, but functional)
+  for (const method of ["post", "put", "delete", "patch"] as const) {
+    app.on(method, "/:port{[0-9]+}/*", handler);
+    app.on(method, "/:port{[0-9]+}", handler);
+  }
 
   return app;
 }

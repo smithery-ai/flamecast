@@ -114,9 +114,10 @@ describe("Port forwarding proxy (integration)", () => {
     expect(res.status).toBe(400);
   });
 
-  it("returns 404 for non-numeric port", async () => {
+  it("rejects non-numeric port", async () => {
     const res = await flamecast.app.request("/port/abc/test");
-    expect(res.status).toBe(404);
+    // Zod validation rejects non-numeric strings with 400
+    expect(res.status).toBe(400);
   });
 
   it("proxies requests without trailing path", async () => {
