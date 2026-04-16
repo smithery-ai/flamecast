@@ -1,5 +1,5 @@
 {
-  "name": "acp",
+  "name": "@flamecast/mono",
   "private": true,
   "type": "module",
   "scripts": {
