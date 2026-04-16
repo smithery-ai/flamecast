@@ -6,5 +6,5 @@
   "semi": true,
   "singleQuote": false,
   "trailingComma": "all",
-  "ignorePatterns": ["apps/docs/", "packages/flamecast/src/client/routeTree.gen.ts"]
+  "ignorePatterns": ["apps/docs/", "packages/flamecast/src/client/routeTree.gen.ts", ".context/"]
 }
