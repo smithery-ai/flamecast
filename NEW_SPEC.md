@@ -2,7 +2,7 @@
 
 Flamecast has two components:
 
-1. **Flamecast CLI** -- a local agent (`npx flamecast`) that exposes your machine as an API via MCP tools and raw websocket terminal access. Sessions are backed by tmux for persistence and crash recovery.
+1. **Flamecast CLI** -- a local agent (`npx flamecast`) that exposes your machine as an API via MCP tools and raw websocket terminal access. Terminal sessions are backed by tmux for persistence and crash recovery.
 2. **Machine Gateway** -- a hosted service at `*.flamecast.app` that registers machines, manages auth, and proxies requests through Cloudflare tunnels to the local Flamecast agent.
 
 ---
@@ -36,7 +36,7 @@ graph TD
     end
 ```
 
-The Node process is stateless by design. All session state lives in tmux. If the Node process crashes and restarts, it rediscovers existing `fc_*` tmux sessions and repopulates its in-memory session map.
+The Node process is stateless by design. All terminal session state lives in tmux. If the Node process crashes and restarts, it rediscovers existing `fc_*` tmux sessions and repopulates its in-memory terminal session map.
 
 ---
 
@@ -50,7 +50,7 @@ The Node process is stateless by design. All session state lives in tmux. If the
 
 #### `POST /mcp`
 
-MCP streamable HTTP transport. Each request is a JSON-RPC message, response is a single HTTP response. Supports SSE for server-to-client notifications (e.g., session output events).
+MCP streamable HTTP transport. Each request is a JSON-RPC message, response is a single HTTP response.
 
 #### `WS /terminals/:id/stream`
 
@@ -59,8 +59,8 @@ Raw bidirectional pty stream for terminal clients (xterm.js, etc.).
 - **Server -> Client:** raw bytes from tmux pane output (via `tmux pipe-pane` or equivalent)
 - **Client -> Server:** raw keystrokes forwarded via `tmux send-keys`
 - **Resize:** client sends JSON resize messages `{ "type": "resize", "cols": 80, "rows": 24 }` -> `tmux resize-window`
-- **Multiple clients** can connect to the same session simultaneously
-- Closing the websocket does NOT kill the session
+- **Multiple clients** can connect to the same terminal session simultaneously
+- Closing the websocket does NOT kill the terminal session
 
 #### `ALL /port/:port/*`
 
@@ -72,27 +72,27 @@ Every MCP tool is also exposed as a REST endpoint. The REST API and MCP tools sh
 
 | Method   | Path                            | MCP Tool              | Description                         |
 | -------- | ------------------------------- | --------------------- | ----------------------------------- |
-| `POST`   | `/api/terminals`                | `sessions.create`     | Create a new terminal session       |
-| `GET`    | `/api/terminals`                | `sessions.list`       | List all sessions                   |
-| `GET`    | `/api/terminals/:id`            | `sessions.get`        | Get session output and status       |
-| `DELETE` | `/api/terminals/:id`            | `sessions.close`      | Kill a session                      |
-| `POST`   | `/api/terminals/:id/exec`       | `sessions.exec`       | Run a command synchronously         |
-| `POST`   | `/api/terminals/:id/exec/async` | `sessions.exec_async` | Run a command without waiting       |
-| `POST`   | `/api/terminals/:id/input`      | `sessions.input`      | Send keystrokes / control sequences |
+| `POST`   | `/api/terminals`                | `terminals.create`     | Create a new terminal session       |
+| `GET`    | `/api/terminals`                | `terminals.list`       | List all terminal sessions          |
+| `GET`    | `/api/terminals/:id`            | `terminals.get`        | Get terminal session output and status |
+| `DELETE` | `/api/terminals/:id`            | `terminals.close`      | Kill a terminal session             |
+| `POST`   | `/api/terminals/:id/exec`       | `terminals.exec`       | Run a command synchronously         |
+| `POST`   | `/api/terminals/:id/exec/async` | `terminals.exec_async` | Run a command without waiting       |
+| `POST`   | `/api/terminals/:id/input`      | `terminals.input`      | Send keystrokes / control sequences |
 
-For `sessions.exec` and `sessions.exec_async`, if no `:id` is provided, use `POST /api/terminals/exec` which auto-creates a session (matching the MCP behavior when `sessionId` is null).
+For `terminals.exec` and `terminals.exec_async`, if no `:id` is provided, use `POST /api/terminals/exec` which auto-creates a terminal session (matching the MCP behavior when `sessionId` is null).
 
 **Request/response bodies** are identical to the MCP tool params and return values documented below. All REST endpoints return JSON.
 
-**Query params for GET /api/terminals/:id:** `?tail=50` and `?since=8391` map to the `sessions.get` tool params.
+**Query params for GET /api/terminals/:id:** `?tail=50` and `?since=8391` map to the `terminals.get` tool params.
 
 ---
 
 ### MCP Tools
 
-#### 1. `sessions.create`
+#### 1. `terminals.create`
 
-Spawn a new tmux session.
+Spawn a new terminal session (tmux-backed).
 
 **Params:**
 | Name | Type | Default | Description |
@@ -117,15 +117,15 @@ Spawn a new tmux session.
 
 ---
 
-#### 2. `sessions.exec`
+#### 2. `terminals.exec`
 
-Execute a command synchronously in a session. Blocks until the command completes or times out.
+Execute a command synchronously in a terminal session. Blocks until the command completes or times out.
 
 **Params:**
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `command` | string | _required_ | Command to execute |
-| `sessionId` | string or null | null | Session to run in. If null, auto-creates a new session. |
+| `sessionId` | string or null | null | Terminal session to run in. If null, auto-creates a new terminal session. |
 | `timeout` | number | `30` | Max seconds to wait for completion |
 
 **Returns:**
@@ -148,7 +148,7 @@ Execute a command synchronously in a session. Blocks until the command completes
 
 ---
 
-#### 3. `sessions.exec_async`
+#### 3. `terminals.exec_async`
 
 Execute a command without waiting for completion. For long-running processes like dev servers, builds, watch modes.
 
@@ -156,7 +156,7 @@ Execute a command without waiting for completion. For long-running processes lik
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `command` | string | _required_ | Command to execute |
-| `sessionId` | string or null | null | Session to run in. If null, auto-creates a new session. |
+| `sessionId` | string or null | null | Terminal session to run in. If null, auto-creates a new terminal session. |
 
 **Returns:**
 
@@ -171,14 +171,14 @@ Execute a command without waiting for completion. For long-running processes lik
 
 ---
 
-#### 4. `sessions.input`
+#### 4. `terminals.input`
 
 Send keystrokes or control sequences to an interactive program (vim, REPLs, prompts, etc.).
 
 **Params:**
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `sessionId` | string | _required_ | Target session |
+| `sessionId` | string | _required_ | Target terminal session |
 | `text` | string or null | null | Literal text to type |
 | `keys` | string[] or null | null | Special keys to send after text |
 
@@ -201,14 +201,14 @@ Send keystrokes or control sequences to an interactive program (vim, REPLs, prom
 
 ---
 
-#### 5. `sessions.get`
+#### 5. `terminals.get`
 
-Read output from a session's buffer.
+Read output from a terminal session's buffer.
 
 **Params:**
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `sessionId` | string | _required_ | Target session |
+| `sessionId` | string | _required_ | Target terminal session |
 | `tail` | number or null | null | Return only the last N lines |
 | `since` | number or null | null | Return output since this byte offset (for incremental reads) |
 
@@ -232,14 +232,14 @@ Read output from a session's buffer.
 **Implementation:**
 
 - `tmux capture-pane -p -t fc_<id> -S -<tail>` for tail reads
-- Maintain an in-memory ring buffer (10,000 lines or 1MB cap) per session fed by `tmux pipe-pane` for offset-based reads
+- Maintain an in-memory ring buffer (10,000 lines or 1MB cap) per terminal session fed by `tmux pipe-pane` for offset-based reads
 - `cwd`: read from `/proc/<pid>/cwd` (Linux) or `lsof -p <pid>` (macOS)
 
 ---
 
-#### 6. `sessions.list`
+#### 6. `terminals.list`
 
-List all active and recently-closed sessions.
+List all active and recently-closed terminal sessions.
 
 **Params:** none
 
@@ -266,14 +266,14 @@ List all active and recently-closed sessions.
 
 ---
 
-#### 7. `sessions.close`
+#### 7. `terminals.close`
 
-Kill a session and clean up.
+Kill a terminal session and clean up.
 
 **Params:**
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
-| `sessionId` | string | _required_ | Session to close |
+| `sessionId` | string | _required_ | Terminal session to close |
 
 **Returns:**
 
@@ -364,23 +364,23 @@ This is a double-proxy (gateway -> flamecast -> local port) but it's the simples
 
 ---
 
-### Session Lifecycle
+### Terminal session lifecycle
 
 ```mermaid
 stateDiagram-v2
-    [*] --> running : sessions.create
+    [*] --> running : terminals.create
     running --> expired : inactivity timeout
-    running --> closed : sessions.close
+    running --> closed : terminals.close
     running --> exited : process exits
     expired --> [*] : 5 min retention
     closed --> [*] : 5 min retention
     exited --> [*] : 5 min retention
 ```
 
-- Timeout clock resets on any interaction: `sessions.exec`, `sessions.exec_async`, `sessions.input`, `sessions.get`, websocket connect
-- Expired/closed/exited sessions retain their output buffer for 5 minutes
-- `sessions.get` on a dead session returns the buffered output + status
-- `sessions.exec` on a dead session returns an error with `{ status: "expired" | "closed" | "exited" }`
+- Timeout clock resets on any interaction: `terminals.exec`, `terminals.exec_async`, `terminals.input`, `terminals.get`, websocket connect
+- Expired/closed/exited terminal sessions retain their output buffer for 5 minutes
+- `terminals.get` on a dead terminal session returns the buffered output + status
+- `terminals.exec` on a dead terminal session returns an error with `{ status: "expired" | "closed" | "exited" }`
 
 ---
 
@@ -389,10 +389,10 @@ stateDiagram-v2
 On startup, scan for existing `fc_*` tmux sessions:
 
 1. `tmux list-sessions -F "#{session_name}"` filtered to `fc_` prefix
-2. For each found session, reconstruct in-memory state (session ID, pid, cwd)
+2. For each found terminal session, reconstruct in-memory state (session ID, pid, cwd)
 3. Re-attach `pipe-pane` output listeners
 4. Resume timeout timers based on `#{session_activity}`
-5. Log recovered sessions to stdout
+5. Log recovered terminal sessions to stdout
 
 ---
 
@@ -409,7 +409,7 @@ Flamecast running on http://localhost:3000
   MCP endpoint: POST http://localhost:3000/mcp
   Auth token: fc_tok_<random>
 
-  Recovered 2 existing sessions.
+  Recovered 2 existing terminal sessions.
 ```
 
 #### `npx flamecast up --name <n>`
@@ -443,7 +443,7 @@ Flamecast running on http://localhost:3000
 
 #### `npx flamecast down`
 
-Stop the running Flamecast instance. Reads PID from `~/.flamecast/flamecast.pid`, sends SIGTERM, waits for graceful shutdown (closes all sessions, stops tunnel, sends offline heartbeat to gateway). Deletes PID file. Does NOT deregister the machine -- credentials persist so `up` can reconnect without re-registering.
+Stop the running Flamecast instance. Reads PID from `~/.flamecast/flamecast.pid`, sends SIGTERM, waits for graceful shutdown (closes all terminal sessions, stops tunnel, sends offline heartbeat to gateway). Deletes PID file. Does NOT deregister the machine -- credentials persist so `up` can reconnect without re-registering.
 
 To fully deregister and release the name, use `npx flamecast down --deregister`, which also deletes `~/.flamecast/credentials.json` and calls `DELETE /api/machines/:id` on the gateway.
 
@@ -474,7 +474,7 @@ On first run, generate a random auth token and store it at `~/.flamecast/token`.
 - **HTTP framework:** Hono
 - **Websocket:** Hono's built-in websocket support (backed by `ws`)
 - **MCP:** `@modelcontextprotocol/sdk` (streamable HTTP transport)
-- **Session backend:** tmux (system dependency, no `node-pty`)
+- **Terminal session backend:** tmux (system dependency, no `node-pty`)
 - **Port proxy:** `http-proxy` or Hono proxy helpers
 - **Tunnel:** `cloudflared` (downloaded on first `up`, or expects it in `$PATH`)
 - **Package distribution:** npm (`npx flamecast`)
@@ -793,7 +793,7 @@ sequenceDiagram
 - Browser-based terminal UI (just the websocket endpoint -- bring your own xterm.js)
 - Include/exclude filepath rules on the gateway
 - Virtual filesystem with guardrails
-- Session sharing between users
+- Terminal session sharing between users
 - Command allowlists/blocklists
 - Audit logging
 - Rate limiting on the gateway
