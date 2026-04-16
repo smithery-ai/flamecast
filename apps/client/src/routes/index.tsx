@@ -1,51 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { PlusIcon, TerminalIcon } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import { SidebarInset, SidebarTrigger } from "#/components/ui/sidebar";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "#/components/ui/empty";
-import { Button } from "#/components/ui/button";
 import { TerminalSidebar } from "#/components/terminal-sidebar";
 import { writeTerminalData } from "#/lib/terminal-stream";
-import { API_BASE, createSession, fetchSessions } from "#/lib/api";
+import { API_BASE } from "#/lib/api";
 
 export const Route = createFileRoute("/")({ component: HomePage });
 
 function HomePage() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const queryClient = useQueryClient();
-
-  const { data: sessions, isLoading } = useQuery({
-    queryKey: ["terminals"],
-    queryFn: fetchSessions,
-    refetchInterval: 5000,
-  });
-
-  const createMutation = useMutation({
-    mutationFn: () => createSession(80, 24),
-    onSuccess: (sessionId) => {
-      queryClient.invalidateQueries({ queryKey: ["terminals"] });
-      setActiveSessionId(sessionId);
-    },
-  });
-
-  useEffect(() => {
-    if (!sessions || sessions.length === 0) return;
-    if (activeSessionId && sessions.some((s) => s.sessionId === activeSessionId)) return;
-    setActiveSessionId(sessions[0].sessionId);
-  }, [sessions, activeSessionId]);
-
-  const hasSessions = !!sessions && sessions.length > 0;
 
   return (
     <>
@@ -61,27 +27,11 @@ function HomePage() {
             <span className="text-xs text-muted-foreground">{activeSessionId}</span>
           )}
         </header>
-        {activeSessionId && hasSessions ? (
+        {activeSessionId ? (
           <TerminalView key={activeSessionId} sessionId={activeSessionId} />
-        ) : isLoading ? (
-          <div className="flex flex-1" />
         ) : (
-          <div className="flex flex-1 items-center justify-center p-6">
-            <Empty>
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <TerminalIcon />
-                </EmptyMedia>
-                <EmptyTitle>No terminal sessions</EmptyTitle>
-                <EmptyDescription>Create a new session to start running commands.</EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
-                  <PlusIcon />
-                  New session
-                </Button>
-              </EmptyContent>
-            </Empty>
+          <div className="flex flex-1 items-center justify-center text-muted-foreground">
+            Select or create a session
           </div>
         )}
       </SidebarInset>
