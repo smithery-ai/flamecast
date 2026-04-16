@@ -70,15 +70,15 @@ Port forwarding proxy. Forwards any HTTP request or websocket connection to `loc
 
 Every MCP tool is also exposed as a REST endpoint. The REST API and MCP tools share the same underlying handlers -- the REST routes are a thin HTTP wrapper over the same logic.
 
-| Method   | Path                            | MCP Tool              | Description                         |
-| -------- | ------------------------------- | --------------------- | ----------------------------------- |
-| `POST`   | `/api/terminals`                | `terminals.create`     | Create a new terminal session       |
-| `GET`    | `/api/terminals`                | `terminals.list`       | List all terminal sessions          |
+| Method   | Path                            | MCP Tool               | Description                            |
+| -------- | ------------------------------- | ---------------------- | -------------------------------------- |
+| `POST`   | `/api/terminals`                | `terminals.create`     | Create a new terminal session          |
+| `GET`    | `/api/terminals`                | `terminals.list`       | List all terminal sessions             |
 | `GET`    | `/api/terminals/:id`            | `terminals.get`        | Get terminal session output and status |
-| `DELETE` | `/api/terminals/:id`            | `terminals.close`      | Kill a terminal session             |
-| `POST`   | `/api/terminals/:id/exec`       | `terminals.exec`       | Run a command synchronously         |
-| `POST`   | `/api/terminals/:id/exec/async` | `terminals.exec_async` | Run a command without waiting       |
-| `POST`   | `/api/terminals/:id/input`      | `terminals.input`      | Send keystrokes / control sequences |
+| `DELETE` | `/api/terminals/:id`            | `terminals.close`      | Kill a terminal session                |
+| `POST`   | `/api/terminals/:id/exec`       | `terminals.exec`       | Run a command synchronously            |
+| `POST`   | `/api/terminals/:id/exec/async` | `terminals.exec_async` | Run a command without waiting          |
+| `POST`   | `/api/terminals/:id/input`      | `terminals.input`      | Send keystrokes / control sequences    |
 
 For `terminals.exec` and `terminals.exec_async`, if no `:id` is provided, use `POST /api/terminals/exec` which auto-creates a terminal session (matching the MCP behavior when `sessionId` is null).
 
