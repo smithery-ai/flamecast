@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { testClient } from "hono/testing";
 import { Flamecast } from "../../src/flamecast/index.js";
 import type { AppType } from "../../src/flamecast/index.js";
@@ -73,14 +73,6 @@ describe("Terminals REST API (integration)", async () => {
       }
     }
     createdSessionIds.length = 0;
-  });
-
-  afterAll(async () => {
-    try {
-      await exec("tmux", ["kill-server"]);
-    } catch {
-      // no server running
-    }
   });
 
   // ─── POST /api/terminals ───

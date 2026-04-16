@@ -1,4 +1,4 @@
-import { afterAll, describe, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { WebSocket, WebSocketServer } from "ws";
@@ -89,14 +89,6 @@ describe("StreamManager (integration)", async () => {
   const sessions = new SessionManager();
   const streams = new StreamManager();
 
-  afterAll(async () => {
-    try {
-      await exec("tmux", ["kill-server"]);
-    } catch {
-      // no server running
-    }
-  });
-
   it("replays existing pane output to a newly attached client", async () => {
     const created = await sessions.create({ timeout: 0 });
 
@@ -125,6 +117,25 @@ describe("StreamManager (integration)", async () => {
     await streams.handleMessage(created.sessionId, "\r");
 
     await waitFor(() => socketPair.received.join("").includes("ws-input"));
+
+    await sessions.close({ sessionId: created.sessionId });
+    streams.disconnectAll(created.sessionId);
+    await socketPair.close();
+  });
+
+  it("strips tmux title sequences from websocket command output", async () => {
+    const created = await sessions.create({ timeout: 0, cwd: process.cwd() });
+    const socketPair = await createSocketPair();
+    await streams.addClient(created.sessionId, socketPair.server);
+
+    await streams.handleMessage(created.sessionId, "pwd");
+    await streams.handleMessage(created.sessionId, "\r");
+
+    await waitFor(() => socketPair.received.join("").includes(process.cwd()));
+
+    const output = socketPair.received.join("");
+    expect(output).toContain(process.cwd());
+    expect(output).not.toContain(`pwd${process.cwd()}`);
 
     await sessions.close({ sessionId: created.sessionId });
     streams.disconnectAll(created.sessionId);
