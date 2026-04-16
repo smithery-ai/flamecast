@@ -56,9 +56,9 @@ export function attachWebSocketServer(
             ws.close(1011, "failed to attach stream");
           });
 
-          ws.on("message", (data) => {
+          ws.on("message", (data: Buffer | string) => {
             streamManager
-              .handleMessage(sessionId, data as Buffer | string)
+              .handleMessage(sessionId, data)
               .catch((err) => {
                 console.error(`WS message error for ${sessionId}:`, err);
               });
