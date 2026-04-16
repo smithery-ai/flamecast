@@ -127,10 +127,10 @@ describe("Port forwarding proxy (integration)", () => {
   });
 
   it("preserves query parameters", async () => {
-    const res = await flamecast.app.request(
-      `/port/${target.port}/echo?foo=bar&baz=1`,
-      { method: "POST", body: "" },
-    );
+    const res = await flamecast.app.request(`/port/${target.port}/echo?foo=bar&baz=1`, {
+      method: "POST",
+      body: "",
+    });
 
     expect(res.status).toBe(200);
     const data = await res.json();
