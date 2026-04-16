@@ -70,8 +70,8 @@ Port forwarding proxy. Forwards any HTTP request or websocket connection to `loc
 
 Every MCP tool is also exposed as a REST endpoint. The REST API and MCP tools share the same underlying handlers -- the REST routes are a thin HTTP wrapper over the same logic.
 
-| Method   | Path                            | MCP Tool               | Description                            |
-| -------- | ------------------------------- | ---------------------- | -------------------------------------- |
+| Method   | Path                            | MCP Tool                | Description                            |
+| -------- | ------------------------------- | ----------------------- | -------------------------------------- |
 | `POST`   | `/api/terminals`                | `terminals__create`     | Create a new terminal session          |
 | `GET`    | `/api/terminals`                | `terminals__list`       | List all terminal sessions             |
 | `GET`    | `/api/terminals/:id`            | `terminals__get`        | Get terminal session output and status |
