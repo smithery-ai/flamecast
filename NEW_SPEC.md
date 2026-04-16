@@ -20,8 +20,8 @@ graph TD
         HONO["Hono HTTP Server :3000"]
         NODE --> HONO
         HONO --> MCP_EP["POST /mcp<br/>MCP Streamable HTTP"]
-        HONO --> REST_EP["REST API<br/>/api/sessions/*"]
-        HONO --> WS_EP["WS /sessions/:id/stream<br/>Raw pty bytes"]
+        HONO --> REST_EP["REST API<br/>/api/terminals/*"]
+        HONO --> WS_EP["WS /terminals/:id/stream<br/>Raw pty bytes"]
         HONO --> PORT_EP["ALL /port/:port/*<br/>Port forwarding proxy"]
         NODE --> TMUX["tmux"]
         TMUX --> S1["fc_session_1"]
@@ -52,7 +52,7 @@ The Node process is stateless by design. All session state lives in tmux. If the
 
 MCP streamable HTTP transport. Each request is a JSON-RPC message, response is a single HTTP response. Supports SSE for server-to-client notifications (e.g., session output events).
 
-#### `WS /sessions/:id/stream`
+#### `WS /terminals/:id/stream`
 
 Raw bidirectional pty stream for terminal clients (xterm.js, etc.).
 
@@ -70,21 +70,21 @@ Port forwarding proxy. Forwards any HTTP request or websocket connection to `loc
 
 Every MCP tool is also exposed as a REST endpoint. The REST API and MCP tools share the same underlying handlers -- the REST routes are a thin HTTP wrapper over the same logic.
 
-| Method   | Path                           | MCP Tool              | Description                         |
-| -------- | ------------------------------ | --------------------- | ----------------------------------- |
-| `POST`   | `/api/sessions`                | `sessions.create`     | Create a new terminal session       |
-| `GET`    | `/api/sessions`                | `sessions.list`       | List all sessions                   |
-| `GET`    | `/api/sessions/:id`            | `sessions.get`        | Get session output and status       |
-| `DELETE` | `/api/sessions/:id`            | `sessions.close`      | Kill a session                      |
-| `POST`   | `/api/sessions/:id/exec`       | `sessions.exec`       | Run a command synchronously         |
-| `POST`   | `/api/sessions/:id/exec/async` | `sessions.exec_async` | Run a command without waiting       |
-| `POST`   | `/api/sessions/:id/input`      | `sessions.input`      | Send keystrokes / control sequences |
+| Method   | Path                            | MCP Tool              | Description                         |
+| -------- | ------------------------------- | --------------------- | ----------------------------------- |
+| `POST`   | `/api/terminals`                | `sessions.create`     | Create a new terminal session       |
+| `GET`    | `/api/terminals`                | `sessions.list`       | List all sessions                   |
+| `GET`    | `/api/terminals/:id`            | `sessions.get`        | Get session output and status       |
+| `DELETE` | `/api/terminals/:id`            | `sessions.close`      | Kill a session                      |
+| `POST`   | `/api/terminals/:id/exec`       | `sessions.exec`       | Run a command synchronously         |
+| `POST`   | `/api/terminals/:id/exec/async` | `sessions.exec_async` | Run a command without waiting       |
+| `POST`   | `/api/terminals/:id/input`      | `sessions.input`      | Send keystrokes / control sequences |
 
-For `sessions.exec` and `sessions.exec_async`, if no `:id` is provided, use `POST /api/sessions/exec` which auto-creates a session (matching the MCP behavior when `sessionId` is null).
+For `sessions.exec` and `sessions.exec_async`, if no `:id` is provided, use `POST /api/terminals/exec` which auto-creates a session (matching the MCP behavior when `sessionId` is null).
 
 **Request/response bodies** are identical to the MCP tool params and return values documented below. All REST endpoints return JSON.
 
-**Query params for GET /api/sessions/:id:** `?tail=50` and `?since=8391` map to the `sessions.get` tool params.
+**Query params for GET /api/terminals/:id:** `?tail=50` and `?since=8391` map to the `sessions.get` tool params.
 
 ---
 
@@ -106,7 +106,7 @@ Spawn a new tmux session.
 ```json
 {
   "sessionId": "fc_a1b2c3",
-  "streamUrl": "/sessions/fc_a1b2c3/stream",
+  "streamUrl": "/terminals/fc_a1b2c3/stream",
   "cwd": "/home/user",
   "shell": "/bin/bash",
   "timeout": 300
@@ -223,7 +223,7 @@ Read output from a session's buffer.
   "status": "running",
   "exitCode": null,
   "cwd": "/home/user/project",
-  "streamUrl": "/sessions/fc_a1b2c3/stream"
+  "streamUrl": "/terminals/fc_a1b2c3/stream"
 }
 ```
 
@@ -256,7 +256,7 @@ List all active and recently-closed sessions.
       "created": "2026-04-15T10:30:00Z",
       "lastActivity": "2026-04-15T10:35:12Z",
       "timeout": 300,
-      "streamUrl": "/sessions/fc_a1b2c3/stream"
+      "streamUrl": "/terminals/fc_a1b2c3/stream"
     }
   ]
 }
@@ -422,7 +422,7 @@ Flamecast running on http://localhost:3000
 
   Linked as: anirudh.flamecast.app
     MCP:       https://anirudh.flamecast.app/mcp
-    Terminal:  wss://anirudh.flamecast.app/sessions/:id/stream
+    Terminal:  wss://anirudh.flamecast.app/terminals/:id/stream
     Ports:     https://anirudh.flamecast.app/port/:port/*
 
   Auth is managed by Machine Gateway. Local token disabled.
@@ -462,7 +462,7 @@ To fully deregister and release the name, use `npx flamecast down --deregister`,
 On first run, generate a random auth token and store it at `~/.flamecast/token`. Print it to stdout on startup.
 
 - All HTTP requests must include `Authorization: Bearer <token>`
-- Websocket upgrade requests must include the token as a query param: `/sessions/:id/stream?token=<token>`
+- Websocket upgrade requests must include the token as a query param: `/terminals/:id/stream?token=<token>`
 - `--no-auth` disables this for local development
 - When running in linked mode, local auth is disabled -- Machine Gateway handles auth (see Part 2)
 
@@ -509,10 +509,10 @@ sequenceDiagram
     GW-->>Client: Response
 
     Note over Client,FC: WebSocket / Terminal
-    Client->>GW: WSS anirudh.flamecast.app/sessions/:id/stream
+    Client->>GW: WSS anirudh.flamecast.app/terminals/:id/stream
     GW->>GW: Validate token + scopes
     GW->>CF: Upgrade + proxy websocket
-    CF->>FC: WS to localhost:3000/sessions/:id/stream
+    CF->>FC: WS to localhost:3000/terminals/:id/stream
     FC-->>Client: Bidirectional pty byte stream
 
     Note over Client,FC: Port Forwarding
@@ -639,7 +639,7 @@ Response:
 **Scopes:**
 
 - `mcp` -- access to `POST /mcp` and REST API endpoints
-- `terminal` -- access to `WS /sessions/:id/stream`
+- `terminal` -- access to `WS /terminals/:id/stream`
 - `ports` -- access to `/port/:port/*` (HTTP and websocket forwarding)
 
 ---
@@ -663,7 +663,7 @@ All requests to `<n>.flamecast.app/*` are handled by the proxy:
 1. Extract machine name from subdomain
 2. Look up machine in DB, verify it's online
 3. Validate `Authorization: Bearer <token>` against the machine's access tokens
-4. Check token scopes: `mcp` scope required for `/mcp` and `/api/*`, `terminal` scope required for `/sessions/*/stream`, `ports` scope required for `/port/*`
+4. Check token scopes: `mcp` scope required for `/mcp` and `/api/*`, `terminal` scope required for `/terminals/*/stream`, `ports` scope required for `/port/*`
 5. Forward the request through the Cloudflare tunnel to the machine's local Flamecast agent
 6. Stream the response back to the client (supports websocket upgrade passthrough)
 
