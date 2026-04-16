@@ -80,12 +80,6 @@ describe("waitForProcessExit", () => {
   });
 
   it("times out when the process does not exit", async () => {
-    const child = await spawnReadyProcess(
-      "process.stdout.write('ready\\n'); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);",
-    );
-    const pid = getPid(child);
-    process.kill(pid, "SIGTERM");
-
-    await expect(waitForProcessExit(pid, 150, 20)).resolves.toBe(false);
+    await expect(waitForProcessExit(process.pid, 150, 20)).resolves.toBe(false);
   });
 });
