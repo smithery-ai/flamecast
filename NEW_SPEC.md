@@ -70,27 +70,27 @@ Port forwarding proxy. Forwards any HTTP request or websocket connection to `loc
 
 Every MCP tool is also exposed as a REST endpoint. The REST API and MCP tools share the same underlying handlers -- the REST routes are a thin HTTP wrapper over the same logic.
 
-| Method   | Path                            | MCP Tool               | Description                            |
-| -------- | ------------------------------- | ---------------------- | -------------------------------------- |
-| `POST`   | `/api/terminals`                | `terminals.create`     | Create a new terminal session          |
-| `GET`    | `/api/terminals`                | `terminals.list`       | List all terminal sessions             |
-| `GET`    | `/api/terminals/:id`            | `terminals.get`        | Get terminal session output and status |
-| `DELETE` | `/api/terminals/:id`            | `terminals.close`      | Kill a terminal session                |
-| `POST`   | `/api/terminals/:id/exec`       | `terminals.exec`       | Run a command synchronously            |
-| `POST`   | `/api/terminals/:id/exec/async` | `terminals.exec_async` | Run a command without waiting          |
-| `POST`   | `/api/terminals/:id/input`      | `terminals.input`      | Send keystrokes / control sequences    |
+| Method   | Path                            | MCP Tool                | Description                            |
+| -------- | ------------------------------- | ----------------------- | -------------------------------------- |
+| `POST`   | `/api/terminals`                | `terminals__create`     | Create a new terminal session          |
+| `GET`    | `/api/terminals`                | `terminals__list`       | List all terminal sessions             |
+| `GET`    | `/api/terminals/:id`            | `terminals__get`        | Get terminal session output and status |
+| `DELETE` | `/api/terminals/:id`            | `terminals__close`      | Kill a terminal session                |
+| `POST`   | `/api/terminals/:id/exec`       | `terminals__exec`       | Run a command synchronously            |
+| `POST`   | `/api/terminals/:id/exec/async` | `terminals__exec_async` | Run a command without waiting          |
+| `POST`   | `/api/terminals/:id/input`      | `terminals__input`      | Send keystrokes / control sequences    |
 
-For `terminals.exec` and `terminals.exec_async`, if no `:id` is provided, use `POST /api/terminals/exec` which auto-creates a terminal session (matching the MCP behavior when `sessionId` is null).
+For `terminals__exec` and `terminals__exec_async`, if no `:id` is provided, use `POST /api/terminals/exec` which auto-creates a terminal session (matching the MCP behavior when `sessionId` is null).
 
 **Request/response bodies** are identical to the MCP tool params and return values documented below. All REST endpoints return JSON.
 
-**Query params for GET /api/terminals/:id:** `?tail=50` and `?since=8391` map to the `terminals.get` tool params.
+**Query params for GET /api/terminals/:id:** `?tail=50` and `?since=8391` map to the `terminals__get` tool params.
 
 ---
 
 ### MCP Tools
 
-#### 1. `terminals.create`
+#### 1. `terminals__create`
 
 Spawn a new terminal session (tmux-backed).
 
@@ -117,7 +117,7 @@ Spawn a new terminal session (tmux-backed).
 
 ---
 
-#### 2. `terminals.exec`
+#### 2. `terminals__exec`
 
 Execute a command synchronously in a terminal session. Blocks until the command completes or times out.
 
@@ -148,7 +148,7 @@ Execute a command synchronously in a terminal session. Blocks until the command 
 
 ---
 
-#### 3. `terminals.exec_async`
+#### 3. `terminals__exec_async`
 
 Execute a command without waiting for completion. For long-running processes like dev servers, builds, watch modes.
 
@@ -171,7 +171,7 @@ Execute a command without waiting for completion. For long-running processes lik
 
 ---
 
-#### 4. `terminals.input`
+#### 4. `terminals__input`
 
 Send keystrokes or control sequences to an interactive program (vim, REPLs, prompts, etc.).
 
@@ -201,7 +201,7 @@ Send keystrokes or control sequences to an interactive program (vim, REPLs, prom
 
 ---
 
-#### 5. `terminals.get`
+#### 5. `terminals__get`
 
 Read output from a terminal session's buffer.
 
@@ -237,7 +237,7 @@ Read output from a terminal session's buffer.
 
 ---
 
-#### 6. `terminals.list`
+#### 6. `terminals__list`
 
 List all active and recently-closed terminal sessions.
 
@@ -266,7 +266,7 @@ List all active and recently-closed terminal sessions.
 
 ---
 
-#### 7. `terminals.close`
+#### 7. `terminals__close`
 
 Kill a terminal session and clean up.
 
@@ -368,19 +368,19 @@ This is a double-proxy (gateway -> flamecast -> local port) but it's the simples
 
 ```mermaid
 stateDiagram-v2
-    [*] --> running : terminals.create
+    [*] --> running : terminals__create
     running --> expired : inactivity timeout
-    running --> closed : terminals.close
+    running --> closed : terminals__close
     running --> exited : process exits
     expired --> [*] : 5 min retention
     closed --> [*] : 5 min retention
     exited --> [*] : 5 min retention
 ```
 
-- Timeout clock resets on any interaction: `terminals.exec`, `terminals.exec_async`, `terminals.input`, `terminals.get`, websocket connect
+- Timeout clock resets on any interaction: `terminals__exec`, `terminals__exec_async`, `terminals__input`, `terminals__get`, websocket connect
 - Expired/closed/exited terminal sessions retain their output buffer for 5 minutes
-- `terminals.get` on a dead terminal session returns the buffered output + status
-- `terminals.exec` on a dead terminal session returns an error with `{ status: "expired" | "closed" | "exited" }`
+- `terminals__get` on a dead terminal session returns the buffered output + status
+- `terminals__exec` on a dead terminal session returns an error with `{ status: "expired" | "closed" | "exited" }`
 
 ---
 
