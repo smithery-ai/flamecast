@@ -2,6 +2,22 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
+const TMUX_STARTUP_RETRY_DELAY_MS = 50;
+
+function isTmuxStartupRace(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const stderr = "stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
+  const details = `${error.message}\n${stderr}`;
+  return (
+    details.includes("server exited unexpectedly") ||
+    details.includes("lost server") ||
+    details.includes("failed to connect to server")
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export interface PaneSnapshot {
   output: string;
@@ -33,7 +49,16 @@ export async function newSession(
     args.push("-x", String(cols), "-y", String(rows));
   }
   args.push(shell);
-  await exec("tmux", args);
+  try {
+    await exec("tmux", args);
+  } catch (error) {
+    if (!isTmuxStartupRace(error)) {
+      throw error;
+    }
+
+    await sleep(TMUX_STARTUP_RETRY_DELAY_MS);
+    await exec("tmux", args);
+  }
 }
 
 export async function hasSession(sessionId: string): Promise<boolean> {
