@@ -122,8 +122,8 @@ const ErrorResponse = z
 
 const createSession = createRoute({
   method: "post",
-  path: "/sessions",
-  tags: ["Sessions"],
+  path: "/terminals",
+  tags: ["Terminals"],
   summary: "Create a new terminal session",
   request: { body: { content: { "application/json": { schema: CreateBody } } } },
   responses: {
@@ -140,9 +140,9 @@ const createSession = createRoute({
 
 const listSessions = createRoute({
   method: "get",
-  path: "/sessions",
-  tags: ["Sessions"],
-  summary: "List all sessions",
+  path: "/terminals",
+  tags: ["Terminals"],
+  summary: "List all terminal sessions",
   responses: {
     200: { content: { "application/json": { schema: ListResponse } }, description: "Session list" },
   },
@@ -150,8 +150,8 @@ const listSessions = createRoute({
 
 const getSession = createRoute({
   method: "get",
-  path: "/sessions/{id}",
-  tags: ["Sessions"],
+  path: "/terminals/{id}",
+  tags: ["Terminals"],
   summary: "Get session output and status",
   request: {
     params: SessionIdParam,
@@ -174,8 +174,8 @@ const getSession = createRoute({
 
 const closeSession = createRoute({
   method: "delete",
-  path: "/sessions/{id}",
-  tags: ["Sessions"],
+  path: "/terminals/{id}",
+  tags: ["Terminals"],
   summary: "Kill a session",
   request: { params: SessionIdParam },
   responses: {
@@ -192,8 +192,8 @@ const closeSession = createRoute({
 
 const execInSession = createRoute({
   method: "post",
-  path: "/sessions/{id}/exec",
-  tags: ["Sessions"],
+  path: "/terminals/{id}/exec",
+  tags: ["Terminals"],
   summary: "Run a command synchronously in a session",
   request: {
     params: SessionIdParam,
@@ -217,8 +217,8 @@ const execInSession = createRoute({
 
 const execAutoCreate = createRoute({
   method: "post",
-  path: "/sessions/exec",
-  tags: ["Sessions"],
+  path: "/terminals/exec",
+  tags: ["Terminals"],
   summary: "Auto-create a session and run a command synchronously",
   request: { body: { content: { "application/json": { schema: ExecBody } } } },
   responses: {
@@ -235,8 +235,8 @@ const execAutoCreate = createRoute({
 
 const execAsyncInSession = createRoute({
   method: "post",
-  path: "/sessions/{id}/exec/async",
-  tags: ["Sessions"],
+  path: "/terminals/{id}/exec/async",
+  tags: ["Terminals"],
   summary: "Run a command without waiting for completion",
   request: {
     params: SessionIdParam,
@@ -260,8 +260,8 @@ const execAsyncInSession = createRoute({
 
 const execAsyncAutoCreate = createRoute({
   method: "post",
-  path: "/sessions/exec/async",
-  tags: ["Sessions"],
+  path: "/terminals/exec/async",
+  tags: ["Terminals"],
   summary: "Auto-create a session and run a command without waiting",
   request: { body: { content: { "application/json": { schema: ExecAsyncBody } } } },
   responses: {
@@ -278,8 +278,8 @@ const execAsyncAutoCreate = createRoute({
 
 const sendInput = createRoute({
   method: "post",
-  path: "/sessions/{id}/input",
-  tags: ["Sessions"],
+  path: "/terminals/{id}/input",
+  tags: ["Terminals"],
   summary: "Send keystrokes or control sequences",
   request: {
     params: SessionIdParam,

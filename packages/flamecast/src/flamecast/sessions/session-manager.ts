@@ -33,7 +33,7 @@ function generateId(): string {
 }
 
 function streamUrl(sessionId: string): string {
-  return `/sessions/${sessionId}/stream`;
+  return `/terminals/${sessionId}/stream`;
 }
 
 const KEY_MAP: Record<string, string> = {
