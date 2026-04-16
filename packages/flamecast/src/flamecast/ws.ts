@@ -57,11 +57,9 @@ export function attachWebSocketServer(
           });
 
           ws.on("message", (data: Buffer | string) => {
-            streamManager
-              .handleMessage(sessionId, data)
-              .catch((err) => {
-                console.error(`WS message error for ${sessionId}:`, err);
-              });
+            streamManager.handleMessage(sessionId, data).catch((err) => {
+              console.error(`WS message error for ${sessionId}:`, err);
+            });
           });
         });
       })
