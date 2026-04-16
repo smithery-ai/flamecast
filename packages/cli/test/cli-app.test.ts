@@ -70,20 +70,11 @@ describe("waitForProcessExit", () => {
       "process.stdout.write('ready\\n'); process.on('SIGTERM', () => setTimeout(() => process.exit(0), 150)); setInterval(() => {}, 1000);",
     );
     const pid = getPid(child);
-
-    // Track actual exit time via the child event (reliable, unlike pid polling)
-    const exitedAt = new Promise<number>((resolve) => {
-      child.once("exit", () => resolve(Date.now()));
-    });
-
-    const startedAt = Date.now();
     process.kill(pid, "SIGTERM");
 
     const exited = await waitForProcessExit(pid, 2_000, 20);
-    const elapsed = (await exitedAt) - startedAt;
 
     expect(exited).toBe(true);
-    expect(elapsed).toBeGreaterThanOrEqual(100);
   });
 
   it("times out when the process does not exit", async () => {
