@@ -230,6 +230,8 @@ async function runServer(flags: UpFlags): Promise<number> {
         reject(err);
       });
     });
+
+    flamecast.attachWebSockets(server);
     console.log(`Flamecast running on http://localhost:${port}`);
 
     // Server is listening — tell the parent immediately

@@ -4,6 +4,7 @@ import { Flamecast } from "../../src/flamecast/index.js";
 import type { AppType } from "../../src/flamecast/index.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import * as tmux from "../../src/flamecast/sessions/tmux.js";
 
 const exec = promisify(execFile);
 
@@ -43,7 +44,13 @@ describe("Terminals REST API (integration)", async () => {
   }
 
   async function createAndTrack(
-    body: { cwd?: string; shell?: string; timeout?: number | null } = {},
+    body: {
+      cwd?: string;
+      shell?: string;
+      timeout?: number | null;
+      cols?: number;
+      rows?: number;
+    } = {},
   ) {
     const res = await client.api.terminals.$post({ json: body });
     const data = await res.json();
@@ -109,6 +116,13 @@ describe("Terminals REST API (integration)", async () => {
 
       expect(res.status).toBe(201);
       expect(data.cwd).toBe("/tmp");
+    });
+
+    it("creates a session with custom dimensions", async () => {
+      const { res, data } = await createAndTrack({ cols: 120, rows: 40 });
+
+      expect(res.status).toBe(201);
+      await expect(tmux.getWindowSize(data.sessionId)).resolves.toEqual({ cols: 120, rows: 40 });
     });
   });
 
