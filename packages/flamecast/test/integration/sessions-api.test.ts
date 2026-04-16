@@ -44,7 +44,13 @@ describe("Terminals REST API (integration)", async () => {
   }
 
   async function createAndTrack(
-    body: { cwd?: string; shell?: string; timeout?: number | null; cols?: number; rows?: number } = {},
+    body: {
+      cwd?: string;
+      shell?: string;
+      timeout?: number | null;
+      cols?: number;
+      rows?: number;
+    } = {},
   ) {
     const res = await client.api.terminals.$post({ json: body });
     const data = await res.json();

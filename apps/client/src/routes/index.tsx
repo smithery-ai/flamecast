@@ -155,7 +155,15 @@ function HomePage() {
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", background: "#000" }}>
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        display: "flex",
+        flexDirection: "column",
+        background: "#000",
+      }}
+    >
       <div className="flex items-center gap-2 px-2 py-1 text-sm text-neutral-400">
         <span>Session: {sessionId ?? "starting..."}</span>
         <span className="text-neutral-500">WS: {wsStatus}</span>

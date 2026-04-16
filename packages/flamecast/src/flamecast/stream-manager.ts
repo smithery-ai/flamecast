@@ -109,13 +109,7 @@ export class StreamManager {
 
   private async startStream(state: StreamState): Promise<void> {
     // Pipe tmux pane output to a temp file
-    await exec("tmux", [
-      "pipe-pane",
-      "-o",
-      "-t",
-      state.sessionId,
-      `cat >> ${state.outFile}`,
-    ]);
+    await exec("tmux", ["pipe-pane", "-o", "-t", state.sessionId, `cat >> ${state.outFile}`]);
 
     // Use tail -f to stream the file contents to WebSocket clients
     const tail = spawn("tail", ["-f", state.outFile], { stdio: ["ignore", "pipe", "ignore"] });
