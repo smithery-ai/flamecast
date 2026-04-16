@@ -75,7 +75,7 @@ export async function runUp(flags: UpFlags): Promise<number> {
 }
 
 async function runServer(flags: UpFlags): Promise<number> {
-  const port = flags.port ?? 3000;
+  const port = flags.port ?? 6769;
   let wrotePidFile = false;
 
   try {
@@ -98,7 +98,8 @@ async function runServer(flags: UpFlags): Promise<number> {
     flamecast.attachWebSockets(server);
     writeFileSync(PID_FILE, String(process.pid));
     wrotePidFile = true;
-    console.log(`Flamecast running on http://localhost:${port}`);
+    console.log(`Flamecast is running on port ${port}`);
+    console.log(`Go to https://flamecast-frontend.vercel.app to interact with it.`);
 
     let cloudflaredProcess: ChildProcess | null = null;
     if (flags.name) {
