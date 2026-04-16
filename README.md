@@ -12,6 +12,8 @@ npx flamecast@latest up --name yourname
 
 Then open **yourname.flamecast.app** in any browser.
 
+`flamecast up` stays attached to your terminal. Press `Ctrl+C` to stop it, or run `npx flamecast down` from another shell.
+
 ## How it works
 
 Flamecast runs a lightweight agent on your machine and connects it to a web UI through a relay. The relay only brokers the connection — **your data stays on your machine** and is never stored or inspected by Flamecast servers. The entire stack is open-source and can run fully on your own infrastructure if you prefer.

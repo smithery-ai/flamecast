@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { readMachineCredentials } from "../lib/credentials.js";
 import { getMachineDomain, getMachinesApiUrl } from "../lib/machines-api.js";
 import { getFlamecastPaths } from "../lib/paths.js";
@@ -31,7 +31,13 @@ export async function runStatus(): Promise<number> {
     return 0;
   }
 
-  console.log("Flamecast is not running (crashed or was killed).");
+  try {
+    unlinkSync(pidFile);
+  } catch {
+    // ignore
+  }
+
+  console.log("Flamecast is not running (stale PID file removed).");
   console.log("");
 
   if (existsSync(logFile)) {

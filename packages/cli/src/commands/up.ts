@@ -1,9 +1,9 @@
 import { execSync, spawn, type ChildProcess } from "node:child_process";
 import {
+  closeSync,
   existsSync,
   mkdirSync,
   openSync,
-  closeSync,
   readFileSync,
   unlinkSync,
   writeFileSync,
@@ -13,6 +13,7 @@ import { serve } from "@hono/node-server";
 import { Flamecast } from "@flamecast/sdk";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import type { MachineCredentials } from "../lib/credentials.js";
 import { readMachineCredentials, writeMachineCredentials } from "../lib/credentials.js";
 import {
   getMachineDomain,
@@ -23,7 +24,6 @@ import {
 } from "../lib/machines-api.js";
 import { getFlamecastPaths } from "../lib/paths.js";
 import { ensureCloudflared, spawnCloudflared } from "../lib/cloudflared.js";
-import type { MachineCredentials } from "../lib/credentials.js";
 import type { UpFlags } from "../types.js";
 
 const LINK_TIMEOUT_MS = 5 * 60_000;
@@ -152,6 +152,7 @@ function isFlamecastProcess(pid: number): boolean {
     return false;
   }
 
+  // The process exists, but verify it's actually a Flamecast process.
   try {
     const cmd =
       platform() === "darwin"
@@ -303,8 +304,6 @@ async function daemonize(flags: UpFlags): Promise<number> {
     return 1;
   }
 
-  writeFileSync(pidFile, String(child.pid));
-
   const port = flags.port ?? 3000;
   let linkedDomain: string | undefined;
   console.log(`Logs: ${logFile}`);
@@ -358,9 +357,13 @@ async function daemonize(flags: UpFlags): Promise<number> {
 }
 
 async function runServer(flags: UpFlags): Promise<number> {
+  const { homeDir, pidFile } = getFlamecastPaths();
   const port = flags.port ?? 3000;
+  let wrotePidFile = false;
 
   try {
+    mkdirSync(homeDir, { recursive: true });
+
     const flamecast = new Flamecast();
     const wrapper = new Hono();
     wrapper.use("*", cors());
@@ -376,6 +379,8 @@ async function runServer(flags: UpFlags): Promise<number> {
     });
 
     flamecast.attachWebSockets(server);
+    writeFileSync(pidFile, String(process.pid));
+    wrotePidFile = true;
     console.log(`Flamecast running on http://localhost:${port}`);
 
     if (process.send) {
@@ -387,6 +392,7 @@ async function runServer(flags: UpFlags): Promise<number> {
 
     if (flags.name) {
       if (!(await ensureCloudflared())) {
+        console.log("Running locally only.");
         if (process.send) {
           process.send({ type: "link-error", error: "cloudflared not available" });
         }
@@ -396,7 +402,11 @@ async function runServer(flags: UpFlags): Promise<number> {
           const link = await connectMachine(machinesUrl, flags.name, (verificationUrl) => {
             if (process.send) {
               process.send({ type: "link-pending", verificationUrl });
+              return;
             }
+
+            console.log(`Approve this machine in your browser: ${verificationUrl}`);
+            console.log("Waiting for approval...");
           });
           cloudflaredProcess = link.cloudflaredProcess;
           stopHeartbeat = link.stopHeartbeat;
@@ -447,7 +457,7 @@ async function runServer(flags: UpFlags): Promise<number> {
           console.error(error instanceof Error ? error.message : String(error));
         } finally {
           try {
-            unlinkSync(getFlamecastPaths().pidFile);
+            unlinkSync(pidFile);
           } catch {
             // ignore
           }
@@ -466,6 +476,13 @@ async function runServer(flags: UpFlags): Promise<number> {
     const message = error instanceof Error ? error.message : String(error);
     if (process.send) {
       process.send({ type: "error", error: message });
+    }
+    if (wrotePidFile) {
+      try {
+        unlinkSync(pidFile);
+      } catch {
+        // ignore
+      }
     }
     throw error;
   }

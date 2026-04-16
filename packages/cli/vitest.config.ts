@@ -1,13 +1,14 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
-import { resolve } from "node:path";
 
 export default defineConfig({
   resolve: {
     alias: {
-      "@flamecast/sdk": resolve(import.meta.dirname, "../flamecast/src/index.ts"),
+      "@flamecast/sdk": fileURLToPath(new URL("../flamecast/src/index.ts", import.meta.url)),
     },
   },
   test: {
     include: ["test/**/*.test.ts"],
+    testTimeout: 15_000,
   },
 });

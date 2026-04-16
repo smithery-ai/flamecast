@@ -14,9 +14,10 @@ interface StreamState {
   clients: Set<WebSocket>;
   outFile: string;
   tail: ChildProcess | null;
+  pendingOutput: string;
 }
 
-export function trimTrailingBlankLines(output: string): string {
+function trimTrailingBlankLines(output: string): string {
   return output.replace(/(?:\r?\n)+$/u, "");
 }
 
@@ -31,7 +32,7 @@ export class StreamManager {
       const dir = await this.getTmpDir();
       const outFile = join(dir, `${sessionId}.out`);
       await writeFile(outFile, "");
-      state = { sessionId, clients: new Set(), outFile, tail: null };
+      state = { sessionId, clients: new Set(), outFile, tail: null, pendingOutput: "" };
       this.streams.set(sessionId, state);
     }
 
@@ -116,9 +117,13 @@ export class StreamManager {
     state.tail = tail;
 
     tail.stdout.on("data", (chunk: Buffer) => {
+      const output = this.stripUnsupportedSequences(state, chunk.toString("utf-8"));
+      if (!output) {
+        return;
+      }
       for (const client of state.clients) {
         if (client.readyState === client.OPEN) {
-          client.send(chunk);
+          client.send(output);
         }
       }
     });
@@ -141,11 +146,39 @@ export class StreamManager {
       state.tail.kill();
       state.tail = null;
     }
+    state.pendingOutput = "";
 
     try {
       await rm(state.outFile, { force: true });
     } catch {
       // ignore
     }
+  }
+
+  private stripUnsupportedSequences(state: StreamState, chunk: string): string {
+    const input = state.pendingOutput + chunk;
+    let output = "";
+    let start = 0;
+
+    while (start < input.length) {
+      const sequenceStart = input.indexOf("\x1bk", start);
+      if (sequenceStart === -1) {
+        output += input.slice(start);
+        state.pendingOutput = "";
+        return output;
+      }
+
+      output += input.slice(start, sequenceStart);
+      const sequenceEnd = input.indexOf("\x1b\\", sequenceStart + 2);
+      if (sequenceEnd === -1) {
+        state.pendingOutput = input.slice(sequenceStart);
+        return output;
+      }
+
+      start = sequenceEnd + 2;
+    }
+
+    state.pendingOutput = "";
+    return output;
   }
 }
