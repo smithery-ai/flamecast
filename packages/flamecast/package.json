@@ -12,6 +12,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./client": {
+      "types": "./dist/flamecast/client.d.ts",
+      "import": "./dist/flamecast/client.js"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
