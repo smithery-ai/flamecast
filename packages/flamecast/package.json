@@ -19,7 +19,9 @@
   },
   "scripts": {
     "build": "pnpm run build:package",
-    "build:package": "tsc -p tsconfig.package.json"
+    "build:package": "tsc -p tsconfig.package.json",
+    "test": "vitest run --config vitest.integration.config.ts",
+    "test:watch": "vitest --config vitest.integration.config.ts"
   },
   "dependencies": {
     "@hono/swagger-ui": "^0.6.1",
