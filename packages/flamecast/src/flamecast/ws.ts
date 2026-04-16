@@ -4,7 +4,7 @@ import type { Server } from "node:http";
 import type { StreamManager } from "./stream-manager.js";
 import type { SessionManager } from "./sessions/session-manager.js";
 
-const SESSION_STREAM_RE = /^\/sessions\/(fc_[0-9a-f]+)\/stream$/;
+const SESSION_STREAM_RE = /^\/terminals\/(fc_[0-9a-f]+)\/stream$/;
 
 export interface WebSocketServerOptions {
   validateToken?: (token: string) => boolean;

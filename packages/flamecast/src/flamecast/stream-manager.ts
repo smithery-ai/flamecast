@@ -1,10 +1,9 @@
-import { createReadStream } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { writeFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import type { ReadStream } from "node:fs";
+import type { ChildProcess } from "node:child_process";
 import type { WebSocket } from "ws";
 import * as tmux from "./sessions/tmux.js";
 
@@ -13,8 +12,12 @@ const exec = promisify(execFile);
 interface StreamState {
   sessionId: string;
   clients: Set<WebSocket>;
-  fifoPath: string;
-  reader: ReadStream | null;
+  outFile: string;
+  tail: ChildProcess | null;
+}
+
+export function trimTrailingBlankLines(output: string): string {
+  return output.replace(/(?:\r?\n)+$/u, "");
 }
 
 export class StreamManager {
@@ -25,16 +28,18 @@ export class StreamManager {
     let state = this.streams.get(sessionId);
 
     if (!state) {
-      const fifoPath = await this.createFifo(sessionId);
-      state = { sessionId, clients: new Set(), fifoPath, reader: null };
+      const dir = await this.getTmpDir();
+      const outFile = join(dir, `${sessionId}.out`);
+      await writeFile(outFile, "");
+      state = { sessionId, clients: new Set(), outFile, tail: null };
       this.streams.set(sessionId, state);
     }
 
     state.clients.add(ws);
 
-    // Send current pane content so the client sees existing output
+    // Replay the current pane so a newly attached client sees the existing prompt/output.
     try {
-      const output = await tmux.capturePane(sessionId);
+      const output = trimTrailingBlankLines(await tmux.capturePane(sessionId));
       if (output && ws.readyState === ws.OPEN) {
         ws.send(output);
       }
@@ -43,7 +48,7 @@ export class StreamManager {
     }
 
     if (state.clients.size === 1) {
-      await this.startPipePane(state);
+      await this.startStream(state);
     }
 
     ws.on("close", () => this.removeClient(sessionId, ws));
@@ -102,22 +107,21 @@ export class StreamManager {
     return this.tmpDir;
   }
 
-  private async createFifo(sessionId: string): Promise<string> {
-    const dir = await this.getTmpDir();
-    const fifoPath = join(dir, `${sessionId}.pipe`);
-    await exec("mkfifo", [fifoPath]);
-    return fifoPath;
-  }
+  private async startStream(state: StreamState): Promise<void> {
+    // Pipe tmux pane output to a temp file
+    await exec("tmux", [
+      "pipe-pane",
+      "-o",
+      "-t",
+      state.sessionId,
+      `cat >> ${state.outFile}`,
+    ]);
 
-  private async startPipePane(state: StreamState): Promise<void> {
-    // Tell tmux to pipe pane output into the FIFO
-    await exec("tmux", ["pipe-pane", "-o", "-t", state.sessionId, `cat > ${state.fifoPath}`]);
+    // Use tail -f to stream the file contents to WebSocket clients
+    const tail = spawn("tail", ["-f", state.outFile], { stdio: ["ignore", "pipe", "ignore"] });
+    state.tail = tail;
 
-    // Read from the FIFO and broadcast to all clients
-    const reader = createReadStream(state.fifoPath);
-    state.reader = reader;
-
-    reader.on("data", (chunk: Buffer | string) => {
+    tail.stdout.on("data", (chunk: Buffer) => {
       for (const client of state.clients) {
         if (client.readyState === client.OPEN) {
           client.send(chunk);
@@ -125,27 +129,27 @@ export class StreamManager {
       }
     });
 
-    reader.on("error", () => {
-      // FIFO removed or session died
-      this.disconnectAll(state.sessionId);
+    tail.on("exit", () => {
+      if (this.streams.has(state.sessionId)) {
+        this.disconnectAll(state.sessionId);
+      }
     });
   }
 
   private async cleanup(state: StreamState): Promise<void> {
-    // Stop tmux pipe-pane (no command arg = stop piping)
     try {
       await exec("tmux", ["pipe-pane", "-t", state.sessionId]);
     } catch {
       // session may already be dead
     }
 
-    if (state.reader) {
-      state.reader.destroy();
-      state.reader = null;
+    if (state.tail) {
+      state.tail.kill();
+      state.tail = null;
     }
 
     try {
-      await rm(state.fifoPath, { force: true });
+      await rm(state.outFile, { force: true });
     } catch {
       // ignore
     }
