@@ -1,18 +1,18 @@
 import { runUp } from "./commands/up.js";
 import { runDown } from "./commands/down.js";
 import { runStatus } from "./commands/status.js";
-import type { UpFlags } from "./types.js";
+import type { DownFlags, UpFlags } from "./types.js";
 
 type Command =
   | { kind: "help" }
   | { kind: "up"; flags: UpFlags }
-  | { kind: "down" }
+  | { kind: "down"; flags: DownFlags }
   | { kind: "status" };
 
 function printHelp(): void {
   console.log(`Usage:
   flamecast up [--name <name>] [--port <port>]
-  flamecast down
+  flamecast down [--deregister]
   flamecast status
 
 Commands:
@@ -21,12 +21,15 @@ Commands:
   status               Show whether Flamecast is running
 
 Options:
-  --name <name>        Expose as name.flamecast.app (requires cloudflared)
+  --name <name>        Expose as name.flamecast.dev (requires cloudflared)
   --port <port>        Port to listen on (default: 3000)
+  --deregister         Remove saved machine registration on shutdown
 
 Environment:
   FLAMECAST_PORT or PORT               Default serve port (3000)
-  FLAMECAST_BRIDGE_URL                 Override bridge URL
+  FLAMECAST_MACHINES_API_URL           Override Machines API URL
+  FLAMECAST_MACHINES_URL               Override Machines API URL
+  FLAMECAST_BRIDGE_URL                 Backward-compatible Machines API override
 `);
 }
 
@@ -68,6 +71,21 @@ function parseUpFlags(args: string[]): UpFlags {
   return flags;
 }
 
+function parseDownFlags(args: string[]): DownFlags {
+  const flags: DownFlags = {};
+
+  for (const arg of args) {
+    if (arg === "--deregister") {
+      flags.deregister = true;
+      continue;
+    }
+
+    throw new Error(`Unknown flag "${arg}"`);
+  }
+
+  return flags;
+}
+
 export function parseCliArgs(argv: string[]): Command {
   if (argv.length === 0) {
     return { kind: "up", flags: {} };
@@ -87,7 +105,10 @@ export function parseCliArgs(argv: string[]): Command {
   }
 
   if (first === "down") {
-    return { kind: "down" };
+    return {
+      kind: "down",
+      flags: parseDownFlags([second, ...rest].filter((v): v is string => v !== undefined)),
+    };
   }
 
   if (first === "status") {
@@ -110,7 +131,7 @@ export async function runCli(argv: string[]): Promise<number> {
   }
 
   if (command.kind === "down") {
-    return runDown();
+    return runDown(command.flags);
   }
 
   return runStatus();

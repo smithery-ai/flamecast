@@ -1,49 +1,148 @@
-import { execSync, spawn } from "node:child_process";
+import { execSync, spawn, type ChildProcess } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
-  readFileSync,
-  writeFileSync,
   openSync,
   closeSync,
+  readFileSync,
   unlinkSync,
+  writeFileSync,
 } from "node:fs";
-import { homedir, platform } from "node:os";
-import { join } from "node:path";
+import { platform } from "node:os";
 import { serve } from "@hono/node-server";
-import { cors } from "hono/cors";
-import { Hono } from "hono";
 import { Flamecast } from "@flamecast/sdk";
-import { spawnCloudflared, ensureCloudflared } from "../lib/cloudflared.js";
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { readMachineCredentials, writeMachineCredentials } from "../lib/credentials.js";
+import {
+  getMachineDomain,
+  getMachinesApiUrl,
+  pollMachineRegistration,
+  sendMachineHeartbeat,
+  startMachineRegistration,
+} from "../lib/machines-api.js";
+import { getFlamecastPaths } from "../lib/paths.js";
+import { ensureCloudflared, spawnCloudflared } from "../lib/cloudflared.js";
+import type { MachineCredentials } from "../lib/credentials.js";
 import type { UpFlags } from "../types.js";
 
-const FLAMECAST_HOME = join(homedir(), ".flamecast");
-const LOG_FILE = join(FLAMECAST_HOME, "flamecast.log");
-const PID_FILE = join(FLAMECAST_HOME, "daemon.pid");
-const DEFAULT_BRIDGE_URL = "https://flamecast-bridge.smithery.workers.dev";
+const LINK_TIMEOUT_MS = 5 * 60_000;
+const LINK_POLL_INTERVAL_MS = 2_000;
+const HEARTBEAT_INTERVAL_MS = 30_000;
 
-export { LOG_FILE, PID_FILE, isFlamecastProcess };
+type IpcMsg =
+  | { type: "ready" }
+  | { type: "error"; error: string }
+  | { type: "link-pending"; verificationUrl: string }
+  | { type: "linked"; domain: string }
+  | { type: "link-error"; error: string };
 
-async function provisionTunnel(
-  bridgeUrl: string,
-  name: string,
-  port: number,
-): Promise<{ tunnelToken: string; domain: string }> {
-  const response = await fetch(`${bridgeUrl}/api/tunnels`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, port }),
-  });
+type LinkRuntime = {
+  cloudflaredProcess: ChildProcess;
+  stopHeartbeat: () => void;
+  domain: string;
+};
 
-  if (!response.ok) {
-    const body: { error?: string } = await response
-      .json()
-      .catch(() => ({ error: response.statusText }));
-    throw new Error(body.error ?? `Bridge API error: ${response.status}`);
+export { isFlamecastProcess };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForMachineApproval(
+  machinesUrl: string,
+  deviceCode: string,
+): Promise<Omit<MachineCredentials, "subdomain">> {
+  const deadline = Date.now() + LINK_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    const result = await pollMachineRegistration(machinesUrl, deviceCode);
+    if (result.status === "approved") {
+      return {
+        machineId: result.machineId,
+        machineSecret: result.machineSecret,
+        tunnelToken: result.tunnelToken,
+      };
+    }
+
+    if (result.status === "expired") {
+      throw new Error("Machine approval expired before it was completed");
+    }
+
+    await sleep(LINK_POLL_INTERVAL_MS);
   }
 
-  const result: { tunnelToken: string; domain: string } = await response.json();
-  return result;
+  throw new Error("Timed out waiting for machine approval");
+}
+
+function startHeartbeatLoop(machinesUrl: string, credentials: MachineCredentials): () => void {
+  let stopped = false;
+
+  async function sendHeartbeat(): Promise<void> {
+    if (stopped) {
+      return;
+    }
+
+    try {
+      await sendMachineHeartbeat(machinesUrl, credentials.machineId, credentials.machineSecret);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.log(`Heartbeat failed: ${message}`);
+    }
+  }
+
+  void sendHeartbeat();
+
+  const timer = setInterval(() => {
+    void sendHeartbeat();
+  }, HEARTBEAT_INTERVAL_MS);
+  timer.unref();
+
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
+}
+
+async function resolveMachineCredentials(
+  machinesUrl: string,
+  subdomain: string,
+  onVerificationUrl: (verificationUrl: string) => void,
+): Promise<MachineCredentials> {
+  const existingCredentials = readMachineCredentials();
+  if (existingCredentials) {
+    if (existingCredentials.subdomain !== subdomain) {
+      throw new Error(
+        `Flamecast is already linked as ${existingCredentials.subdomain}. Run 'flamecast down --deregister' before linking a different machine.`,
+      );
+    }
+
+    return existingCredentials;
+  }
+
+  const registration = await startMachineRegistration(machinesUrl, subdomain);
+  onVerificationUrl(registration.verificationUrl);
+
+  const approved = await waitForMachineApproval(machinesUrl, registration.deviceCode);
+  const credentials: MachineCredentials = { ...approved, subdomain };
+  writeMachineCredentials(credentials);
+  return credentials;
+}
+
+async function connectMachine(
+  machinesUrl: string,
+  subdomain: string,
+  onVerificationUrl: (verificationUrl: string) => void,
+): Promise<LinkRuntime> {
+  const credentials = await resolveMachineCredentials(machinesUrl, subdomain, onVerificationUrl);
+  const cloudflaredProcess = spawnCloudflared(credentials.tunnelToken);
+  const stopHeartbeat = startHeartbeatLoop(machinesUrl, credentials);
+
+  return {
+    cloudflaredProcess,
+    stopHeartbeat,
+    domain: getMachineDomain(subdomain, machinesUrl),
+  };
 }
 
 function isFlamecastProcess(pid: number): boolean {
@@ -53,8 +152,6 @@ function isFlamecastProcess(pid: number): boolean {
     return false;
   }
 
-  // The process exists, but verify it's actually a flamecast daemon
-  // (PIDs get recycled by the OS, so the PID could belong to an unrelated process)
   try {
     const cmd =
       platform() === "darwin"
@@ -63,13 +160,11 @@ function isFlamecastProcess(pid: number): boolean {
     const output = execSync(cmd, { timeout: 2000 }).toString();
     return output.includes("flamecast");
   } catch {
-    // If we can't inspect the process, assume it's not ours
     return false;
   }
 }
 
 export async function runUp(flags: UpFlags): Promise<number> {
-  // If we're the daemon child, run the server directly
   if (process.env.__FLAMECAST_DAEMON === "1") {
     return runServer(flags);
   }
@@ -78,32 +173,45 @@ export async function runUp(flags: UpFlags): Promise<number> {
 }
 
 async function daemonize(flags: UpFlags): Promise<number> {
-  mkdirSync(FLAMECAST_HOME, { recursive: true });
+  const { homeDir, logFile, pidFile } = getFlamecastPaths();
+  mkdirSync(homeDir, { recursive: true });
 
-  // Check if already running
-  if (existsSync(PID_FILE)) {
-    const pid = parseInt(readFileSync(PID_FILE, "utf8").trim(), 10);
+  if (existsSync(pidFile)) {
+    const pid = parseInt(readFileSync(pidFile, "utf8").trim(), 10);
     if (isFlamecastProcess(pid)) {
       console.log(`Flamecast is already running (PID ${pid})`);
-      console.log(`Logs: ${LOG_FILE}`);
+      console.log(`Logs: ${logFile}`);
       return 1;
     }
-    // Stale PID file
-    unlinkSync(PID_FILE);
+
+    unlinkSync(pidFile);
   }
 
-  // If --name is set, ensure cloudflared is installed before spawning the daemon
+  const existingCredentials = readMachineCredentials();
+  if (flags.name && existingCredentials && existingCredentials.subdomain !== flags.name) {
+    console.error(
+      `Flamecast is already linked as ${existingCredentials.subdomain}. Run 'flamecast down --deregister' before linking ${flags.name}.`,
+    );
+    return 1;
+  }
+
+  if (flags.name && flags.port && flags.port !== 3000) {
+    console.error("Linked mode only supports port 3000 with the Machines API.");
+    return 1;
+  }
+
   if (flags.name && !(await ensureCloudflared())) {
     flags = { ...flags, name: undefined };
   }
 
-  // Wipe log file on restart
-  const logFd = openSync(LOG_FILE, "w");
-
-  // Reconstruct args for the child
+  const logFd = openSync(logFile, "w");
   const childArgs = [process.argv[1], "up"];
-  if (flags.name) childArgs.push("--name", flags.name);
-  if (flags.port) childArgs.push("--port", String(flags.port));
+  if (flags.name) {
+    childArgs.push("--name", flags.name);
+  }
+  if (flags.port) {
+    childArgs.push("--port", String(flags.port));
+  }
 
   const child = spawn(process.execPath, childArgs, {
     detached: true,
@@ -119,42 +227,60 @@ async function daemonize(flags: UpFlags): Promise<number> {
     return 1;
   }
 
-  type IpcMsg =
-    | { type: "ready" }
-    | { type: "error"; error: string }
-    | { type: "tunnel"; domain?: string; error?: string };
+  const queuedMessages: IpcMsg[] = [];
+  let exitCode: number | null | undefined;
+  let waiter: ((result: IpcMsg | { type: "exit"; code: number | null }) => void) | undefined;
 
-  // Helper: wait for the next IPC message or child exit
-  function waitForMessage(
+  child.on("message", (message: IpcMsg) => {
+    if (waiter) {
+      const resolve = waiter;
+      waiter = undefined;
+      resolve(message);
+      return;
+    }
+
+    queuedMessages.push(message);
+  });
+
+  child.on("exit", (code) => {
+    exitCode = code;
+    if (waiter) {
+      const resolve = waiter;
+      waiter = undefined;
+      resolve({ type: "exit", code });
+    }
+  });
+
+  function waitForEvent(
     timeoutMs: number,
   ): Promise<IpcMsg | { type: "exit"; code: number | null } | { type: "timeout" }> {
+    if (queuedMessages.length > 0) {
+      const next = queuedMessages.shift();
+      if (next) {
+        return Promise.resolve(next);
+      }
+    }
+
+    if (exitCode !== undefined) {
+      return Promise.resolve({ type: "exit", code: exitCode });
+    }
+
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
-        cleanup();
+        if (waiter) {
+          waiter = undefined;
+        }
         resolve({ type: "timeout" });
       }, timeoutMs);
 
-      function onMessage(msg: IpcMsg) {
-        cleanup();
-        resolve(msg);
-      }
-      function onExit(code: number | null) {
-        cleanup();
-        resolve({ type: "exit", code });
-      }
-      function cleanup() {
+      waiter = (result) => {
         clearTimeout(timeout);
-        child.off("message", onMessage);
-        child.off("exit", onExit);
-      }
-
-      child.on("message", onMessage);
-      child.on("exit", onExit);
+        resolve(result);
+      };
     });
   }
 
-  // Phase 1: wait for server to be ready
-  const first = await waitForMessage(30_000);
+  const first = await waitForEvent(30_000);
 
   if (first.type === "error") {
     child.disconnect();
@@ -162,40 +288,60 @@ async function daemonize(flags: UpFlags): Promise<number> {
     console.error(`Failed to start Flamecast: ${first.error}`);
     return 1;
   }
+
   if (first.type === "exit") {
     console.error(
-      `Failed to start Flamecast: process exited with code ${first.code}. Check logs: ${LOG_FILE}`,
+      `Failed to start Flamecast: process exited with code ${first.code}. Check logs: ${logFile}`,
     );
     return 1;
   }
+
   if (first.type === "timeout") {
     child.disconnect();
     child.unref();
-    console.error(`Failed to start Flamecast: timed out waiting for server to start`);
+    console.error("Failed to start Flamecast: timed out waiting for server to start");
     return 1;
   }
 
-  // Server is up — write PID file so `flamecast down` works
-  writeFileSync(PID_FILE, String(child.pid));
+  writeFileSync(pidFile, String(child.pid));
 
   const port = flags.port ?? 3000;
-  console.log(`Logs: ${LOG_FILE}`);
+  let linkedDomain: string | undefined;
+  console.log(`Logs: ${logFile}`);
 
-  // Phase 2: if --name was given, wait for tunnel result
-  let tunnelDomain: string | undefined;
   if (flags.name) {
-    console.log("Connecting tunnel...");
-    const tunnelMsg = await waitForMessage(60_000);
-    if (tunnelMsg.type === "tunnel") {
-      if (tunnelMsg.error) {
-        console.error(`Tunnel failed: ${tunnelMsg.error}`);
-        console.log("Running locally only.");
-      } else {
-        tunnelDomain = tunnelMsg.domain;
+    console.log("Linking machine...");
+    const deadline = Date.now() + LINK_TIMEOUT_MS;
+
+    while (Date.now() < deadline) {
+      const event = await waitForEvent(deadline - Date.now());
+      if (event.type === "link-pending") {
+        console.log(`Approve this machine in your browser: ${event.verificationUrl}`);
+        console.log("Waiting for approval...");
+        continue;
       }
-    } else {
-      console.error("Tunnel timed out.");
+
+      if (event.type === "linked") {
+        linkedDomain = event.domain;
+        break;
+      }
+
+      if (event.type === "link-error") {
+        console.error(`Link failed: ${event.error}`);
+        console.log("Running locally only.");
+        break;
+      }
+
+      if (event.type === "exit") {
+        console.error(
+          `Link failed: process exited with code ${event.code}. Check logs: ${logFile}`,
+        );
+        break;
+      }
+
+      console.error("Link timed out.");
       console.log("Running locally only.");
+      break;
     }
   }
 
@@ -204,8 +350,8 @@ async function daemonize(flags: UpFlags): Promise<number> {
 
   console.log(`\nFlamecast started (PID ${child.pid})`);
   console.log(`  Local:  http://localhost:${port}`);
-  if (tunnelDomain) {
-    console.log(`  Tunnel: https://${tunnelDomain}`);
+  if (linkedDomain) {
+    console.log(`  Machine: https://${linkedDomain}`);
   }
 
   return 0;
@@ -216,44 +362,55 @@ async function runServer(flags: UpFlags): Promise<number> {
 
   try {
     const flamecast = new Flamecast();
-
-    // Wrap with CORS
     const wrapper = new Hono();
     wrapper.use("*", cors());
     wrapper.all("*", (c) => flamecast.app.fetch(c.req.raw));
 
     const server = await new Promise<ReturnType<typeof serve>>((resolve, reject) => {
-      const s = serve({ fetch: wrapper.fetch, port }, () => {
-        resolve(s);
+      const instance = serve({ fetch: wrapper.fetch, port }, () => {
+        resolve(instance);
       });
-      s.on("error", (err: NodeJS.ErrnoException) => {
-        reject(err);
+      instance.on("error", (error: NodeJS.ErrnoException) => {
+        reject(error);
       });
     });
 
     flamecast.attachWebSockets(server);
     console.log(`Flamecast running on http://localhost:${port}`);
 
-    // Server is listening — tell the parent immediately
-    if (process.send) process.send({ type: "ready" });
+    if (process.send) {
+      process.send({ type: "ready" });
+    }
 
-    // If --name is provided and cloudflared is available, connect tunnel
-    let cloudflaredProcess: import("node:child_process").ChildProcess | null = null;
+    let cloudflaredProcess: ChildProcess | null = null;
+    let stopHeartbeat: (() => void) | null = null;
+
     if (flags.name) {
       if (!(await ensureCloudflared())) {
-        if (process.send) process.send({ type: "tunnel", error: "cloudflared not available" });
+        if (process.send) {
+          process.send({ type: "link-error", error: "cloudflared not available" });
+        }
       } else {
-        const bridgeUrl = process.env.FLAMECAST_BRIDGE_URL ?? DEFAULT_BRIDGE_URL;
         try {
-          const tunnel = await provisionTunnel(bridgeUrl, flags.name, port);
-          cloudflaredProcess = spawnCloudflared(tunnel.tunnelToken);
-          console.log(`Live at https://${tunnel.domain}`);
-          if (process.send) process.send({ type: "tunnel", domain: tunnel.domain });
+          const machinesUrl = getMachinesApiUrl();
+          const link = await connectMachine(machinesUrl, flags.name, (verificationUrl) => {
+            if (process.send) {
+              process.send({ type: "link-pending", verificationUrl });
+            }
+          });
+          cloudflaredProcess = link.cloudflaredProcess;
+          stopHeartbeat = link.stopHeartbeat;
+          console.log(`Linked as https://${link.domain}`);
+          if (process.send) {
+            process.send({ type: "linked", domain: link.domain });
+          }
         } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
-          console.log(`Tunnel unavailable: ${msg}`);
+          const message = error instanceof Error ? error.message : String(error);
+          console.log(`Link unavailable: ${message}`);
           console.log("Running locally only.");
-          if (process.send) process.send({ type: "tunnel", error: msg });
+          if (process.send) {
+            process.send({ type: "link-error", error: message });
+          }
         }
       }
     }
@@ -262,12 +419,17 @@ async function runServer(flags: UpFlags): Promise<number> {
       let shuttingDown = false;
 
       async function shutdown(): Promise<void> {
-        if (shuttingDown) return;
+        if (shuttingDown) {
+          return;
+        }
         shuttingDown = true;
         let exitCode = 0;
 
         console.log("\nShutting down...");
         try {
+          if (stopHeartbeat) {
+            stopHeartbeat();
+          }
           if (cloudflaredProcess) {
             try {
               cloudflaredProcess.kill("SIGTERM");
@@ -284,9 +446,8 @@ async function runServer(flags: UpFlags): Promise<number> {
           exitCode = 1;
           console.error(error instanceof Error ? error.message : String(error));
         } finally {
-          // Clean up PID file on graceful shutdown
           try {
-            unlinkSync(PID_FILE);
+            unlinkSync(getFlamecastPaths().pidFile);
           } catch {
             // ignore
           }
@@ -302,8 +463,10 @@ async function runServer(flags: UpFlags): Promise<number> {
       });
     });
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    if (process.send) process.send({ type: "error", error: msg });
+    const message = error instanceof Error ? error.message : String(error);
+    if (process.send) {
+      process.send({ type: "error", error: message });
+    }
     throw error;
   }
 }
