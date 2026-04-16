@@ -71,6 +71,7 @@ export interface GetParams {
 export interface GetResult {
   sessionId: string;
   output: string;
+  terminalOutput?: string;
   lineCount: number;
   byteOffset: number;
   status: SessionStatus;

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import * as tmux from "./tmux.js";
+import { serializeTerminalSnapshot } from "../terminal-snapshot.js";
 import type {
   Session,
   CreateParams,
@@ -211,10 +212,19 @@ export class SessionManager {
     }
 
     let output: string;
+    let terminalOutput: string | undefined;
     if (params.tail != null) {
       output = await tmux.capturePane(params.sessionId, params.tail);
     } else {
       output = await tmux.capturePane(params.sessionId).catch(() => session.outputBuffer);
+      if (session.status === "running" && params.since == null) {
+        terminalOutput = await tmux
+          .captureTerminalSnapshot(params.sessionId)
+          .then((snapshot) =>
+            serializeTerminalSnapshot(snapshot.output, snapshot.cursorX, snapshot.cursorY),
+          )
+          .catch(() => undefined);
+      }
     }
 
     if (params.since != null && params.since < output.length) {
@@ -231,6 +241,7 @@ export class SessionManager {
     return {
       sessionId: params.sessionId,
       output,
+      terminalOutput,
       lineCount: lines.length,
       byteOffset: Buffer.byteLength(output),
       status: session.status,

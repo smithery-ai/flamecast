@@ -1,38 +1,51 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { Button } from "#/components/ui/button";
+import { SidebarInset, SidebarTrigger } from "#/components/ui/sidebar";
+import { TerminalSidebar } from "#/components/terminal-sidebar";
 import { writeTerminalData } from "#/lib/terminal-stream";
-
-const API_BASE = "http://localhost:3000";
+import { API_BASE } from "#/lib/api";
 
 export const Route = createFileRoute("/")({ component: HomePage });
 
 function HomePage() {
-  const [terminalVisible, setTerminalVisible] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [wsStatus, setWsStatus] = useState<string>("idle");
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+
+  return (
+    <>
+      <TerminalSidebar
+        activeSessionId={activeSessionId}
+        onSelectSession={setActiveSessionId}
+        onNewSession={setActiveSessionId}
+      />
+      <SidebarInset className="flex h-dvh flex-col overflow-hidden">
+        <header className="flex h-10 shrink-0 items-center gap-2 border-b px-2">
+          <SidebarTrigger />
+          {activeSessionId && (
+            <span className="text-xs text-muted-foreground">{activeSessionId}</span>
+          )}
+        </header>
+        {activeSessionId ? (
+          <TerminalView key={activeSessionId} sessionId={activeSessionId} />
+        ) : (
+          <div className="flex flex-1 items-center justify-center text-muted-foreground">
+            Select or create a session
+          </div>
+        )}
+      </SidebarInset>
+    </>
+  );
+}
+
+function TerminalView({ sessionId }: { sessionId: string }) {
   const termRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
-  const createSession = useCallback(async (cols: number, rows: number) => {
-    setError(null);
-    const res = await fetch(`${API_BASE}/api/terminals`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ timeout: 0, cols, rows }),
-    });
-    if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
-    const data: { sessionId: string } = await res.json();
-    return data.sessionId;
-  }, []);
-
   useEffect(() => {
-    if (!terminalVisible || !termRef.current) return;
+    if (!termRef.current) return;
 
     const container = termRef.current;
     const term = new Terminal({ cursorBlink: true, fontSize: 14 });
@@ -40,69 +53,74 @@ function HomePage() {
     term.loadAddon(fit);
     term.open(container);
     terminalRef.current = term;
-    wsRef.current = null;
 
     let active = true;
     let resizeTimer: ReturnType<typeof setTimeout>;
     let lastCols = 0;
     let lastRows = 0;
-    let currentSessionId: string | null = null;
 
     function doFit() {
       fit.fit();
       term.focus();
     }
 
-    async function initializeTerminal(): Promise<void> {
-      setWsStatus("creating...");
+    async function connect() {
       await new Promise((resolve) => setTimeout(resolve, 50));
       if (!active) return;
 
       doFit();
-      const cols = Math.max(term.cols, 80);
-      const rows = Math.max(term.rows, 24);
+      const wsUrl = `${API_BASE.replace("http", "ws")}/terminals/${sessionId}/stream`;
+      const openLiveStream = () => {
+        const ws = new WebSocket(wsUrl);
+        ws.binaryType = "arraybuffer";
+        wsRef.current = ws;
 
-      try {
-        currentSessionId = await createSession(cols, rows);
-        if (!active || currentSessionId == null) return;
-        setSessionId(currentSessionId);
-      } catch (e) {
-        if (!active) return;
-        const message = e instanceof Error ? e.message : String(e);
-        setError(message);
-        setWsStatus("error");
-        term.write(`\r\n[session creation failed: ${message}]\r\n`);
-        return;
-      }
+        ws.onmessage = (e) => {
+          void writeTerminalData(term, e.data);
+        };
+        ws.onerror = () => {
+          term.write("\r\n[connection error]\r\n");
+        };
+        ws.onclose = (e) => {
+          if (wsRef.current === ws) {
+            term.write(`\r\n[disconnected (${e.code})]\r\n`);
+          }
+        };
+      };
 
-      const wsUrl = `${API_BASE.replace("http", "ws")}/terminals/${currentSessionId}/stream`;
-      setWsStatus("connecting...");
-      const ws = new WebSocket(wsUrl);
-      ws.binaryType = "arraybuffer";
-      wsRef.current = ws;
+      const resizeWs = new WebSocket(wsUrl);
+      resizeWs.binaryType = "arraybuffer";
+      wsRef.current = resizeWs;
+      let handoffToLiveStream = false;
 
-      ws.onopen = () => {
-        setWsStatus("connected");
+      resizeWs.onopen = async () => {
         doFit();
-        const { cols: nextCols, rows: nextRows } = term;
-        lastCols = nextCols;
-        lastRows = nextRows;
-        ws.send(JSON.stringify({ type: "resize", cols: nextCols, rows: nextRows }));
+        const { cols, rows } = term;
+        lastCols = cols;
+        lastRows = rows;
+        resizeWs.send(JSON.stringify({ type: "resize", cols, rows }));
+
+        // Let the shell settle after the resize, then reconnect so the
+        // server's initial replay reflects the resized pane state.
+        await new Promise((r) => setTimeout(r, 150));
+        if (!active) return;
+        handoffToLiveStream = true;
+        resizeWs.close();
       };
-      ws.onmessage = (e) => {
-        void writeTerminalData(term, e.data);
-      };
-      ws.onerror = () => {
-        setWsStatus("error");
+      resizeWs.onerror = () => {
         term.write("\r\n[connection error]\r\n");
       };
-      ws.onclose = (e) => {
-        setWsStatus(`closed (${e.code})`);
-        term.write("\r\n[disconnected]\r\n");
+      resizeWs.onclose = (e) => {
+        if (!active || wsRef.current !== resizeWs) return;
+        if (handoffToLiveStream) {
+          openLiveStream();
+          return;
+        }
+        term.write(`\r\n[disconnected (${e.code})]\r\n`);
       };
     }
 
-    void initializeTerminal();
+    void connect();
 
     term.onData((data) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -134,57 +152,13 @@ function HomePage() {
       terminalRef.current = null;
       term.dispose();
     };
-  }, [createSession, terminalVisible]);
-
-  if (!terminalVisible) {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background text-foreground">
-        <h1 className="text-2xl font-bold">Flamecast Terminal</h1>
-        <Button
-          onClick={() => {
-            setSessionId(null);
-            setWsStatus("idle");
-            setTerminalVisible(true);
-          }}
-        >
-          New Session
-        </Button>
-        {error && <p className="text-red-500">{error}</p>}
-      </main>
-    );
-  }
+  }, [sessionId]);
 
   return (
     <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        display: "flex",
-        flexDirection: "column",
-        background: "#000",
-      }}
-    >
-      <div className="flex items-center gap-2 px-2 py-1 text-sm text-neutral-400">
-        <span>Session: {sessionId ?? "starting..."}</span>
-        <span className="text-neutral-500">WS: {wsStatus}</span>
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={() => {
-            wsRef.current?.close();
-            setSessionId(null);
-            setWsStatus("idle");
-            setTerminalVisible(false);
-          }}
-        >
-          Disconnect
-        </Button>
-      </div>
-      <div
-        ref={termRef}
-        style={{ flex: 1, overflow: "hidden" }}
-        onClick={() => terminalRef.current?.focus()}
-      />
-    </div>
+      ref={termRef}
+      className="flex-1 overflow-hidden bg-black"
+      onClick={() => terminalRef.current?.focus()}
+    />
   );
 }

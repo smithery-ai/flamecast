@@ -2,6 +2,10 @@ export type TerminalWriter = {
   write: (data: string | Uint8Array) => void;
 };
 
+export function formatTerminalSnapshot(snapshot: string): string {
+  return snapshot.replace(/\r?\n/g, "\r\n");
+}
+
 export async function writeTerminalData(
   terminal: TerminalWriter,
   data: string | ArrayBuffer | Blob,

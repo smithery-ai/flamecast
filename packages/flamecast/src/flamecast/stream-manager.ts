@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import type { ChildProcess } from "node:child_process";
 import type { WebSocket } from "ws";
 import * as tmux from "./sessions/tmux.js";
+import { serializeTerminalSnapshot } from "./terminal-snapshot.js";
 
 const exec = promisify(execFile);
 
@@ -17,8 +18,8 @@ interface StreamState {
   pendingOutput: string;
 }
 
-function trimTrailingBlankLines(output: string): string {
-  return output.replace(/(?:\r?\n)+$/u, "");
+function formatPaneSnapshot(snapshot: tmux.PaneSnapshot): string {
+  return serializeTerminalSnapshot(snapshot.output, snapshot.cursorX, snapshot.cursorY);
 }
 
 export class StreamManager {
@@ -40,7 +41,7 @@ export class StreamManager {
 
     // Replay the current pane so a newly attached client sees the existing prompt/output.
     try {
-      const output = trimTrailingBlankLines(await tmux.capturePane(sessionId));
+      const output = formatPaneSnapshot(await tmux.captureTerminalSnapshot(sessionId));
       if (output && ws.readyState === ws.OPEN) {
         ws.send(output);
       }

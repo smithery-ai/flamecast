@@ -169,10 +169,36 @@ describe("Terminals REST API (integration)", async () => {
       expect(data.sessionId).toBe(created.sessionId);
       expect(data.status).toBe("running");
       expect(data.output).toEqual(expect.any(String));
+      expect(data.terminalOutput).toEqual(expect.any(String));
       expect(data.lineCount).toEqual(expect.any(Number));
       expect(data.byteOffset).toEqual(expect.any(Number));
       expect(data.cwd).toEqual(expect.any(String));
       expect(data.streamUrl).toBe(`/terminals/${created.sessionId}/stream`);
+    });
+
+    it("trims blank screen rows from terminal snapshots before restoring the cursor", async () => {
+      const { data: created } = await createAndTrack();
+
+      await client.api.terminals[":id"].exec.async.$post({
+        param: { id: created.sessionId },
+        json: { command: "ls" },
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      const res = await client.api.terminals[":id"].$get({
+        param: { id: created.sessionId },
+        query: {},
+      });
+      const data = await res.json();
+
+      expect(res.status).toBe(200);
+      if ("error" in data) throw new Error(`Unexpected error: ${data.error}`);
+      expect(data.terminalOutput).toEqual(expect.any(String));
+      const trailingBlankTerminalSnapshot = new RegExp(
+        `${"\\r\\n".repeat(5)}${String.fromCharCode(27)}\\[\\d+;\\d+H$`,
+      );
+      expect(data.terminalOutput).not.toMatch(trailingBlankTerminalSnapshot);
     });
 
     it("returns 404 for a non-existent session", async () => {

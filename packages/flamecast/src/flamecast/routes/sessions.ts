@@ -80,6 +80,7 @@ const GetResponse = z
   .object({
     sessionId: z.string(),
     output: z.string(),
+    terminalOutput: z.string().optional(),
     lineCount: z.number(),
     byteOffset: z.number(),
     status: SessionStatusSchema,
