@@ -96,12 +96,44 @@ jobs:
       - name: Build
         run: pnpm run build
 
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.2
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm run test
+
   check:
     runs-on: ubuntu-latest
     needs:
       - lint
       - knip
       - build
+      - test
     if: ${{ always() }}
 
     steps:
@@ -110,12 +142,13 @@ jobs:
           echo "lint: ${{ needs.lint.result }}"
           echo "knip: ${{ needs.knip.result }}"
           echo "build: ${{ needs.build.result }}"
-          [ "${{ needs.lint.result }}" = "success" ] && [ "${{ needs.knip.result }}" = "success" ] && [ "${{ needs.build.result }}" = "success" ]
+          echo "test: ${{ needs.test.result }}"
+          [ "${{ needs.lint.result }}" = "success" ] && [ "${{ needs.knip.result }}" = "success" ] && [ "${{ needs.build.result }}" = "success" ] && [ "${{ needs.test.result }}" = "success" ]
 
   ci-telemetry:
     name: Export CI Telemetry
     if: always()
-    needs: [lint, knip, build]
+    needs: [lint, knip, build, test]
     runs-on: ubuntu-latest
     permissions:
       actions: read
