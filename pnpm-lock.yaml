@@ -75,6 +75,9 @@ importers:
       hono:
         specifier: ^4.12.9
         version: 4.12.9
+      ws:
+        specifier: ^8.18.0
+        version: 8.20.0
     devDependencies:
       tsx:
         specifier: ^4.7.1
@@ -91,9 +94,16 @@ importers:
       hono:
         specifier: ^4.12.8
         version: 4.12.8
+      ws:
+        specifier: ^8.18.0
+        version: 8.20.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.5.0
+        version: 8.18.1
 
 packages:
 
@@ -2194,6 +2204,9 @@ packages:
 
   '@types/urijs@1.19.26':
     resolution: {integrity: sha512-wkXrVzX5yoqLnndOwFsieJA7oKM8cNkOKJtf/3vVGSUFkWDKZvFHpIl9Pvqb/T9UsawBBFMTTD8xu7sK5MWuvg==}
+
+  '@types/ws@8.18.1':
+    resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
 
   '@types/yauzl@2.10.3':
     resolution: {integrity: sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q==}
@@ -8103,6 +8116,10 @@ snapshots:
   '@types/unist@3.0.3': {}
 
   '@types/urijs@1.19.26': {}
+
+  '@types/ws@8.18.1':
+    dependencies:
+      '@types/node': 20.19.37
 
   '@types/yauzl@2.10.3':
     dependencies:
