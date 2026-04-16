@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 const exec = promisify(execFile);
 
 /**
- * Integration tests for the Sessions REST API using Hono RPC.
+ * Integration tests for the Terminals REST API using Hono RPC.
  *
  * These tests use `testClient` (same typed interface as `hc()`) against the
  * real Hono app with a real SessionManager backed by real tmux sessions —
@@ -27,7 +27,7 @@ async function tmuxAvailable(): Promise<boolean> {
   }
 }
 
-describe("Sessions REST API (integration)", async () => {
+describe("Terminals REST API (integration)", async () => {
   const hasTmux = await tmuxAvailable();
   if (!hasTmux) {
     it.skip("tmux is not installed — skipping integration tests", () => {});
@@ -45,7 +45,7 @@ describe("Sessions REST API (integration)", async () => {
   async function createAndTrack(
     body: { cwd?: string; shell?: string; timeout?: number | null } = {},
   ) {
-    const res = await client.api.sessions.$post({ json: body });
+    const res = await client.api.terminals.$post({ json: body });
     const data = await res.json();
     if ("error" in data) throw new Error(`Create failed: ${data.error}`);
     track(data.sessionId);
@@ -60,7 +60,7 @@ describe("Sessions REST API (integration)", async () => {
   afterEach(async () => {
     for (const id of createdSessionIds) {
       try {
-        await client.api.sessions[":id"].$delete({ param: { id } });
+        await client.api.terminals[":id"].$delete({ param: { id } });
       } catch {
         // already cleaned up
       }
@@ -76,15 +76,15 @@ describe("Sessions REST API (integration)", async () => {
     }
   });
 
-  // ─── POST /api/sessions ───
+  // ─── POST /api/terminals ───
 
-  describe("POST /api/sessions", () => {
+  describe("POST /api/terminals", () => {
     it("creates a new session with defaults", async () => {
       const { res, data } = await createAndTrack();
 
       expect(res.status).toBe(201);
       expect(data.sessionId).toMatch(/^fc_[0-9a-f]{8}$/);
-      expect(data.streamUrl).toBe(`/sessions/${data.sessionId}/stream`);
+      expect(data.streamUrl).toBe(`/terminals/${data.sessionId}/stream`);
       expect(data.cwd).toEqual(expect.any(String));
       expect(data.shell).toEqual(expect.any(String));
       expect(data.timeout).toBe(300);
@@ -112,11 +112,11 @@ describe("Sessions REST API (integration)", async () => {
     });
   });
 
-  // ─── GET /api/sessions ───
+  // ─── GET /api/terminals ───
 
-  describe("GET /api/sessions", () => {
+  describe("GET /api/terminals", () => {
     it("returns empty list when no sessions exist", async () => {
-      const res = await client.api.sessions.$get();
+      const res = await client.api.terminals.$get();
       const data = await res.json();
 
       expect(res.status).toBe(200);
@@ -127,7 +127,7 @@ describe("Sessions REST API (integration)", async () => {
       const { data: s1 } = await createAndTrack();
       const { data: s2 } = await createAndTrack();
 
-      const res = await client.api.sessions.$get();
+      const res = await client.api.terminals.$get();
       const data = await res.json();
 
       expect(res.status).toBe(200);
@@ -146,13 +146,13 @@ describe("Sessions REST API (integration)", async () => {
     });
   });
 
-  // ─── GET /api/sessions/:id ───
+  // ─── GET /api/terminals/:id ───
 
-  describe("GET /api/sessions/:id", () => {
+  describe("GET /api/terminals/:id", () => {
     it("returns session details for a valid session", async () => {
       const { data: created } = await createAndTrack();
 
-      const res = await client.api.sessions[":id"].$get({
+      const res = await client.api.terminals[":id"].$get({
         param: { id: created.sessionId },
         query: {},
       });
@@ -166,11 +166,11 @@ describe("Sessions REST API (integration)", async () => {
       expect(data.lineCount).toEqual(expect.any(Number));
       expect(data.byteOffset).toEqual(expect.any(Number));
       expect(data.cwd).toEqual(expect.any(String));
-      expect(data.streamUrl).toBe(`/sessions/${created.sessionId}/stream`);
+      expect(data.streamUrl).toBe(`/terminals/${created.sessionId}/stream`);
     });
 
     it("returns 404 for a non-existent session", async () => {
-      const res = await client.api.sessions[":id"].$get({
+      const res = await client.api.terminals[":id"].$get({
         param: { id: "fc_00000000" },
         query: {},
       });
@@ -179,13 +179,13 @@ describe("Sessions REST API (integration)", async () => {
     });
   });
 
-  // ─── DELETE /api/sessions/:id ───
+  // ─── DELETE /api/terminals/:id ───
 
-  describe("DELETE /api/sessions/:id", () => {
+  describe("DELETE /api/terminals/:id", () => {
     it("closes a running session", async () => {
       const { data: created } = await createAndTrack();
 
-      const res = await client.api.sessions[":id"].$delete({
+      const res = await client.api.terminals[":id"].$delete({
         param: { id: created.sessionId },
       });
       const data = await res.json();
@@ -198,20 +198,20 @@ describe("Sessions REST API (integration)", async () => {
     });
 
     it("returns 404 for a non-existent session", async () => {
-      const res = await client.api.sessions[":id"].$delete({
+      const res = await client.api.terminals[":id"].$delete({
         param: { id: "fc_00000000" },
       });
       expect(res.status).toBe(404);
     });
   });
 
-  // ─── POST /api/sessions/:id/exec ───
+  // ─── POST /api/terminals/:id/exec ───
 
-  describe("POST /api/sessions/:id/exec", () => {
+  describe("POST /api/terminals/:id/exec", () => {
     it("executes a command and returns output", async () => {
       const { data: created } = await createAndTrack();
 
-      const res = await client.api.sessions[":id"].exec.$post({
+      const res = await client.api.terminals[":id"].exec.$post({
         param: { id: created.sessionId },
         json: { command: "echo hello-integration-test" },
       });
@@ -227,7 +227,7 @@ describe("Sessions REST API (integration)", async () => {
     it("returns the exit code of a failing command", async () => {
       const { data: created } = await createAndTrack();
 
-      const res = await client.api.sessions[":id"].exec.$post({
+      const res = await client.api.terminals[":id"].exec.$post({
         param: { id: created.sessionId },
         json: { command: "false" },
       });
@@ -239,7 +239,7 @@ describe("Sessions REST API (integration)", async () => {
     });
 
     it("returns 404 for a non-existent session", async () => {
-      const res = await client.api.sessions[":id"].exec.$post({
+      const res = await client.api.terminals[":id"].exec.$post({
         param: { id: "fc_00000000" },
         json: { command: "echo test" },
       });
@@ -248,9 +248,9 @@ describe("Sessions REST API (integration)", async () => {
 
     it("returns 409 for a closed session", async () => {
       const { data: created } = await createAndTrack();
-      await client.api.sessions[":id"].$delete({ param: { id: created.sessionId } });
+      await client.api.terminals[":id"].$delete({ param: { id: created.sessionId } });
 
-      const res = await client.api.sessions[":id"].exec.$post({
+      const res = await client.api.terminals[":id"].exec.$post({
         param: { id: created.sessionId },
         json: { command: "echo test" },
       });
@@ -258,11 +258,11 @@ describe("Sessions REST API (integration)", async () => {
     });
   });
 
-  // ─── POST /api/sessions/exec ───
+  // ─── POST /api/terminals/exec ───
 
-  describe("POST /api/sessions/exec", () => {
+  describe("POST /api/terminals/exec", () => {
     it("auto-creates a session and executes a command", async () => {
-      const res = await client.api.sessions.exec.$post({
+      const res = await client.api.terminals.exec.$post({
         json: { command: "echo auto-create-test" },
       });
       const data = await res.json();
@@ -277,13 +277,13 @@ describe("Sessions REST API (integration)", async () => {
     });
   });
 
-  // ─── POST /api/sessions/:id/exec/async ───
+  // ─── POST /api/terminals/:id/exec/async ───
 
-  describe("POST /api/sessions/:id/exec/async", () => {
+  describe("POST /api/terminals/:id/exec/async", () => {
     it("starts a command asynchronously", async () => {
       const { data: created } = await createAndTrack();
 
-      const res = await client.api.sessions[":id"].exec.async.$post({
+      const res = await client.api.terminals[":id"].exec.async.$post({
         param: { id: created.sessionId },
         json: { command: "echo async-test" },
       });
@@ -296,7 +296,7 @@ describe("Sessions REST API (integration)", async () => {
     });
 
     it("returns 404 for a non-existent session", async () => {
-      const res = await client.api.sessions[":id"].exec.async.$post({
+      const res = await client.api.terminals[":id"].exec.async.$post({
         param: { id: "fc_00000000" },
         json: { command: "echo test" },
       });
@@ -305,9 +305,9 @@ describe("Sessions REST API (integration)", async () => {
 
     it("returns 409 for a closed session", async () => {
       const { data: created } = await createAndTrack();
-      await client.api.sessions[":id"].$delete({ param: { id: created.sessionId } });
+      await client.api.terminals[":id"].$delete({ param: { id: created.sessionId } });
 
-      const res = await client.api.sessions[":id"].exec.async.$post({
+      const res = await client.api.terminals[":id"].exec.async.$post({
         param: { id: created.sessionId },
         json: { command: "echo test" },
       });
@@ -315,11 +315,11 @@ describe("Sessions REST API (integration)", async () => {
     });
   });
 
-  // ─── POST /api/sessions/exec/async ───
+  // ─── POST /api/terminals/exec/async ───
 
-  describe("POST /api/sessions/exec/async", () => {
+  describe("POST /api/terminals/exec/async", () => {
     it("auto-creates a session and starts a command asynchronously", async () => {
-      const res = await client.api.sessions.exec.async.$post({
+      const res = await client.api.terminals.exec.async.$post({
         json: { command: "echo auto-async-test" },
       });
       const data = await res.json();
@@ -333,13 +333,13 @@ describe("Sessions REST API (integration)", async () => {
     });
   });
 
-  // ─── POST /api/sessions/:id/input ───
+  // ─── POST /api/terminals/:id/input ───
 
-  describe("POST /api/sessions/:id/input", () => {
+  describe("POST /api/terminals/:id/input", () => {
     it("sends text input to a session", async () => {
       const { data: created } = await createAndTrack();
 
-      const res = await client.api.sessions[":id"].input.$post({
+      const res = await client.api.terminals[":id"].input.$post({
         param: { id: created.sessionId },
         json: { text: "echo input-test" },
       });
@@ -354,7 +354,7 @@ describe("Sessions REST API (integration)", async () => {
     it("sends key sequences to a session", async () => {
       const { data: created } = await createAndTrack();
 
-      const res = await client.api.sessions[":id"].input.$post({
+      const res = await client.api.terminals[":id"].input.$post({
         param: { id: created.sessionId },
         json: { keys: ["enter"] },
       });
@@ -366,7 +366,7 @@ describe("Sessions REST API (integration)", async () => {
     });
 
     it("returns 404 for a non-existent session", async () => {
-      const res = await client.api.sessions[":id"].input.$post({
+      const res = await client.api.terminals[":id"].input.$post({
         param: { id: "fc_00000000" },
         json: { text: "hello" },
       });
@@ -375,9 +375,9 @@ describe("Sessions REST API (integration)", async () => {
 
     it("returns 409 for a closed session", async () => {
       const { data: created } = await createAndTrack();
-      await client.api.sessions[":id"].$delete({ param: { id: created.sessionId } });
+      await client.api.terminals[":id"].$delete({ param: { id: created.sessionId } });
 
-      const res = await client.api.sessions[":id"].input.$post({
+      const res = await client.api.terminals[":id"].input.$post({
         param: { id: created.sessionId },
         json: { text: "hello" },
       });
@@ -394,7 +394,7 @@ describe("Sessions REST API (integration)", async () => {
       expect(created.sessionId).toBeTruthy();
 
       // 2. Execute a command
-      const execRes = await client.api.sessions[":id"].exec.$post({
+      const execRes = await client.api.terminals[":id"].exec.$post({
         param: { id: created.sessionId },
         json: { command: "echo lifecycle-test-output" },
       });
@@ -404,7 +404,7 @@ describe("Sessions REST API (integration)", async () => {
       expect(execData.output).toEqual(expect.stringContaining("lifecycle-test-output"));
 
       // 3. Get session — should still be running
-      const getRes = await client.api.sessions[":id"].$get({
+      const getRes = await client.api.terminals[":id"].$get({
         param: { id: created.sessionId },
         query: {},
       });
@@ -413,7 +413,7 @@ describe("Sessions REST API (integration)", async () => {
       expect(getData.status).toBe("running");
 
       // 4. Close
-      const closeRes = await client.api.sessions[":id"].$delete({
+      const closeRes = await client.api.terminals[":id"].$delete({
         param: { id: created.sessionId },
       });
       const closeData = await closeRes.json();
@@ -422,7 +422,7 @@ describe("Sessions REST API (integration)", async () => {
       expect(closeData.finalOutput).toEqual(expect.any(String));
 
       // 5. Verify closed session returns 409 on exec
-      const postCloseRes = await client.api.sessions[":id"].exec.$post({
+      const postCloseRes = await client.api.terminals[":id"].exec.$post({
         param: { id: created.sessionId },
         json: { command: "echo should-fail" },
       });
@@ -433,17 +433,17 @@ describe("Sessions REST API (integration)", async () => {
       const { data: created } = await createAndTrack();
 
       // Should appear in list as running
-      const listRes1 = await client.api.sessions.$get();
+      const listRes1 = await client.api.terminals.$get();
       const listData1 = await listRes1.json();
       const found1 = listData1.sessions.find((s) => s.sessionId === created.sessionId);
       expect(found1).toBeDefined();
       expect(found1?.status).toBe("running");
 
       // Close it
-      await client.api.sessions[":id"].$delete({ param: { id: created.sessionId } });
+      await client.api.terminals[":id"].$delete({ param: { id: created.sessionId } });
 
       // Should still appear but as closed
-      const listRes2 = await client.api.sessions.$get();
+      const listRes2 = await client.api.terminals.$get();
       const listData2 = await listRes2.json();
       const found2 = listData2.sessions.find((s) => s.sessionId === created.sessionId);
       expect(found2).toBeDefined();
