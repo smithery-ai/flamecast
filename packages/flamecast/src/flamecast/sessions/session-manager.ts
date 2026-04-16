@@ -28,6 +28,41 @@ function stripAnsi(str: string): string {
   return str.replace(ANSI_RE, "");
 }
 
+function stripCommandEcho(output: string, baseline: string, issuedCommand: string): string {
+  const outputLines = output.split("\n");
+  const baselineLines = baseline.split("\n");
+
+  let lineIndex = 0;
+  while (lineIndex < outputLines.length && lineIndex < baselineLines.length) {
+    if (outputLines[lineIndex] === baselineLines[lineIndex]) {
+      lineIndex++;
+      continue;
+    }
+
+    const baselineLine = baselineLines[lineIndex];
+    if (baselineLine && outputLines[lineIndex].startsWith(baselineLine)) {
+      const echoedCommand = outputLines[lineIndex].slice(baselineLine.length).trimStart();
+      if (echoedCommand === issuedCommand) {
+        return outputLines.slice(lineIndex + 1).join("\n").trimEnd();
+      }
+    }
+
+    break;
+  }
+
+  const trimmedLines = outputLines.slice(lineIndex);
+  while (trimmedLines.length > 0) {
+    const line = trimmedLines[0].trimStart();
+    if (line === issuedCommand || line.endsWith(issuedCommand)) {
+      trimmedLines.shift();
+      continue;
+    }
+    break;
+  }
+
+  return trimmedLines.join("\n").trimEnd();
+}
+
 function generateId(): string {
   return `fc_${randomBytes(4).toString("hex")}`;
 }
@@ -104,8 +139,10 @@ export class SessionManager {
 
     const timeout = params.timeout ?? 30;
     const sentinel = `__FC_DONE_\${?}__`;
+    const issuedCommand = `${params.command}; echo ${sentinel}`;
+    const baseline = stripAnsi(await tmux.capturePane(sessionId));
 
-    await tmux.sendKeys(sessionId, `${params.command}; echo ${sentinel}`, false);
+    await tmux.sendKeys(sessionId, issuedCommand, true);
     await tmux.sendKeys(sessionId, "Enter");
 
     const deadline = Date.now() + timeout * 1000;
@@ -119,9 +156,9 @@ export class SessionManager {
 
       if (sentinelMatch) {
         exitCode = parseInt(sentinelMatch[1], 10);
-        const lines = captured.split("\n");
+        const lines = stripAnsi(captured).split("\n");
         const sentinelIdx = lines.findIndex((l) => /__FC_DONE_\d+__/.test(l));
-        output = stripAnsi(lines.slice(0, sentinelIdx).join("\n").trimEnd());
+        output = stripCommandEcho(lines.slice(0, sentinelIdx).join("\n"), baseline, issuedCommand);
         break;
       }
     }
@@ -141,7 +178,7 @@ export class SessionManager {
     const session = await this.getRunningSession(sessionId);
     this.touch(session);
 
-    await tmux.sendKeys(sessionId, params.command, false);
+    await tmux.sendKeys(sessionId, params.command, true);
     await tmux.sendKeys(sessionId, "Enter");
 
     return { sessionId, status: "running" };
