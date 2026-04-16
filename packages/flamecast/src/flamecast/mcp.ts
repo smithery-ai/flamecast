@@ -196,6 +196,7 @@ export function createMcpHandler(sessions: SessionManager) {
     if (!mcp.isConnected()) {
       await mcp.connect(transport);
     }
-    return transport.handleRequest(c) as Promise<Response>;
+    const response = await transport.handleRequest(c);
+    return response ?? c.body(null, 204);
   };
 }
