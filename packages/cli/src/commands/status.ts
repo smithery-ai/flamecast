@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { PID_FILE, LOG_FILE, isFlamecastProcess } from "./up.js";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { PID_FILE, isFlamecastProcess } from "./up.js";
 
 export async function runStatus(): Promise<number> {
   if (!existsSync(PID_FILE)) {
@@ -11,24 +11,15 @@ export async function runStatus(): Promise<number> {
 
   if (isFlamecastProcess(pid)) {
     console.log(`Flamecast is running (PID ${pid})`);
-    console.log(`Logs: ${LOG_FILE}`);
     return 0;
   }
 
-  // PID file exists but process is gone — it crashed or was killed
-  console.log("Flamecast is not running (crashed or was killed).");
-  console.log("");
-
-  if (existsSync(LOG_FILE)) {
-    const logs = readFileSync(LOG_FILE, "utf8").trim();
-    const lines = logs.split("\n");
-    const tail = lines.slice(-20).join("\n");
-    if (tail) {
-      console.log("Last logs:");
-      console.log(tail);
-    }
+  try {
+    unlinkSync(PID_FILE);
+  } catch {
+    // ignore
   }
 
-  console.log(`\nFull logs: ${LOG_FILE}`);
+  console.log("Flamecast is not running (stale PID file removed).");
   return 1;
 }
