@@ -1,5 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PlusIcon, TerminalIcon, Trash2Icon } from "lucide-react";
+import { LoaderCircleIcon, PlusIcon, TerminalIcon, Trash2Icon } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -14,40 +13,30 @@ import {
   SidebarMenuItem,
   SidebarMenuSkeleton,
 } from "#/components/ui/sidebar";
-import { createSession, deleteSession, fetchSessions } from "#/lib/api";
+import type { TerminalSession } from "#/lib/api";
 
 export function TerminalSidebar({
   activeSessionId,
+  deletingSessionId,
+  emptyStateMessage,
+  isCreatingSession,
+  isLoadingSessions,
+  onCreateSession,
+  onDeleteSession,
   onSelectSession,
-  onNewSession,
+  sessions,
 }: {
   activeSessionId: string | null;
+  deletingSessionId: string | null;
+  emptyStateMessage: string | null;
+  isCreatingSession: boolean;
+  isLoadingSessions: boolean;
+  onCreateSession: () => void;
+  onDeleteSession: (sessionId: string) => void;
   onSelectSession: (sessionId: string) => void;
-  onNewSession: (sessionId: string) => void;
+  sessions: TerminalSession[];
 }) {
-  const queryClient = useQueryClient();
-
-  const { data: sessions, isLoading } = useQuery({
-    queryKey: ["terminals"],
-    queryFn: fetchSessions,
-    refetchInterval: 5000,
-    retry: false,
-  });
-
-  const createMutation = useMutation({
-    mutationFn: () => createSession(80, 24),
-    onSuccess: (sessionId) => {
-      queryClient.invalidateQueries({ queryKey: ["terminals"] });
-      onNewSession(sessionId);
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: deleteSession,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["terminals"] });
-    },
-  });
+  const showLoadingSkeletons = isLoadingSessions || (isCreatingSession && sessions.length === 0);
 
   return (
     <Sidebar>
@@ -59,41 +48,49 @@ export function TerminalSidebar({
           <SidebarGroupLabel>Sessions</SidebarGroupLabel>
           <SidebarGroupAction
             title="New Session"
-            onClick={() => createMutation.mutate()}
-            disabled={createMutation.isPending}
+            onClick={onCreateSession}
+            disabled={isCreatingSession}
           >
             <PlusIcon />
           </SidebarGroupAction>
           <SidebarGroupContent>
             <SidebarMenu>
-              {isLoading &&
+              {showLoadingSkeletons &&
                 Array.from({ length: 3 }).map((_, i) => (
                   <SidebarMenuItem key={i}>
                     <SidebarMenuSkeleton showIcon />
                   </SidebarMenuItem>
                 ))}
-              {sessions?.map((session) => (
+              {sessions.map((session) => (
                 <SidebarMenuItem key={session.sessionId}>
                   <SidebarMenuButton
                     isActive={session.sessionId === activeSessionId}
+                    disabled={deletingSessionId === session.sessionId}
                     onClick={() => onSelectSession(session.sessionId)}
                   >
-                    <TerminalIcon />
+                    {deletingSessionId === session.sessionId ? (
+                      <LoaderCircleIcon className="animate-spin" />
+                    ) : (
+                      <TerminalIcon />
+                    )}
                     <span className="truncate">{session.sessionId}</span>
                   </SidebarMenuButton>
                   <SidebarMenuAction
                     title="Close session"
+                    disabled={deletingSessionId === session.sessionId}
                     onClick={(e) => {
                       e.stopPropagation();
-                      deleteMutation.mutate(session.sessionId);
+                      onDeleteSession(session.sessionId);
                     }}
                   >
                     <Trash2Icon />
                   </SidebarMenuAction>
                 </SidebarMenuItem>
               ))}
-              {!isLoading && sessions?.length === 0 && (
-                <p className="px-2 py-4 text-center text-xs text-muted-foreground">No sessions</p>
+              {!showLoadingSkeletons && sessions.length === 0 && (
+                <p className="px-2 py-4 text-center text-xs text-muted-foreground">
+                  {emptyStateMessage ?? "No terminals"}
+                </p>
               )}
             </SidebarMenu>
           </SidebarGroupContent>
