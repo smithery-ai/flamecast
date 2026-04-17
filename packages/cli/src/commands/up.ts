@@ -1,8 +1,9 @@
 import { execSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import type { Socket } from "node:net";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
-import { serve } from "@hono/node-server";
+import { serve, type ServerType } from "@hono/node-server";
 import { cors } from "hono/cors";
 import { Hono } from "hono";
 import { Flamecast } from "@flamecast/sdk";
@@ -13,7 +14,7 @@ const FLAMECAST_HOME = join(homedir(), ".flamecast");
 const PID_FILE = join(FLAMECAST_HOME, "daemon.pid");
 const DEFAULT_BRIDGE_URL = "https://flamecast-bridge.smithery.workers.dev";
 
-export { PID_FILE, isFlamecastProcess };
+export { PID_FILE, isFlamecastProcess, trackServerSockets };
 
 async function provisionTunnel(
   bridgeUrl: string,
@@ -59,6 +60,23 @@ function isFlamecastProcess(pid: number): boolean {
   }
 }
 
+function trackServerSockets(server: ServerType): () => void {
+  const sockets = new Set<Socket>();
+
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.on("close", () => {
+      sockets.delete(socket);
+    });
+  });
+
+  return () => {
+    for (const socket of sockets) {
+      socket.destroy();
+    }
+  };
+}
+
 export async function runUp(flags: UpFlags): Promise<number> {
   mkdirSync(FLAMECAST_HOME, { recursive: true });
 
@@ -96,6 +114,7 @@ async function runServer(flags: UpFlags): Promise<number> {
     });
 
     flamecast.attachWebSockets(server);
+    const destroyTrackedSockets = trackServerSockets(server);
     writeFileSync(PID_FILE, String(process.pid));
     wrotePidFile = true;
     console.log(`Flamecast is running on port ${port}`);
@@ -146,6 +165,8 @@ async function runServer(flags: UpFlags): Promise<number> {
             server.close(() => {
               closeResolve();
             });
+            // Destroy upgraded sockets too so active terminal streams do not stall shutdown.
+            destroyTrackedSockets();
           });
         } catch (error) {
           exitCode = 1;
