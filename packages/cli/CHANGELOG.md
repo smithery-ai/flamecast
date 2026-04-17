@@ -1,5 +1,11 @@
 # flamecast
 
+## 0.9.1
+
+### Patch Changes
+
+- f0fb44b: Change domain reference from flamecast.dev to flamecast.sh and only show if using port 6769
+
 ## 0.9.0
 
 ### Minor Changes
