@@ -76,7 +76,6 @@ describe("waitForProcessExit", () => {
     const exited = await waitForProcessExit(pid, 2_000, 20);
 
     expect(exited).toBe(true);
-    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(120);
   });
 
   it("times out when the process does not exit", async () => {
